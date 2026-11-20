@@ -34,6 +34,145 @@ export interface paths {
                 coverPhotoId: string | null;
                 /** Format: date-time */
                 createdAt: string;
+                rules: {
+                  /** @constant */
+                  version: 2;
+                  query: {
+                    /** @description Comma-separated taxon classes */
+                    taxa?: string;
+                    /** @description Region, or "uncategorized" for photos with no region */
+                    regionId?: (string | "uncategorized")[];
+                    /** @description Taken on or after (YYYY-MM-DD) */
+                    dateFrom?: string;
+                    /** @description Taken on or before (YYYY-MM-DD) */
+                    dateTo?: string;
+                    /** @description Only photos with this tag */
+                    tag?: string[];
+                    /** @description Only photos with this place name */
+                    place?: string[];
+                    /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+                    bbox?: string;
+                    /**
+                     * Format: uuid
+                     * @description Only photos whose coordinates fall inside this saved place
+                     */
+                    spotId?: string;
+                    /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+                    orRegionOnly?: string[];
+                    /** @description Only photos in this trip */
+                    tripId?: string[];
+                    /** @description Only photos in this album */
+                    albumId?: string[];
+                    /**
+                     * Format: uuid
+                     * @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets
+                     */
+                    similarTo?: string;
+                    /**
+                     * @description 1 for photos with no capture date only
+                     * @enum {unknown}
+                     */
+                    missingDate?: "0" | "1";
+                    /**
+                     * @description 1 for photos with no coordinates only
+                     * @enum {unknown}
+                     */
+                    missingCoordinates?: "0" | "1";
+                    /** @description Only species of this rarity tier */
+                    tier?: ("legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated")[];
+                    /**
+                     * Format: uuid
+                     * @description With tier: the region whose local tier counts
+                     */
+                    tierRegionId?: string;
+                    /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+                    action?: string;
+                    /** @description Only photos with one of these comma-separated framings (close, environmental) */
+                    framing?: string;
+                    /**
+                     * @deprecated
+                     * @description Older single shot type: flight and behavior are an action, portrait and environmental a framing
+                     * @enum {unknown}
+                     */
+                    shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+                    /**
+                     * @description 1 for 5-star photos only (the same as ratingMin=5)
+                     * @enum {unknown}
+                     */
+                    onlyTopRated?: "0" | "1";
+                    /**
+                     * @description Only photos rated at least this many stars
+                     * @enum {unknown}
+                     */
+                    ratingMin?: "1" | "2" | "3" | "4" | "5";
+                    /**
+                     * @description Only photos rated at most this many stars
+                     * @enum {unknown}
+                     */
+                    ratingMax?: "1" | "2" | "3" | "4" | "5";
+                    /**
+                     * @description 1 for photos with no star rating only (not with ratingMin or ratingMax)
+                     * @enum {unknown}
+                     */
+                    unrated?: "0" | "1";
+                    /**
+                     * @description 1 for photos not yet sent to iNaturalist
+                     * @enum {unknown}
+                     */
+                    notOnInat?: "0" | "1";
+                    /** @description Only photos with at least this many animals */
+                    animalsMin?: string;
+                    /** @description Only photos with at most this many animals */
+                    animalsMax?: string;
+                    /**
+                     * @description 1 for species cover photos only
+                     * @enum {unknown}
+                     */
+                    onlyFeatured?: "0" | "1";
+                    /**
+                     * @description 1 for videos only
+                     * @enum {unknown}
+                     */
+                    onlyVideo?: "0" | "1";
+                    /**
+                     * @description 1 for sound recordings only
+                     * @enum {unknown}
+                     */
+                    onlyAudio?: "0" | "1";
+                    /**
+                     * @description 1 to leave videos out
+                     * @enum {unknown}
+                     */
+                    excludeVideo?: "0" | "1";
+                    /**
+                     * @description 1 for photos with a RAW original only (RAW-only photos included)
+                     * @enum {unknown}
+                     */
+                    onlyHasRaw?: "0" | "1";
+                    /**
+                     * @description 1 to leave out edited photos that have a RAW original (RAW-only photos stay)
+                     * @enum {unknown}
+                     */
+                    excludeHasRaw?: "0" | "1";
+                    /**
+                     * @description 0 to leave out photos whose only original is a RAW
+                     * @enum {unknown}
+                     */
+                    includeRaw?: "0" | "1";
+                    /**
+                     * @description 1 for only the photos whose only original is a RAW
+                     * @enum {unknown}
+                     */
+                    onlyRaw?: "0" | "1";
+                    /**
+                     * @description 1 for only the photos imported hidden because a culling app rejected them
+                     * @enum {unknown}
+                     */
+                    hidden?: "0" | "1";
+                    /** @description The Gallery's search text */
+                    q?: string;
+                  };
+                } | null;
                 /** @enum {unknown} */
                 coverLayout: "single" | "quad";
                 coverCropX: number | null;
@@ -104,6 +243,139 @@ export interface paths {
           "application/json": {
             name?: string;
             description?: string | null;
+            /** @description The Gallery filters and search a smart album matches */
+            rules?: {
+              version: 1 | 2;
+              query: {
+                /** @description Comma-separated taxon classes */
+                taxa?: string;
+                regionId?: string[] | string;
+                /** @description Taken on or after (YYYY-MM-DD) */
+                dateFrom?: string;
+                /** @description Taken on or before (YYYY-MM-DD) */
+                dateTo?: string;
+                tag?: string[] | string;
+                place?: string[] | string;
+                /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+                bbox?: string;
+                /**
+                 * Format: uuid
+                 * @description Only photos whose coordinates fall inside this saved place
+                 */
+                spotId?: string;
+                /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+                orRegionOnly?: string[];
+                tripId?: string[] | string;
+                albumId?: string[] | string;
+                /**
+                 * Format: uuid
+                 * @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets
+                 */
+                similarTo?: string;
+                /**
+                 * @description 1 for photos with no capture date only
+                 * @enum {unknown}
+                 */
+                missingDate?: "0" | "1";
+                /**
+                 * @description 1 for photos with no coordinates only
+                 * @enum {unknown}
+                 */
+                missingCoordinates?: "0" | "1";
+                tier?: string[] | string;
+                /**
+                 * Format: uuid
+                 * @description With tier: the region whose local tier counts
+                 */
+                tierRegionId?: string;
+                /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+                action?: string;
+                /** @description Only photos with one of these comma-separated framings (close, environmental) */
+                framing?: string;
+                /**
+                 * @deprecated
+                 * @description Older single shot type: flight and behavior are an action, portrait and environmental a framing
+                 * @enum {unknown}
+                 */
+                shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+                /**
+                 * @description 1 for 5-star photos only (the same as ratingMin=5)
+                 * @enum {unknown}
+                 */
+                onlyTopRated?: "0" | "1";
+                /**
+                 * @description Only photos rated at least this many stars
+                 * @enum {unknown}
+                 */
+                ratingMin?: "1" | "2" | "3" | "4" | "5";
+                /**
+                 * @description Only photos rated at most this many stars
+                 * @enum {unknown}
+                 */
+                ratingMax?: "1" | "2" | "3" | "4" | "5";
+                /**
+                 * @description 1 for photos with no star rating only (not with ratingMin or ratingMax)
+                 * @enum {unknown}
+                 */
+                unrated?: "0" | "1";
+                /**
+                 * @description 1 for photos not yet sent to iNaturalist
+                 * @enum {unknown}
+                 */
+                notOnInat?: "0" | "1";
+                /** @description Only photos with at least this many animals */
+                animalsMin?: string;
+                /** @description Only photos with at most this many animals */
+                animalsMax?: string;
+                /**
+                 * @description 1 for species cover photos only
+                 * @enum {unknown}
+                 */
+                onlyFeatured?: "0" | "1";
+                /**
+                 * @description 1 for videos only
+                 * @enum {unknown}
+                 */
+                onlyVideo?: "0" | "1";
+                /**
+                 * @description 1 for sound recordings only
+                 * @enum {unknown}
+                 */
+                onlyAudio?: "0" | "1";
+                /**
+                 * @description 1 to leave videos out
+                 * @enum {unknown}
+                 */
+                excludeVideo?: "0" | "1";
+                /**
+                 * @description 1 for photos with a RAW original only (RAW-only photos included)
+                 * @enum {unknown}
+                 */
+                onlyHasRaw?: "0" | "1";
+                /**
+                 * @description 1 to leave out edited photos that have a RAW original (RAW-only photos stay)
+                 * @enum {unknown}
+                 */
+                excludeHasRaw?: "0" | "1";
+                /**
+                 * @description 0 to leave out photos whose only original is a RAW
+                 * @enum {unknown}
+                 */
+                includeRaw?: "0" | "1";
+                /**
+                 * @description 1 for only the photos whose only original is a RAW
+                 * @enum {unknown}
+                 */
+                onlyRaw?: "0" | "1";
+                /**
+                 * @description 1 for only the photos imported hidden because a culling app rejected them
+                 * @enum {unknown}
+                 */
+                hidden?: "0" | "1";
+                /** @description The Gallery's search text */
+                q?: string;
+              };
+            };
           };
         };
       };
@@ -122,6 +394,145 @@ export interface paths {
               coverPhotoId: string | null;
               /** Format: date-time */
               createdAt: string;
+              rules: {
+                /** @constant */
+                version: 2;
+                query: {
+                  /** @description Comma-separated taxon classes */
+                  taxa?: string;
+                  /** @description Region, or "uncategorized" for photos with no region */
+                  regionId?: (string | "uncategorized")[];
+                  /** @description Taken on or after (YYYY-MM-DD) */
+                  dateFrom?: string;
+                  /** @description Taken on or before (YYYY-MM-DD) */
+                  dateTo?: string;
+                  /** @description Only photos with this tag */
+                  tag?: string[];
+                  /** @description Only photos with this place name */
+                  place?: string[];
+                  /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+                  bbox?: string;
+                  /**
+                   * Format: uuid
+                   * @description Only photos whose coordinates fall inside this saved place
+                   */
+                  spotId?: string;
+                  /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+                  orRegionOnly?: string[];
+                  /** @description Only photos in this trip */
+                  tripId?: string[];
+                  /** @description Only photos in this album */
+                  albumId?: string[];
+                  /**
+                   * Format: uuid
+                   * @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets
+                   */
+                  similarTo?: string;
+                  /**
+                   * @description 1 for photos with no capture date only
+                   * @enum {unknown}
+                   */
+                  missingDate?: "0" | "1";
+                  /**
+                   * @description 1 for photos with no coordinates only
+                   * @enum {unknown}
+                   */
+                  missingCoordinates?: "0" | "1";
+                  /** @description Only species of this rarity tier */
+                  tier?: ("legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated")[];
+                  /**
+                   * Format: uuid
+                   * @description With tier: the region whose local tier counts
+                   */
+                  tierRegionId?: string;
+                  /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+                  action?: string;
+                  /** @description Only photos with one of these comma-separated framings (close, environmental) */
+                  framing?: string;
+                  /**
+                   * @deprecated
+                   * @description Older single shot type: flight and behavior are an action, portrait and environmental a framing
+                   * @enum {unknown}
+                   */
+                  shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+                  /**
+                   * @description 1 for 5-star photos only (the same as ratingMin=5)
+                   * @enum {unknown}
+                   */
+                  onlyTopRated?: "0" | "1";
+                  /**
+                   * @description Only photos rated at least this many stars
+                   * @enum {unknown}
+                   */
+                  ratingMin?: "1" | "2" | "3" | "4" | "5";
+                  /**
+                   * @description Only photos rated at most this many stars
+                   * @enum {unknown}
+                   */
+                  ratingMax?: "1" | "2" | "3" | "4" | "5";
+                  /**
+                   * @description 1 for photos with no star rating only (not with ratingMin or ratingMax)
+                   * @enum {unknown}
+                   */
+                  unrated?: "0" | "1";
+                  /**
+                   * @description 1 for photos not yet sent to iNaturalist
+                   * @enum {unknown}
+                   */
+                  notOnInat?: "0" | "1";
+                  /** @description Only photos with at least this many animals */
+                  animalsMin?: string;
+                  /** @description Only photos with at most this many animals */
+                  animalsMax?: string;
+                  /**
+                   * @description 1 for species cover photos only
+                   * @enum {unknown}
+                   */
+                  onlyFeatured?: "0" | "1";
+                  /**
+                   * @description 1 for videos only
+                   * @enum {unknown}
+                   */
+                  onlyVideo?: "0" | "1";
+                  /**
+                   * @description 1 for sound recordings only
+                   * @enum {unknown}
+                   */
+                  onlyAudio?: "0" | "1";
+                  /**
+                   * @description 1 to leave videos out
+                   * @enum {unknown}
+                   */
+                  excludeVideo?: "0" | "1";
+                  /**
+                   * @description 1 for photos with a RAW original only (RAW-only photos included)
+                   * @enum {unknown}
+                   */
+                  onlyHasRaw?: "0" | "1";
+                  /**
+                   * @description 1 to leave out edited photos that have a RAW original (RAW-only photos stay)
+                   * @enum {unknown}
+                   */
+                  excludeHasRaw?: "0" | "1";
+                  /**
+                   * @description 0 to leave out photos whose only original is a RAW
+                   * @enum {unknown}
+                   */
+                  includeRaw?: "0" | "1";
+                  /**
+                   * @description 1 for only the photos whose only original is a RAW
+                   * @enum {unknown}
+                   */
+                  onlyRaw?: "0" | "1";
+                  /**
+                   * @description 1 for only the photos imported hidden because a culling app rejected them
+                   * @enum {unknown}
+                   */
+                  hidden?: "0" | "1";
+                  /** @description The Gallery's search text */
+                  q?: string;
+                };
+              } | null;
               captureCount: number;
             } & {
               [key: string]: unknown;
@@ -173,7 +584,10 @@ export interface paths {
     /** Album details */
     get: {
       parameters: {
-        query?: never;
+        query?: {
+          /** @description Only the first this many photos in items */
+          limit?: number;
+        };
         header?: never;
         path: {
           id: string;
@@ -196,6 +610,145 @@ export interface paths {
               coverPhotoId: string | null;
               /** Format: date-time */
               createdAt: string;
+              rules: {
+                /** @constant */
+                version: 2;
+                query: {
+                  /** @description Comma-separated taxon classes */
+                  taxa?: string;
+                  /** @description Region, or "uncategorized" for photos with no region */
+                  regionId?: (string | "uncategorized")[];
+                  /** @description Taken on or after (YYYY-MM-DD) */
+                  dateFrom?: string;
+                  /** @description Taken on or before (YYYY-MM-DD) */
+                  dateTo?: string;
+                  /** @description Only photos with this tag */
+                  tag?: string[];
+                  /** @description Only photos with this place name */
+                  place?: string[];
+                  /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+                  bbox?: string;
+                  /**
+                   * Format: uuid
+                   * @description Only photos whose coordinates fall inside this saved place
+                   */
+                  spotId?: string;
+                  /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+                  orRegionOnly?: string[];
+                  /** @description Only photos in this trip */
+                  tripId?: string[];
+                  /** @description Only photos in this album */
+                  albumId?: string[];
+                  /**
+                   * Format: uuid
+                   * @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets
+                   */
+                  similarTo?: string;
+                  /**
+                   * @description 1 for photos with no capture date only
+                   * @enum {unknown}
+                   */
+                  missingDate?: "0" | "1";
+                  /**
+                   * @description 1 for photos with no coordinates only
+                   * @enum {unknown}
+                   */
+                  missingCoordinates?: "0" | "1";
+                  /** @description Only species of this rarity tier */
+                  tier?: ("legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated")[];
+                  /**
+                   * Format: uuid
+                   * @description With tier: the region whose local tier counts
+                   */
+                  tierRegionId?: string;
+                  /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+                  action?: string;
+                  /** @description Only photos with one of these comma-separated framings (close, environmental) */
+                  framing?: string;
+                  /**
+                   * @deprecated
+                   * @description Older single shot type: flight and behavior are an action, portrait and environmental a framing
+                   * @enum {unknown}
+                   */
+                  shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+                  /**
+                   * @description 1 for 5-star photos only (the same as ratingMin=5)
+                   * @enum {unknown}
+                   */
+                  onlyTopRated?: "0" | "1";
+                  /**
+                   * @description Only photos rated at least this many stars
+                   * @enum {unknown}
+                   */
+                  ratingMin?: "1" | "2" | "3" | "4" | "5";
+                  /**
+                   * @description Only photos rated at most this many stars
+                   * @enum {unknown}
+                   */
+                  ratingMax?: "1" | "2" | "3" | "4" | "5";
+                  /**
+                   * @description 1 for photos with no star rating only (not with ratingMin or ratingMax)
+                   * @enum {unknown}
+                   */
+                  unrated?: "0" | "1";
+                  /**
+                   * @description 1 for photos not yet sent to iNaturalist
+                   * @enum {unknown}
+                   */
+                  notOnInat?: "0" | "1";
+                  /** @description Only photos with at least this many animals */
+                  animalsMin?: string;
+                  /** @description Only photos with at most this many animals */
+                  animalsMax?: string;
+                  /**
+                   * @description 1 for species cover photos only
+                   * @enum {unknown}
+                   */
+                  onlyFeatured?: "0" | "1";
+                  /**
+                   * @description 1 for videos only
+                   * @enum {unknown}
+                   */
+                  onlyVideo?: "0" | "1";
+                  /**
+                   * @description 1 for sound recordings only
+                   * @enum {unknown}
+                   */
+                  onlyAudio?: "0" | "1";
+                  /**
+                   * @description 1 to leave videos out
+                   * @enum {unknown}
+                   */
+                  excludeVideo?: "0" | "1";
+                  /**
+                   * @description 1 for photos with a RAW original only (RAW-only photos included)
+                   * @enum {unknown}
+                   */
+                  onlyHasRaw?: "0" | "1";
+                  /**
+                   * @description 1 to leave out edited photos that have a RAW original (RAW-only photos stay)
+                   * @enum {unknown}
+                   */
+                  excludeHasRaw?: "0" | "1";
+                  /**
+                   * @description 0 to leave out photos whose only original is a RAW
+                   * @enum {unknown}
+                   */
+                  includeRaw?: "0" | "1";
+                  /**
+                   * @description 1 for only the photos whose only original is a RAW
+                   * @enum {unknown}
+                   */
+                  onlyRaw?: "0" | "1";
+                  /**
+                   * @description 1 for only the photos imported hidden because a culling app rejected them
+                   * @enum {unknown}
+                   */
+                  hidden?: "0" | "1";
+                  /** @description The Gallery's search text */
+                  q?: string;
+                };
+              } | null;
               /** @enum {unknown} */
               coverLayout: "single" | "quad";
               coverCropX: number | null;
@@ -238,8 +791,9 @@ export interface paths {
                 lon: (number | string) | null;
                 regionId: string | null;
                 regionName: string | null;
+                locationLabel: string | null;
                 /** @enum {unknown} */
-                kind: "image" | "video";
+                kind: "image" | "video" | "audio";
                 durationSeconds: (number | string) | null;
                 tags: string[];
                 cullVerdict: ("pick" | "reject") | null;
@@ -249,14 +803,86 @@ export interface paths {
                 hidden: boolean;
                 isFeatured: boolean | null;
                 hasRawOriginal: boolean;
+                inatStatus: ("pending" | "completed") | null;
+                inatObservationId: string | null;
                 originalRef: string | null;
                 originalManaged: boolean | null;
                 originalKind: string | null;
                 rawRef: string | null;
+                taxonOrder: string | null;
+                family: string | null;
+                sortOrder: number | null;
+                isOtherTaxa: boolean;
+                inatIconicTaxon: string | null;
+                tier: string | null;
+                localTier: string | null;
                 matchScore: number | null;
+                frame?:
+                  | ({
+                      box: number[] | null;
+                      /** @description The detector wasn't sure: a speck, or found only on a closer look */
+                      boxUnsure: boolean;
+                      /** @description Upright width / height */
+                      aspect: number;
+                      /** @enum {unknown} */
+                      orientation: "horizontal" | "vertical" | "square";
+                      composition:
+                        | ({
+                            /**
+                             * @description Share of the frame the animal fills: under 1.5%, under 10%, under 35%, more
+                             * @enum {unknown}
+                             */
+                            size: "tiny" | "small" | "medium" | "frameFilling";
+                            /** @description Centred on a rule-of-thirds intersection */
+                            thirds: boolean;
+                            /** @description Centred on a golden ratio (phi grid) intersection */
+                            goldenRatio: boolean;
+                            centred: boolean;
+                          } & {
+                            [key: string]: unknown;
+                          })
+                        | null;
+                      /** @description The photo's own light */
+                      light: {
+                        /** @description Mean brightness, 0 to 1 */
+                        luma: number;
+                        /** @description Mean red minus blue, -1 (cool) to 1 (warm) */
+                        warmth: number;
+                        /** @description Share of near-white pixels */
+                        highlights: number;
+                        /** @description Share of near-black pixels */
+                        shadows: number;
+                        /** @description Mean colourfulness, 0 to 1 */
+                        saturation: number;
+                      } & {
+                        [key: string]: unknown;
+                      };
+                    } & {
+                      [key: string]: unknown;
+                    })
+                  | null;
+                timeMaybeWrong?: boolean | null;
+                /** @description Only with allVersions=1, on a file listed apart from the photo it belongs to */
+                version?: {
+                  /**
+                   * Format: uuid
+                   * @description The photo this file is a version of
+                   */
+                  of: string;
+                  label: string | null;
+                  /** @enum {unknown} */
+                  labelKind: "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+                  labelSize: string | null;
+                };
               } & {
                 [key: string]: unknown;
               })[];
+              /** @description The cover is a photo chosen by hand, not the automatic one */
+              coverPicked: boolean;
+              /** @description Photos taken out of a smart album by hand */
+              excludedCount: number;
+              /** @description Photos in the album, which can be more than items with limit */
+              itemCount: number;
             } & {
               [key: string]: unknown;
             };
@@ -365,6 +991,139 @@ export interface paths {
             coverPhotoId?: string | null;
             /** @enum {unknown} */
             coverLayout?: "single" | "quad";
+            /** @description The Gallery filters and search a smart album matches */
+            rules?: {
+              version: 1 | 2;
+              query: {
+                /** @description Comma-separated taxon classes */
+                taxa?: string;
+                regionId?: string[] | string;
+                /** @description Taken on or after (YYYY-MM-DD) */
+                dateFrom?: string;
+                /** @description Taken on or before (YYYY-MM-DD) */
+                dateTo?: string;
+                tag?: string[] | string;
+                place?: string[] | string;
+                /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+                bbox?: string;
+                /**
+                 * Format: uuid
+                 * @description Only photos whose coordinates fall inside this saved place
+                 */
+                spotId?: string;
+                /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+                orRegionOnly?: string[];
+                tripId?: string[] | string;
+                albumId?: string[] | string;
+                /**
+                 * Format: uuid
+                 * @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets
+                 */
+                similarTo?: string;
+                /**
+                 * @description 1 for photos with no capture date only
+                 * @enum {unknown}
+                 */
+                missingDate?: "0" | "1";
+                /**
+                 * @description 1 for photos with no coordinates only
+                 * @enum {unknown}
+                 */
+                missingCoordinates?: "0" | "1";
+                tier?: string[] | string;
+                /**
+                 * Format: uuid
+                 * @description With tier: the region whose local tier counts
+                 */
+                tierRegionId?: string;
+                /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+                action?: string;
+                /** @description Only photos with one of these comma-separated framings (close, environmental) */
+                framing?: string;
+                /**
+                 * @deprecated
+                 * @description Older single shot type: flight and behavior are an action, portrait and environmental a framing
+                 * @enum {unknown}
+                 */
+                shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+                /**
+                 * @description 1 for 5-star photos only (the same as ratingMin=5)
+                 * @enum {unknown}
+                 */
+                onlyTopRated?: "0" | "1";
+                /**
+                 * @description Only photos rated at least this many stars
+                 * @enum {unknown}
+                 */
+                ratingMin?: "1" | "2" | "3" | "4" | "5";
+                /**
+                 * @description Only photos rated at most this many stars
+                 * @enum {unknown}
+                 */
+                ratingMax?: "1" | "2" | "3" | "4" | "5";
+                /**
+                 * @description 1 for photos with no star rating only (not with ratingMin or ratingMax)
+                 * @enum {unknown}
+                 */
+                unrated?: "0" | "1";
+                /**
+                 * @description 1 for photos not yet sent to iNaturalist
+                 * @enum {unknown}
+                 */
+                notOnInat?: "0" | "1";
+                /** @description Only photos with at least this many animals */
+                animalsMin?: string;
+                /** @description Only photos with at most this many animals */
+                animalsMax?: string;
+                /**
+                 * @description 1 for species cover photos only
+                 * @enum {unknown}
+                 */
+                onlyFeatured?: "0" | "1";
+                /**
+                 * @description 1 for videos only
+                 * @enum {unknown}
+                 */
+                onlyVideo?: "0" | "1";
+                /**
+                 * @description 1 for sound recordings only
+                 * @enum {unknown}
+                 */
+                onlyAudio?: "0" | "1";
+                /**
+                 * @description 1 to leave videos out
+                 * @enum {unknown}
+                 */
+                excludeVideo?: "0" | "1";
+                /**
+                 * @description 1 for photos with a RAW original only (RAW-only photos included)
+                 * @enum {unknown}
+                 */
+                onlyHasRaw?: "0" | "1";
+                /**
+                 * @description 1 to leave out edited photos that have a RAW original (RAW-only photos stay)
+                 * @enum {unknown}
+                 */
+                excludeHasRaw?: "0" | "1";
+                /**
+                 * @description 0 to leave out photos whose only original is a RAW
+                 * @enum {unknown}
+                 */
+                includeRaw?: "0" | "1";
+                /**
+                 * @description 1 for only the photos whose only original is a RAW
+                 * @enum {unknown}
+                 */
+                onlyRaw?: "0" | "1";
+                /**
+                 * @description 1 for only the photos imported hidden because a culling app rejected them
+                 * @enum {unknown}
+                 */
+                hidden?: "0" | "1";
+                /** @description The Gallery's search text */
+                q?: string;
+              };
+            };
           };
         };
       };
@@ -383,6 +1142,145 @@ export interface paths {
               coverPhotoId: string | null;
               /** Format: date-time */
               createdAt: string;
+              rules: {
+                /** @constant */
+                version: 2;
+                query: {
+                  /** @description Comma-separated taxon classes */
+                  taxa?: string;
+                  /** @description Region, or "uncategorized" for photos with no region */
+                  regionId?: (string | "uncategorized")[];
+                  /** @description Taken on or after (YYYY-MM-DD) */
+                  dateFrom?: string;
+                  /** @description Taken on or before (YYYY-MM-DD) */
+                  dateTo?: string;
+                  /** @description Only photos with this tag */
+                  tag?: string[];
+                  /** @description Only photos with this place name */
+                  place?: string[];
+                  /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+                  bbox?: string;
+                  /**
+                   * Format: uuid
+                   * @description Only photos whose coordinates fall inside this saved place
+                   */
+                  spotId?: string;
+                  /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+                  orRegionOnly?: string[];
+                  /** @description Only photos in this trip */
+                  tripId?: string[];
+                  /** @description Only photos in this album */
+                  albumId?: string[];
+                  /**
+                   * Format: uuid
+                   * @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets
+                   */
+                  similarTo?: string;
+                  /**
+                   * @description 1 for photos with no capture date only
+                   * @enum {unknown}
+                   */
+                  missingDate?: "0" | "1";
+                  /**
+                   * @description 1 for photos with no coordinates only
+                   * @enum {unknown}
+                   */
+                  missingCoordinates?: "0" | "1";
+                  /** @description Only species of this rarity tier */
+                  tier?: ("legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated")[];
+                  /**
+                   * Format: uuid
+                   * @description With tier: the region whose local tier counts
+                   */
+                  tierRegionId?: string;
+                  /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+                  action?: string;
+                  /** @description Only photos with one of these comma-separated framings (close, environmental) */
+                  framing?: string;
+                  /**
+                   * @deprecated
+                   * @description Older single shot type: flight and behavior are an action, portrait and environmental a framing
+                   * @enum {unknown}
+                   */
+                  shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+                  /**
+                   * @description 1 for 5-star photos only (the same as ratingMin=5)
+                   * @enum {unknown}
+                   */
+                  onlyTopRated?: "0" | "1";
+                  /**
+                   * @description Only photos rated at least this many stars
+                   * @enum {unknown}
+                   */
+                  ratingMin?: "1" | "2" | "3" | "4" | "5";
+                  /**
+                   * @description Only photos rated at most this many stars
+                   * @enum {unknown}
+                   */
+                  ratingMax?: "1" | "2" | "3" | "4" | "5";
+                  /**
+                   * @description 1 for photos with no star rating only (not with ratingMin or ratingMax)
+                   * @enum {unknown}
+                   */
+                  unrated?: "0" | "1";
+                  /**
+                   * @description 1 for photos not yet sent to iNaturalist
+                   * @enum {unknown}
+                   */
+                  notOnInat?: "0" | "1";
+                  /** @description Only photos with at least this many animals */
+                  animalsMin?: string;
+                  /** @description Only photos with at most this many animals */
+                  animalsMax?: string;
+                  /**
+                   * @description 1 for species cover photos only
+                   * @enum {unknown}
+                   */
+                  onlyFeatured?: "0" | "1";
+                  /**
+                   * @description 1 for videos only
+                   * @enum {unknown}
+                   */
+                  onlyVideo?: "0" | "1";
+                  /**
+                   * @description 1 for sound recordings only
+                   * @enum {unknown}
+                   */
+                  onlyAudio?: "0" | "1";
+                  /**
+                   * @description 1 to leave videos out
+                   * @enum {unknown}
+                   */
+                  excludeVideo?: "0" | "1";
+                  /**
+                   * @description 1 for photos with a RAW original only (RAW-only photos included)
+                   * @enum {unknown}
+                   */
+                  onlyHasRaw?: "0" | "1";
+                  /**
+                   * @description 1 to leave out edited photos that have a RAW original (RAW-only photos stay)
+                   * @enum {unknown}
+                   */
+                  excludeHasRaw?: "0" | "1";
+                  /**
+                   * @description 0 to leave out photos whose only original is a RAW
+                   * @enum {unknown}
+                   */
+                  includeRaw?: "0" | "1";
+                  /**
+                   * @description 1 for only the photos whose only original is a RAW
+                   * @enum {unknown}
+                   */
+                  onlyRaw?: "0" | "1";
+                  /**
+                   * @description 1 for only the photos imported hidden because a culling app rejected them
+                   * @enum {unknown}
+                   */
+                  hidden?: "0" | "1";
+                  /** @description The Gallery's search text */
+                  q?: string;
+                };
+              } | null;
               /** @enum {unknown} */
               coverLayout: "single" | "quad";
             } & {
@@ -638,6 +1536,469 @@ export interface paths {
     };
     trace?: never;
   };
+  "/albums/{id}/exclusions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Photos left out of a smart album */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: ({
+                /** Format: uuid */
+                photoId: string;
+                width: number | null;
+                height: number | null;
+                /** Format: uuid */
+                captureId: string;
+                /** Format: uuid */
+                speciesId: string;
+                scientificName: string;
+                commonName: string | null;
+                taxonClass: string;
+                takenAt: string | null;
+                cameraModel: string | null;
+                lens: string | null;
+                focalLengthMm: (number | string) | null;
+                aperture: (number | string) | null;
+                shutter: string | null;
+                iso: number | null;
+                qualityRating: number | null;
+                lat: (number | string) | null;
+                lon: (number | string) | null;
+                regionId: string | null;
+                regionName: string | null;
+                locationLabel: string | null;
+                /** @enum {unknown} */
+                kind: "image" | "video" | "audio";
+                durationSeconds: (number | string) | null;
+                tags: string[];
+                cullVerdict: ("pick" | "reject") | null;
+                cullLabel:
+                  ("red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray" | "black" | "white") | null;
+                /** @description Imported hidden because a culling app rejected it */
+                hidden: boolean;
+                isFeatured: boolean | null;
+                hasRawOriginal: boolean;
+                inatStatus: ("pending" | "completed") | null;
+                inatObservationId: string | null;
+                originalRef: string | null;
+                originalManaged: boolean | null;
+                originalKind: string | null;
+                rawRef: string | null;
+                taxonOrder: string | null;
+                family: string | null;
+                sortOrder: number | null;
+                isOtherTaxa: boolean;
+                inatIconicTaxon: string | null;
+                tier: string | null;
+                localTier: string | null;
+                matchScore: number | null;
+                frame?:
+                  | ({
+                      box: number[] | null;
+                      /** @description The detector wasn't sure: a speck, or found only on a closer look */
+                      boxUnsure: boolean;
+                      /** @description Upright width / height */
+                      aspect: number;
+                      /** @enum {unknown} */
+                      orientation: "horizontal" | "vertical" | "square";
+                      composition:
+                        | ({
+                            /**
+                             * @description Share of the frame the animal fills: under 1.5%, under 10%, under 35%, more
+                             * @enum {unknown}
+                             */
+                            size: "tiny" | "small" | "medium" | "frameFilling";
+                            /** @description Centred on a rule-of-thirds intersection */
+                            thirds: boolean;
+                            /** @description Centred on a golden ratio (phi grid) intersection */
+                            goldenRatio: boolean;
+                            centred: boolean;
+                          } & {
+                            [key: string]: unknown;
+                          })
+                        | null;
+                      /** @description The photo's own light */
+                      light: {
+                        /** @description Mean brightness, 0 to 1 */
+                        luma: number;
+                        /** @description Mean red minus blue, -1 (cool) to 1 (warm) */
+                        warmth: number;
+                        /** @description Share of near-white pixels */
+                        highlights: number;
+                        /** @description Share of near-black pixels */
+                        shadows: number;
+                        /** @description Mean colourfulness, 0 to 1 */
+                        saturation: number;
+                      } & {
+                        [key: string]: unknown;
+                      };
+                    } & {
+                      [key: string]: unknown;
+                    })
+                  | null;
+                timeMaybeWrong?: boolean | null;
+                /** @description Only with allVersions=1, on a file listed apart from the photo it belongs to */
+                version?: {
+                  /**
+                   * Format: uuid
+                   * @description The photo this file is a version of
+                   */
+                  of: string;
+                  label: string | null;
+                  /** @enum {unknown} */
+                  labelKind: "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+                  labelSize: string | null;
+                };
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the album.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    /** Leave photos out of a smart album */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the album.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/albums/{id}/exclusions/{captureId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** Put a left-out photo back in a smart album */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+          captureId: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the album.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/albums/{id}/exclusions/restore": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Put several left-out photos back in a smart album */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the album.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/albums/{id}/export": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /albums/{id}/export */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @description An existing folder; on a server it must be inside an allowed library root */
+            destination: string;
+            include: {
+              /** @description Also copy each photo's RAW file */
+              raw: boolean;
+              /** @description Also copy .xmp sidecars next to the files */
+              sidecars: boolean;
+            };
+            /**
+             * @description flat puts every file in the folder; bySpecies makes a subfolder per species
+             * @enum {unknown}
+             */
+            structure: "flat" | "bySpecies";
+            /** @description Remove GPS and place names from copies of sensitive species' photos (off by default) */
+            hideSensitiveLocations?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              started: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/albums/{id}/quad-slot": {
     parameters: {
       query?: never;
@@ -749,6 +2110,8 @@ export interface paths {
                 hasPassword: boolean;
                 allowDownload: boolean;
                 showMetadata: boolean;
+                /** @description Shows where each photo was taken, as names; sensitive species only by province or country */
+                showExactLocations: boolean;
                 expiresAt: string | null;
                 /** Format: date-time */
                 createdAt: string;
@@ -808,6 +2171,7 @@ export interface paths {
             password?: string;
             allowDownload?: boolean;
             showMetadata?: boolean;
+            showExactLocations?: boolean;
             expiresAt?: string | null;
           };
         };
@@ -825,6 +2189,8 @@ export interface paths {
               hasPassword: boolean;
               allowDownload: boolean;
               showMetadata: boolean;
+              /** @description Shows where each photo was taken, as names; sensitive species only by province or country */
+              showExactLocations: boolean;
               expiresAt: string | null;
               /** Format: date-time */
               createdAt: string;
@@ -901,12 +2267,16 @@ export interface paths {
                 speciesId: string;
                 scientificName: string;
                 commonName: string | null;
+                abaCode?: string | null;
+                ebirdCode?: string | null;
                 taxonClass: string | null;
                 family: string | null;
                 taxonOrder?: string | null;
                 /** @enum {unknown} */
                 state: "collected" | "seen" | "unseen";
                 isTarget: boolean;
+                /** @description The user (or a connected app) marked it as needing a better photo */
+                needsBetterPhoto?: boolean;
                 tier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 localTier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 tierReason?: string | null;
@@ -914,9 +2284,13 @@ export interface paths {
                 tierOverridden?: boolean;
                 nameChanged?: boolean;
                 vagrant: boolean;
+                introduced: boolean;
                 /** @description 12 monthly values, on region checklist rows */
                 seasonality: null | number[];
                 capturedYears: number[] | null;
+                heard?: boolean;
+                /** @description Collected only through photos Lifer filed, none confirmed yet */
+                suggested?: boolean;
                 endemic: boolean;
                 isGhost: boolean;
                 isLost: boolean;
@@ -943,6 +2317,7 @@ export interface paths {
                       [key: string]: unknown;
                     })
                   | null;
+                photographedWhere?: ("here" | "elsewhere") | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -988,6 +2363,529 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/albums/export/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /albums/export/cancel */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/albums/export/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /albums/export/status */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result: null;
+              albumId: string | null;
+              destination: string | null;
+              copied: number;
+              skipped: number;
+              missing: number;
+              withheld: number;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/albums/suggestions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Suggested smart albums
+     * @description Smart albums worth making from your own photos, each with its rules, live photo count and up to 4 preview photos. Nothing is created: post the rules to /albums to make one.
+     */
+    get: {
+      parameters: {
+        query?: {
+          /** @description true for the dismissed ones, to restore */
+          dismissed?: "true" | "false";
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description How many dismissed suggestions could be restored */
+              dismissedCount: number;
+              suggestions: ({
+                /** @description Stable for the same suggestion, to dismiss it by */
+                id: string;
+                /** @enum {unknown} */
+                kind:
+                  | "lifers"
+                  | "bestOfYear"
+                  | "tripHighlights"
+                  | "rareAndLegendary"
+                  | "flight"
+                  | "behavior"
+                  | "environmental"
+                  | "group"
+                  | "country"
+                  | "groupsOfAnimals"
+                  | "goldenHour"
+                  | "needsRating"
+                  | "missingRegion";
+                label: string | null;
+                /** @description An English name; apps name it in their own language from kind and label */
+                name: string;
+                /** @description The Gallery filters and search a smart album matches */
+                rules: {
+                  /** @constant */
+                  version: 2;
+                  query: {
+                    /** @description Comma-separated taxon classes */
+                    taxa?: string;
+                    /** @description Region, or "uncategorized" for photos with no region */
+                    regionId?: (string | "uncategorized")[];
+                    /** @description Taken on or after (YYYY-MM-DD) */
+                    dateFrom?: string;
+                    /** @description Taken on or before (YYYY-MM-DD) */
+                    dateTo?: string;
+                    /** @description Only photos with this tag */
+                    tag?: string[];
+                    /** @description Only photos with this place name */
+                    place?: string[];
+                    /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+                    bbox?: string;
+                    /**
+                     * Format: uuid
+                     * @description Only photos whose coordinates fall inside this saved place
+                     */
+                    spotId?: string;
+                    /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+                    orRegionOnly?: string[];
+                    /** @description Only photos in this trip */
+                    tripId?: string[];
+                    /** @description Only photos in this album */
+                    albumId?: string[];
+                    /**
+                     * Format: uuid
+                     * @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets
+                     */
+                    similarTo?: string;
+                    /**
+                     * @description 1 for photos with no capture date only
+                     * @enum {unknown}
+                     */
+                    missingDate?: "0" | "1";
+                    /**
+                     * @description 1 for photos with no coordinates only
+                     * @enum {unknown}
+                     */
+                    missingCoordinates?: "0" | "1";
+                    /** @description Only species of this rarity tier */
+                    tier?: ("legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated")[];
+                    /**
+                     * Format: uuid
+                     * @description With tier: the region whose local tier counts
+                     */
+                    tierRegionId?: string;
+                    /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+                    action?: string;
+                    /** @description Only photos with one of these comma-separated framings (close, environmental) */
+                    framing?: string;
+                    /**
+                     * @deprecated
+                     * @description Older single shot type: flight and behavior are an action, portrait and environmental a framing
+                     * @enum {unknown}
+                     */
+                    shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+                    /**
+                     * @description 1 for 5-star photos only (the same as ratingMin=5)
+                     * @enum {unknown}
+                     */
+                    onlyTopRated?: "0" | "1";
+                    /**
+                     * @description Only photos rated at least this many stars
+                     * @enum {unknown}
+                     */
+                    ratingMin?: "1" | "2" | "3" | "4" | "5";
+                    /**
+                     * @description Only photos rated at most this many stars
+                     * @enum {unknown}
+                     */
+                    ratingMax?: "1" | "2" | "3" | "4" | "5";
+                    /**
+                     * @description 1 for photos with no star rating only (not with ratingMin or ratingMax)
+                     * @enum {unknown}
+                     */
+                    unrated?: "0" | "1";
+                    /**
+                     * @description 1 for photos not yet sent to iNaturalist
+                     * @enum {unknown}
+                     */
+                    notOnInat?: "0" | "1";
+                    /** @description Only photos with at least this many animals */
+                    animalsMin?: string;
+                    /** @description Only photos with at most this many animals */
+                    animalsMax?: string;
+                    /**
+                     * @description 1 for species cover photos only
+                     * @enum {unknown}
+                     */
+                    onlyFeatured?: "0" | "1";
+                    /**
+                     * @description 1 for videos only
+                     * @enum {unknown}
+                     */
+                    onlyVideo?: "0" | "1";
+                    /**
+                     * @description 1 for sound recordings only
+                     * @enum {unknown}
+                     */
+                    onlyAudio?: "0" | "1";
+                    /**
+                     * @description 1 to leave videos out
+                     * @enum {unknown}
+                     */
+                    excludeVideo?: "0" | "1";
+                    /**
+                     * @description 1 for photos with a RAW original only (RAW-only photos included)
+                     * @enum {unknown}
+                     */
+                    onlyHasRaw?: "0" | "1";
+                    /**
+                     * @description 1 to leave out edited photos that have a RAW original (RAW-only photos stay)
+                     * @enum {unknown}
+                     */
+                    excludeHasRaw?: "0" | "1";
+                    /**
+                     * @description 0 to leave out photos whose only original is a RAW
+                     * @enum {unknown}
+                     */
+                    includeRaw?: "0" | "1";
+                    /**
+                     * @description 1 for only the photos whose only original is a RAW
+                     * @enum {unknown}
+                     */
+                    onlyRaw?: "0" | "1";
+                    /**
+                     * @description 1 for only the photos imported hidden because a culling app rejected them
+                     * @enum {unknown}
+                     */
+                    hidden?: "0" | "1";
+                    /** @description The Gallery's search text */
+                    q?: string;
+                  };
+                };
+                photoCount: number;
+                previewPhotoIds: string[];
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the album.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/albums/suggestions/{id}/dismiss": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Stop suggesting a smart album */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the album.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/albums/suggestions/{id}/restore": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Bring back a dismissed smart album suggestion */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the album.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api-keys": {
     parameters: {
       query?: never;
@@ -1020,6 +2918,7 @@ export interface paths {
                 /** Format: date-time */
                 createdAt: string;
                 lastUsedAt: string | null;
+                pluginId: string | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -1083,6 +2982,13 @@ export interface paths {
               | "photos.write"
               | "collection.read"
               | "collection.write"
+              | "userdata.read"
+              | "userdata.write"
+              | "imports.write"
+              | "opendata.read"
+              | "host.preference"
+              | "sync"
+              | "companion"
             )[];
           };
         };
@@ -1420,6 +3326,157 @@ export interface paths {
         };
       };
     };
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/assistant/setup": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /assistant/setup */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description This install ships the assistant server, so setup needs nothing else */
+              available: boolean;
+              command: string | null;
+              script: string | null;
+              url: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/auth/desktop-link": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /auth/desktop-link */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            name: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              id: string;
+              name: string;
+              permissions: string[];
+              /** Format: date-time */
+              createdAt: string;
+              /** @description The key itself, shown only this once */
+              token: string;
+              /** @description Proves this server to the app that holds the key */
+              linkSecret: string;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
@@ -2132,7 +4189,7 @@ export interface paths {
                 rating: number | null;
                 tags: string[];
                 /** @enum {unknown} */
-                kind: "image" | "video";
+                kind: "image" | "video" | "audio";
                 width: number | null;
                 height: number | null;
                 originals: {
@@ -2264,6 +4321,77 @@ export interface paths {
         };
       };
     };
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/{id}/ebird": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /captures/{id}/ebird */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              checklists: {
+                subId: string;
+                location: string;
+                url: string;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
@@ -2635,6 +4763,98 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/captures/{id}/suggestions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Other likely species for a photo, from its stored vector. Empty when there is none */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              suggestions: ({
+                /** Format: uuid */
+                id: string;
+                scientific_name: string;
+                common_name: string | null;
+                score: number;
+                /** @description your_photos, reference_photo or keyword_tag */
+                source: string;
+                confident?: boolean;
+                matchPercent?: number;
+                /** @description Only on a top suggestion that isn't confident: the genus (else family) most close candidates share, e.g. 'Probably a Lithobates frog' */
+                probably?: {
+                  /** @enum {unknown} */
+                  rank: "genus" | "family";
+                  /** @description Scientific name of the genus or family */
+                  name: string;
+                  taxonClass: string | null;
+                } & {
+                  [key: string]: unknown;
+                };
+              } & {
+                [key: string]: unknown;
+              })[];
+              code?: string;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/captures/{id}/tags": {
     parameters: {
       query?: never;
@@ -2781,6 +5001,416 @@ export interface paths {
     };
     trace?: never;
   };
+  "/captures/{id}/versions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /captures/{id}/versions */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              groupCaptureId: string;
+              /** @description The shown photo's files first */
+              files: {
+                /** Format: uuid */
+                originalId: string;
+                /** Format: uuid */
+                captureId: string;
+                photoId: string | null;
+                role: ("original" | "edit" | "export") | null;
+                kind: string;
+                fileName: string;
+                /** @description The file's extension, upper case */
+                format: string;
+                ref: string;
+                managed: boolean;
+                fileSize: number;
+                width: number | null;
+                height: number | null;
+                /** @description This file's capture is the one the group is shown as */
+                isGroup: boolean;
+                /** @description This file's capture provides the photo shown */
+                shown: boolean;
+                evidence: ("document_id" | "time_serial_suffix" | "suggested" | "manual" | "version_folder") | null;
+              }[];
+              /** @description One per photo of the group, the original first, in a steady order for a switcher */
+              versions: {
+                /** Format: uuid */
+                captureId: string;
+                photoId: string | null;
+                width: number | null;
+                height: number | null;
+                label: string | null;
+                /**
+                 * @description What the version is, from its file name, folder and role, when the user hasn't named it
+                 * @enum {unknown}
+                 */
+                labelKind: "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+                labelSize: string | null;
+                fileName: string;
+                isGroup: boolean;
+                shown: boolean;
+              }[];
+              /** @description Photos taken within two minutes, to link to */
+              nearby: {
+                /** Format: uuid */
+                captureId: string;
+                photoId: string | null;
+                takenAt: string | null;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/{id}/versions/label": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** PUT /captures/{id}/versions/label */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            label: string | null;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              label: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/{id}/versions/link": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /captures/{id}/versions/link */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** Format: uuid */
+            groupCaptureId: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              groupCaptureId: string;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/{id}/versions/show": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /captures/{id}/versions/show */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** Format: uuid */
+            captureId: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /**
+               * Format: uuid
+               * @description Shown before, for an undo
+               */
+              shownCaptureId: string;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/{id}/versions/split": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /captures/{id}/versions/split */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              groupCaptureId: string;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/captures/batch-delete": {
     parameters: {
       query?: never;
@@ -2829,6 +5459,93 @@ export interface paths {
           };
         };
         /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/coordinates": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Set or clear the GPS coordinates of one or many photos
+     * @description Send lat and lon in decimal degrees, or both null to clear. The files' GPS follows in the background, in the file for a JPEG and in the sidecar for a RAW. More than 5,000 photos run in the background: background is true and GET /captures/location/status shows progress.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+            lat: number | null;
+            lon: number | null;
+            locationLabel?: string | null;
+            /**
+             * Format: uuid
+             * @description Also sets the region
+             */
+            regionId?: string;
+            /** @description Leave every point as it is: only the place name and region change */
+            keepPoint?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description 0 when it runs in the background */
+              updated: number;
+              /** @description More than 5,000 photos: follow GET /captures/location/status */
+              background: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
         401: {
           headers: {
             [name: string]: unknown;
@@ -2919,6 +5636,446 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/captures/hide": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /captures/hide */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              hidden: number;
+              /** @description Species whose hand-picked featured photo was hidden, for an undo to set it again */
+              covers: {
+                /** Format: uuid */
+                speciesId: string;
+                /** Format: uuid */
+                photoId: string;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/location": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Set the region and optionally the location label of many photos
+     * @description Leave locationLabel out to keep each photo's own.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+            regionId: string | null;
+            locationLabel?: string | null;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              updated: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/location/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Stop a big location change */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              cancelled: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/location/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Progress of a big location change
+     * @description Placing more than 5,000 photos runs in the background. canUndo says whether POST /captures/location/undo has a step.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result: {
+                applied: number;
+                spotName: string | null;
+              } | null;
+              canUndo: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/location/undo": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Undo the latest location change
+     * @description Location changes (coordinates, and filing photos under a saved spot) keep a history of 20 steps per user, held until Lifer restarts. Each call puts back one step: point, region, place name, source and accuracy. A placement still running is stopped first. Restored is 0 when there is nothing to undo.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              restored: number;
+              canUndo: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/recheck/poll": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /captures/recheck/poll */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              /** @description Suggestions that changed since the last time this was read idle */
+              changed: number;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/captures/suggest-species": {
     parameters: {
       query?: never;
@@ -2955,6 +6112,16 @@ export interface paths {
                 source: string;
                 confident?: boolean;
                 matchPercent?: number;
+                /** @description Only on a top suggestion that isn't confident: the genus (else family) most close candidates share, e.g. 'Probably a Lithobates frog' */
+                probably?: {
+                  /** @enum {unknown} */
+                  rank: "genus" | "family";
+                  /** @description Scientific name of the genus or family */
+                  name: string;
+                  taxonClass: string | null;
+                } & {
+                  [key: string]: unknown;
+                };
               } & {
                 [key: string]: unknown;
               })[];
@@ -3035,6 +6202,16 @@ export interface paths {
                 source: string;
                 confident?: boolean;
                 matchPercent?: number;
+                /** @description Only on a top suggestion that isn't confident: the genus (else family) most close candidates share, e.g. 'Probably a Lithobates frog' */
+                probably?: {
+                  /** @enum {unknown} */
+                  rank: "genus" | "family";
+                  /** @description Scientific name of the genus or family */
+                  name: string;
+                  taxonClass: string | null;
+                } & {
+                  [key: string]: unknown;
+                };
               } & {
                 [key: string]: unknown;
               })[];
@@ -3402,6 +6579,248 @@ export interface paths {
     };
     trace?: never;
   };
+  "/captures/taken-at/preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Date range of many photos, before adjusting their time
+     * @description And how many have no date.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              dated: number;
+              undated: number;
+              earliest: string | null;
+              latest: string | null;
+              first: {
+                /** Format: uuid */
+                captureId: string;
+                photoId: string | null;
+                /** Format: date-time */
+                takenAt: string;
+              } | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/taken-at/shift": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Move many photos' date and time by the same amount
+     * @description Runs in the background; files follow. Undo by sending the opposite minutes.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+            /** @description Negative moves the photos earlier. Undo by sending the opposite. */
+            minutes: number;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        202: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              started: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/taken-at/shift/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Progress of a date and time adjustment */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result: {
+                shifted: number;
+                undated: number;
+                filesFailed: number;
+              } | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/captures/unhide": {
     parameters: {
       query?: never;
@@ -3473,19 +6892,375 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/collection": {
+  "/captures/version-counts": {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    /** GET /collection */
+    /** GET /captures/version-counts */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Group capture id to version count */
+              counts: {
+                [key: string]: number;
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/version-suggestions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /captures/version-suggestions */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              suggestions: {
+                /** Format: uuid */
+                captureId: string;
+                /** Format: uuid */
+                groupCaptureId: string;
+                photoId: string | null;
+                groupPhotoId: string | null;
+                fileName: string | null;
+                groupFileName: string | null;
+                takenAt: string | null;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/version-suggestions/accept": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /captures/version-suggestions/accept */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              linked: string[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/version-suggestions/dismiss": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /captures/version-suggestions/dismiss */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              dismissed: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/version-suggestions/restore": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /captures/version-suggestions/restore */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              restored: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/version-summary": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /captures/version-summary */
     get: {
       parameters: {
         query?: {
-          /** @description Comma-separated taxon classes, e.g. aves,mammalia */
-          taxon?: string;
+          /** @description Only groupings after this moment (ISO 8601) */
+          since?: string;
         };
         header?: never;
         path?: never;
@@ -3500,53 +7275,623 @@ export interface paths {
           };
           content: {
             "application/json": {
-              items: ({
+              /** @description Files grouped behind another photo */
+              versions: number;
+              /** @description Photos they were grouped under */
+              photos: number;
+              latest: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/versions/folders": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /captures/versions/folders */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              names: string[];
+              defaults: string[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    /** PUT /captures/versions/folders */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            names: string[] | null;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              names: string[];
+              defaults: string[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/versions/scan": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /captures/versions/scan */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result: {
+                linked: number;
+                suggested: number;
+              } | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    /** POST /captures/versions/scan */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            folder: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        202: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              started: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/versions/scan/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /captures/versions/scan/cancel */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              cancelled: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/changes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The latest recorded assistant changes */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              changes: ({
                 /** Format: uuid */
-                speciesId: string;
-                scientificName: string;
-                commonName: string | null;
-                taxonClass: string | null;
-                family: string | null;
-                taxonOrder?: string | null;
-                /** @enum {unknown} */
-                state: "collected" | "seen" | "unseen";
-                isTarget: boolean;
-                tier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
-                localTier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
-                tierReason?: string | null;
-                localTierReason?: string | null;
-                tierOverridden?: boolean;
-                nameChanged?: boolean;
-                vagrant: boolean;
-                /** @description 12 monthly values, on region checklist rows */
-                seasonality: null | number[];
-                capturedYears: number[] | null;
-                endemic: boolean;
-                isGhost: boolean;
-                isLost: boolean;
-                rediscoveredGhost: boolean;
-                rediscoveredLost: boolean;
-                coverPhotoUrl: string | null;
-                coverPhotoCredit: string | null;
-                cardCropX: number | null;
-                cardCropY: number | null;
-                cardCropSize: number | null;
-                referenceFocalX: number | null;
-                referenceFocalY: number | null;
-                coverVolumeLabel: string | null;
-                isOtherTaxa: boolean;
-                inatIconicTaxon: string | null;
-                userAddedRegion?:
-                  | ({
-                      /** Format: uuid */
-                      id: string;
-                      name: string;
-                      /** @enum {unknown} */
-                      kind: "region" | "seaZone";
-                    } & {
-                      [key: string]: unknown;
-                    })
-                  | null;
+                id: string;
+                summary: string;
+                createdAt: string;
+                undoneAt: string | null;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the album.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    /**
+     * Record a change with the steps that undo it
+     * @description For assistants: after changing albums, record what was done and how to reverse it (`deleteAlbum`, or `removeFromAlbum` with the photos that were added). POST /changes/undo-last then reverses the newest change that hasn't been undone.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @description What the assistant did, in a sentence */
+            summary: string;
+            /** @description Steps that reverse the change */
+            undo: (
+              | {
+                  /** @constant */
+                  op: "deleteAlbum";
+                  /** Format: uuid */
+                  albumId: string;
+                }
+              | {
+                  /** @constant */
+                  op: "removeFromAlbum";
+                  /** Format: uuid */
+                  albumId: string;
+                  captureIds: string[];
+                }
+            )[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              id: string;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the album.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/changes/{id}/undo": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /changes/{id}/undo */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/changes/apps": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /changes/apps */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              changes: ({
+                /** Format: uuid */
+                id: string;
+                summary: string;
+                createdAt: string;
+                undoneAt: string | null;
+                appName: string;
               } & {
                 [key: string]: unknown;
               })[];
@@ -3592,6 +7937,283 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/changes/undo-last": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Undo the newest recorded change */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              undone:
+                | ({
+                    /** Format: uuid */
+                    id: string;
+                    summary: string;
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the album.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/collection": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /collection */
+    get: {
+      parameters: {
+        query?: {
+          /** @description Comma-separated taxon classes, e.g. aves,mammalia */
+          taxon?: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: ({
+                /** Format: uuid */
+                speciesId: string;
+                scientificName: string;
+                commonName: string | null;
+                abaCode?: string | null;
+                ebirdCode?: string | null;
+                taxonClass: string | null;
+                family: string | null;
+                taxonOrder?: string | null;
+                /** @enum {unknown} */
+                state: "collected" | "seen" | "unseen";
+                isTarget: boolean;
+                /** @description The user (or a connected app) marked it as needing a better photo */
+                needsBetterPhoto?: boolean;
+                tier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
+                localTier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
+                tierReason?: string | null;
+                localTierReason?: string | null;
+                tierOverridden?: boolean;
+                nameChanged?: boolean;
+                vagrant: boolean;
+                introduced: boolean;
+                /** @description 12 monthly values, on region checklist rows */
+                seasonality: null | number[];
+                capturedYears: number[] | null;
+                heard?: boolean;
+                /** @description Collected only through photos Lifer filed, none confirmed yet */
+                suggested?: boolean;
+                endemic: boolean;
+                isGhost: boolean;
+                isLost: boolean;
+                rediscoveredGhost: boolean;
+                rediscoveredLost: boolean;
+                coverPhotoUrl: string | null;
+                coverPhotoCredit: string | null;
+                cardCropX: number | null;
+                cardCropY: number | null;
+                cardCropSize: number | null;
+                referenceFocalX: number | null;
+                referenceFocalY: number | null;
+                coverVolumeLabel: string | null;
+                isOtherTaxa: boolean;
+                inatIconicTaxon: string | null;
+                userAddedRegion?:
+                  | ({
+                      /** Format: uuid */
+                      id: string;
+                      name: string;
+                      /** @enum {unknown} */
+                      kind: "region" | "seaZone";
+                    } & {
+                      [key: string]: unknown;
+                    })
+                  | null;
+                photographedWhere?: ("here" | "elsewhere") | null;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/collection/bulk": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /collection/bulk */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            speciesIds: string[];
+            /** @enum {unknown} */
+            action: "target" | "untarget" | "seen" | "unseen" | "archive" | "unarchive";
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+              changedIds: string[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/collection/count": {
     parameters: {
       query?: never;
@@ -3622,6 +8244,282 @@ export interface paths {
               total: number;
               collected: number;
               seen: number;
+              /** @description Of `collected`, species with no confirmed photo yet */
+              suggestedCount: number;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/collection/map": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /collection/map */
+    get: {
+      parameters: {
+        query: {
+          /** @description The region whose pins to show */
+          regionId: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              pins: ({
+                /** Format: uuid */
+                speciesId: string;
+                commonName: string | null;
+                scientificName: string;
+                taxonClass: string | null;
+                iconicTaxon: string | null;
+                /** @description Mean position of the photos in the cell */
+                lat: number;
+                lon: number;
+                /** @description Photos of the species in the cell */
+                count: number;
+                /**
+                 * Format: uuid
+                 * @description The cell's best photo: best rated, then newest
+                 */
+                photoId: string;
+              } & {
+                [key: string]: unknown;
+              })[];
+              /** @description More pins than the cap; the smallest were left out */
+              truncated: boolean;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/collection/map/photos": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /collection/map/photos */
+    get: {
+      parameters: {
+        query: {
+          /** @description The region the pin is in */
+          regionId: string;
+          speciesId: string;
+          /** @description The pin's position, as /collection/map sent it */
+          lat: number;
+          lon: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: ({
+                /** Format: uuid */
+                photoId: string;
+                width: number | null;
+                height: number | null;
+                /** Format: uuid */
+                captureId: string;
+                /** Format: uuid */
+                speciesId: string;
+                scientificName: string;
+                commonName: string | null;
+                taxonClass: string;
+                takenAt: string | null;
+                cameraModel: string | null;
+                lens: string | null;
+                focalLengthMm: (number | string) | null;
+                aperture: (number | string) | null;
+                shutter: string | null;
+                iso: number | null;
+                qualityRating: number | null;
+                lat: (number | string) | null;
+                lon: (number | string) | null;
+                regionId: string | null;
+                regionName: string | null;
+                locationLabel: string | null;
+                /** @enum {unknown} */
+                kind: "image" | "video" | "audio";
+                durationSeconds: (number | string) | null;
+                tags: string[];
+                cullVerdict: ("pick" | "reject") | null;
+                cullLabel:
+                  ("red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray" | "black" | "white") | null;
+                /** @description Imported hidden because a culling app rejected it */
+                hidden: boolean;
+                isFeatured: boolean | null;
+                hasRawOriginal: boolean;
+                inatStatus: ("pending" | "completed") | null;
+                inatObservationId: string | null;
+                originalRef: string | null;
+                originalManaged: boolean | null;
+                originalKind: string | null;
+                rawRef: string | null;
+                taxonOrder: string | null;
+                family: string | null;
+                sortOrder: number | null;
+                isOtherTaxa: boolean;
+                inatIconicTaxon: string | null;
+                tier: string | null;
+                localTier: string | null;
+                matchScore: number | null;
+                frame?:
+                  | ({
+                      box: number[] | null;
+                      /** @description The detector wasn't sure: a speck, or found only on a closer look */
+                      boxUnsure: boolean;
+                      /** @description Upright width / height */
+                      aspect: number;
+                      /** @enum {unknown} */
+                      orientation: "horizontal" | "vertical" | "square";
+                      composition:
+                        | ({
+                            /**
+                             * @description Share of the frame the animal fills: under 1.5%, under 10%, under 35%, more
+                             * @enum {unknown}
+                             */
+                            size: "tiny" | "small" | "medium" | "frameFilling";
+                            /** @description Centred on a rule-of-thirds intersection */
+                            thirds: boolean;
+                            /** @description Centred on a golden ratio (phi grid) intersection */
+                            goldenRatio: boolean;
+                            centred: boolean;
+                          } & {
+                            [key: string]: unknown;
+                          })
+                        | null;
+                      /** @description The photo's own light */
+                      light: {
+                        /** @description Mean brightness, 0 to 1 */
+                        luma: number;
+                        /** @description Mean red minus blue, -1 (cool) to 1 (warm) */
+                        warmth: number;
+                        /** @description Share of near-white pixels */
+                        highlights: number;
+                        /** @description Share of near-black pixels */
+                        shadows: number;
+                        /** @description Mean colourfulness, 0 to 1 */
+                        saturation: number;
+                      } & {
+                        [key: string]: unknown;
+                      };
+                    } & {
+                      [key: string]: unknown;
+                    })
+                  | null;
+                timeMaybeWrong?: boolean | null;
+                /** @description Only with allVersions=1, on a file listed apart from the photo it belongs to */
+                version?: {
+                  /**
+                   * Format: uuid
+                   * @description The photo this file is a version of
+                   */
+                  of: string;
+                  label: string | null;
+                  /** @enum {unknown} */
+                  labelKind: "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+                  labelSize: string | null;
+                };
+              } & {
+                [key: string]: unknown;
+              })[];
             } & {
               [key: string]: unknown;
             };
@@ -3693,7 +8591,14 @@ export interface paths {
             "application/json": {
               totalCollected: number;
               byTier: {
-                [key: string]: number;
+                common: number;
+                occasional: number;
+                uncommon: number;
+                rare: number;
+                legendary: number;
+                unrated: number;
+              } & {
+                [key: string]: unknown;
               };
               byFamily: ({
                 family: string;
@@ -3755,6 +8660,1836 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/collection/tree": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /collection/tree */
+    get: {
+      parameters: {
+        query?: {
+          format?: "csv";
+          /** @description Also list the catalogue species not photographed yet */
+          include?: "uncollected";
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              collected: number;
+              tree: ({
+                /** @description class | order | family | genus | species */
+                rank: string;
+                name: string;
+                collected: number;
+                /** @description Catalogue species under this node, photographed or not */
+                total: number;
+                /** @description Your photos under this node */
+                photos: number;
+                photoId: string | null;
+                speciesId?: string;
+                commonName?: string | null;
+                tier?: string | null;
+                referenceUrl?: string | null;
+                children: unknown[];
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/albums/smart": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /companion/v1/albums/smart */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              albums: {
+                id: string;
+                captureIds: string[];
+              }[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/devices": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /companion/v1/devices */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              devices: ({
+                /** Format: uuid */
+                id: string;
+                name: string;
+                platform: ("ios" | "android") | null;
+                lastUsedAt: string | null;
+                /** Format: date-time */
+                createdAt: string;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/devices/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** DELETE /companion/v1/devices/{id} */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/model/frames": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /companion/v1/model/frames */
+    get: {
+      parameters: {
+        query?: {
+          since?: string;
+          after?: string;
+          limit?: number;
+          /** @description 1 to include background vectors (about 1.5 KB each) */
+          background?: "0" | "1";
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description The model the background vectors are from */
+              imageModelVersion: string;
+              items: ({
+                /**
+                 * Format: uuid
+                 * @description The capture's id, as in /sync/changes
+                 */
+                id: string;
+                /** Format: date-time */
+                updatedAt: string;
+                box: number[] | null;
+                boxUnsure: boolean;
+                /** @description Upright width / height */
+                aspect: number;
+                light: {
+                  luma: number;
+                  warmth: number;
+                  highlights: number;
+                  shadows: number;
+                  saturation: number;
+                } & {
+                  [key: string]: unknown;
+                };
+                takenAtZoned: boolean | null;
+                background: string | null;
+              } & {
+                [key: string]: unknown;
+              })[];
+              removed: ({
+                /** Format: uuid */
+                id: string;
+                /** Format: date-time */
+                at: string;
+              } & {
+                [key: string]: unknown;
+              })[];
+              last: {
+                /** Format: date-time */
+                since: string;
+                /** Format: uuid */
+                after: string;
+              } | null;
+              next: {
+                /** Format: date-time */
+                since: string;
+                /** Format: uuid */
+                after: string;
+              } | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/model/text": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /companion/v1/model/text */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description False until the text model is downloaded on the hub */
+              available: boolean;
+              /** @description Changes when the hub's text encoder (or how it runs) changes */
+              textModelVersion: string;
+              /** @description Changes when the hub recomputes every photo vector */
+              imageModelVersion: string;
+              dimension: number;
+              normalization: string;
+              precision: string;
+              contextLength: number;
+              output: string;
+              files: ({
+                name: string;
+                size: number;
+                sha256: string;
+                /** @description Path to fetch it from; supports Range */
+                url: string;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/model/text/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /companion/v1/model/text/{id} */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description Not described yet */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/model/vectors": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /companion/v1/model/vectors */
+    get: {
+      parameters: {
+        query?: {
+          since?: string;
+          after?: string;
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              imageModelVersion: string;
+              dimension: number;
+              items: ({
+                /**
+                 * Format: uuid
+                 * @description The capture's id, as in /sync/changes
+                 */
+                id: string;
+                /** Format: date-time */
+                updatedAt: string;
+                /** @description Base64 of dimension little-endian float16 numbers, unit length */
+                vector: string;
+              } & {
+                [key: string]: unknown;
+              })[];
+              /** @description Captures to drop the vector of: deleted, hidden or trashed */
+              removed: ({
+                /** Format: uuid */
+                id: string;
+                /** Format: date-time */
+                at: string;
+              } & {
+                [key: string]: unknown;
+              })[];
+              last: {
+                /** Format: date-time */
+                since: string;
+                /** Format: uuid */
+                after: string;
+              } | null;
+              next: {
+                /** Format: date-time */
+                since: string;
+                /** Format: uuid */
+                after: string;
+              } | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/pair": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /companion/v1/pair */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            code?: string;
+            deviceName: string;
+            /** @enum {unknown} */
+            platform: "ios" | "android";
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              deviceId: string;
+              /** @description The device key, shown only this once */
+              token: string;
+              instanceId: string;
+              scopes: string[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/pair-codes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /companion/v1/pair-codes */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            addresses: string[];
+            certSha256?: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              code: string;
+              /** Format: date-time */
+              expiresAt: string;
+              /** @description What the QR code holds (companionPairing.ts) */
+              payload: string;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/pair/finish": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /companion/v1/pair/finish */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            session: string;
+            tagA: string;
+            deviceName: string;
+            /** @enum {unknown} */
+            platform: "ios" | "android";
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              deviceId: string;
+              /** @description The device key, shown only this once */
+              token: string;
+              instanceId: string;
+              scopes: string[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/pair/start": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /companion/v1/pair/start */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            sid: string;
+            ya: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              session: string;
+              yb: string;
+              /** @description The hub's key-confirmation tag (companionPake.ts) */
+              tagB: string;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/reference/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /companion/v1/reference/{id} */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              credit: string | null;
+              license: string | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/reference/{id}/display": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /companion/v1/reference/{id}/display */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description Not described yet */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/reference/{id}/thumb": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /companion/v1/reference/{id}/thumb */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description Not described yet */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/companion/v1/square/{kind}/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /companion/v1/square/{kind}/{id} */
+    get: {
+      parameters: {
+        query: {
+          photo: string;
+        };
+        header?: never;
+        path: {
+          kind: "species" | "album" | "trip";
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description Not described yet */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/crash-reports": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /crash-reports */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              reports: {
+                id: string;
+                report: {
+                  /** @constant */
+                  app: "lifer";
+                  version: string;
+                  os: string;
+                  arch: string;
+                  kind: string;
+                  message: string;
+                  stack: string;
+                  timestamp: string;
+                };
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    /** POST /crash-reports */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            message: string;
+            stack: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/crash-reports/dismiss": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /crash-reports/dismiss */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            ids: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/crash-reports/download": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /crash-reports/download */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @constant */
+              app: "lifer";
+              version: string;
+              os: string;
+              arch: string;
+              kind: string;
+              message: string;
+              stack: string;
+              timestamp: string;
+            }[];
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/crash-reports/send": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /crash-reports/send */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            ids: string[];
+            note?: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/ebird/checklists": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /ebird/checklists */
+    get: {
+      parameters: {
+        query?: {
+          offset?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              total: number;
+              items: ({
+                subId: string;
+                /** @description Local date and time of the count, with no time zone */
+                startedAt: string;
+                hasTime: boolean;
+                location: string;
+                speciesCount: number;
+                /** @description Photos Lifer suggests for it, not yet confirmed */
+                suggested: number;
+                confirmed: number;
+                url: string;
+              } & {
+                [key: string]: unknown;
+              })[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/ebird/checklists/{subId}/export": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /ebird/checklists/{subId}/export */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          subId: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            folder: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              copied: number;
+              unavailable: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/ebird/import": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /ebird/import */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              checklists: number;
+              added: number;
+              skipped: string[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/gallery": {
     parameters: {
       query?: never;
@@ -3762,38 +10497,68 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** All photos with filters. Unpaged unless limit is given; prefer GET /captures for syncing */
+    /** Photos with filters, a page at a time (up to 500); prefer GET /captures for syncing */
     get: {
       parameters: {
         query?: {
           /** @description Comma-separated taxon classes */
           taxa?: string;
           /** @description Region, or "uncategorized" for photos with no region */
-          regionId?: string | "uncategorized";
+          regionId?: (string | "uncategorized")[];
           /** @description Taken on or after (YYYY-MM-DD) */
           dateFrom?: string;
           /** @description Taken on or before (YYYY-MM-DD) */
           dateTo?: string;
           /** @description Only photos with this tag */
-          tag?: string;
+          tag?: string[];
+          /** @description Only photos with this place name */
+          place?: string[];
+          /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+          bbox?: string;
+          /** @description Only photos whose coordinates fall inside this saved place */
+          spotId?: string;
+          /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+          orRegionOnly?: string[];
           /** @description Only photos in this trip */
-          tripId?: string;
+          tripId?: string[];
           /** @description Only photos in this album */
-          albumId?: string;
+          albumId?: string[];
+          /** @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets */
+          similarTo?: string;
           /** @description 1 for photos with no capture date only */
           missingDate?: "0" | "1";
+          /** @description 1 for photos with no coordinates only */
+          missingCoordinates?: "0" | "1";
           /** @description Only species of this rarity tier */
-          tier?: "legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated";
+          tier?: ("legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated")[];
           /** @description With tier: the region whose local tier counts */
           tierRegionId?: string;
-          /** @description Only this kind of shot, as Stats' Photography DNA counts them */
-          shotKind?: "portrait" | "flight" | "behavior" | "environmental";
-          /** @description 1 for 5-star photos only */
+          /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+          action?: string;
+          /** @description Only photos with one of these comma-separated framings (close, environmental) */
+          framing?: string;
+          /** @description Older single shot type: flight and behavior are an action, portrait and environmental a framing */
+          shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+          /** @description 1 for 5-star photos only (the same as ratingMin=5) */
           onlyTopRated?: "0" | "1";
+          /** @description Only photos rated at least this many stars */
+          ratingMin?: "1" | "2" | "3" | "4" | "5";
+          /** @description Only photos rated at most this many stars */
+          ratingMax?: "1" | "2" | "3" | "4" | "5";
+          /** @description 1 for photos with no star rating only (not with ratingMin or ratingMax) */
+          unrated?: "0" | "1";
+          /** @description 1 for photos not yet sent to iNaturalist */
+          notOnInat?: "0" | "1";
+          /** @description Only photos with at least this many animals */
+          animalsMin?: string;
+          /** @description Only photos with at most this many animals */
+          animalsMax?: string;
           /** @description 1 for species cover photos only */
           onlyFeatured?: "0" | "1";
           /** @description 1 for videos only */
           onlyVideo?: "0" | "1";
+          /** @description 1 for sound recordings only */
+          onlyAudio?: "0" | "1";
           /** @description 1 to leave videos out */
           excludeVideo?: "0" | "1";
           /** @description 1 for photos with a RAW original only (RAW-only photos included) */
@@ -3806,12 +10571,14 @@ export interface paths {
           onlyRaw?: "0" | "1";
           /** @description 1 for only the photos imported hidden because a culling app rejected them */
           hidden?: "0" | "1";
-          /** @description newest (default), oldest, ratingHigh or ratingLow */
+          /** @description newest (default), oldest, ratingHigh, ratingLow, taxonomic (field guide order), name (common name), scientific or rarity (rarest first) */
           sort?: string;
-          /** @description Page size, 1 to 500 (larger is capped at 500). When given, the response adds nextCursor */
+          /** @description Page size, 1 to 500 (default and cap 500; larger is capped) */
           limit?: number;
           /** @description nextCursor from the previous page, with the same sort and filters */
           cursor?: string;
+          /** @description 1 to also list every version of a photo (prints, edits, exports) as its own item, each with `version`. Counts elsewhere stay one per photo */
+          allVersions?: "0" | "1";
         };
         header?: never;
         path?: never;
@@ -3850,8 +10617,9 @@ export interface paths {
                 lon: (number | string) | null;
                 regionId: string | null;
                 regionName: string | null;
+                locationLabel: string | null;
                 /** @enum {unknown} */
-                kind: "image" | "video";
+                kind: "image" | "video" | "audio";
                 durationSeconds: (number | string) | null;
                 tags: string[];
                 cullVerdict: ("pick" | "reject") | null;
@@ -3861,17 +10629,83 @@ export interface paths {
                 hidden: boolean;
                 isFeatured: boolean | null;
                 hasRawOriginal: boolean;
+                inatStatus: ("pending" | "completed") | null;
+                inatObservationId: string | null;
                 originalRef: string | null;
                 originalManaged: boolean | null;
                 originalKind: string | null;
                 rawRef: string | null;
+                taxonOrder: string | null;
+                family: string | null;
+                sortOrder: number | null;
+                isOtherTaxa: boolean;
+                inatIconicTaxon: string | null;
+                tier: string | null;
+                localTier: string | null;
                 matchScore: number | null;
+                frame?:
+                  | ({
+                      box: number[] | null;
+                      /** @description The detector wasn't sure: a speck, or found only on a closer look */
+                      boxUnsure: boolean;
+                      /** @description Upright width / height */
+                      aspect: number;
+                      /** @enum {unknown} */
+                      orientation: "horizontal" | "vertical" | "square";
+                      composition:
+                        | ({
+                            /**
+                             * @description Share of the frame the animal fills: under 1.5%, under 10%, under 35%, more
+                             * @enum {unknown}
+                             */
+                            size: "tiny" | "small" | "medium" | "frameFilling";
+                            /** @description Centred on a rule-of-thirds intersection */
+                            thirds: boolean;
+                            /** @description Centred on a golden ratio (phi grid) intersection */
+                            goldenRatio: boolean;
+                            centred: boolean;
+                          } & {
+                            [key: string]: unknown;
+                          })
+                        | null;
+                      /** @description The photo's own light */
+                      light: {
+                        /** @description Mean brightness, 0 to 1 */
+                        luma: number;
+                        /** @description Mean red minus blue, -1 (cool) to 1 (warm) */
+                        warmth: number;
+                        /** @description Share of near-white pixels */
+                        highlights: number;
+                        /** @description Share of near-black pixels */
+                        shadows: number;
+                        /** @description Mean colourfulness, 0 to 1 */
+                        saturation: number;
+                      } & {
+                        [key: string]: unknown;
+                      };
+                    } & {
+                      [key: string]: unknown;
+                    })
+                  | null;
+                timeMaybeWrong?: boolean | null;
+                /** @description Only with allVersions=1, on a file listed apart from the photo it belongs to */
+                version?: {
+                  /**
+                   * Format: uuid
+                   * @description The photo this file is a version of
+                   */
+                  of: string;
+                  label: string | null;
+                  /** @enum {unknown} */
+                  labelKind: "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+                  labelSize: string | null;
+                };
               } & {
                 [key: string]: unknown;
               })[];
-              /** @description Only when limit is given: pass as cursor for the next page; null on the last page */
-              nextCursor?: string | null;
-              /** @description Only on the first page (limit given, no cursor): how many photos match the filters in all */
+              /** @description Pass as cursor for the next page; null on the last page */
+              nextCursor: string | null;
+              /** @description Only on the first page (no cursor): how many photos match the filters in all */
               total?: number;
             };
           };
@@ -3938,6 +10772,7 @@ export interface paths {
           content: {
             "application/json": {
               hasVideo: boolean;
+              hasAudio: boolean;
             };
           };
         };
@@ -3992,31 +10827,214 @@ export interface paths {
           /** @description Comma-separated taxon classes */
           taxa?: string;
           /** @description Region, or "uncategorized" for photos with no region */
-          regionId?: string | "uncategorized";
+          regionId?: (string | "uncategorized")[];
           /** @description Taken on or after (YYYY-MM-DD) */
           dateFrom?: string;
           /** @description Taken on or before (YYYY-MM-DD) */
           dateTo?: string;
           /** @description Only photos with this tag */
-          tag?: string;
+          tag?: string[];
+          /** @description Only photos with this place name */
+          place?: string[];
+          /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+          bbox?: string;
+          /** @description Only photos whose coordinates fall inside this saved place */
+          spotId?: string;
+          /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+          orRegionOnly?: string[];
           /** @description Only photos in this trip */
-          tripId?: string;
+          tripId?: string[];
           /** @description Only photos in this album */
-          albumId?: string;
+          albumId?: string[];
+          /** @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets */
+          similarTo?: string;
           /** @description 1 for photos with no capture date only */
           missingDate?: "0" | "1";
+          /** @description 1 for photos with no coordinates only */
+          missingCoordinates?: "0" | "1";
           /** @description Only species of this rarity tier */
-          tier?: "legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated";
+          tier?: ("legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated")[];
           /** @description With tier: the region whose local tier counts */
           tierRegionId?: string;
-          /** @description Only this kind of shot, as Stats' Photography DNA counts them */
-          shotKind?: "portrait" | "flight" | "behavior" | "environmental";
-          /** @description 1 for 5-star photos only */
+          /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+          action?: string;
+          /** @description Only photos with one of these comma-separated framings (close, environmental) */
+          framing?: string;
+          /** @description Older single shot type: flight and behavior are an action, portrait and environmental a framing */
+          shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+          /** @description 1 for 5-star photos only (the same as ratingMin=5) */
           onlyTopRated?: "0" | "1";
+          /** @description Only photos rated at least this many stars */
+          ratingMin?: "1" | "2" | "3" | "4" | "5";
+          /** @description Only photos rated at most this many stars */
+          ratingMax?: "1" | "2" | "3" | "4" | "5";
+          /** @description 1 for photos with no star rating only (not with ratingMin or ratingMax) */
+          unrated?: "0" | "1";
+          /** @description 1 for photos not yet sent to iNaturalist */
+          notOnInat?: "0" | "1";
+          /** @description Only photos with at least this many animals */
+          animalsMin?: string;
+          /** @description Only photos with at most this many animals */
+          animalsMax?: string;
           /** @description 1 for species cover photos only */
           onlyFeatured?: "0" | "1";
           /** @description 1 for videos only */
           onlyVideo?: "0" | "1";
+          /** @description 1 for sound recordings only */
+          onlyAudio?: "0" | "1";
+          /** @description 1 to leave videos out */
+          excludeVideo?: "0" | "1";
+          /** @description 1 for photos with a RAW original only (RAW-only photos included) */
+          onlyHasRaw?: "0" | "1";
+          /** @description 1 to leave out edited photos that have a RAW original (RAW-only photos stay) */
+          excludeHasRaw?: "0" | "1";
+          /** @description 0 to leave out photos whose only original is a RAW */
+          includeRaw?: "0" | "1";
+          /** @description 1 for only the photos whose only original is a RAW */
+          onlyRaw?: "0" | "1";
+          /** @description 1 for only the photos imported hidden because a culling app rejected them */
+          hidden?: "0" | "1";
+          /** @description Also list each photo's downloadable original, for downloading them all */
+          originals?: boolean;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              captureIds: string[];
+              videoCaptureIds: string[];
+              rawCaptureIds: string[];
+              /** @description The ones with coordinates */
+              locatedCaptureIds: string[];
+              /** @description With originals=true: the photos that have one, and its kind */
+              originals?: {
+                /** Format: uuid */
+                captureId: string;
+                /** Format: uuid */
+                photoId: string;
+                kind: string;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the gallery.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/gallery/map": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Where the photos matching the GET /gallery filters are, for a map
+     * @description Photo counts per country and province (each country's count includes its provinces), and photos with coordinates grouped on a grid of about 100 m. A photo is placed only when it has coordinates: withoutCoordinates counts the ones that need placing, regionOnly those of them that have a region, and each region's regionOnlyCount the ones set to exactly it. A library with more than 20,000 grid cells gets a coarser grid and truncated set to true.
+     */
+    get: {
+      parameters: {
+        query?: {
+          /** @description Comma-separated taxon classes */
+          taxa?: string;
+          /** @description Region, or "uncategorized" for photos with no region */
+          regionId?: (string | "uncategorized")[];
+          /** @description Taken on or after (YYYY-MM-DD) */
+          dateFrom?: string;
+          /** @description Taken on or before (YYYY-MM-DD) */
+          dateTo?: string;
+          /** @description Only photos with this tag */
+          tag?: string[];
+          /** @description Only photos with this place name */
+          place?: string[];
+          /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+          bbox?: string;
+          /** @description Only photos whose coordinates fall inside this saved place */
+          spotId?: string;
+          /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+          orRegionOnly?: string[];
+          /** @description Only photos in this trip */
+          tripId?: string[];
+          /** @description Only photos in this album */
+          albumId?: string[];
+          /** @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets */
+          similarTo?: string;
+          /** @description 1 for photos with no capture date only */
+          missingDate?: "0" | "1";
+          /** @description 1 for photos with no coordinates only */
+          missingCoordinates?: "0" | "1";
+          /** @description Only species of this rarity tier */
+          tier?: ("legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated")[];
+          /** @description With tier: the region whose local tier counts */
+          tierRegionId?: string;
+          /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+          action?: string;
+          /** @description Only photos with one of these comma-separated framings (close, environmental) */
+          framing?: string;
+          /** @description Older single shot type: flight and behavior are an action, portrait and environmental a framing */
+          shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+          /** @description 1 for 5-star photos only (the same as ratingMin=5) */
+          onlyTopRated?: "0" | "1";
+          /** @description Only photos rated at least this many stars */
+          ratingMin?: "1" | "2" | "3" | "4" | "5";
+          /** @description Only photos rated at most this many stars */
+          ratingMax?: "1" | "2" | "3" | "4" | "5";
+          /** @description 1 for photos with no star rating only (not with ratingMin or ratingMax) */
+          unrated?: "0" | "1";
+          /** @description 1 for photos not yet sent to iNaturalist */
+          notOnInat?: "0" | "1";
+          /** @description Only photos with at least this many animals */
+          animalsMin?: string;
+          /** @description Only photos with at most this many animals */
+          animalsMax?: string;
+          /** @description 1 for species cover photos only */
+          onlyFeatured?: "0" | "1";
+          /** @description 1 for videos only */
+          onlyVideo?: "0" | "1";
+          /** @description 1 for sound recordings only */
+          onlyAudio?: "0" | "1";
           /** @description 1 to leave videos out */
           excludeVideo?: "0" | "1";
           /** @description 1 for photos with a RAW original only (RAW-only photos included) */
@@ -4043,9 +11061,357 @@ export interface paths {
           };
           content: {
             "application/json": {
+              /** @description Photos the filters match */
+              total: number;
+              /** @description Photos that need placing: no coordinates, whatever the region */
+              withoutCoordinates: number;
+              /** @description Of withoutCoordinates, the ones with a region */
+              regionOnly: number;
+              withoutRegion: number;
+              regions: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                parentId: string | null;
+                /**
+                 * @description A country, or a region inside one (a province, state or group of them)
+                 * @enum {unknown}
+                 */
+                kind: "country" | "province";
+                /** @description Photos in the region and everything inside it */
+                count: number;
+                /** @description Photos set to exactly this region */
+                ownCount: number;
+                /** @description Of ownCount, the ones with no coordinates */
+                regionOnlyCount: number;
+                lat: number | null;
+                lon: number | null;
+              }[];
+              cells: {
+                lat: number;
+                lon: number;
+                count: number;
+                /**
+                 * Format: uuid
+                 * @description One of the cell's photos, the best rated
+                 */
+                photoId: string;
+                taxonClass: string | null;
+                iconicTaxon: string | null;
+              }[];
+              /** @description Width of a grid cell; a cell covers its lat/lon plus or minus half of it */
+              gridDegrees: number;
+              /** @description The grid was coarsened, or cut at the cap, to keep the reply small */
+              truncated: boolean;
+              places: {
+                /** Format: uuid */
+                spotId: string;
+                /** @description Photos whose point is inside the place; they're left out of cells */
+                count: number;
+                /**
+                 * Format: uuid
+                 * @description One of them, the best rated
+                 */
+                photoId: string;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the gallery.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/gallery/map/unplaced": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The photos that need placing, grouped the way they were shot
+     * @description The GET /gallery filters, limited to photos without coordinates. Trips first, then sessions (a gap over an hour, a new region or a new day starts the next one); photos with no date are grouped per trip and region. state=region or state=none keeps the photos with only a region, or with no location at all. 50 groups a page.
+     */
+    get: {
+      parameters: {
+        query?: {
+          /** @description Comma-separated taxon classes */
+          taxa?: string;
+          /** @description Region, or "uncategorized" for photos with no region */
+          regionId?: (string | "uncategorized")[];
+          /** @description Taken on or after (YYYY-MM-DD) */
+          dateFrom?: string;
+          /** @description Taken on or before (YYYY-MM-DD) */
+          dateTo?: string;
+          /** @description Only photos with this tag */
+          tag?: string[];
+          /** @description Only photos with this place name */
+          place?: string[];
+          /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+          bbox?: string;
+          /** @description Only photos whose coordinates fall inside this saved place */
+          spotId?: string;
+          /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+          orRegionOnly?: string[];
+          /** @description Only photos in this trip */
+          tripId?: string[];
+          /** @description Only photos in this album */
+          albumId?: string[];
+          /** @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets */
+          similarTo?: string;
+          /** @description 1 for photos with no capture date only */
+          missingDate?: "0" | "1";
+          /** @description 1 for photos with no coordinates only */
+          missingCoordinates?: "0" | "1";
+          /** @description Only species of this rarity tier */
+          tier?: ("legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated")[];
+          /** @description With tier: the region whose local tier counts */
+          tierRegionId?: string;
+          /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+          action?: string;
+          /** @description Only photos with one of these comma-separated framings (close, environmental) */
+          framing?: string;
+          /** @description Older single shot type: flight and behavior are an action, portrait and environmental a framing */
+          shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+          /** @description 1 for 5-star photos only (the same as ratingMin=5) */
+          onlyTopRated?: "0" | "1";
+          /** @description Only photos rated at least this many stars */
+          ratingMin?: "1" | "2" | "3" | "4" | "5";
+          /** @description Only photos rated at most this many stars */
+          ratingMax?: "1" | "2" | "3" | "4" | "5";
+          /** @description 1 for photos with no star rating only (not with ratingMin or ratingMax) */
+          unrated?: "0" | "1";
+          /** @description 1 for photos not yet sent to iNaturalist */
+          notOnInat?: "0" | "1";
+          /** @description Only photos with at least this many animals */
+          animalsMin?: string;
+          /** @description Only photos with at most this many animals */
+          animalsMax?: string;
+          /** @description 1 for species cover photos only */
+          onlyFeatured?: "0" | "1";
+          /** @description 1 for videos only */
+          onlyVideo?: "0" | "1";
+          /** @description 1 for sound recordings only */
+          onlyAudio?: "0" | "1";
+          /** @description 1 to leave videos out */
+          excludeVideo?: "0" | "1";
+          /** @description 1 for photos with a RAW original only (RAW-only photos included) */
+          onlyHasRaw?: "0" | "1";
+          /** @description 1 to leave out edited photos that have a RAW original (RAW-only photos stay) */
+          excludeHasRaw?: "0" | "1";
+          /** @description 0 to leave out photos whose only original is a RAW */
+          includeRaw?: "0" | "1";
+          /** @description 1 for only the photos whose only original is a RAW */
+          onlyRaw?: "0" | "1";
+          /** @description 1 for only the photos imported hidden because a culling app rejected them */
+          hidden?: "0" | "1";
+          /** @description region: photos with only a region; none: photos with no location at all */
+          state?: "all" | "region" | "none";
+          /** @description nextCursor of the previous page */
+          cursor?: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              groups: {
+                /** @description Pass to GET /gallery/map/unplaced/photos for the group's photos */
+                key: string;
+                tripId: string | null;
+                tripName: string | null;
+                /** @description Photos needing placement in the whole trip */
+                tripCount: number;
+                regionId: string | null;
+                regionName: string | null;
+                count: number;
+                /** @description Up to four, best rated first */
+                coverPhotoIds: string[];
+                from: string | null;
+                to: string | null;
+              }[];
+              nextCursor: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the gallery.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/gallery/map/unplaced/photos": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The photos in one group from GET /gallery/map/unplaced, best rated first */
+    get: {
+      parameters: {
+        query: {
+          /** @description Comma-separated taxon classes */
+          taxa?: string;
+          /** @description Region, or "uncategorized" for photos with no region */
+          regionId?: (string | "uncategorized")[];
+          /** @description Taken on or after (YYYY-MM-DD) */
+          dateFrom?: string;
+          /** @description Taken on or before (YYYY-MM-DD) */
+          dateTo?: string;
+          /** @description Only photos with this tag */
+          tag?: string[];
+          /** @description Only photos with this place name */
+          place?: string[];
+          /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+          bbox?: string;
+          /** @description Only photos whose coordinates fall inside this saved place */
+          spotId?: string;
+          /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+          orRegionOnly?: string[];
+          /** @description Only photos in this trip */
+          tripId?: string[];
+          /** @description Only photos in this album */
+          albumId?: string[];
+          /** @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets */
+          similarTo?: string;
+          /** @description 1 for photos with no capture date only */
+          missingDate?: "0" | "1";
+          /** @description 1 for photos with no coordinates only */
+          missingCoordinates?: "0" | "1";
+          /** @description Only species of this rarity tier */
+          tier?: ("legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated")[];
+          /** @description With tier: the region whose local tier counts */
+          tierRegionId?: string;
+          /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+          action?: string;
+          /** @description Only photos with one of these comma-separated framings (close, environmental) */
+          framing?: string;
+          /** @description Older single shot type: flight and behavior are an action, portrait and environmental a framing */
+          shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+          /** @description 1 for 5-star photos only (the same as ratingMin=5) */
+          onlyTopRated?: "0" | "1";
+          /** @description Only photos rated at least this many stars */
+          ratingMin?: "1" | "2" | "3" | "4" | "5";
+          /** @description Only photos rated at most this many stars */
+          ratingMax?: "1" | "2" | "3" | "4" | "5";
+          /** @description 1 for photos with no star rating only (not with ratingMin or ratingMax) */
+          unrated?: "0" | "1";
+          /** @description 1 for photos not yet sent to iNaturalist */
+          notOnInat?: "0" | "1";
+          /** @description Only photos with at least this many animals */
+          animalsMin?: string;
+          /** @description Only photos with at most this many animals */
+          animalsMax?: string;
+          /** @description 1 for species cover photos only */
+          onlyFeatured?: "0" | "1";
+          /** @description 1 for videos only */
+          onlyVideo?: "0" | "1";
+          /** @description 1 for sound recordings only */
+          onlyAudio?: "0" | "1";
+          /** @description 1 to leave videos out */
+          excludeVideo?: "0" | "1";
+          /** @description 1 for photos with a RAW original only (RAW-only photos included) */
+          onlyHasRaw?: "0" | "1";
+          /** @description 1 to leave out edited photos that have a RAW original (RAW-only photos stay) */
+          excludeHasRaw?: "0" | "1";
+          /** @description 0 to leave out photos whose only original is a RAW */
+          includeRaw?: "0" | "1";
+          /** @description 1 for only the photos whose only original is a RAW */
+          onlyRaw?: "0" | "1";
+          /** @description 1 for only the photos imported hidden because a culling app rejected them */
+          hidden?: "0" | "1";
+          /** @description A group's key */
+          key: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
               captureIds: string[];
-              videoCaptureIds: string[];
-              rawCaptureIds: string[];
+              /** @description Each capture's photo, in the same order */
+              photoIds: string[];
             };
           };
         };
@@ -4165,31 +11531,61 @@ export interface paths {
           /** @description Comma-separated taxon classes */
           taxa?: string;
           /** @description Region, or "uncategorized" for photos with no region */
-          regionId?: string | "uncategorized";
+          regionId?: (string | "uncategorized")[];
           /** @description Taken on or after (YYYY-MM-DD) */
           dateFrom?: string;
           /** @description Taken on or before (YYYY-MM-DD) */
           dateTo?: string;
           /** @description Only photos with this tag */
-          tag?: string;
+          tag?: string[];
+          /** @description Only photos with this place name */
+          place?: string[];
+          /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+          bbox?: string;
+          /** @description Only photos whose coordinates fall inside this saved place */
+          spotId?: string;
+          /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+          orRegionOnly?: string[];
           /** @description Only photos in this trip */
-          tripId?: string;
+          tripId?: string[];
           /** @description Only photos in this album */
-          albumId?: string;
+          albumId?: string[];
+          /** @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets */
+          similarTo?: string;
           /** @description 1 for photos with no capture date only */
           missingDate?: "0" | "1";
+          /** @description 1 for photos with no coordinates only */
+          missingCoordinates?: "0" | "1";
           /** @description Only species of this rarity tier */
-          tier?: "legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated";
+          tier?: ("legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated")[];
           /** @description With tier: the region whose local tier counts */
           tierRegionId?: string;
-          /** @description Only this kind of shot, as Stats' Photography DNA counts them */
-          shotKind?: "portrait" | "flight" | "behavior" | "environmental";
-          /** @description 1 for 5-star photos only */
+          /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+          action?: string;
+          /** @description Only photos with one of these comma-separated framings (close, environmental) */
+          framing?: string;
+          /** @description Older single shot type: flight and behavior are an action, portrait and environmental a framing */
+          shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+          /** @description 1 for 5-star photos only (the same as ratingMin=5) */
           onlyTopRated?: "0" | "1";
+          /** @description Only photos rated at least this many stars */
+          ratingMin?: "1" | "2" | "3" | "4" | "5";
+          /** @description Only photos rated at most this many stars */
+          ratingMax?: "1" | "2" | "3" | "4" | "5";
+          /** @description 1 for photos with no star rating only (not with ratingMin or ratingMax) */
+          unrated?: "0" | "1";
+          /** @description 1 for photos not yet sent to iNaturalist */
+          notOnInat?: "0" | "1";
+          /** @description Only photos with at least this many animals */
+          animalsMin?: string;
+          /** @description Only photos with at most this many animals */
+          animalsMax?: string;
           /** @description 1 for species cover photos only */
           onlyFeatured?: "0" | "1";
           /** @description 1 for videos only */
           onlyVideo?: "0" | "1";
+          /** @description 1 for sound recordings only */
+          onlyAudio?: "0" | "1";
           /** @description 1 to leave videos out */
           excludeVideo?: "0" | "1";
           /** @description 1 for photos with a RAW original only (RAW-only photos included) */
@@ -4244,8 +11640,9 @@ export interface paths {
                 lon: (number | string) | null;
                 regionId: string | null;
                 regionName: string | null;
+                locationLabel: string | null;
                 /** @enum {unknown} */
-                kind: "image" | "video";
+                kind: "image" | "video" | "audio";
                 durationSeconds: (number | string) | null;
                 tags: string[];
                 cullVerdict: ("pick" | "reject") | null;
@@ -4255,11 +11652,77 @@ export interface paths {
                 hidden: boolean;
                 isFeatured: boolean | null;
                 hasRawOriginal: boolean;
+                inatStatus: ("pending" | "completed") | null;
+                inatObservationId: string | null;
                 originalRef: string | null;
                 originalManaged: boolean | null;
                 originalKind: string | null;
                 rawRef: string | null;
+                taxonOrder: string | null;
+                family: string | null;
+                sortOrder: number | null;
+                isOtherTaxa: boolean;
+                inatIconicTaxon: string | null;
+                tier: string | null;
+                localTier: string | null;
                 matchScore: number | null;
+                frame?:
+                  | ({
+                      box: number[] | null;
+                      /** @description The detector wasn't sure: a speck, or found only on a closer look */
+                      boxUnsure: boolean;
+                      /** @description Upright width / height */
+                      aspect: number;
+                      /** @enum {unknown} */
+                      orientation: "horizontal" | "vertical" | "square";
+                      composition:
+                        | ({
+                            /**
+                             * @description Share of the frame the animal fills: under 1.5%, under 10%, under 35%, more
+                             * @enum {unknown}
+                             */
+                            size: "tiny" | "small" | "medium" | "frameFilling";
+                            /** @description Centred on a rule-of-thirds intersection */
+                            thirds: boolean;
+                            /** @description Centred on a golden ratio (phi grid) intersection */
+                            goldenRatio: boolean;
+                            centred: boolean;
+                          } & {
+                            [key: string]: unknown;
+                          })
+                        | null;
+                      /** @description The photo's own light */
+                      light: {
+                        /** @description Mean brightness, 0 to 1 */
+                        luma: number;
+                        /** @description Mean red minus blue, -1 (cool) to 1 (warm) */
+                        warmth: number;
+                        /** @description Share of near-white pixels */
+                        highlights: number;
+                        /** @description Share of near-black pixels */
+                        shadows: number;
+                        /** @description Mean colourfulness, 0 to 1 */
+                        saturation: number;
+                      } & {
+                        [key: string]: unknown;
+                      };
+                    } & {
+                      [key: string]: unknown;
+                    })
+                  | null;
+                timeMaybeWrong?: boolean | null;
+                /** @description Only with allVersions=1, on a file listed apart from the photo it belongs to */
+                version?: {
+                  /**
+                   * Format: uuid
+                   * @description The photo this file is a version of
+                   */
+                  of: string;
+                  label: string | null;
+                  /** @enum {unknown} */
+                  labelKind: "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+                  labelSize: string | null;
+                };
               } & {
                 [key: string]: unknown;
               })[];
@@ -4269,7 +11732,92 @@ export interface paths {
                 scenes: string[];
                 places: string[];
                 dates: string[];
+                order: string[];
                 description: string | null;
+                count?: {
+                  min: number;
+                  max: number | null;
+                  about: number | null;
+                  /** @description Too many to count: picture matches of a crowd count too */
+                  crowd: boolean;
+                } | null;
+                /** @description Filters, orders, times of day and composition asked for in words ("lifers", "sunset", "rule of thirds") */
+                readings?: (
+                  | "lifers"
+                  | "legendary"
+                  | "rare"
+                  | "uncommon"
+                  | "occasional"
+                  | "common"
+                  | "rarestFirst"
+                  | "endemic"
+                  | "unrated"
+                  | "videos"
+                  | "raw"
+                  | "hidden"
+                  | "edited"
+                  | "noLocation"
+                  | "noDate"
+                  | "newestFirst"
+                  | "oldestFirst"
+                  | "flying"
+                  | "behavior"
+                  | "resting"
+                  | "close"
+                  | "environmental"
+                  | "goldenHour"
+                  | "blueHour"
+                  | "twilight"
+                  | "sunrise"
+                  | "sunset"
+                  | "night"
+                  | "morning"
+                  | "midday"
+                  | "afternoon"
+                  | "evening"
+                  | "ruleOfThirds"
+                  | "goldenRatio"
+                  | "centred"
+                  | "smallInFrame"
+                  | "frameFilling"
+                  | "vertical"
+                  | "horizontal"
+                )[];
+                stars?: {
+                  min: number;
+                  max: number | null;
+                } | null;
+                styles?: string[];
+                excluded?: string[];
+                cameras?: string[];
+                backgrounds?: string[];
+                /** @description The query split into its parts, in the order typed */
+                parts?: ({
+                  /** @enum {unknown} */
+                  kind:
+                    | "species"
+                    | "group"
+                    | "count"
+                    | "scene"
+                    | "light"
+                    | "composition"
+                    | "background"
+                    | "style"
+                    | "description"
+                    | "place"
+                    | "date"
+                    | "filter"
+                    | "camera"
+                    | "excluded";
+                  /** @description What it was read as */
+                  label: string;
+                  /** @description The words typed for it (lowercased), to take out of the query */
+                  text: string;
+                  /** @description Answered from stored facts; false: a best guess from the picture model ("probably") */
+                  exact: boolean;
+                } & {
+                  [key: string]: unknown;
+                })[];
               } & {
                 [key: string]: unknown;
               };
@@ -4309,6 +11857,227 @@ export interface paths {
     put?: never;
     post?: never;
     delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/gallery/similar": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Groups of near-identical photos (bursts and repeats), largest first
+     * @description Photos of the same species, taken within 15 seconds and almost the same picture, or within 3 minutes and closer still, judged by their stored image vectors. Photos with no date or no vector are never grouped. List a group with GET /gallery?similarTo= its captureId. Lifer only lists them: nothing is changed or deleted.
+     */
+    get: {
+      parameters: {
+        query?: {
+          /** @description Groups per page, up to 200 */
+          limit?: string;
+          /** @description Groups to skip */
+          offset?: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Groups in all */
+              total: number;
+              groups: ({
+                /**
+                 * Format: uuid
+                 * @description The group's first photo: pass it as similarTo to list the group
+                 */
+                captureId: string;
+                count: number;
+                /** Format: uuid */
+                speciesId: string;
+                commonName: string | null;
+                scientificName: string;
+                firstTakenAt: string | null;
+                lastTakenAt: string | null;
+                /** @description The first few photos, in time order */
+                previewPhotoIds: string[];
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the gallery.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/gallery/similar/dismiss": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /gallery/similar/dismiss */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** Format: uuid */
+            captureId: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              captureIds: string[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    /** DELETE /gallery/similar/dismiss */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
     options?: never;
     head?: never;
     patch?: never;
@@ -4379,6 +12148,802 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/identifications/confirm": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Confirm suggested identifications
+     * @description Marks the photos' species as yours. Photos already confirmed are left as they are.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+              confirmed: number;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/identifications/suggested": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Photos Lifer filed under a species that you haven't confirmed
+     * @description Lifer files a photo itself only for a confident match from its region's checklist, and the species counts on the life list marked `suggested` until you confirm. The photos come grouped into encounters (the same species and region with no gap of an hour or more), least sure first. Photos whose species you chose are never listed.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Photos filed by Lifer and not yet confirmed */
+              suggestedCount: number;
+              /** @description Photos whose species the user chose or confirmed */
+              confirmedCount: number;
+              encounterCount: number;
+              /** @description The first 200, least sure first */
+              encounters: ({
+                /** Format: uuid */
+                speciesId: string;
+                scientificName: string;
+                commonName: string | null;
+                regionId: string | null;
+                /** @description Up to 500 of the encounter's photos */
+                captureIds: string[];
+                /** @description Each of captureIds' current photo, in the same order */
+                photoIds: (string | null)[];
+                count: number;
+                earliestTakenAt: string | null;
+                latestTakenAt: string | null;
+                /** @description The weakest match in the encounter, 0-100 */
+                lowestPercent: number;
+                coverPhotoId: string | null;
+                /** @description No photo of this species is confirmed yet */
+                possibleLifer: boolean;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/identifications/suggested/count": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * How many photos wait for review
+     * @description A count only, cheap enough to poll: the photos GET /identifications/suggested would list.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Photos waiting for review */
+              count: number;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/immich/albums": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /immich/albums */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              id: string;
+              name: string;
+              assetCount: number;
+            }[];
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/immich/link": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /immich/link */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            serverUrl: string;
+            apiKey: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              serverVersion: string;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    /** DELETE /immich/link */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/immich/settings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** PUT /immich/settings */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            albumIds?: string[];
+            writeTags?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/immich/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /immich/status */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              linked: boolean;
+              serverUrl: string | null;
+              serverVersion: string | null;
+              albumIds: string[];
+              writeTags: boolean;
+              lastSyncAt: string | null;
+              lastError: string | null;
+              counts: {
+                /** @description Photos brought in, including ones already in Lifer */
+                imported: number;
+                /** @description Photos waiting for a species */
+                unrecognized: number;
+                /** @description Videos and RAW files, not brought in */
+                skipped: number;
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/immich/sync": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /immich/sync */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        202: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/immich/sync/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /immich/sync/cancel */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/immich/sync/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /immich/sync/status */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result: {
+                imported: number;
+                duplicates: number;
+                unrecognized: number;
+                skipped: number;
+                failed: number;
+                tagged: number;
+              } | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/imports/ebird-csv": {
     parameters: {
       query?: never;
@@ -4410,6 +12975,8 @@ export interface paths {
               matched: number;
               alreadySeenOrCollected: number;
               unmatched: number;
+              unmatchedNames: string[];
+              addedSpeciesIds: string[];
             } & {
               [key: string]: unknown;
             };
@@ -4444,6 +13011,391 @@ export interface paths {
         };
       };
     };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/imports/ebird-csv/undo": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /imports/ebird-csv/undo */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            speciesIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              removed: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/imports/v1/folders": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Import a folder of photos (desktop app)
+     * @description Starts a background import of a folder on the same computer: ratings, picks, labels and species keywords in the files' XMP are read as in Lifer's own import, and photos Lifer already has are skipped. `mode` `in-place` leaves the files where they are, but only inside a folder or drive Lifer already knows; anywhere else (or with `copy`) Lifer files a copy by species and the answer's `mode` says which happened. 409 while another import runs.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @description Absolute folder path */
+            path: string;
+            /** @description in-place files stay where they are (only inside a library folder or drive); copy files a copy by species */
+            mode: "in-place" | "copy";
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        202: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              id: string;
+              mode: "in-place" | "copy";
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the imports.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/imports/v1/jobs/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Progress of a folder import
+     * @description Counts of photos looked at, imported, already in Lifer, skipped and waiting for review. 404 for any id but the latest import's.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              processed: number;
+              total: number;
+              imported?: number;
+              alreadyHad?: number;
+              skipped?: number;
+              needReview?: number;
+              error?: string | null;
+              cancelled?: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the imports.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/imports/v1/species-lookup": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Find species ids by scientific name
+     * @description For imports: send up to 500 scientific names, get back `matches` (`name` as sent, `speciesId`, current `scientificName`, `match` `exact` or `synonym`) and `unmatched`. Case-insensitive; only current names and superseded names match, and nothing else from the catalog is returned. Use the `speciesId` in POST /uploads.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            scientificNames: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              matches: {
+                /** @description The name as sent */
+                name: string;
+                /** Format: uuid */
+                speciesId: string;
+                /** @description The species' current scientific name */
+                scientificName: string;
+                match: "exact" | "synonym";
+              }[];
+              /** @description Names with no match */
+              unmatched: string[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the imports.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/account": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** PUT /inaturalist/account */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            accessToken: string;
+            refreshToken: string | null;
+            inatUserId: string;
+            inatUsername: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -4541,6 +13493,8 @@ export interface paths {
             "application/json": {
               observations: ({
                 observationId: string;
+                /** Format: uuid */
+                speciesId: string;
                 scientificName: string;
                 commonName: string | null;
                 currentPhotoId: string | null;
@@ -4549,6 +13503,20 @@ export interface paths {
                 confirmedAt: string | null;
                 url: string;
                 editUrl: string;
+                photoCount: number;
+                observedAt: string | null;
+                latestAt: string | null;
+                /** @description The observation's photos, earliest first, for previews */
+                photoIds: string[];
+                /** @description The photos' own GPS was sent, not placed on iNaturalist */
+                sentLocation: boolean;
+                /** @description A photo with no date took the one added on iNaturalist */
+                dateFromInat: boolean;
+                /** @description Made on iNaturalist by the user and found there, not sent by Lifer */
+                foundOnInat: boolean;
+                taxonClass: string | null;
+                placeName: string | null;
+                inatPhotoId: string | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -4720,14 +13688,150 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/inaturalist/import": {
+  "/inaturalist/existing": {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    /** GET /inaturalist/import */
+    get?: never;
+    put?: never;
+    /** POST /inaturalist/existing */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            auto?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/existing/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /inaturalist/existing/cancel */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/existing/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /inaturalist/existing/status */
     get: {
       parameters: {
         query?: never;
@@ -4737,12 +13841,40 @@ export interface paths {
       };
       requestBody?: never;
       responses: {
-        /** @description Not described yet */
+        /** @description OK */
         200: {
           headers: {
             [name: string]: unknown;
           };
-          content?: never;
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result: {
+                /** @description Observations read from iNaturalist this time */
+                read: number;
+                /** @description Photos linked to an observation */
+                linked: number;
+                /** @description Possible matches waiting for a yes or no */
+                review: number;
+                /** @description Pictures were compared (the image model is downloaded) */
+                compared: boolean;
+                /** @description The photos this check linked, for Undo */
+                linkedCaptureIds: string[];
+              } | null;
+              /** @description Started by Lifer itself, so the page shows no progress for it */
+              auto: boolean;
+            };
+          };
         };
         /** @description The request doesn't match this operation's parameters or body */
         400: {
@@ -4781,7 +13913,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/inaturalist/observations": {
+  "/inaturalist/ignore": {
     parameters: {
       query?: never;
       header?: never;
@@ -4790,7 +13922,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** POST /inaturalist/observations */
+    /** POST /inaturalist/ignore */
     post: {
       parameters: {
         query?: never;
@@ -4802,8 +13934,7 @@ export interface paths {
         content: {
           "application/json": {
             captureIds: string[];
-            /** Format: uuid */
-            regionId?: string;
+            ignored: boolean;
           };
         };
       };
@@ -4815,11 +13946,7 @@ export interface paths {
           };
           content: {
             "application/json": {
-              observationId: string;
-              editUrl: string;
-              /** @description No GPS was sent: place it on iNaturalist */
-              needsLocation: boolean;
-              needsDate: boolean;
+              updated: number;
             } & {
               [key: string]: unknown;
             };
@@ -4860,80 +13987,20 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/inaturalist/observations/{observationId}/confirm": {
+  "/inaturalist/import": {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    get?: never;
-    put?: never;
-    /** POST /inaturalist/observations/{observationId}/confirm */
-    post: {
-      parameters: {
-        query?: never;
-        header?: never;
-        path: {
-          observationId: string;
-        };
-        cookie?: never;
-      };
-      requestBody?: never;
-      responses: {
-        /** @description Not described yet */
-        200: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content?: never;
-        };
-        /** @description The request doesn't match this operation's parameters or body */
-        400: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            "application/json": components["schemas"]["Error"];
-          };
-        };
-        /** @description Not signed in */
-        401: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            "application/json": components["schemas"]["Error"];
-          };
-        };
-        /** @description Any other error */
-        default: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            "application/json": components["schemas"]["Error"];
-          };
-        };
-      };
-    };
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/inaturalist/pending": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** GET /inaturalist/pending */
+    /** GET /inaturalist/import */
     get: {
       parameters: {
-        query?: never;
+        query?: {
+          /** @description true lists the ignored photos instead, to restore or send them */
+          ignored?: "true" | "false";
+        };
         header?: never;
         path?: never;
         cookie?: never;
@@ -4947,16 +14014,41 @@ export interface paths {
           };
           content: {
             "application/json": {
-              observations: ({
-                observationId: string;
-                scientificName: string;
+              /** @description Ignored sightings not on iNaturalist, shown under Ignored */
+              ignoredCount: number;
+              clusters: ({
+                /** Format: uuid */
+                speciesId: string;
                 commonName: string | null;
-                currentPhotoId: string | null;
-                /** Format: date-time */
-                createdAt: string;
-                confirmedAt: string | null;
-                url: string;
-                editUrl: string;
+                scientificName: string;
+                earliestTakenAt: string | null;
+                latestTakenAt: string | null;
+                /** @description The species has an iNaturalist match, so it can be sent */
+                matched: boolean;
+                taxonClass: string | null;
+                placeName: string | null;
+                geoprivacy: ("open" | "obscured" | "private") | null;
+                point: {
+                  lat: number;
+                  lon: number;
+                } | null;
+                looksLike: {
+                  /** Format: uuid */
+                  id: string;
+                  name: string;
+                  locality: string | null;
+                  geoprivacy: "open" | "obscured" | "private";
+                } | null;
+                captures: ({
+                  /** Format: uuid */
+                  id: string;
+                  currentPhotoId: string | null;
+                  hasLocation: boolean;
+                  /** @description Looks the same as one of your iNaturalist observations: review it */
+                  onInat: boolean;
+                } & {
+                  [key: string]: unknown;
+                })[];
               } & {
                 [key: string]: unknown;
               })[];
@@ -4996,6 +14088,870 @@ export interface paths {
     };
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/matches": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /inaturalist/matches */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description A check is running; the list fills in when it ends */
+              running: boolean;
+              matches: ({
+                /** Format: uuid */
+                captureId: string;
+                photoId: string | null;
+                /** Format: uuid */
+                speciesId: string;
+                commonName: string | null;
+                scientificName: string;
+                takenAt: string | null;
+                observationId: string;
+                observationUrl: string;
+                inatPhotoId: string | null;
+                observedOn: string | null;
+                likeness: ("same" | "probably") | null;
+                evidence: {
+                  taxon: "same" | "finer" | "related";
+                  time: "close" | "sameDay";
+                  size: ("same" | "different") | null;
+                  place: "near" | null;
+                } & {
+                  [key: string]: unknown;
+                };
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/matches/dismiss": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /inaturalist/matches/dismiss */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** Format: uuid */
+            captureId: string;
+            observationId: string;
+            /** @description Undo a Not a match: suggest the pair again */
+            undo?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/matches/link": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /inaturalist/matches/link */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** Format: uuid */
+            captureId: string;
+            observationId: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/matches/unlink": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /inaturalist/matches/unlink */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds?: string[];
+            observationId?: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              unlinked: number;
+              /** @description Photos whose location or date changed since, left as they are */
+              kept: number;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/observations": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /inaturalist/observations */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+            /** Format: uuid */
+            regionId?: string;
+            /** @description The user chose Send anyway: skip the check for an observation already there */
+            ignoreExistingGuard?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              observationId: string;
+              editUrl: string;
+              /** @description No GPS was sent: place it on iNaturalist */
+              needsLocation: boolean;
+              needsDate: boolean;
+              /** @description Already on iNaturalist: linked to that observation, nothing sent */
+              linkedExisting: boolean;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/observations/{observationId}/photos/{photoId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /inaturalist/observations/{observationId}/photos/{photoId} */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          observationId: string;
+          photoId: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description Not described yet */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/observations/batch": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /inaturalist/observations/batch */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds?: string[];
+            groups?: string[][];
+            ignoreExistingGuard?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/observations/batch/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /inaturalist/observations/batch/cancel */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/observations/batch/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /inaturalist/observations/batch/status */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result: {
+                sent: number;
+                /** @description Sightings already on iNaturalist, linked instead of sent again */
+                linked: number;
+                /** @description Sent without a location or date, to finish on iNaturalist */
+                incomplete: number;
+                /** @description Already sent, or the species has no iNaturalist match yet */
+                skipped: number;
+                failed: number;
+                /** @description Sightings held back because they may already be on iNaturalist, to review or send anyway */
+                maybeOnInat: string[][];
+                editUrl: string | null;
+                error: string | null;
+              } | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/pending": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /inaturalist/pending */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              observations: ({
+                observationId: string;
+                /** Format: uuid */
+                speciesId: string;
+                scientificName: string;
+                commonName: string | null;
+                currentPhotoId: string | null;
+                /** Format: date-time */
+                createdAt: string;
+                confirmedAt: string | null;
+                url: string;
+                editUrl: string;
+                photoCount: number;
+                observedAt: string | null;
+                latestAt: string | null;
+                /** @description The observation's photos, earliest first, for previews */
+                photoIds: string[];
+                /** @description The photos' own GPS was sent, not placed on iNaturalist */
+                sentLocation: boolean;
+                /** @description A photo with no date took the one added on iNaturalist */
+                dateFromInat: boolean;
+                /** @description Made on iNaturalist by the user and found there, not sent by Lifer */
+                foundOnInat: boolean;
+                taxonClass: string | null;
+                placeName: string | null;
+                inatPhotoId: string | null;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/pending/check": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /inaturalist/pending/check */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            observationIds?: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              checked: number;
+              completed: number;
+              /** @description Why an observation isn't finished yet, by observation id */
+              notes: {
+                [key: string]: string;
+              };
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
     delete?: never;
     options?: never;
     head?: never;
@@ -5189,6 +15145,146 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/inaturalist/trust": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /inaturalist/trust */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            address: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/library/existing": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /library/existing */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              found: boolean;
+              regions: string[];
+              taxa: string[];
+              /** @description False when the list of downloads couldn't be reached: regions and taxa are unknown, not none */
+              checked: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/library/folder-status": {
     parameters: {
       query?: never;
@@ -5321,6 +15417,73 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/library/inspect-folder": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /library/inspect-folder */
+    get: {
+      parameters: {
+        query: {
+          path: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              liferLibrary: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/library/reimport": {
     parameters: {
       query?: never;
@@ -5346,7 +15509,7 @@ export interface paths {
             path?: string;
             organize?: boolean;
             /**
-             * @description Photos a culling app rejected: hide (the default) recovers them hidden, skip leaves them out, ignore recovers them as usual
+             * @description Photos a culling app rejected: skip leaves them out (the default for a folder path), hide recovers them hidden (the default when rescanning the library), ignore recovers them as usual
              * @enum {unknown}
              */
             cullMarks?: "skip" | "hide" | "ignore";
@@ -5360,6 +15523,79 @@ export interface paths {
             [name: string]: unknown;
           };
           content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/library/reimport/assign": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /library/reimport/assign */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            contentHashes: string[];
+            inatTaxonId: number;
+            scientificName: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              assigned: number;
+            };
+          };
         };
         /** @description The request doesn't match this operation's parameters or body */
         400: {
@@ -5648,6 +15884,257 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/library/watched-folders": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /library/watched-folders */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              folders: {
+                path: string;
+                enabled: boolean;
+                available: boolean;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    /** POST /library/watched-folders */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            path: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    /** PATCH /library/watched-folders */
+    patch: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            path: string;
+            enabled: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    trace?: never;
+  };
+  "/library/watched-folders/remove": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /library/watched-folders/remove */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            path: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/life-list": {
     parameters: {
       query?: never;
@@ -5692,6 +16179,8 @@ export interface paths {
                 firstCollected: string | null;
                 lastPhotographed: string | null;
                 photoCount: number;
+                /** @description True while every photo of the species was filed by Lifer and none is confirmed yet */
+                suggested: boolean;
                 bestRating: number | null;
                 coverPhotoId: string | null;
                 coverImage: string | null;
@@ -5770,6 +16259,10 @@ export interface paths {
               seenOnlySpecies: number;
               photos: number;
               newThisYear: number;
+              /** @description Photos Lifer filed that you haven't confirmed */
+              suggestedCount: number;
+              /** @description Photographed species counted only on suggested photos */
+              suggestedSpecies: number;
               byTaxonClass: {
                 [key: string]: number;
               };
@@ -5822,6 +16315,1449 @@ export interface paths {
     };
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/lightroom/apply": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /lightroom/apply */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    /** POST /lightroom/apply */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            path: string;
+            groups: ("ratings" | "flags" | "keywords" | "locations" | "albums" | "smartAlbums")[];
+            lightroomWins: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/lightroom/preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /lightroom/preview */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    /** POST /lightroom/preview */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            path: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/lightroom/undo": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /lightroom/undo */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              last: {
+                createdAt: string;
+                photos: number;
+                albums: number;
+              } | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    /** POST /lightroom/undo */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/ack": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /moved-photos/ack */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            batchIds?: string[];
+            tripIds?: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/batches": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /moved-photos/batches */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              batches: {
+                id: string;
+                /** Format: date-time */
+                createdAt: string;
+                count: number;
+                undone: boolean;
+                tripName: string | null;
+                folder: string | null;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/batches/{id}/undo": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /moved-photos/batches/{id}/undo */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              undone: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /moved-photos/cancel */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              cancelled: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/look": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /moved-photos/look */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** Format: uuid */
+            tripId?: string;
+            /** @description The user asked: show progress, ignore the auto switch */
+            manual?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              started: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/places": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /moved-photos/places */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            path: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/places/remove": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /moved-photos/places/remove */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            path: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/reviews": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /moved-photos/reviews */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              total: number;
+              items: {
+                originalId: string;
+                /** @description Where Lifer last had the file */
+                path: string;
+                /** @enum {unknown} */
+                reason: "several" | "probably";
+                photoId: string | null;
+                commonName: string | null;
+                scientificName: string | null;
+                candidates: {
+                  path: string;
+                  size: number | null;
+                }[];
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/reviews/{id}/dismiss": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /moved-photos/reviews/{id}/dismiss */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/reviews/{id}/use": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /moved-photos/reviews/{id}/use */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            path: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              batchId: string;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/settings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /moved-photos/settings */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              auto: boolean;
+              library: string;
+              /** @description Trips whose folders are included automatically */
+              tripFolders: number;
+              watched: string[];
+              places: {
+                path: string;
+                available: boolean;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    /** PUT /moved-photos/settings */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            auto: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /moved-photos/status */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result:
+                | ({
+                    missing: number;
+                    relinked: number;
+                    review: number;
+                    proposals: number;
+                    batchId: string | null;
+                    /** @description Folders skipped because Lifer isn't allowed to read them */
+                    unreadableFolders: number;
+                    /** @description Longest event-loop delay during the pass */
+                    maxLagMs: number;
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
+              /** @description Started by the user, so its progress is shown */
+              manual: boolean;
+              tripId: string | null;
+              notice: {
+                batchId: string;
+                count: number;
+              } | null;
+              reviewCount: number;
+              proposals: {
+                tripId: string;
+                tripName: string;
+                folder: string;
+                found: number;
+                total: number;
+                announced: boolean;
+              }[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/trip-folders/{id}/dismiss": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /moved-photos/trip-folders/{id}/dismiss */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/trip-folders/{id}/use": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /moved-photos/trip-folders/{id}/use */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              batchId: string;
+              count: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
     delete?: never;
     options?: never;
     head?: never;
@@ -6158,6 +18094,8 @@ export interface paths {
           content: {
             "application/json": {
               started: boolean;
+              /** @description Packs added to the running download's queue, when one was running */
+              queued?: number;
             } & {
               [key: string]: unknown;
             };
@@ -6172,7 +18110,7 @@ export interface paths {
             "application/json": components["schemas"]["Error"];
           };
         };
-        /** @description Not signed in */
+        /** @description Missing key, or the key lacks the sync scope */
         401: {
           headers: {
             [name: string]: unknown;
@@ -6234,6 +18172,8 @@ export interface paths {
           content: {
             "application/json": {
               started: boolean;
+              /** @description Packs added to the running download's queue, when one was running */
+              queued?: number;
               packIds: string[];
             } & {
               [key: string]: unknown;
@@ -6367,6 +18307,65 @@ export interface paths {
           content: {
             "application/json": {
               running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result:
+                | ({
+                    packsApplied: number;
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
+              packIds: string[];
+              currentPack: string | null;
+              lanes: {
+                download: {
+                  currentItem: string | null;
+                  processed: number;
+                  total: number;
+                  downloadedBytes: number | null;
+                  totalBytes: number | null;
+                } & {
+                  [key: string]: unknown;
+                };
+                setup: {
+                  currentItem: string | null;
+                  processed: number;
+                  total: number;
+                  downloadedBytes: number | null;
+                  totalBytes: number | null;
+                  step: ("checklist" | "hotspots") | null;
+                } & {
+                  [key: string]: unknown;
+                };
+                photos: {
+                  currentItem: string | null;
+                  processed: number;
+                  total: number;
+                  downloadedBytes: number | null;
+                  totalBytes: number | null;
+                } & {
+                  [key: string]: unknown;
+                };
+              } & {
+                [key: string]: unknown;
+              };
+              catalogProgress?:
+                | ({
+                    processed: number;
+                    total: number;
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
             } & {
               [key: string]: unknown;
             };
@@ -6381,7 +18380,7 @@ export interface paths {
             "application/json": components["schemas"]["Error"];
           };
         };
-        /** @description Not signed in */
+        /** @description Missing key, or the key lacks the sync scope */
         401: {
           headers: {
             [name: string]: unknown;
@@ -6459,6 +18458,327 @@ export interface paths {
               } & {
                 [key: string]: unknown;
               })[];
+              freeBytes: number | null;
+              /** @description No copy of the published index yet (none fetched, none saved): installed packs come from this computer and nothing else is offered */
+              indexUnavailable?: boolean;
+              /**
+               * @description The connection to the index host: slow after a timeout (downloads still work, just slower), offline only when it couldn't be reached at all
+               * @enum {unknown}
+               */
+              remote?: "online" | "slow" | "offline";
+              indexProgress?: {
+                receivedBytes: number;
+                totalBytes: number | null;
+              } & {
+                [key: string]: unknown;
+              };
+              /** @description A newer index is still on its way: ask again shortly */
+              indexRefreshing?: boolean;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/offline-packs/maps/{code}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** DELETE /offline-packs/maps/{code} */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          code: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/offline-packs/maps/download": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /offline-packs/maps/download */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            code: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              started: boolean;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/offline-packs/maps/download/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /offline-packs/maps/download/cancel */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              cancelled: boolean;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/offline-packs/maps/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /offline-packs/maps/status */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result:
+                | ({
+                    code: string;
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
+              code: string | null;
+              /** @description Whether any detailed maps are published */
+              available: boolean;
+              indexError: string | null;
+              extracts: ({
+                code: string;
+                name: string;
+                sizeBytes: number;
+                downloaded: boolean;
+                updateAvailable: boolean;
+              } & {
+                [key: string]: unknown;
+              })[];
+              freeBytes: number | null;
             } & {
               [key: string]: unknown;
             };
@@ -6533,9 +18853,8 @@ export interface paths {
           };
           content: {
             "application/json": {
-              deletedSpeciesFiles: number;
-              keptSpeciesCount: number;
-              regions: string[];
+              started: boolean;
+              packIds: string[];
             } & {
               [key: string]: unknown;
             };
@@ -6737,6 +19056,93 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/offline-packs/removal-status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /offline-packs/removal-status */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result:
+                | ({
+                    deletedSpeciesFiles: number;
+                    keptSpeciesCount: number;
+                    regions: string[];
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
+              packIds: string[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/offline-packs/updates-summary": {
     parameters: {
       query?: never;
@@ -6867,6 +19273,828 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/opendata/v1/attribution": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Credits for the open reference vectors
+     * @description The same items as GET /opendata/v1/gallery-vectors without the vectors: `photographer`, `license` and `sourceUrl` of each photo, paged the same way.
+     */
+    get: {
+      parameters: {
+        query?: {
+          /** @description Only vectors added after this time (an `updatedAt` from an earlier call) */
+          since?: string;
+          /** @description `nextCursor` from the previous page */
+          cursor?: string;
+          /** @description Page size, 1-500 (default 100) */
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: ({
+                /** Format: uuid */
+                speciesId: string;
+                scientificName: string;
+                /** @description The photo the vector was computed from */
+                photoUrl: string;
+                /** @description CC0, Public Domain Mark (pd) or CC BY, as stored (may carry a version) */
+                license: string;
+                photographer: string;
+                /** @description The photo's page, or the photo itself when its page isn't known */
+                sourceUrl: string;
+                /** Format: date-time */
+                updatedAt: string;
+              } & {
+                [key: string]: unknown;
+              })[];
+              nextCursor: string | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the opendata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/opendata/v1/gallery-vectors": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Openly licensed reference vectors
+     * @description Gallery photo vectors whose photos are CC0, Public Domain Mark or CC BY, oldest first, each with `embedding`, `license`, `photographer` and `sourceUrl`. Page with `nextCursor`; pass the last `updatedAt` as `since` to fetch only new ones later. 409 `model_mismatch` when `space` isn't the model Lifer matches in.
+     */
+    get: {
+      parameters: {
+        query?: {
+          /** @description The vectors' model version (default: the one Lifer matches in) */
+          space?: string;
+          /** @description Only vectors added after this time (an `updatedAt` from an earlier call) */
+          since?: string;
+          /** @description `nextCursor` from the previous page */
+          cursor?: string;
+          /** @description Page size, 1-500 (default 100) */
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              model: string;
+              dimension: number;
+              items: ({
+                /** Format: uuid */
+                speciesId: string;
+                scientificName: string;
+                /** @description The photo the vector was computed from */
+                photoUrl: string;
+                /** @description CC0, Public Domain Mark (pd) or CC BY, as stored (may carry a version) */
+                license: string;
+                photographer: string;
+                /** @description The photo's page, or the photo itself when its page isn't known */
+                sourceUrl: string;
+                /** Format: date-time */
+                updatedAt: string;
+                /** @description L2-normalised */
+                embedding: number[];
+              } & {
+                [key: string]: unknown;
+              })[];
+              nextCursor: string | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the opendata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/opendata/v1/regions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Regions installed in Lifer
+     * @description The regions whose species lists the user has downloaded: `id`, `name`, `countryCode`, `bounds` (the box around the region's outline, null when unknown) and `speciesCount`.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              regions: ({
+                /** Format: uuid */
+                id: string;
+                name: string;
+                countryCode: string | null;
+                parentId: string | null;
+                bounds:
+                  | ({
+                      minLat: number;
+                      minLon: number;
+                      maxLat: number;
+                      maxLon: number;
+                    } & {
+                      [key: string]: unknown;
+                    })
+                  | null;
+                speciesCount: number;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the opendata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/opendata/v1/regions/{id}/checklist": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * A region's species list
+     * @description Every species on the region's list with `scientificName`, `commonName`, `taxonClass`, `ebirdCode`, `tier`, `isVagrant` and `sensitiveByDefault`. 404 for an unknown region.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              regionId: string;
+              name: string;
+              items: ({
+                scientificName: string;
+                commonName: string | null;
+                taxonClass: string;
+                ebirdCode: string | null;
+                tier: string | null;
+                isVagrant: boolean;
+                /** @description Threatened on the IUCN Red List or on eBird's sensitive list */
+                sensitiveByDefault: boolean;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the opendata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/opendata/v1/regions/at": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Installed regions holding a point
+     * @description Give `lat` and `lon`. Returns the installed regions that contain the point, most specific first (a province before its country). Empty when none is installed there.
+     */
+    get: {
+      parameters: {
+        query: {
+          /** @description Latitude in degrees */
+          lat: number;
+          /** @description Longitude in degrees */
+          lon: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              regions: ({
+                /** Format: uuid */
+                id: string;
+                name: string;
+                countryCode: string | null;
+                parentId: string | null;
+                bounds:
+                  | ({
+                      minLat: number;
+                      minLon: number;
+                      maxLat: number;
+                      maxLon: number;
+                    } & {
+                      [key: string]: unknown;
+                    })
+                  | null;
+                speciesCount: number;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the opendata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/opendata/v1/regions/tree": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Every region in the catalog
+     * @description Installed or not, for browsing and searching by name: `id`, `name`, `parentId`, `countryCode`, `aliases`, `hasChildren`, `hasChecklist` and `installed` (whether it is among GET /opendata/v1/regions). Countries come first, then each level by name.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              regions: ({
+                /** Format: uuid */
+                id: string;
+                name: string;
+                parentId: string | null;
+                countryCode: string | null;
+                aliases: string[];
+                hasChildren: boolean;
+                /** @description Whether GET /regions/:id/checklist has species for it */
+                hasChecklist: boolean;
+                /** @description Whether it is among GET /regions */
+                installed: boolean;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the opendata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/opendata/v1/species/names": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Lifer's names for scientific names
+     * @description Send up to 2000 `scientificNames`; each one Lifer knows, directly or as a superseded name, comes back with its `canonicalScientificName`, `commonName`, `ebirdCode` and `abaCode`. Names Lifer doesn't know are left out. No user data.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            scientificNames: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              names: ({
+                /** @description The name asked for */
+                scientificName: string;
+                /** @description Lifer's current scientific name (differs for a synonym) */
+                canonicalScientificName: string;
+                commonName: string | null;
+                ebirdCode: string | null;
+                abaCode: string | null;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the opendata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/opendata/v1/species/rank": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Species ranked for one photo
+     * @description Body `{ model, regionId, vectors, takenAt?, limit? }`: up to 4 image embeddings of one subject from the model named in `model`, ranked with Lifer's own matching within `regionId`'s list (null for the user's own species), best first, `limit` 1-20. Uses openly licensed reference photos and the user's own photos only, with no tier or seasonality weighting, so weigh abundance yourself. Empty when the user turned species suggestions off. 409 `model_mismatch` when `model` isn't the one Lifer ranks in.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @description The vectors' model version; must be the one Lifer ranks in */
+            model: string;
+            regionId: string | null;
+            /** @description L2-normalised image vectors of one subject (a crop, and the whole photo when unsure) */
+            vectors: number[][];
+            takenAt?: string | null;
+            limit?: number;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              model: string;
+              suggestions: ({
+                scientificName: string;
+                commonName: string | null;
+                /** @description Raw blended score; only differences between candidates mean anything */
+                score: number;
+                matchPercent: number | null;
+                confident: boolean;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the opendata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/opendata/v1/species/rank-batch": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Species ranked for many photos at once
+     * @description POST /opendata/v1/species/rank for up to 16 subjects in one request: `items` each hold `vectors` and `takenAt`, sharing one `model`, `regionId` and `limit`. `results` come back in the same order, each exactly what the single route answers for that item. 409 `model_mismatch` when `model` isn't the one Lifer ranks in.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @description The vectors' model version; must be the one Lifer ranks in */
+            model: string;
+            regionId: string | null;
+            limit?: number;
+            /** @description One subject per item; results come back in the same order */
+            items: {
+              /** @description L2-normalised image vectors of one subject (a crop, and the whole photo when unsure) */
+              vectors: number[][];
+              takenAt?: string | null;
+            }[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              model: string;
+              results: ({
+                suggestions: ({
+                  scientificName: string;
+                  commonName: string | null;
+                  /** @description Raw blended score; only differences between candidates mean anything */
+                  score: number;
+                  matchPercent: number | null;
+                  confident: boolean;
+                } & {
+                  [key: string]: unknown;
+                })[];
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the opendata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/originals/{id}/download": {
     parameters: {
       query?: never;
@@ -6892,6 +20120,414 @@ export interface paths {
             [name: string]: unknown;
           };
           content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/originals/{id}/health/ignore": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /originals/{id}/health/ignore */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/originals/editor-paths": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /originals/editor-paths */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              paths: string[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/originals/health": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /originals/health */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              enabled: boolean;
+              running: boolean;
+              processed: number | null;
+              total: number | null;
+              lastCheckedAt: string | null;
+              checkedCount: number;
+              problemCount: number;
+              notChecked: {
+                label: string;
+                count: number;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    /** PUT /originals/health */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            enabled: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/originals/health/ignore-all": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /originals/health/ignore-all */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ignored: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/originals/health/problems": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /originals/health/problems */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              total: number;
+              items: {
+                id: string;
+                path: string;
+                problem: "changed" | "unreadable" | "missing";
+                photoId: string | null;
+                captureId: string | null;
+                speciesId: string | null;
+                commonName: string | null;
+                scientificName: string | null;
+              }[];
+            };
+          };
         };
         /** @description The request doesn't match this operation's parameters or body */
         400: {
@@ -7001,6 +20637,407 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/originals/reveal-samples": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /originals/reveal-samples */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              roots: {
+                root: string;
+                relativePath: string;
+                size: number;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/p/{token}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /p/{token} */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          token: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description Not described yet */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/p/{token}/life-list": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /p/{token}/life-list */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          token: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description Not described yet */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/p/{token}/photos/{file}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /p/{token}/photos/{file} */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          token: string;
+          file: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description Not described yet */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/photos/{id}/audio": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Sound recording file (supports Range requests) */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description The file */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "audio/*": string;
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/photos/{id}/card": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Species card image (WebP)
+     * @description A square cut to a card crop and scaled to `w` pixels, as the species cards show it.
+     */
+    get: {
+      parameters: {
+        query: {
+          /** @description Left edge, percent of the photo's width */
+          x: number;
+          /** @description Top edge, percent of the photo's width */
+          y: number;
+          /** @description Side, percent of the photo's width */
+          size: number;
+          /** @description Square side in pixels */
+          w?: number;
+        };
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description The file */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "image/webp": string;
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/photos/{id}/display": {
     parameters: {
       query?: never;
@@ -7027,6 +21064,180 @@ export interface paths {
           };
           content: {
             "image/webp": string;
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/photos/{id}/frame": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Save one frame of a video as a new photo
+     * @description Send `atSeconds`. The frame is saved at the video's full size and filed like any imported photo, with the video's species, region, trip and place. 200 with the existing photo for an exact copy you already have. 400 when no frame can be read at that time, 404 when the photo isn't a video, 409 when its drive isn't connected.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            atSeconds: number;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              captureId?: string;
+              photoId?: string | null;
+              duplicate?: boolean;
+              /** @constant */
+              skipped?: "rejected";
+              /** @description sha256 of the file you already have (duplicate) */
+              sha256?: string;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description OK */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              captureId: string;
+              photoId: string | null;
+              hidden: boolean;
+              linkedExisting?: boolean;
+              /** @description sha256 (hex) of the stored file's bytes, to verify the upload */
+              sha256: string;
+              /** @description sha256 of the RAW sent with the photo, when one was */
+              rawSha256?: string;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/photos/{id}/full": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Full-resolution JPEG
+     * @description The JPEG original, or a JPEG rendered from the other original or a RAW's preview, kept for an hour. 409 when its drive is not connected.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description The file */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "image/jpeg": string;
           };
         };
         /** @description The request doesn't match this operation's parameters or body */
@@ -7270,6 +21481,71 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/photos/{id}/phone": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Phone full-screen image, 2,048px long edge (WebP) */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description The file */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "image/webp": string;
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/photos/{id}/thumb": {
     parameters: {
       query?: never;
@@ -7400,6 +21676,3317 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/pinned-filters": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Pinned Gallery filters, in order */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              pins: ({
+                id: string;
+                name: string;
+                /** @description The Gallery filters and search a smart album matches */
+                rules: {
+                  /** @constant */
+                  version: 2;
+                  query: {
+                    /** @description Comma-separated taxon classes */
+                    taxa?: string;
+                    /** @description Region, or "uncategorized" for photos with no region */
+                    regionId?: (string | "uncategorized")[];
+                    /** @description Taken on or after (YYYY-MM-DD) */
+                    dateFrom?: string;
+                    /** @description Taken on or before (YYYY-MM-DD) */
+                    dateTo?: string;
+                    /** @description Only photos with this tag */
+                    tag?: string[];
+                    /** @description Only photos with this place name */
+                    place?: string[];
+                    /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+                    bbox?: string;
+                    /**
+                     * Format: uuid
+                     * @description Only photos whose coordinates fall inside this saved place
+                     */
+                    spotId?: string;
+                    /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+                    orRegionOnly?: string[];
+                    /** @description Only photos in this trip */
+                    tripId?: string[];
+                    /** @description Only photos in this album */
+                    albumId?: string[];
+                    /**
+                     * Format: uuid
+                     * @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets
+                     */
+                    similarTo?: string;
+                    /**
+                     * @description 1 for photos with no capture date only
+                     * @enum {unknown}
+                     */
+                    missingDate?: "0" | "1";
+                    /**
+                     * @description 1 for photos with no coordinates only
+                     * @enum {unknown}
+                     */
+                    missingCoordinates?: "0" | "1";
+                    /** @description Only species of this rarity tier */
+                    tier?: ("legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated")[];
+                    /**
+                     * Format: uuid
+                     * @description With tier: the region whose local tier counts
+                     */
+                    tierRegionId?: string;
+                    /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+                    action?: string;
+                    /** @description Only photos with one of these comma-separated framings (close, environmental) */
+                    framing?: string;
+                    /**
+                     * @deprecated
+                     * @description Older single shot type: flight and behavior are an action, portrait and environmental a framing
+                     * @enum {unknown}
+                     */
+                    shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+                    /**
+                     * @description 1 for 5-star photos only (the same as ratingMin=5)
+                     * @enum {unknown}
+                     */
+                    onlyTopRated?: "0" | "1";
+                    /**
+                     * @description Only photos rated at least this many stars
+                     * @enum {unknown}
+                     */
+                    ratingMin?: "1" | "2" | "3" | "4" | "5";
+                    /**
+                     * @description Only photos rated at most this many stars
+                     * @enum {unknown}
+                     */
+                    ratingMax?: "1" | "2" | "3" | "4" | "5";
+                    /**
+                     * @description 1 for photos with no star rating only (not with ratingMin or ratingMax)
+                     * @enum {unknown}
+                     */
+                    unrated?: "0" | "1";
+                    /**
+                     * @description 1 for photos not yet sent to iNaturalist
+                     * @enum {unknown}
+                     */
+                    notOnInat?: "0" | "1";
+                    /** @description Only photos with at least this many animals */
+                    animalsMin?: string;
+                    /** @description Only photos with at most this many animals */
+                    animalsMax?: string;
+                    /**
+                     * @description 1 for species cover photos only
+                     * @enum {unknown}
+                     */
+                    onlyFeatured?: "0" | "1";
+                    /**
+                     * @description 1 for videos only
+                     * @enum {unknown}
+                     */
+                    onlyVideo?: "0" | "1";
+                    /**
+                     * @description 1 for sound recordings only
+                     * @enum {unknown}
+                     */
+                    onlyAudio?: "0" | "1";
+                    /**
+                     * @description 1 to leave videos out
+                     * @enum {unknown}
+                     */
+                    excludeVideo?: "0" | "1";
+                    /**
+                     * @description 1 for photos with a RAW original only (RAW-only photos included)
+                     * @enum {unknown}
+                     */
+                    onlyHasRaw?: "0" | "1";
+                    /**
+                     * @description 1 to leave out edited photos that have a RAW original (RAW-only photos stay)
+                     * @enum {unknown}
+                     */
+                    excludeHasRaw?: "0" | "1";
+                    /**
+                     * @description 0 to leave out photos whose only original is a RAW
+                     * @enum {unknown}
+                     */
+                    includeRaw?: "0" | "1";
+                    /**
+                     * @description 1 for only the photos whose only original is a RAW
+                     * @enum {unknown}
+                     */
+                    onlyRaw?: "0" | "1";
+                    /**
+                     * @description 1 for only the photos imported hidden because a culling app rejected them
+                     * @enum {unknown}
+                     */
+                    hidden?: "0" | "1";
+                    /** @description The Gallery's search text */
+                    q?: string;
+                  };
+                };
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the album.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    /**
+     * Replace the pinned Gallery filters
+     * @description Each pin is a name and the same `rules` a smart album takes (version 2, or 1 which is upgraded). The whole list is replaced, so adding, renaming, reordering and unpinning are one call. Up to 50 pins, names up to 80 characters.
+     */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            pins: {
+              id: string;
+              name: string;
+              /** @description The Gallery filters and search a smart album matches */
+              rules: {
+                version: 1 | 2;
+                query: {
+                  /** @description Comma-separated taxon classes */
+                  taxa?: string;
+                  regionId?: string[] | string;
+                  /** @description Taken on or after (YYYY-MM-DD) */
+                  dateFrom?: string;
+                  /** @description Taken on or before (YYYY-MM-DD) */
+                  dateTo?: string;
+                  tag?: string[] | string;
+                  place?: string[] | string;
+                  /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+                  bbox?: string;
+                  /**
+                   * Format: uuid
+                   * @description Only photos whose coordinates fall inside this saved place
+                   */
+                  spotId?: string;
+                  /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+                  orRegionOnly?: string[];
+                  tripId?: string[] | string;
+                  albumId?: string[] | string;
+                  /**
+                   * Format: uuid
+                   * @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets
+                   */
+                  similarTo?: string;
+                  /**
+                   * @description 1 for photos with no capture date only
+                   * @enum {unknown}
+                   */
+                  missingDate?: "0" | "1";
+                  /**
+                   * @description 1 for photos with no coordinates only
+                   * @enum {unknown}
+                   */
+                  missingCoordinates?: "0" | "1";
+                  tier?: string[] | string;
+                  /**
+                   * Format: uuid
+                   * @description With tier: the region whose local tier counts
+                   */
+                  tierRegionId?: string;
+                  /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+                  action?: string;
+                  /** @description Only photos with one of these comma-separated framings (close, environmental) */
+                  framing?: string;
+                  /**
+                   * @deprecated
+                   * @description Older single shot type: flight and behavior are an action, portrait and environmental a framing
+                   * @enum {unknown}
+                   */
+                  shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+                  /**
+                   * @description 1 for 5-star photos only (the same as ratingMin=5)
+                   * @enum {unknown}
+                   */
+                  onlyTopRated?: "0" | "1";
+                  /**
+                   * @description Only photos rated at least this many stars
+                   * @enum {unknown}
+                   */
+                  ratingMin?: "1" | "2" | "3" | "4" | "5";
+                  /**
+                   * @description Only photos rated at most this many stars
+                   * @enum {unknown}
+                   */
+                  ratingMax?: "1" | "2" | "3" | "4" | "5";
+                  /**
+                   * @description 1 for photos with no star rating only (not with ratingMin or ratingMax)
+                   * @enum {unknown}
+                   */
+                  unrated?: "0" | "1";
+                  /**
+                   * @description 1 for photos not yet sent to iNaturalist
+                   * @enum {unknown}
+                   */
+                  notOnInat?: "0" | "1";
+                  /** @description Only photos with at least this many animals */
+                  animalsMin?: string;
+                  /** @description Only photos with at most this many animals */
+                  animalsMax?: string;
+                  /**
+                   * @description 1 for species cover photos only
+                   * @enum {unknown}
+                   */
+                  onlyFeatured?: "0" | "1";
+                  /**
+                   * @description 1 for videos only
+                   * @enum {unknown}
+                   */
+                  onlyVideo?: "0" | "1";
+                  /**
+                   * @description 1 for sound recordings only
+                   * @enum {unknown}
+                   */
+                  onlyAudio?: "0" | "1";
+                  /**
+                   * @description 1 to leave videos out
+                   * @enum {unknown}
+                   */
+                  excludeVideo?: "0" | "1";
+                  /**
+                   * @description 1 for photos with a RAW original only (RAW-only photos included)
+                   * @enum {unknown}
+                   */
+                  onlyHasRaw?: "0" | "1";
+                  /**
+                   * @description 1 to leave out edited photos that have a RAW original (RAW-only photos stay)
+                   * @enum {unknown}
+                   */
+                  excludeHasRaw?: "0" | "1";
+                  /**
+                   * @description 0 to leave out photos whose only original is a RAW
+                   * @enum {unknown}
+                   */
+                  includeRaw?: "0" | "1";
+                  /**
+                   * @description 1 for only the photos whose only original is a RAW
+                   * @enum {unknown}
+                   */
+                  onlyRaw?: "0" | "1";
+                  /**
+                   * @description 1 for only the photos imported hidden because a culling app rejected them
+                   * @enum {unknown}
+                   */
+                  hidden?: "0" | "1";
+                  /** @description The Gallery's search text */
+                  q?: string;
+                };
+              };
+            }[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              pins: ({
+                id: string;
+                name: string;
+                /** @description The Gallery filters and search a smart album matches */
+                rules: {
+                  /** @constant */
+                  version: 2;
+                  query: {
+                    /** @description Comma-separated taxon classes */
+                    taxa?: string;
+                    /** @description Region, or "uncategorized" for photos with no region */
+                    regionId?: (string | "uncategorized")[];
+                    /** @description Taken on or after (YYYY-MM-DD) */
+                    dateFrom?: string;
+                    /** @description Taken on or before (YYYY-MM-DD) */
+                    dateTo?: string;
+                    /** @description Only photos with this tag */
+                    tag?: string[];
+                    /** @description Only photos with this place name */
+                    place?: string[];
+                    /** @description Only photos with coordinates in this box: west,south,east,north in degrees */
+                    bbox?: string;
+                    /**
+                     * Format: uuid
+                     * @description Only photos whose coordinates fall inside this saved place
+                     */
+                    spotId?: string;
+                    /** @description With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list */
+                    orRegionOnly?: string[];
+                    /** @description Only photos in this trip */
+                    tripId?: string[];
+                    /** @description Only photos in this album */
+                    albumId?: string[];
+                    /**
+                     * Format: uuid
+                     * @description Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets
+                     */
+                    similarTo?: string;
+                    /**
+                     * @description 1 for photos with no capture date only
+                     * @enum {unknown}
+                     */
+                    missingDate?: "0" | "1";
+                    /**
+                     * @description 1 for photos with no coordinates only
+                     * @enum {unknown}
+                     */
+                    missingCoordinates?: "0" | "1";
+                    /** @description Only species of this rarity tier */
+                    tier?: ("legendary" | "rare" | "uncommon" | "occasional" | "common" | "unrated")[];
+                    /**
+                     * Format: uuid
+                     * @description With tier: the region whose local tier counts
+                     */
+                    tierRegionId?: string;
+                    /** @description Only photos with one of these comma-separated actions (flying, behavior, resting), as Stats' Photography DNA reads them */
+                    action?: string;
+                    /** @description Only photos with one of these comma-separated framings (close, environmental) */
+                    framing?: string;
+                    /**
+                     * @deprecated
+                     * @description Older single shot type: flight and behavior are an action, portrait and environmental a framing
+                     * @enum {unknown}
+                     */
+                    shotKind?: "flight" | "behavior" | "portrait" | "environmental";
+                    /**
+                     * @description 1 for 5-star photos only (the same as ratingMin=5)
+                     * @enum {unknown}
+                     */
+                    onlyTopRated?: "0" | "1";
+                    /**
+                     * @description Only photos rated at least this many stars
+                     * @enum {unknown}
+                     */
+                    ratingMin?: "1" | "2" | "3" | "4" | "5";
+                    /**
+                     * @description Only photos rated at most this many stars
+                     * @enum {unknown}
+                     */
+                    ratingMax?: "1" | "2" | "3" | "4" | "5";
+                    /**
+                     * @description 1 for photos with no star rating only (not with ratingMin or ratingMax)
+                     * @enum {unknown}
+                     */
+                    unrated?: "0" | "1";
+                    /**
+                     * @description 1 for photos not yet sent to iNaturalist
+                     * @enum {unknown}
+                     */
+                    notOnInat?: "0" | "1";
+                    /** @description Only photos with at least this many animals */
+                    animalsMin?: string;
+                    /** @description Only photos with at most this many animals */
+                    animalsMax?: string;
+                    /**
+                     * @description 1 for species cover photos only
+                     * @enum {unknown}
+                     */
+                    onlyFeatured?: "0" | "1";
+                    /**
+                     * @description 1 for videos only
+                     * @enum {unknown}
+                     */
+                    onlyVideo?: "0" | "1";
+                    /**
+                     * @description 1 for sound recordings only
+                     * @enum {unknown}
+                     */
+                    onlyAudio?: "0" | "1";
+                    /**
+                     * @description 1 to leave videos out
+                     * @enum {unknown}
+                     */
+                    excludeVideo?: "0" | "1";
+                    /**
+                     * @description 1 for photos with a RAW original only (RAW-only photos included)
+                     * @enum {unknown}
+                     */
+                    onlyHasRaw?: "0" | "1";
+                    /**
+                     * @description 1 to leave out edited photos that have a RAW original (RAW-only photos stay)
+                     * @enum {unknown}
+                     */
+                    excludeHasRaw?: "0" | "1";
+                    /**
+                     * @description 0 to leave out photos whose only original is a RAW
+                     * @enum {unknown}
+                     */
+                    includeRaw?: "0" | "1";
+                    /**
+                     * @description 1 for only the photos whose only original is a RAW
+                     * @enum {unknown}
+                     */
+                    onlyRaw?: "0" | "1";
+                    /**
+                     * @description 1 for only the photos imported hidden because a culling app rejected them
+                     * @enum {unknown}
+                     */
+                    hidden?: "0" | "1";
+                    /** @description The Gallery's search text */
+                    q?: string;
+                  };
+                };
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the album.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/places": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Every place name on your photos
+     * @description With photo counts and each name's most common region. Names in regionId come first.
+     */
+    get: {
+      parameters: {
+        query?: {
+          /** @description Names containing this, ignoring case and accents */
+          q?: string;
+          /** @description Names used in this region or inside it come first */
+          regionId?: string;
+          /** @description At most this many; all of them when left out */
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              places: {
+                name: string;
+                count: number;
+                regionId: string | null;
+                regionName: string | null;
+                countryName: string | null;
+                lastUsedAt: string;
+                inRegion: boolean;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/places/apply": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /places/apply */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            places: {
+              captureIds: string[];
+              /**
+               * Format: uuid
+               * @description A saved spot: its name, region, and centre for photos without a point
+               */
+              spotId?: string;
+              lat?: number;
+              lon?: number;
+              /**
+               * Format: uuid
+               * @description Alone: only the region. With lat and lon: the point's region
+               */
+              regionId?: string;
+              /** @description Written instead of the spot's name */
+              label?: string;
+            }[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              applied: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/places/file-moves/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Progress of files moving after a place rename */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result: unknown | null;
+              moved: number;
+              skipped: number;
+              failed: number;
+              lastError: string | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/places/locate": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /places/locate */
+    get: {
+      parameters: {
+        query?: {
+          q?: string;
+          /** @description lat,lon of the photos */
+          near?: string;
+          /** @description With no search: the next page of All places only */
+          offset?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              places: ({
+                /** @description town: from the offline town list, listed after spots and regions */
+                kind: "spot" | "region" | "town";
+                /** @description A spot's or region's uuid; a town's GeoNames id */
+                id: string;
+                name: string;
+                detail: string | null;
+                lat: number;
+                lon: number;
+                regionId: string | null;
+                bbox: number[] | null;
+                group: ("nearby" | "recent" | "all") | null;
+                locality: string | null;
+                geoprivacy: ("open" | "obscured" | "private") | null;
+                radiusM: number | null;
+                distanceM: number | null;
+                /** @description `near` is inside the spot, or within 150 m of a small one */
+                recognised: boolean;
+              } & {
+                [key: string]: unknown;
+              })[];
+              nextOffset: number | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/places/remove": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Take a place name off every photo
+     * @description Their regions stay.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            name: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              updated: number;
+              /** @description Files are moving to their new folders; see /places/file-moves/status */
+              movingFiles: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/places/rename": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Rename a place name on every photo
+     * @description Into a name already in use, the two merge.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            from: string;
+            to: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              updated: number;
+              /** @description Files are moving to their new folders; see /places/file-moves/status */
+              movingFiles: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/places/send-hints": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /places/send-hints */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description The photos with no point */
+              withoutLocation: string[];
+              geoprivacy: ("open" | "obscured" | "private") | null;
+              point: {
+                lat: number;
+                lon: number;
+              } | null;
+              looksLike: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                locality: string | null;
+                geoprivacy: "open" | "obscured" | "private";
+              } | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/places/suggested": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /places/suggested */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              suggestions: {
+                /** @description The suggestion's anchor, for dismissing it */
+                cell: string;
+                lat: number;
+                lon: number;
+                radiusM: number;
+                /** @description Photos in the group */
+                count: number;
+                /** @description Different days they were taken on */
+                days: number;
+                town: string | null;
+                locality: string | null;
+              }[];
+              /** @description A fresh pass is running; ask again shortly */
+              updating: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/places/suggested/dismiss": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /places/suggested/dismiss */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            cell: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/places/suggested/restore": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /places/suggested/restore */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            cell: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/apps/{pluginId}/host-preference": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /plugins/v1/apps/{pluginId}/host-preference */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          pluginId: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              openInHost: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    /** PUT /plugins/v1/apps/{pluginId}/host-preference */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          pluginId: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            openInHost: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              openInHost: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/apps/{pluginId}/host-preference/request": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /plugins/v1/apps/{pluginId}/host-preference/request */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          pluginId: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            openInHost: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              granted: boolean;
+              openInHost: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/consents": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /plugins/v1/consents */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              consents: {
+                id: string;
+                kind: "pair" | "hostPreference";
+                openInHost?: boolean;
+                pluginId: string;
+                name: string;
+                scopes: string[];
+                code: string | null;
+                /** Format: date-time */
+                expiresAt: string;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/consents/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /plugins/v1/consents/{id} */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            allow: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/grants": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /plugins/v1/grants */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              grants: {
+                pluginId: string;
+                name: string;
+                scopes: string[];
+                /** Format: date-time */
+                expiresAt: string;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    /** POST /plugins/v1/grants */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            pluginId: string;
+            name: string;
+            scopes: ("userdata.read" | "userdata.write" | "imports.write" | "opendata.read" | "host.preference")[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              pluginId: string;
+              name: string;
+              scopes: string[];
+              /** Format: date-time */
+              expiresAt: string;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/grants/{pluginId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** DELETE /plugins/v1/grants/{pluginId} */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          pluginId: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/host-preference": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Whether the app opens inside Lifer
+     * @description `openInHost` for the connected app behind the key. Desktop app only (404 on a server); 403 for a key the user made by hand.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              openInHost: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the host.preference scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/host-preference/request": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Ask to open inside Lifer, or to stop
+     * @description Body `{ openInHost }`. Lifer asks the person in its window and the answer waits for their choice: `granted` and the `openInHost` now in effect. Asking for what's already set answers at once. Desktop app only; at most 10 calls a minute per app.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            openInHost: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              granted: boolean;
+              openInHost: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the host.preference scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/host-tickets/{pluginId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** PUT /plugins/v1/host-tickets/{pluginId} */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          pluginId: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            ticketHash: string;
+            name: string;
+            scopes: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/host-tickets/{pluginId}/{ticketHash}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** DELETE /plugins/v1/host-tickets/{pluginId}/{ticketHash} */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          pluginId: string;
+          ticketHash: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/host/open": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Bring Lifer forward showing the app
+     * @description Body `{ pluginId }`, the app's own id: an app opens only itself, and only once the person allowed opening inside Lifer (403 otherwise). `ok` false with `reason` `busy` (a dialog is waiting), `not_ready` (the window didn't show the app in time) or `no_frame` (Lifer's window isn't open on this library). Desktop app only; at most 10 calls a minute per app.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            pluginId: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json":
+              | {
+                  /** @constant */
+                  ok: true;
+                }
+              | {
+                  /** @constant */
+                  ok: false;
+                  reason: "busy" | "not_ready" | "no_frame";
+                };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the host.preference scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/host/opens": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /plugins/v1/host/opens */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              opens: {
+                id: string;
+                pluginId: string;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/host/opens/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /plugins/v1/host/opens/{id} */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            ok: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/host/opens/{id}/claim": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /plugins/v1/host/opens/{id}/claim */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/pair": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /plugins/v1/pair */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            pluginId: string;
+            scopes: ("userdata.read" | "userdata.write" | "imports.write" | "opendata.read" | "host.preference")[];
+            ticket?: string;
+            code?: string;
+            name?: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              key: string;
+              scopes: string[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/pair-codes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /plugins/v1/pair-codes */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              code: string;
+              /** Format: date-time */
+              expiresAt: string;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/pair-requests": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /plugins/v1/pair-requests */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            pluginId: string;
+            name: string;
+            scopes: ("userdata.read" | "userdata.write" | "imports.write" | "opendata.read" | "host.preference")[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              id: string;
+              code: string;
+              /** Format: date-time */
+              expiresAt: string;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/plugins/v1/pair-requests/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /plugins/v1/pair-requests/{id} */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              status: "pending" | "approved" | "denied" | "expired";
+              key?: string;
+              scopes?: string[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/portfolio": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /portfolio */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              spec: {
+                title: string;
+                albumIds: string[];
+                speciesIds: string[];
+                lifeList: boolean;
+              };
+              shared: boolean;
+              sharedAt: string | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    /** PUT /portfolio */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            title: string;
+            albumIds: string[];
+            speciesIds: string[];
+            lifeList: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/portfolio/export": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /portfolio/export */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @description An existing folder */
+            destination: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              started: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/portfolio/export/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /portfolio/export/cancel */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/portfolio/export/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /portfolio/export/status */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result: null;
+              destination: string | null;
+              copied: number;
+              missing: number;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/portfolio/preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /portfolio/preview */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            title: string;
+            albumIds: string[];
+            speciesIds: string[];
+            lifeList: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              index: string;
+              lifeList: string | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/portfolio/share": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Create a public link to your portfolio
+     * @description The link is returned once, as `token`. A new link replaces the old one, which stops working. 409 on a desktop app, since share links need a Lifer server.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              token: string;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the share.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    /** Turn off your portfolio's public link */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the share.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/regions": {
     parameters: {
       query?: never;
@@ -7437,6 +25024,10 @@ export interface paths {
                 hasScopedChecklist: boolean;
                 sovereigntyGroup: string | null;
                 isSovereignDependency: boolean;
+                exampleCity: string | null;
+                populousChildId: string | null;
+                /** @description Other names the region is searched by */
+                aliases: string[];
               } & {
                 [key: string]: unknown;
               })[];
@@ -7515,12 +25106,16 @@ export interface paths {
                 speciesId: string;
                 scientificName: string;
                 commonName: string | null;
+                abaCode?: string | null;
+                ebirdCode?: string | null;
                 taxonClass: string | null;
                 family: string | null;
                 taxonOrder?: string | null;
                 /** @enum {unknown} */
                 state: "collected" | "seen" | "unseen";
                 isTarget: boolean;
+                /** @description The user (or a connected app) marked it as needing a better photo */
+                needsBetterPhoto?: boolean;
                 tier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 localTier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 tierReason?: string | null;
@@ -7528,9 +25123,13 @@ export interface paths {
                 tierOverridden?: boolean;
                 nameChanged?: boolean;
                 vagrant: boolean;
+                introduced: boolean;
                 /** @description 12 monthly values, on region checklist rows */
                 seasonality: null | number[];
                 capturedYears: number[] | null;
+                heard?: boolean;
+                /** @description Collected only through photos Lifer filed, none confirmed yet */
+                suggested?: boolean;
                 endemic: boolean;
                 isGhost: boolean;
                 isLost: boolean;
@@ -7557,6 +25156,7 @@ export interface paths {
                       [key: string]: unknown;
                     })
                   | null;
+                photographedWhere?: ("here" | "elsewhere") | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -7988,6 +25588,7 @@ export interface paths {
           taxon?: string;
           seaZoneIds?: string;
           includeLand?: "0" | "1";
+          photographedIn?: "country" | "province";
         };
         header?: never;
         path: {
@@ -8014,6 +25615,8 @@ export interface paths {
                 boundaryGeoJson: unknown | null;
                 hasChildren: boolean;
                 canDrillDown: boolean;
+                countryName: string | null;
+                provinceName: string | null;
               } & {
                 [key: string]: unknown;
               };
@@ -8029,12 +25632,16 @@ export interface paths {
                 speciesId: string;
                 scientificName: string;
                 commonName: string | null;
+                abaCode?: string | null;
+                ebirdCode?: string | null;
                 taxonClass: string | null;
                 family: string | null;
                 taxonOrder?: string | null;
                 /** @enum {unknown} */
                 state: "collected" | "seen" | "unseen";
                 isTarget: boolean;
+                /** @description The user (or a connected app) marked it as needing a better photo */
+                needsBetterPhoto?: boolean;
                 tier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 localTier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 tierReason?: string | null;
@@ -8042,9 +25649,13 @@ export interface paths {
                 tierOverridden?: boolean;
                 nameChanged?: boolean;
                 vagrant: boolean;
+                introduced: boolean;
                 /** @description 12 monthly values, on region checklist rows */
                 seasonality: null | number[];
                 capturedYears: number[] | null;
+                heard?: boolean;
+                /** @description Collected only through photos Lifer filed, none confirmed yet */
+                suggested?: boolean;
                 endemic: boolean;
                 isGhost: boolean;
                 isLost: boolean;
@@ -8071,6 +25682,7 @@ export interface paths {
                       [key: string]: unknown;
                     })
                   | null;
+                photographedWhere?: ("here" | "elsewhere") | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -8131,6 +25743,7 @@ export interface paths {
           taxon?: string;
           seaZoneIds?: string;
           includeLand?: "0" | "1";
+          photographedIn?: "country" | "province";
         };
         header?: never;
         path: {
@@ -8524,6 +26137,82 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/regions/at": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /regions/at */
+    get: {
+      parameters: {
+        query: {
+          lat: number;
+          lon: number;
+          /** @description Also list which of these regions don't hold the point */
+          within?: string[];
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              region: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+              } | null;
+              /** @description With within: the ones whose outline doesn't hold the point */
+              outside?: string[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/regions/boundaries": {
     parameters: {
       query?: never;
@@ -8536,6 +26225,8 @@ export interface paths {
       parameters: {
         query?: {
           level?: "country";
+          id?: string;
+          parentId?: string;
         };
         header?: {
           "if-none-match"?: string;
@@ -8698,6 +26389,556 @@ export interface paths {
             [name: string]: unknown;
           };
           content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/saved-spots": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /saved-spots */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              spots: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                lat: number;
+                lon: number;
+                regionId: string | null;
+                regionName: string | null;
+                /** @enum {unknown} */
+                geoprivacy: "open" | "obscured" | "private";
+                radiusM: number;
+                locality: string | null;
+                localitySource: ("gazetteer" | "region" | "inaturalist" | "user") | null;
+                notes: string | null;
+                /** @enum {unknown} */
+                origin: "map" | "photo" | "inaturalist";
+                lastUsedAt: string | null;
+                /** @description Photos filed under this spot's name or taken inside it */
+                photoCount: number;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    /** POST /saved-spots */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            name: string;
+            lat: number;
+            lon: number;
+            regionId?: string | null;
+            /** @enum {unknown} */
+            geoprivacy?: "open" | "obscured" | "private";
+            radiusM?: number;
+            locality?: string | null;
+            notes?: string | null;
+            /** @enum {unknown} */
+            origin?: "map" | "photo" | "inaturalist";
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              id: string;
+              name: string;
+              lat: number;
+              lon: number;
+              regionId: string | null;
+              regionName: string | null;
+              /** @enum {unknown} */
+              geoprivacy: "open" | "obscured" | "private";
+              radiusM: number;
+              locality: string | null;
+              localitySource: ("gazetteer" | "region" | "inaturalist" | "user") | null;
+              notes: string | null;
+              /** @enum {unknown} */
+              origin: "map" | "photo" | "inaturalist";
+              lastUsedAt: string | null;
+              /** @description Photos filed under this spot's name or taken inside it */
+              photoCount: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/saved-spots/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** DELETE /saved-spots/{id} */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    options?: never;
+    head?: never;
+    /** PATCH /saved-spots/{id} */
+    patch: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            name?: string;
+            lat?: number;
+            lon?: number;
+            regionId?: string | null;
+            /** @enum {unknown} */
+            geoprivacy?: "open" | "obscured" | "private";
+            radiusM?: number;
+            locality?: string | null;
+            notes?: string | null;
+            /** @description A new name also relabels the photos filed under the old one (undoable) */
+            renamePhotos?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              id: string;
+              name: string;
+              lat: number;
+              lon: number;
+              regionId: string | null;
+              regionName: string | null;
+              /** @enum {unknown} */
+              geoprivacy: "open" | "obscured" | "private";
+              radiusM: number;
+              locality: string | null;
+              localitySource: ("gazetteer" | "region" | "inaturalist" | "user") | null;
+              notes: string | null;
+              /** @enum {unknown} */
+              origin: "map" | "photo" | "inaturalist";
+              lastUsedAt: string | null;
+              /** @description Photos filed under this spot's name or taken inside it */
+              photoCount: number;
+              /** @description Photos relabelled; 0 when it runs in the background */
+              relabelled?: number;
+              /** @description Over 5,000 photos: follow GET /captures/location/status */
+              background?: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    trace?: never;
+  };
+  "/saved-spots/{id}/apply": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /saved-spots/{id}/apply */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds?: string[];
+            /** Format: uuid */
+            tripId?: string;
+            nearby?: boolean;
+            /** @description Also move photos with their own point (camera GPS) to the spot's centre */
+            moveOwnPoints?: boolean;
+            /** @description Up to 5,000 photos: apply now and answer how many, instead of a job */
+            wait?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+              applied?: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/saved-spots/{id}/far": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /saved-spots/{id}/far */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds?: string[];
+            /** Format: uuid */
+            tripId?: string;
+            nearby?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              count: number;
+              /** @description The furthest */
+              km: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/saved-spots/suggestions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /saved-spots/suggestions */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              suggestions: {
+                /** Format: uuid */
+                spotId: string;
+                name: string;
+                photoCount: number;
+              }[];
+            };
+          };
         };
         /** @description The request doesn't match this operation's parameters or body */
         400: {
@@ -9044,8 +27285,20 @@ export interface paths {
           };
           content: {
             "application/json": {
-              organizeOriginalsByYear: boolean;
-              organizeOriginalsByLocation: boolean;
+              folderLayout: (
+                | "wildlifeYear"
+                | "year"
+                | "month"
+                | "date"
+                | "trip"
+                | "country"
+                | "province"
+                | "place"
+                | "group"
+                | "order"
+                | "family"
+                | "species"
+              )[];
               hideObscureSpecies: boolean;
               speciesSuggestEnabled: boolean;
               anyTaxaSearchEnabled: boolean;
@@ -9053,6 +27306,15 @@ export interface paths {
               fetchWithheldPhotos: boolean;
               technicalDiving: boolean;
               speciesNamingStyles: string[];
+              speciesNameDisplay: {
+                /** @enum {unknown} */
+                main: "common" | "scientific";
+                /** @description Shown under the main name in this order; other is whichever of common/scientific isn't main */
+                also: ("other" | "aba" | "ebird")[];
+              } | null;
+              tipsEnabled: boolean;
+              /** @description Ids of the in-app tips this account has seen */
+              tipsSeen: string[];
               locale: string | null;
               abaCodesAvailable: boolean;
               /** @description The photo library folder */
@@ -9060,6 +27322,14 @@ export interface paths {
               /** @enum {unknown} */
               deploymentMode: "desktop" | "server";
               catalogLoading: ("running" | "failed") | null;
+              catalogProgress?:
+                | ({
+                    processed: number;
+                    total: number;
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
               /** @description Admin-declared extra library folders; always empty on desktop */
               libraryRoots: ({
                 label: string;
@@ -9237,6 +27507,78 @@ export interface paths {
     };
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/browse-directory/new-folder": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /settings/browse-directory/new-folder */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            parent: string;
+            name: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              path: string;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
     delete?: never;
     options?: never;
     head?: never;
@@ -9934,6 +28276,243 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/settings/file-name-template": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** PUT /settings/file-name-template */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            template: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              fileNameTemplate: string;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/folder-layout": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** PUT /settings/folder-layout */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            layout: (
+              | "wildlifeYear"
+              | "year"
+              | "month"
+              | "date"
+              | "trip"
+              | "country"
+              | "province"
+              | "place"
+              | "group"
+              | "order"
+              | "family"
+              | "species"
+            )[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              folderLayout: (
+                | "wildlifeYear"
+                | "year"
+                | "month"
+                | "date"
+                | "trip"
+                | "country"
+                | "province"
+                | "place"
+                | "group"
+                | "order"
+                | "family"
+                | "species"
+              )[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/folder-layout/example": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /settings/folder-layout/example */
+    get: {
+      parameters: {
+        query: {
+          /** @description Levels, comma-separated, outermost first */
+          layout: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              path: string;
+              sample: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/settings/hide-obscure-species": {
     parameters: {
       query?: never;
@@ -9998,6 +28577,72 @@ export interface paths {
         };
       };
     };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/jobs/progress": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /settings/jobs/progress */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: number;
+              progress: number | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
     post?: never;
     delete?: never;
     options?: never;
@@ -10309,6 +28954,9 @@ export interface paths {
               result: unknown | null;
               available: boolean;
               downloaded: boolean;
+              reliefDownloaded: boolean;
+              /** @description Countries with a detailed map downloaded */
+              detail: string[];
               sizeBytes: number | null;
               downloading: boolean;
             } & {
@@ -10353,7 +29001,83 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/settings/migrate-to-server": {
+  "/settings/metadata": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /settings/metadata */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              template: {
+                creator: string;
+                copyright: string;
+                credit: string;
+                usageTerms: string;
+                caption: string;
+                replaceExisting: boolean;
+              };
+              fileNameTemplate: string;
+              sensitiveSpecies: {
+                enabled: boolean;
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/metadata-template": {
     parameters: {
       query?: never;
       header?: never;
@@ -10361,9 +29085,8 @@ export interface paths {
       cookie?: never;
     };
     get?: never;
-    put?: never;
-    /** POST /settings/migrate-to-server */
-    post: {
+    /** PUT /settings/metadata-template */
+    put: {
       parameters: {
         query?: never;
         header?: never;
@@ -10373,9 +29096,12 @@ export interface paths {
       requestBody: {
         content: {
           "application/json": {
-            serverUrl: string;
-            email: string;
-            password: string;
+            creator: string;
+            copyright: string;
+            credit: string;
+            usageTerms: string;
+            caption: string;
+            replaceExisting: boolean;
           };
         };
       };
@@ -10387,7 +29113,88 @@ export interface paths {
           };
           content: {
             "application/json": {
-              started: boolean;
+              template: {
+                creator: string;
+                copyright: string;
+                credit: string;
+                usageTerms: string;
+                caption: string;
+                replaceExisting: boolean;
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/metadata-template/apply": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /settings/metadata-template/apply */
+    post: {
+      parameters: {
+        query?: {
+          /** @description 1 to start the job and return at once, for polling */
+          background?: "1";
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              started?: boolean;
+              updated?: number;
+              unchanged?: number;
+              failed?: number;
+            } & {
+              [key: string]: unknown;
             };
           };
         };
@@ -10426,7 +29233,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/settings/migrate-to-server/cancel": {
+  "/settings/metadata-template/apply/cancel": {
     parameters: {
       query?: never;
       header?: never;
@@ -10435,7 +29242,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** POST /settings/migrate-to-server/cancel */
+    /** POST /settings/metadata-template/apply/cancel */
     post: {
       parameters: {
         query?: never;
@@ -10491,14 +29298,14 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/settings/migrate-to-server/status": {
+  "/settings/metadata-template/apply/status": {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    /** GET /settings/migrate-to-server/status */
+    /** GET /settings/metadata-template/apply/status */
     get: {
       parameters: {
         query?: never;
@@ -10527,6 +29334,9 @@ export interface paths {
               cancelRequested: boolean;
               cancelled: boolean;
               result: unknown | null;
+              updated: number;
+              unchanged: number;
+              failed: number;
             } & {
               [key: string]: unknown;
             };
@@ -10562,148 +29372,6 @@ export interface paths {
       };
     };
     put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/settings/organize-originals": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    /** PUT /settings/organize-originals */
-    put: {
-      parameters: {
-        query?: never;
-        header?: never;
-        path?: never;
-        cookie?: never;
-      };
-      requestBody: {
-        content: {
-          "application/json": {
-            enabled: boolean;
-          };
-        };
-      };
-      responses: {
-        /** @description OK */
-        200: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            "application/json": {
-              organizeOriginalsByYear: boolean;
-            };
-          };
-        };
-        /** @description The request doesn't match this operation's parameters or body */
-        400: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            "application/json": components["schemas"]["Error"];
-          };
-        };
-        /** @description Not signed in */
-        401: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            "application/json": components["schemas"]["Error"];
-          };
-        };
-        /** @description Any other error */
-        default: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            "application/json": components["schemas"]["Error"];
-          };
-        };
-      };
-    };
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/settings/organize-originals-by-location": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    /** PUT /settings/organize-originals-by-location */
-    put: {
-      parameters: {
-        query?: never;
-        header?: never;
-        path?: never;
-        cookie?: never;
-      };
-      requestBody: {
-        content: {
-          "application/json": {
-            enabled: boolean;
-          };
-        };
-      };
-      responses: {
-        /** @description OK */
-        200: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            "application/json": {
-              organizeOriginalsByLocation: boolean;
-            };
-          };
-        };
-        /** @description The request doesn't match this operation's parameters or body */
-        400: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            "application/json": components["schemas"]["Error"];
-          };
-        };
-        /** @description Not signed in */
-        401: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            "application/json": components["schemas"]["Error"];
-          };
-        };
-        /** @description Any other error */
-        default: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            "application/json": components["schemas"]["Error"];
-          };
-        };
-      };
-    };
     post?: never;
     delete?: never;
     options?: never;
@@ -10922,6 +29590,349 @@ export interface paths {
       };
     };
     put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/sensitive-species": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** PUT /settings/sensitive-species */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            enabled: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              enabled: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/sensitive-species/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** PUT /settings/sensitive-species/{id} */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    /** DELETE /settings/sensitive-species/{id} */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/sensitive-species/list": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /settings/sensitive-species/list */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              species: {
+                id: string;
+                commonName: string | null;
+                scientificName: string;
+                iucnStatus: string | null;
+                /** @enum {unknown} */
+                reason: "iucn" | "ebird" | "added";
+                removed: boolean;
+                /** @description For a species eBird lists only in some areas, those areas as eBird names them; empty when it is sensitive everywhere */
+                areas: string[];
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/species-name-display": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** PUT /settings/species-name-display */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @enum {unknown} */
+            main: "common" | "scientific";
+            /** @description Shown under the main name in this order; other is whichever of common/scientific isn't main */
+            also: ("other" | "aba" | "ebird")[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              speciesNameDisplay: {
+                /** @enum {unknown} */
+                main: "common" | "scientific";
+                /** @description Shown under the main name in this order; other is whichever of common/scientific isn't main */
+                also: ("other" | "aba" | "ebird")[];
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
     post?: never;
     delete?: never;
     options?: never;
@@ -11352,6 +30363,285 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/settings/template-example": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /settings/template-example */
+    get: {
+      parameters: {
+        query?: {
+          fileName?: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              values: {
+                [key: string]: string | null;
+              };
+              fileName: string;
+              sample: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/tips": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** PUT /settings/tips */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            enabled: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              tipsEnabled: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/tips/reset": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /settings/tips/reset */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              tipsSeen: string[];
+              tipsEnabled: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/tips/seen": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /settings/tips/seen */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            id: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              tipsSeen: string[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/share/{token}": {
     parameters: {
       query?: never;
@@ -11683,6 +30973,79 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/shares/{id}/exact-locations": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Choose whether a share link shows where its photos were taken */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            enabled: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              showExactLocations: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the share.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/species": {
     parameters: {
       query?: never;
@@ -11717,6 +31080,8 @@ export interface paths {
                 id: string;
                 scientific_name: string;
                 common_name: string | null;
+                aba_code?: string | null;
+                ebird_code?: string | null;
                 /** @description Higher is better */
                 rank?: number;
               }[];
@@ -11790,11 +31155,84 @@ export interface paths {
           content: {
             "application/json": {
               species: {
+                /** Format: uuid */
+                id: string;
                 scientific_name: string;
                 common_name: string | null;
+                inat_taxon_id: number | null;
+                ebird_code: string | null;
+                aba_code: string | null;
                 taxon_class: string | null;
+                mass_g: string | null;
+                wingspan_mm: string | null;
+                trophic_niche: string | null;
+                primary_lifestyle: string | null;
+                nocturnal: boolean | null;
+                home_range_km2: string | null;
+                depth_min_m: string | null;
+                depth_max_m: string | null;
+                domestic: boolean | null;
+                iucn_status: string | null;
+                iucn_note: string | null;
                 tier: string | null;
+                is_other_taxa: boolean;
+                family: string | null;
+                taxon_order: string | null;
+                genus: string | null;
+                reference_photo: string | null;
                 reference_photo_url: string | null;
+                reference_credit: string | null;
+                reference_focal_x: (number | string) | null;
+                reference_focal_y: (number | string) | null;
+                description: string | null;
+                description_credit: string | null;
+                description_source_url: string | null;
+                habitat_description: string | null;
+                identification_notes?:
+                  | ({
+                      sections: ({
+                        heading: string;
+                        bullets: string[];
+                      } & {
+                        [key: string]: unknown;
+                      })[];
+                      credit?: string | null;
+                      source_url: string | null;
+                      revision_id: number | null;
+                    } & {
+                      [key: string]: unknown;
+                    })
+                  | null;
+                habitat_notes?:
+                  | ({
+                      sections: ({
+                        heading: string;
+                        bullets: string[];
+                      } & {
+                        [key: string]: unknown;
+                      })[];
+                      credit?: string | null;
+                      source_url: string | null;
+                      revision_id: number | null;
+                    } & {
+                      [key: string]: unknown;
+                    })
+                  | null;
+                summary_notes?:
+                  | ({
+                      sections: ({
+                        heading: string;
+                        bullets: string[];
+                      } & {
+                        [key: string]: unknown;
+                      })[];
+                      credit?: string | null;
+                      source_url: string | null;
+                      revision_id: number | null;
+                    } & {
+                      [key: string]: unknown;
+                    })
+                  | null;
               } & {
                 [key: string]: unknown;
               };
@@ -11802,31 +31240,72 @@ export interface paths {
                 /** Format: uuid */
                 id: string;
                 photo_id: string | null;
-                taken_at: unknown;
+                width: number | null;
+                height: number | null;
+                taken_at: string | null;
+                camera_model: string | null;
+                lens: string | null;
+                focal_length_mm: string | null;
+                aperture: string | null;
+                shutter: string | null;
+                iso: number | null;
+                quality_rating: number | null;
+                tags: string[];
+                photo_kind: ("image" | "video" | "audio") | null;
+                duration_seconds: number | null;
+                original_ref: string | null;
+                inat_observation_id: string | null;
+                original_managed: boolean | null;
+                original_kind: string | null;
+                original_available: boolean | null;
+                original_volume_label: string | null;
+                has_raw_original: boolean;
+                raw_ref: string | null;
+                region_id: string | null;
+                region_name: string | null;
+                trip_id: string | null;
+                location_label: string | null;
+                lat: (number | string) | null;
+                lon: (number | string) | null;
               } & {
                 [key: string]: unknown;
               })[];
-              /** @description The user's state for this species, or null */
-              userSpecies: unknown;
+              userSpecies:
+                | ({
+                    state: ("collected" | "seen") | null;
+                    is_target: boolean;
+                    needs_better_photo?: boolean;
+                    cover_photo_id: string | null;
+                    card_crop_x: (number | string) | null;
+                    card_crop_y: (number | string) | null;
+                    card_crop_size: (number | string) | null;
+                    best_quality: number | null;
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
               referencePhotos: ({
                 /** Format: uuid */
                 id: string;
                 photo_url: string;
-                credit: string | null;
+                credit: string;
+                license: string;
+                focal_x: (number | string) | null;
+                focal_y: (number | string) | null;
                 is_main: boolean;
               } & {
                 [key: string]: unknown;
               })[];
-              seasonality: unknown;
-              weeklyFrequency: unknown;
-              weeklyRegionName: unknown;
-              localTier: unknown;
-              isVagrant: unknown;
-              isInvasive: unknown;
+              seasonality: null | number[];
+              weeklyFrequency: null | number[];
+              weeklyRegionName: string | null;
+              localTier: string | null;
+              isVagrant: boolean;
+              isInvasive: boolean;
               endemicCountryName: string | null;
               isArchived: boolean;
               regionBoundaryGeoJson: unknown;
-              hotspotDistribution: string | null;
+              hotspotDistribution: ("widespread" | "clustered") | null;
               hotspots: ({
                 centroidLat: number;
                 centroidLon: number;
@@ -12263,14 +31742,34 @@ export interface paths {
             "application/json": {
               totalPhotos: number;
               videoCount: number;
+              audioCount: number;
               encounterCount: number;
               locationCount: number;
               cameraCount: number;
               lensCount: number;
-              /** @description Earliest capture time, or null */
-              firstPhotographedAt: unknown;
-              /** @description Latest capture time, or null */
-              lastPhotographedAt: unknown;
+              /** @description Most used first, capped; the matching count says how many there are in all */
+              locations: ({
+                name: string;
+                count: number;
+              } & {
+                [key: string]: unknown;
+              })[];
+              /** @description Most used first, capped; the matching count says how many there are in all */
+              cameras: ({
+                name: string;
+                count: number;
+              } & {
+                [key: string]: unknown;
+              })[];
+              /** @description Most used first, capped; the matching count says how many there are in all */
+              lenses: ({
+                name: string;
+                count: number;
+              } & {
+                [key: string]: unknown;
+              })[];
+              firstPhotographedAt: string | null;
+              lastPhotographedAt: string | null;
             } & {
               [key: string]: unknown;
             };
@@ -13521,12 +33020,18 @@ export interface paths {
       };
       requestBody?: never;
       responses: {
-        /** @description Not described yet */
+        /** @description OK */
         200: {
           headers: {
             [name: string]: unknown;
           };
-          content?: never;
+          content: {
+            "application/json": {
+              targets: string[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
         };
         /** @description The request doesn't match this operation's parameters or body */
         400: {
@@ -13664,6 +33169,153 @@ export interface paths {
             [name: string]: unknown;
           };
           content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/species/other-taxa/added": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /species/other-taxa/added */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              groups: {
+                /** @description The country it was added in, or the place itself */
+                country: string;
+                iconicTaxon: string | null;
+                speciesCount: number;
+                /** @description Kept on removal: you have photos of them */
+                photographedCount: number;
+                /** @description Space their reference photos take */
+                bytes: number;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/species/other-taxa/added/remove": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /species/other-taxa/added/remove */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            country: string;
+            iconicTaxon: string | null;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              removed: number;
+              kept: number;
+            };
+          };
         };
         /** @description The request doesn't match this operation's parameters or body */
         400: {
@@ -14033,6 +33685,8 @@ export interface paths {
         query?: {
           /** @description all (default), featured (species cover photos) or topRated (5 stars) */
           filter?: "all" | "featured" | "topRated";
+          /** @description 0 to leave out photos whose only original is a RAW (default 1) */
+          includeRaw?: "0" | "1";
         };
         header?: never;
         path?: never;
@@ -14175,6 +33829,8 @@ export interface paths {
               countriesPhotographed: {
                 count: number;
                 countries: ({
+                  /** Format: uuid */
+                  id: string;
                   name: string;
                   photoCount: number;
                 } & {
@@ -14251,6 +33907,84 @@ export interface paths {
             "application/json": {
               total: number;
               missingDate: number;
+              /** @description Photos with no region set, so they count toward no checklist */
+              missingRegion: number;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the stats.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/stats/exif-bucket": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /stats/exif-bucket */
+    get: {
+      parameters: {
+        query: {
+          /** @description all (default), featured (species cover photos) or topRated (5 stars) */
+          filter?: "all" | "featured" | "topRated";
+          /** @description 0 to leave out photos whose only original is a RAW (default 1) */
+          includeRaw?: "0" | "1";
+          dim: "focalLength" | "iso" | "aperture" | "shutter";
+          /** @description The bar, 1 for the first */
+          bucket: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Every photo in the bar, newest first (up to 50,000) */
+              photoIds: string[];
             } & {
               [key: string]: unknown;
             };
@@ -14306,6 +34040,8 @@ export interface paths {
         query?: {
           /** @description all (default), featured (species cover photos) or topRated (5 stars) */
           filter?: "all" | "featured" | "topRated";
+          /** @description 0 to leave out photos whose only original is a RAW (default 1) */
+          includeRaw?: "0" | "1";
         };
         header?: never;
         path?: never;
@@ -14468,7 +34204,16 @@ export interface paths {
               } & {
                 [key: string]: unknown;
               })[];
-              categoryBreakdown: ({
+              /** @description Shares of flying, behaviour and at-rest shots, of the photos with a reading */
+              actionBreakdown: ({
+                key: string;
+                count: number;
+                percent: number;
+              } & {
+                [key: string]: unknown;
+              })[];
+              /** @description Shares of close and environmental shots, of the photos with a reading */
+              framingBreakdown: ({
                 key: string;
                 count: number;
                 percent: number;
@@ -14662,6 +34407,160 @@ export interface paths {
           };
         };
         /** @description Missing key, or the key lacks the stats.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/stats/year-in-review": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /stats/year-in-review */
+    get: {
+      parameters: {
+        query?: {
+          year?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              year: number;
+              years: number[];
+              counts: {
+                photos: number;
+                newSpecies: number;
+                trips: number;
+                places: number;
+              } & {
+                [key: string]: unknown;
+              };
+              previous: {
+                photos: number;
+                newSpecies: number;
+                trips: number;
+                places: number;
+              } & {
+                [key: string]: unknown;
+              };
+              firsts: {
+                total: number;
+                items: ({
+                  /** Format: uuid */
+                  speciesId: string;
+                  scientificName: string;
+                  commonName: string | null;
+                  firstTakenAt: string | null;
+                  photoId: string | null;
+                } & {
+                  [key: string]: unknown;
+                })[];
+              } & {
+                [key: string]: unknown;
+              };
+              bestPhotos: ({
+                /** Format: uuid */
+                captureId: string;
+                /** Format: uuid */
+                photoId: string;
+                speciesId: string | null;
+                width: number | null;
+                height: number | null;
+              } & {
+                [key: string]: unknown;
+              })[];
+              monthsByGroup: ({
+                month: number;
+                taxonClass: string;
+                count: number;
+              } & {
+                [key: string]: unknown;
+              })[];
+              trips: ({
+                /** Format: uuid */
+                id: string;
+                name: string;
+                start: string | null;
+                end: string | null;
+                photoCount: number;
+                coverPhotoId: string | null;
+              } & {
+                [key: string]: unknown;
+              })[];
+              places: ({
+                lat: number;
+                lon: number;
+                photoCount: number;
+                label: string | null;
+              } & {
+                [key: string]: unknown;
+              })[];
+              gear: {
+                cameras: ({
+                  model: string;
+                  photoCount: number;
+                } & {
+                  [key: string]: unknown;
+                })[];
+                lenses: ({
+                  model: string;
+                  photoCount: number;
+                } & {
+                  [key: string]: unknown;
+                })[];
+              } & {
+                [key: string]: unknown;
+              };
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
         401: {
           headers: {
             [name: string]: unknown;
@@ -15027,6 +34926,2850 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/sync/adopt": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /sync/adopt */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/album-captures": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/album-captures */
+    get: {
+      parameters: {
+        query?: {
+          since?: string;
+          after?: string;
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: {
+                /** Format: uuid */
+                albumId: string;
+                /** Format: uuid */
+                captureId: string;
+                /** Format: date-time */
+                updatedAt: string;
+              }[];
+              purged: {
+                ref: string;
+                /** Format: date-time */
+                deletedAt: string;
+              }[];
+              last: {
+                /** Format: date-time */
+                since: string;
+                after: string;
+              } | null;
+              next: {
+                /** Format: date-time */
+                since: string;
+                after: string;
+              } | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/album-exclusions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/album-exclusions */
+    get: {
+      parameters: {
+        query?: {
+          since?: string;
+          after?: string;
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: {
+                /** Format: uuid */
+                albumId: string;
+                /** Format: uuid */
+                captureId: string;
+                /** Format: date-time */
+                updatedAt: string;
+              }[];
+              purged: {
+                ref: string;
+                /** Format: date-time */
+                deletedAt: string;
+              }[];
+              last: {
+                /** Format: date-time */
+                since: string;
+                after: string;
+              } | null;
+              next: {
+                /** Format: date-time */
+                since: string;
+                after: string;
+              } | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/albums": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/albums */
+    get: {
+      parameters: {
+        query?: {
+          since?: string;
+          after?: string;
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                description: string | null;
+                coverPhotoId: string | null;
+                coverCropX: number | null;
+                coverCropY: number | null;
+                coverCropSize: number | null;
+                coverLayout: "single" | "quad";
+                quadPhotoIds: (string | null)[] | null;
+                quadCrops: unknown[] | null;
+                rules: unknown | null;
+                /** Format: date-time */
+                updatedAt: string;
+              }[];
+              purged: {
+                ref: string;
+                /** Format: date-time */
+                deletedAt: string;
+              }[];
+              last: {
+                /** Format: date-time */
+                since: string;
+                after: string;
+              } | null;
+              next: {
+                /** Format: date-time */
+                since: string;
+                after: string;
+              } | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/changes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/changes */
+    get: {
+      parameters: {
+        query?: {
+          since?: string;
+          after?: string;
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: {
+                /** Format: uuid */
+                id: string;
+                deletedAt: string | null;
+                hiddenAt: string | null;
+                scientificName: string;
+                fingerprint: string;
+                takenAt: string | null;
+                lat: number | null;
+                lon: number | null;
+                cameraModel: string | null;
+                lens: string | null;
+                focalLengthMm: number | null;
+                aperture: number | null;
+                shutter: string | null;
+                iso: number | null;
+                qualityRating: number | null;
+                tags: string[];
+                locationLabel: string | null;
+                locationSource?: ("inaturalist" | "spot" | "map") | null;
+                locationAccuracyM?: number | null;
+                regionId: string | null;
+                cullVerdict: ("pick" | "reject") | null;
+                cullLabel: string | null;
+                tripId?: string | null;
+                /** Format: date-time */
+                updatedAt: string;
+                photo: {
+                  /** Format: uuid */
+                  id: string;
+                  width: number | null;
+                  height: number | null;
+                  kind: string;
+                  durationSeconds: number | null;
+                } | null;
+              }[];
+              purged: {
+                /** Format: uuid */
+                id: string;
+                /** Format: date-time */
+                deletedAt: string;
+              }[];
+              last: {
+                /** Format: date-time */
+                since: string;
+                /** Format: uuid */
+                after: string;
+              } | null;
+              next: {
+                /** Format: date-time */
+                since: string;
+                /** Format: uuid */
+                after: string;
+              } | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/link/proof": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/link/proof */
+    get: {
+      parameters: {
+        query: {
+          keyId: string;
+          nonce: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              proof: string;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/link/revoke": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /sync/link/revoke */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/packs/pull": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /sync/packs/pull */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            packIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              started: boolean;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/packs/reconcile": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /sync/packs/reconcile */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              started: boolean;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/preferences": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/preferences */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              nameDisplay:
+                | ({
+                    main: string;
+                    also: string[];
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
+              namingStyles: string[];
+              sensitive: {
+                enabled: boolean;
+                added: string[];
+                removed: string[];
+                iucnStatuses: string[];
+              } & {
+                [key: string]: unknown;
+              };
+              geoprivacy: {
+                /** @description Used for a saved spot with none chosen; each spot's own is in /sync/saved-spots */
+                spotDefault: string;
+              } & {
+                [key: string]: unknown;
+              };
+              regions: ({
+                regionId: string | null;
+                name: string;
+                packIds: string[];
+                speciesCount: number;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/pull": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /sync/pull */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              started: boolean;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/push": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /sync/push */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captures: {
+              /** Format: uuid */
+              id: string;
+              deletedAt: string | null;
+              hiddenAt: string | null;
+              scientificName: string;
+              fingerprint: string;
+              takenAt: string | null;
+              lat: number | null;
+              lon: number | null;
+              cameraModel: string | null;
+              lens: string | null;
+              focalLengthMm: number | null;
+              aperture: number | null;
+              shutter: string | null;
+              iso: number | null;
+              qualityRating: number | null;
+              tags: string[];
+              locationLabel: string | null;
+              locationSource?: ("inaturalist" | "spot" | "map") | null;
+              locationAccuracyM?: number | null;
+              regionId: string | null;
+              cullVerdict: ("pick" | "reject") | null;
+              cullLabel: string | null;
+              tripId?: string | null;
+              baseUpdatedAt: string | null;
+            }[];
+            albums?: {
+              /** Format: uuid */
+              id: string;
+              name: string;
+              description: string | null;
+              coverPhotoId: string | null;
+              coverCropX: number | null;
+              coverCropY: number | null;
+              coverCropSize: number | null;
+              coverLayout: "single" | "quad";
+              quadPhotoIds: (string | null)[] | null;
+              quadCrops: unknown[] | null;
+              rules: unknown | null;
+              baseUpdatedAt: string | null;
+            }[];
+            trips?: {
+              /** Format: uuid */
+              id: string;
+              name: string;
+              description: string | null;
+              sourceFolder: string;
+              destinationFolder: string;
+              coverCaptureId: string | null;
+              coverCropX: number | null;
+              coverCropY: number | null;
+              coverCropSize: number | null;
+              coverLayout: "single" | "quad";
+              quadPhotoIds: (string | null)[] | null;
+              quadCrops: unknown[] | null;
+              startDate: string | null;
+              endDate: string | null;
+              regionId: string | null;
+              activeOverride: boolean | null;
+              baseUpdatedAt: string | null;
+            }[];
+            savedSpots?: {
+              /** Format: uuid */
+              id: string;
+              name: string;
+              lat: number;
+              lon: number;
+              regionId: string | null;
+              geoprivacy: "open" | "obscured" | "private";
+              radiusM?: number;
+              locality?: string | null;
+              localitySource?: ("gazetteer" | "region" | "inaturalist" | "user") | null;
+              notes?: string | null;
+              origin?: "map" | "photo" | "inaturalist";
+              baseUpdatedAt: string | null;
+            }[];
+            albumCaptures?: {
+              /** Format: uuid */
+              albumId: string;
+              /** Format: uuid */
+              captureId: string;
+            }[];
+            albumExclusions?: {
+              /** Format: uuid */
+              albumId: string;
+              /** Format: uuid */
+              captureId: string;
+            }[];
+            speciesSplitKept?: string[];
+            userSpecies?: {
+              scientificName: string;
+              state: ("collected" | "seen") | null;
+              coverPhotoId: string | null;
+              firstCollected: string | null;
+              bestQuality: number | null;
+              cardCropX: number | null;
+              cardCropY: number | null;
+              cardCropSize: number | null;
+              isTarget: boolean;
+              needsBetterPhoto?: boolean;
+              /** Format: date-time */
+              updatedAt?: string;
+              baseUpdatedAt?: string | null;
+            }[];
+            deleted?: {
+              captures?: {
+                /** Format: uuid */
+                id: string;
+                baseUpdatedAt: string | null;
+              }[];
+              userSpecies?: string[];
+              albums?: {
+                /** Format: uuid */
+                id: string;
+                baseUpdatedAt: string | null;
+              }[];
+              trips?: {
+                /** Format: uuid */
+                id: string;
+                baseUpdatedAt: string | null;
+              }[];
+              savedSpots?: {
+                /** Format: uuid */
+                id: string;
+                baseUpdatedAt: string | null;
+              }[];
+              albumCaptures?: {
+                /** Format: uuid */
+                albumId: string;
+                /** Format: uuid */
+                captureId: string;
+              }[];
+              albumExclusions?: {
+                /** Format: uuid */
+                albumId: string;
+                /** Format: uuid */
+                captureId: string;
+              }[];
+              speciesSplitKept?: string[];
+            };
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              outcomes: (
+                | {
+                    /** Format: uuid */
+                    id: string;
+                    /** @constant */
+                    status: "updated";
+                    /** Format: uuid */
+                    serverId?: string;
+                    /** Format: date-time */
+                    updatedAt: string;
+                  }
+                | {
+                    /** Format: uuid */
+                    id: string;
+                    /** @constant */
+                    status: "needs-file";
+                  }
+                | {
+                    /** Format: uuid */
+                    id: string;
+                    /** @constant */
+                    status: "unknown-species";
+                  }
+                | {
+                    /** Format: uuid */
+                    id: string;
+                    /** @constant */
+                    status: "conflict";
+                    /** Format: uuid */
+                    serverId?: string;
+                    current: {
+                      /** Format: uuid */
+                      id: string;
+                      deletedAt: string | null;
+                      hiddenAt: string | null;
+                      scientificName: string;
+                      fingerprint: string;
+                      takenAt: string | null;
+                      lat: number | null;
+                      lon: number | null;
+                      cameraModel: string | null;
+                      lens: string | null;
+                      focalLengthMm: number | null;
+                      aperture: number | null;
+                      shutter: string | null;
+                      iso: number | null;
+                      qualityRating: number | null;
+                      tags: string[];
+                      locationLabel: string | null;
+                      locationSource?: ("inaturalist" | "spot" | "map") | null;
+                      locationAccuracyM?: number | null;
+                      regionId: string | null;
+                      cullVerdict: ("pick" | "reject") | null;
+                      cullLabel: string | null;
+                      tripId?: string | null;
+                      /** Format: date-time */
+                      updatedAt: string;
+                      photo: {
+                        /** Format: uuid */
+                        id: string;
+                        width: number | null;
+                        height: number | null;
+                        kind: string;
+                        durationSeconds: number | null;
+                      } | null;
+                    } | null;
+                  }
+              )[];
+              speciesIds: {
+                [key: string]: string | null;
+              };
+              userSpecies: number;
+              userSpeciesStamps?: {
+                [key: string]: string;
+              };
+              userSpeciesConflicts?: {
+                scientificName: string;
+                state: ("collected" | "seen") | null;
+                coverPhotoId: string | null;
+                firstCollected: string | null;
+                bestQuality: number | null;
+                cardCropX: number | null;
+                cardCropY: number | null;
+                cardCropSize: number | null;
+                isTarget: boolean;
+                needsBetterPhoto?: boolean;
+                /** Format: date-time */
+                updatedAt?: string;
+              }[];
+              /** @description Captures the desktop deleted that were trashed here */
+              deleted: number;
+              library?: {
+                albums: (
+                  | {
+                      /** Format: uuid */
+                      id: string;
+                      /** @constant */
+                      status: "updated";
+                      /** Format: date-time */
+                      updatedAt: string;
+                    }
+                  | {
+                      /** Format: uuid */
+                      id: string;
+                      /** @constant */
+                      status: "conflict";
+                      current:
+                        | (
+                            | {
+                                /** Format: uuid */
+                                id: string;
+                                name: string;
+                                description: string | null;
+                                coverPhotoId: string | null;
+                                coverCropX: number | null;
+                                coverCropY: number | null;
+                                coverCropSize: number | null;
+                                coverLayout: "single" | "quad";
+                                quadPhotoIds: (string | null)[] | null;
+                                quadCrops: unknown[] | null;
+                                rules: unknown | null;
+                                /** Format: date-time */
+                                updatedAt: string;
+                              }
+                            | {
+                                /** Format: uuid */
+                                id: string;
+                                name: string;
+                                description: string | null;
+                                sourceFolder: string;
+                                destinationFolder: string;
+                                coverCaptureId: string | null;
+                                coverCropX: number | null;
+                                coverCropY: number | null;
+                                coverCropSize: number | null;
+                                coverLayout: "single" | "quad";
+                                quadPhotoIds: (string | null)[] | null;
+                                quadCrops: unknown[] | null;
+                                startDate: string | null;
+                                endDate: string | null;
+                                regionId: string | null;
+                                activeOverride: boolean | null;
+                                /** Format: date-time */
+                                updatedAt: string;
+                              }
+                            | {
+                                /** Format: uuid */
+                                id: string;
+                                name: string;
+                                lat: number;
+                                lon: number;
+                                regionId: string | null;
+                                geoprivacy: "open" | "obscured" | "private";
+                                radiusM?: number;
+                                locality?: string | null;
+                                localitySource?: ("gazetteer" | "region" | "inaturalist" | "user") | null;
+                                notes?: string | null;
+                                origin?: "map" | "photo" | "inaturalist";
+                                /** Format: date-time */
+                                updatedAt: string;
+                              }
+                          )
+                        | null;
+                    }
+                )[];
+                trips: (
+                  | {
+                      /** Format: uuid */
+                      id: string;
+                      /** @constant */
+                      status: "updated";
+                      /** Format: date-time */
+                      updatedAt: string;
+                    }
+                  | {
+                      /** Format: uuid */
+                      id: string;
+                      /** @constant */
+                      status: "conflict";
+                      current:
+                        | (
+                            | {
+                                /** Format: uuid */
+                                id: string;
+                                name: string;
+                                description: string | null;
+                                coverPhotoId: string | null;
+                                coverCropX: number | null;
+                                coverCropY: number | null;
+                                coverCropSize: number | null;
+                                coverLayout: "single" | "quad";
+                                quadPhotoIds: (string | null)[] | null;
+                                quadCrops: unknown[] | null;
+                                rules: unknown | null;
+                                /** Format: date-time */
+                                updatedAt: string;
+                              }
+                            | {
+                                /** Format: uuid */
+                                id: string;
+                                name: string;
+                                description: string | null;
+                                sourceFolder: string;
+                                destinationFolder: string;
+                                coverCaptureId: string | null;
+                                coverCropX: number | null;
+                                coverCropY: number | null;
+                                coverCropSize: number | null;
+                                coverLayout: "single" | "quad";
+                                quadPhotoIds: (string | null)[] | null;
+                                quadCrops: unknown[] | null;
+                                startDate: string | null;
+                                endDate: string | null;
+                                regionId: string | null;
+                                activeOverride: boolean | null;
+                                /** Format: date-time */
+                                updatedAt: string;
+                              }
+                            | {
+                                /** Format: uuid */
+                                id: string;
+                                name: string;
+                                lat: number;
+                                lon: number;
+                                regionId: string | null;
+                                geoprivacy: "open" | "obscured" | "private";
+                                radiusM?: number;
+                                locality?: string | null;
+                                localitySource?: ("gazetteer" | "region" | "inaturalist" | "user") | null;
+                                notes?: string | null;
+                                origin?: "map" | "photo" | "inaturalist";
+                                /** Format: date-time */
+                                updatedAt: string;
+                              }
+                          )
+                        | null;
+                    }
+                )[];
+                savedSpots: (
+                  | {
+                      /** Format: uuid */
+                      id: string;
+                      /** @constant */
+                      status: "updated";
+                      /** Format: date-time */
+                      updatedAt: string;
+                    }
+                  | {
+                      /** Format: uuid */
+                      id: string;
+                      /** @constant */
+                      status: "conflict";
+                      current:
+                        | (
+                            | {
+                                /** Format: uuid */
+                                id: string;
+                                name: string;
+                                description: string | null;
+                                coverPhotoId: string | null;
+                                coverCropX: number | null;
+                                coverCropY: number | null;
+                                coverCropSize: number | null;
+                                coverLayout: "single" | "quad";
+                                quadPhotoIds: (string | null)[] | null;
+                                quadCrops: unknown[] | null;
+                                rules: unknown | null;
+                                /** Format: date-time */
+                                updatedAt: string;
+                              }
+                            | {
+                                /** Format: uuid */
+                                id: string;
+                                name: string;
+                                description: string | null;
+                                sourceFolder: string;
+                                destinationFolder: string;
+                                coverCaptureId: string | null;
+                                coverCropX: number | null;
+                                coverCropY: number | null;
+                                coverCropSize: number | null;
+                                coverLayout: "single" | "quad";
+                                quadPhotoIds: (string | null)[] | null;
+                                quadCrops: unknown[] | null;
+                                startDate: string | null;
+                                endDate: string | null;
+                                regionId: string | null;
+                                activeOverride: boolean | null;
+                                /** Format: date-time */
+                                updatedAt: string;
+                              }
+                            | {
+                                /** Format: uuid */
+                                id: string;
+                                name: string;
+                                lat: number;
+                                lon: number;
+                                regionId: string | null;
+                                geoprivacy: "open" | "obscured" | "private";
+                                radiusM?: number;
+                                locality?: string | null;
+                                localitySource?: ("gazetteer" | "region" | "inaturalist" | "user") | null;
+                                notes?: string | null;
+                                origin?: "map" | "photo" | "inaturalist";
+                                /** Format: date-time */
+                                updatedAt: string;
+                              }
+                          )
+                        | null;
+                    }
+                )[];
+                members: {
+                  applied: number;
+                  skipped: number;
+                };
+                /** @description Albums, trips, saved spots and membership rows removed */
+                deleted: number;
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/push/start": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /sync/push/start */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              started: boolean;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/region-tree": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/region-tree */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              regions: ({
+                /** Format: uuid */
+                id: string;
+                name: string;
+                parentId: string | null;
+                depth: number;
+                speciesCount: number;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/regions/{id}/checklist": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/regions/{id}/checklist */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              regionId: string;
+              name: string;
+              items: ({
+                scientificName: string;
+                commonName: string | null;
+                taxonClass: string;
+                taxonOrder: string | null;
+                family: string | null;
+                ebirdCode: string | null;
+                tier: string | null;
+                isVagrant: boolean;
+                /** @description Threatened on the IUCN Red List or on eBird's sensitive list */
+                sensitiveByDefault: boolean;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/saved-spots": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/saved-spots */
+    get: {
+      parameters: {
+        query?: {
+          since?: string;
+          after?: string;
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                lat: number;
+                lon: number;
+                regionId: string | null;
+                geoprivacy: "open" | "obscured" | "private";
+                radiusM?: number;
+                locality?: string | null;
+                localitySource?: ("gazetteer" | "region" | "inaturalist" | "user") | null;
+                notes?: string | null;
+                origin?: "map" | "photo" | "inaturalist";
+                /** Format: date-time */
+                updatedAt: string;
+              }[];
+              purged: {
+                ref: string;
+                /** Format: date-time */
+                deletedAt: string;
+              }[];
+              last: {
+                /** Format: date-time */
+                since: string;
+                after: string;
+              } | null;
+              next: {
+                /** Format: date-time */
+                since: string;
+                after: string;
+              } | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/search-vocab": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/search-vocab */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              regions: ({
+                /** Format: uuid */
+                id: string;
+                name: string;
+                parentId: string | null;
+              } & {
+                [key: string]: unknown;
+              })[];
+              species: ({
+                scientificName: string;
+                taxonOrder: string | null;
+                family: string | null;
+                aliases: string[];
+                codes: string[];
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/settings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /sync/settings */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            derivative: "thumb" | "medium";
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/species-split-kept": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/species-split-kept */
+    get: {
+      parameters: {
+        query?: {
+          since?: string;
+          after?: string;
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: {
+                /** Format: uuid */
+                captureId: string;
+                /** Format: date-time */
+                updatedAt: string;
+              }[];
+              purged: {
+                ref: string;
+                /** Format: date-time */
+                deletedAt: string;
+              }[];
+              last: {
+                /** Format: date-time */
+                since: string;
+                after: string;
+              } | null;
+              next: {
+                /** Format: date-time */
+                since: string;
+                after: string;
+              } | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/status */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Whether the shell has recorded a server link */
+              linked: boolean;
+              serverUrl: string | null;
+              /** @description Captures and species marks changed here that the server doesn't have yet, and deletions not sent yet */
+              unpushed: number;
+              /** @description The link points at a server this install hasn't synced with: waiting for the user to confirm starting over */
+              serverChanged: boolean;
+              waiting: {
+                /** @description Photos, species marks and deletions of them */
+                photos: number;
+                /** @description Albums with their photos, and deletions */
+                albums: number;
+                /** @description Trips and deletions */
+                trips: number;
+              };
+              derivative: "thumb" | "medium";
+              packs: {
+                running: boolean;
+                phase: string | null;
+                downloadedBytes: number | null;
+                totalBytes: number | null;
+                processed: number | null;
+                total: number | null;
+                currentItem: string | null;
+                error: string | null;
+                finishedAt: number | null;
+                cancelRequested: boolean;
+                cancelled: boolean;
+                result: unknown | null;
+              } & {
+                [key: string]: unknown;
+              };
+              mirror: {
+                running: boolean;
+                phase: string | null;
+                downloadedBytes: number | null;
+                totalBytes: number | null;
+                processed: number | null;
+                total: number | null;
+                currentItem: string | null;
+                error: string | null;
+                finishedAt: number | null;
+                cancelRequested: boolean;
+                cancelled: boolean;
+                result: unknown | null;
+              } & {
+                [key: string]: unknown;
+              };
+              push: {
+                running: boolean;
+                phase: string | null;
+                downloadedBytes: number | null;
+                totalBytes: number | null;
+                processed: number | null;
+                total: number | null;
+                currentItem: string | null;
+                error: string | null;
+                finishedAt: number | null;
+                cancelRequested: boolean;
+                cancelled: boolean;
+                result: unknown | null;
+              } & {
+                [key: string]: unknown;
+              };
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/trips": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/trips */
+    get: {
+      parameters: {
+        query?: {
+          since?: string;
+          after?: string;
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                description: string | null;
+                sourceFolder: string;
+                destinationFolder: string;
+                coverCaptureId: string | null;
+                coverCropX: number | null;
+                coverCropY: number | null;
+                coverCropSize: number | null;
+                coverLayout: "single" | "quad";
+                quadPhotoIds: (string | null)[] | null;
+                quadCrops: unknown[] | null;
+                startDate: string | null;
+                endDate: string | null;
+                regionId: string | null;
+                activeOverride: boolean | null;
+                /** Format: date-time */
+                updatedAt: string;
+              }[];
+              purged: {
+                ref: string;
+                /** Format: date-time */
+                deletedAt: string;
+              }[];
+              last: {
+                /** Format: date-time */
+                since: string;
+                after: string;
+              } | null;
+              next: {
+                /** Format: date-time */
+                since: string;
+                after: string;
+              } | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/user-species": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/user-species */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: {
+                scientificName: string;
+                state: ("collected" | "seen") | null;
+                coverPhotoId: string | null;
+                firstCollected: string | null;
+                bestQuality: number | null;
+                cardCropX: number | null;
+                cardCropY: number | null;
+                cardCropSize: number | null;
+                isTarget: boolean;
+                needsBetterPhoto?: boolean;
+                /** Format: date-time */
+                updatedAt?: string;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    /** POST /sync/user-species */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            items: {
+              scientificName: string;
+              state: ("collected" | "seen") | null;
+              coverPhotoId: string | null;
+              firstCollected: string | null;
+              bestQuality: number | null;
+              cardCropX: number | null;
+              cardCropY: number | null;
+              cardCropSize: number | null;
+              isTarget: boolean;
+              needsBetterPhoto?: boolean;
+              /** Format: date-time */
+              updatedAt?: string;
+              baseUpdatedAt: string | null;
+            }[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Scientific name to the mark's new version */
+              applied: {
+                [key: string]: string;
+              };
+              /** @description The hub's copy of each mark that changed since the one sent */
+              conflicts: {
+                scientificName: string;
+                state: ("collected" | "seen") | null;
+                coverPhotoId: string | null;
+                firstCollected: string | null;
+                bestQuality: number | null;
+                cardCropX: number | null;
+                cardCropY: number | null;
+                cardCropSize: number | null;
+                isTarget: boolean;
+                needsBetterPhoto?: boolean;
+                /** Format: date-time */
+                updatedAt?: string;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/target-lists": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /target-lists */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              lists: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                regionId: string | null;
+                regionName: string | null;
+                speciesIds: string[];
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/target-lists/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** DELETE /target-lists/{id} */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    options?: never;
+    head?: never;
+    /** PATCH /target-lists/{id} */
+    patch: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            name: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    trace?: never;
+  };
+  "/target-lists/import": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /target-lists/import */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /**
+             * Format: uuid
+             * @description Add to this list instead of making a new one
+             */
+            listId?: string;
+            name?: string;
+            regionId?: string | null;
+            speciesIds: string[];
+            /** @description Put species missing from the region's checklist on it */
+            addToChecklist?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              listId: string;
+              createdList: boolean;
+              addedSpeciesIds: string[];
+              checklistSpeciesIds: string[];
+              /** @description Species already seen or photographed, left as they were */
+              leftAlone: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/target-lists/import/undo": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /target-lists/import/undo */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** Format: uuid */
+            listId: string;
+            createdList: boolean;
+            addedSpeciesIds: string[];
+            checklistSpeciesIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/target-lists/preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /target-lists/preview */
+    post: {
+      parameters: {
+        query?: {
+          regionId?: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              rows: {
+                name: string;
+                status: "matched" | "ambiguous" | "unmatched";
+                options: {
+                  /** Format: uuid */
+                  speciesId: string;
+                  scientificName: string;
+                  commonName: string | null;
+                  state: ("collected" | "seen") | null;
+                  /** @description On the chosen region's checklist; true with no region */
+                  onChecklist: boolean;
+                }[];
+              }[];
+              /** @description The region has a checklist of its own to add species to */
+              canAddToChecklist: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/trash": {
     parameters: {
       query?: never;
@@ -15066,7 +37809,7 @@ export interface paths {
                 height: number | null;
                 hasRawOriginal: boolean;
                 /** @enum {unknown} */
-                kind: "image" | "video";
+                kind: "image" | "video" | "audio";
                 durationSeconds: (number | string) | null;
                 originalKind: string | null;
                 /** Format: date-time */
@@ -15292,6 +38035,10 @@ export interface paths {
                 quadPhotoIds: string[];
                 /** @description A scan or import is running */
                 processing: boolean;
+                startDate: string | null;
+                endDate: string | null;
+                regionId: string | null;
+                activeOverride: boolean | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -15434,6 +38181,10 @@ export interface paths {
               coverCropSize: number | null;
               /** @enum {unknown} */
               coverLayout: "single" | "quad";
+              startDate: string | null;
+              endDate: string | null;
+              regionId: string | null;
+              activeOverride: boolean | null;
             } & {
               [key: string]: unknown;
             };
@@ -15543,6 +38294,10 @@ export interface paths {
             description?: string | null;
             /** @enum {unknown} */
             coverLayout?: "single" | "quad";
+            startDate?: string | null;
+            endDate?: string | null;
+            regionId?: string | null;
+            activeOverride?: boolean | null;
           };
         };
       };
@@ -15587,6 +38342,156 @@ export interface paths {
         };
       };
     };
+    trace?: never;
+  };
+  "/trips/{id}/captures": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /trips/{id}/captures */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              changed: number;
+              /** @description Files are moving to their new folders; see /places/file-moves/status */
+              movingFiles: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/trips/{id}/captures/remove": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /trips/{id}/captures/remove */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              changed: number;
+              /** @description Files are moving to their new folders; see /places/file-moves/status */
+              movingFiles: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
     trace?: never;
   };
   "/trips/{id}/cover": {
@@ -15736,6 +38641,296 @@ export interface paths {
         };
       };
     };
+    trace?: never;
+  };
+  "/trips/{id}/ebird-checklists": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /trips/{id}/ebird-checklists */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              checklists: ({
+                subId: string;
+                /** @description Local date and time of the count, with no time zone */
+                startedAt: string;
+                hasTime: boolean;
+                location: string;
+                speciesCount: number;
+                /** @description Photos Lifer suggests for it, not yet confirmed */
+                suggested: number;
+                confirmed: number;
+                url: string;
+              } & {
+                [key: string]: unknown;
+              })[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/trips/{id}/ebird-checklists/{subId}/confirm": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /trips/{id}/ebird-checklists/{subId}/confirm */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+          subId: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              changed: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/trips/{id}/ebird-checklists/{subId}/dismiss": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /trips/{id}/ebird-checklists/{subId}/dismiss */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+          subId: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              changed: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/trips/{id}/ebird-match": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /trips/{id}/ebird-match */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @default 0 */
+            offsetMinutes: number;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              suggested: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
     trace?: never;
   };
   "/trips/{id}/import": {
@@ -16036,6 +39231,16 @@ export interface paths {
                 source: string;
                 confident?: boolean;
                 matchPercent?: number;
+                /** @description Only on a top suggestion that isn't confident: the genus (else family) most close candidates share, e.g. 'Probably a Lithobates frog' */
+                probably?: {
+                  /** @enum {unknown} */
+                  rank: "genus" | "family";
+                  /** @description Scientific name of the genus or family */
+                  name: string;
+                  taxonClass: string | null;
+                } & {
+                  [key: string]: unknown;
+                };
               } & {
                 [key: string]: unknown;
               })[];
@@ -16054,6 +39259,173 @@ export interface paths {
                   })
                 | null;
               takenAt: string | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/trips/{id}/move-files": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /trips/{id}/move-files */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            folder: string;
+            /** @description Also move the user's own files linked where they are (copied, checked, then removed) */
+            includeLinked?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              started: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/trips/{id}/move-files/check": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /trips/{id}/move-files/check */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            folder: string;
+            /** @description Also move the user's own files linked where they are (copied, checked, then removed) */
+            includeLinked?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description The chosen folder, as it will be used */
+              folder: string;
+              /** @description Files that will move */
+              files: number;
+              bytes: number;
+              /** @description Space the move takes there (files coming from another drive) */
+              neededBytes: number;
+              freeBytes: number | null;
+              alreadyThere: number;
+              /** @description The user's own files, linked where they are: moved only with includeLinked (then counted in files) */
+              notManaged: number;
+              /** @description Files outside the trip's folder, which stay where they are */
+              outside: number;
+              missing: number;
+              problem: ("same_folder" | "inside_current" | "contains_current" | "read_only" | "no_room") | null;
+              message: string | null;
             } & {
               [key: string]: unknown;
             };
@@ -16134,7 +39506,14 @@ export interface paths {
                 takenAt: string | null;
                 hasRaw: boolean;
                 originalRef: string | null;
+                inatObservationId: string | null;
                 originalKind: string | null;
+                originalManaged: boolean | null;
+                tags: string[];
+                regionId: string | null;
+                locationLabel: string | null;
+                lat: (number | string) | null;
+                lon: (number | string) | null;
                 cameraModel: string | null;
                 lens: string | null;
                 focalLengthMm: (number | string) | null;
@@ -16142,6 +39521,11 @@ export interface paths {
                 shutter: string | null;
                 iso: number | null;
                 qualityRating: number | null;
+                taxonClass: string | null;
+                taxonOrder: string | null;
+                family: string | null;
+                sortOrder: number | null;
+                tier: string | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -16181,6 +39565,96 @@ export interface paths {
     };
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/trips/{id}/relink": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /trips/{id}/relink */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            folder: string;
+            apply?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              total: number;
+              found: number;
+              missing: number;
+              sizeDiffers: number;
+              outside: number;
+              details: ({
+                file: string;
+                /** @enum {unknown} */
+                reason: "missing" | "notManaged" | "outside" | "sizeDiffers" | "failed";
+                message?: string;
+              } & {
+                [key: string]: unknown;
+              })[];
+              moreDetails: number;
+              applied: boolean;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
     delete?: never;
     options?: never;
     head?: never;
@@ -16549,12 +40023,16 @@ export interface paths {
                 speciesId: string;
                 scientificName: string;
                 commonName: string | null;
+                abaCode?: string | null;
+                ebirdCode?: string | null;
                 taxonClass: string | null;
                 family: string | null;
                 taxonOrder?: string | null;
                 /** @enum {unknown} */
                 state: "collected" | "seen" | "unseen";
                 isTarget: boolean;
+                /** @description The user (or a connected app) marked it as needing a better photo */
+                needsBetterPhoto?: boolean;
                 tier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 localTier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 tierReason?: string | null;
@@ -16562,9 +40040,13 @@ export interface paths {
                 tierOverridden?: boolean;
                 nameChanged?: boolean;
                 vagrant: boolean;
+                introduced: boolean;
                 /** @description 12 monthly values, on region checklist rows */
                 seasonality: null | number[];
                 capturedYears: number[] | null;
+                heard?: boolean;
+                /** @description Collected only through photos Lifer filed, none confirmed yet */
+                suggested?: boolean;
                 endemic: boolean;
                 isGhost: boolean;
                 isLost: boolean;
@@ -16591,6 +40073,7 @@ export interface paths {
                       [key: string]: unknown;
                     })
                   | null;
+                photographedWhere?: ("here" | "elsewhere") | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -16630,6 +40113,160 @@ export interface paths {
     };
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/trips/{id}/suggestions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Photos taken during a trip but in no trip
+     * @description Photos the user dismissed for this trip, and hidden ones, are left out.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: ({
+                /** Format: uuid */
+                captureId: string;
+                photoId: string | null;
+                takenAt: string | null;
+                scientificName: string;
+                commonName: string | null;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the trips.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/trips/{id}/suggestions/dismiss": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /trips/{id}/suggestions/dismiss */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
     delete?: never;
     options?: never;
     head?: never;
@@ -16708,7 +40345,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/trips/build": {
+  "/trips/matching": {
     parameters: {
       query?: never;
       header?: never;
@@ -16717,7 +40354,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** POST /trips/build */
+    /**
+     * Trips some of these photos were taken during
+     * @description Body: `{ captureIds }`.
+     */
     post: {
       parameters: {
         query?: never;
@@ -16728,8 +40368,269 @@ export interface paths {
       requestBody: {
         content: {
           "application/json": {
-            name?: string;
-            parentDir: string;
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              trips: ({
+                /** Format: uuid */
+                id: string;
+                name: string;
+                count: number;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the trips.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/trips/move-files/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /trips/move-files/cancel */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              cancelled: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/trips/move-files/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Progress of a trip's files moving */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result:
+                | ({
+                    tripId: string;
+                    tripName: string;
+                    folder: string;
+                    moved: number;
+                    /** @description Kept where they are: not managed by Lifer, or outside the trip's folder */
+                    skipped: number;
+                    missing: number;
+                    failed: number;
+                    /** @description Of those moved, the user's own linked files */
+                    linkedMoved: number;
+                    folderUpdated: boolean;
+                    stopReason: string | null;
+                    details: ({
+                      file: string;
+                      /** @enum {unknown} */
+                      reason: "missing" | "notManaged" | "outside" | "sizeDiffers" | "failed";
+                      message?: string;
+                    } & {
+                      [key: string]: unknown;
+                    })[];
+                    moreDetails: number;
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
+              tripId: string | null;
+              tripName: string | null;
+              folder: string | null;
+              moved: number;
+              /** @description Kept where they are: not managed by Lifer, or outside the trip's folder */
+              skipped: number;
+              missing: number;
+              failed: number;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the trips.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/trips/start": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /trips/start */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            name: string;
+            /** Format: date */
+            startDate: string;
+            endDate?: string | null;
+            regionId?: string | null;
+            folder?: string;
           };
         };
       };
@@ -16743,8 +40644,7 @@ export interface paths {
             "application/json": {
               /** Format: uuid */
               id: string;
-              sourceFolder: string;
-              destinationFolder: string;
+              folder: string;
             };
           };
         };
@@ -16794,7 +40694,7 @@ export interface paths {
     put?: never;
     /**
      * Import a photo
-     * @description multipart/form-data. Accepted photos: .jpg/.jpeg/.jpe (image/jpeg, image/jpg, image/pjpeg); .png (image/png); .webp (image/webp); .tif/.tiff (image/tiff, image/tif, image/x-tiff); .heic/.heif/.hif (image/heic, image/heif, image/heic-sequence, image/heif-sequence). A camera RAW (or a TIFF holding sensor data) can also be sent on its own. The file's own metadata (capture time, GPS, camera, star rating) is read on import. With `skipDuplicates=1`, an exact copy you already have returns that photo (200, `duplicate: true`) instead of a second one. `cullMarks` decides what happens to a photo a culling app rejected (xmp:Rating -1, a Lightroom, digiKam, Vireo or SuperPicky reject flag): `ignore` (the default) imports it, `skip` answers 200 with `skipped: "rejected"` and imports nothing, `hide` imports it hidden (`hidden: true`, out of the gallery and life list until unhidden). A verdict on `rawFile` counts for `file` too. The file is only read, never changed. Instead of `file`, send `uploadId` (a finished resumable upload, see /uploads/tus) or, after POST /uploads/inspect, `stagedId` with `fileName` and `fileType` to import the copy the server kept. 410 means that copy is gone (expired, already imported or never finished), so send the file again; 409 means the same upload is being imported by another request.
+     * @description multipart/form-data. Accepted photos: .jpg/.jpeg/.jpe (image/jpeg, image/jpg, image/pjpeg); .png (image/png); .webp (image/webp); .tif/.tiff (image/tiff, image/tif, image/x-tiff); .heic/.heif/.hif (image/heic, image/heif, image/heic-sequence, image/heif-sequence). A camera RAW (or a TIFF holding sensor data) can also be sent on its own. The file's own metadata (capture time, GPS, camera, star rating) is read on import. With `skipDuplicates=1`, an exact copy you already have returns that photo (200, `duplicate: true`) instead of a second one. `cullMarks` decides what happens to a photo a culling app rejected (xmp:Rating -1, a Lightroom, digiKam, Vireo or SuperPicky reject flag): `ignore` (the default) imports it, `skip` answers 200 with `skipped: "rejected"` and imports nothing, `hide` imports it hidden (`hidden: true`, out of the gallery and life list until unhidden). A verdict on `rawFile` counts for `file` too. Send the XMP sidecar of the file or its RAW as `xmpFile` (or `xmpUploadId`) and its rating, pick or reject, colour label and keywords are read as from a sidecar on disk. The 201 answer carries `sha256` (hex SHA-256 of the stored file, and of the duplicate on 200) and `rawSha256` when a RAW came with it, so you can verify the transfer. The file is only read, never changed. Instead of `file`, send `uploadId` (a finished resumable upload, see /uploads/tus) or, after POST /uploads/inspect, `stagedId` with `fileName` and `fileType` to import the copy the server kept. 410 means that copy is gone (expired, already imported or never finished), so send the file again; 409 means the same upload is being imported by another request.
      */
     post: {
       parameters: {
@@ -16837,6 +40737,13 @@ export interface paths {
             cullMarks?: "ignore" | "skip" | "hide";
             /** @description Instead of `file`: a finished resumable upload (the last path segment of its /uploads/tus URL) */
             uploadId?: string;
+            /**
+             * Format: binary
+             * @description Optional XMP sidecar of `file` or `rawFile`
+             */
+            xmpFile?: string;
+            /** @description Instead of `xmpFile`: the sidecar as a finished resumable upload */
+            xmpUploadId?: string;
             /** @description Instead of `rawFile`: the RAW as a finished resumable upload */
             rawUploadId?: string;
             /** @description Instead of `file`: the `stagedId` from POST /uploads/inspect */
@@ -16862,6 +40769,8 @@ export interface paths {
               duplicate?: boolean;
               /** @constant */
               skipped?: "rejected";
+              /** @description sha256 of the file you already have (duplicate) */
+              sha256?: string;
             } & {
               [key: string]: unknown;
             };
@@ -16879,6 +40788,10 @@ export interface paths {
               photoId: string | null;
               hidden: boolean;
               linkedExisting?: boolean;
+              /** @description sha256 (hex) of the stored file's bytes, to verify the upload */
+              sha256: string;
+              /** @description sha256 of the RAW sent with the photo, when one was */
+              rawSha256?: string;
             } & {
               [key: string]: unknown;
             };
@@ -16894,6 +40807,74 @@ export interface paths {
           };
         };
         /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/uploads/audio": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /uploads/audio */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              captureId: string;
+              /** Format: uuid */
+              photoId: string;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
         401: {
           headers: {
             [name: string]: unknown;
@@ -16948,6 +40929,8 @@ export interface paths {
             uploadId?: string;
             /** Format: uuid */
             regionId?: string;
+            /** @description `1`: rank suggestions for the region of the photo's own GPS point, when it has one */
+            cameraRegion?: string;
           };
         };
       };
@@ -16960,6 +40943,7 @@ export interface paths {
           content: {
             "application/json": {
               takenAt: string | null;
+              cameraTime: string | null;
               keywords: string[];
               cull: {
                 verdict: ("pick" | "reject") | null;
@@ -16993,6 +40977,16 @@ export interface paths {
                 source: string;
                 confident?: boolean;
                 matchPercent?: number;
+                /** @description Only on a top suggestion that isn't confident: the genus (else family) most close candidates share, e.g. 'Probably a Lithobates frog' */
+                probably?: {
+                  /** @enum {unknown} */
+                  rank: "genus" | "family";
+                  /** @description Scientific name of the genus or family */
+                  name: string;
+                  taxonClass: string | null;
+                } & {
+                  [key: string]: unknown;
+                };
               } & {
                 [key: string]: unknown;
               })[];
@@ -17009,6 +41003,16 @@ export interface paths {
                       source: string;
                       confident?: boolean;
                       matchPercent?: number;
+                      /** @description Only on a top suggestion that isn't confident: the genus (else family) most close candidates share, e.g. 'Probably a Lithobates frog' */
+                      probably?: {
+                        /** @enum {unknown} */
+                        rank: "genus" | "family";
+                        /** @description Scientific name of the genus or family */
+                        name: string;
+                        taxonClass: string | null;
+                      } & {
+                        [key: string]: unknown;
+                      };
                     } & {
                       [key: string]: unknown;
                     })[];
@@ -17023,6 +41027,14 @@ export interface paths {
               notWildlife:
                 | ({
                     looksLike: string;
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
+              maybeNotWildlife?:
+                | ({
+                    looksLike: string;
+                    share: number;
                   } & {
                     [key: string]: unknown;
                   })
@@ -17047,6 +41059,26 @@ export interface paths {
                     [key: string]: unknown;
                   })
                 | null;
+              subject:
+                | ({
+                    x: number;
+                    y: number;
+                    w: number;
+                    h: number;
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
+              gps:
+                | ({
+                    lat: number;
+                    lon: number;
+                    regionId: string | null;
+                    town: string | null;
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
             } & {
               [key: string]: unknown;
             };
@@ -17062,6 +41094,84 @@ export interface paths {
           };
         };
         /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/uploads/known": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /uploads/known */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @description Quick fingerprints of picked files, up to 2,000 per request */
+            fingerprints: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Only the fingerprints already imported or left out before; the rest are new */
+              known: {
+                fingerprint: string;
+                /** @enum {unknown} */
+                status: "imported" | "skipped";
+                reason: ("removed" | "not_wildlife" | "no_animal") | null;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
         401: {
           headers: {
             [name: string]: unknown;
@@ -17112,6 +41222,513 @@ export interface paths {
             [name: string]: unknown;
           };
           content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/uploads/skipped": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /uploads/skipped */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              total: number;
+              /** @description The most recent 1,000 */
+              files: {
+                fingerprint: string;
+                name: string;
+                size: number;
+                /**
+                 * @description Why it was left out: removed by hand, not wildlife, or marked No animal
+                 * @enum {unknown}
+                 */
+                reason: "removed" | "not_wildlife" | "no_animal";
+                /** Format: date-time */
+                createdAt: string;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    /** POST /uploads/skipped */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @description Photos left out of an import, offered again only after Forget */
+            files: {
+              /** @description sha1 (hex) of the file's size in decimal, its first 64 KB and its last 64 KB */
+              fingerprint: string;
+              name: string;
+              size: number;
+              /**
+               * @description Why it was left out: removed by hand, not wildlife, or marked No animal
+               * @enum {unknown}
+               */
+              reason: "removed" | "not_wildlife" | "no_animal";
+            }[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/uploads/skipped/forget": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /uploads/skipped/forget */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            fingerprints?: string[];
+            /** @description Forget every left-out photo */
+            all?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/uploads/source-folders": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /uploads/source-folders */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description The 8 most recently imported from */
+              folders: {
+                path: string;
+                /** Format: date-time */
+                lastImportedAt: string;
+                photoCount: number;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/uploads/source-folders/file": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /uploads/source-folders/file */
+    get: {
+      parameters: {
+        query: {
+          path: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description Not described yet */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/uploads/source-folders/new-count": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /uploads/source-folders/new-count */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @description A folder on this computer */
+            path: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description false when the folder is gone or its drive unplugged */
+              available: boolean;
+              newCount: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/uploads/source-folders/scan": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /uploads/source-folders/scan */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @description A folder on this computer */
+            path: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              files: {
+                path: string;
+                name: string;
+                size: number;
+                mtimeMs: number;
+                fingerprint: string | null;
+                /** @enum {unknown} */
+                status: "new" | "imported" | "skipped";
+                /** @description Imported before at this path, changed since */
+                edited: boolean;
+              }[];
+            };
+          };
         };
         /** @description The request doesn't match this operation's parameters or body */
         400: {
@@ -17501,12 +42118,19 @@ export interface paths {
       };
       requestBody?: never;
       responses: {
-        /** @description Not described yet */
-        200: {
+        /** @description OK */
+        201: {
           headers: {
             [name: string]: unknown;
           };
-          content?: never;
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              captureId: string;
+              /** Format: uuid */
+              photoId: string;
+            };
+          };
         };
         /** @description The request doesn't match this operation's parameters or body */
         400: {
@@ -17518,6 +42142,909 @@ export interface paths {
           };
         };
         /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/userdata/v1/name-display": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * How the user shows species names
+     * @description The View menu's name choice: `main` (`common` or `scientific`) and `also`, the names shown under it in order (`other` is whichever of common or scientific isn't main, then `aba` and `ebird` codes). Lifer's default when the user never chose.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @enum {unknown} */
+              main: "common" | "scientific";
+              /** @description Shown under the main name in this order; other is whichever of common/scientific isn't main */
+              also: ("other" | "aba" | "ebird")[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the userdata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/userdata/v1/photos/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /**
+     * Rate, pick or label one of your photos
+     * @description Any of `rating` (1-5), `flag` (`pick` or `reject`) and colour `label`; null clears one, and a field left out stays as it is. `changeId` names the change as Lifer lists it in Settings > Connected apps, where the user can undo it; null when nothing changed. At most 600 changes a minute per app.
+     */
+    patch: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            rating?: number | null;
+            flag?: ("pick" | "reject") | null;
+            label?: ("red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray" | "black" | "white") | null;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+              changeId: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the userdata.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    trace?: never;
+  };
+  "/userdata/v1/photos/{id}/display": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Display-size image of one of your photos (WebP) */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description The file */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "image/webp": string;
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the userdata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/userdata/v1/photos/{id}/thumb": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Thumbnail of one of your photos (WebP) */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description The file */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "image/webp": string;
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the userdata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/userdata/v1/species": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Your marked and photographed species, for syncing
+     * @description One row per species you photographed, marked seen or made a target, ordered by last change, then removed marks with `deletedAt` set. Only your own data: no regions, checklists, tiers, seasonality, common names or descriptions. Page with `cursor` until `nextCursor` is null, then pass the last `updatedAt` as `since`. A row with `state` null and `isTarget` false is no longer marked.
+     */
+    get: {
+      parameters: {
+        query?: {
+          /** @description Only changes after this time (an `updatedAt` from an earlier call) */
+          since?: string;
+          /** @description `nextCursor` from the previous page */
+          cursor?: string;
+          /** @description Page size, 1-500 (default 100) */
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: {
+                speciesId: string | null;
+                /** @description Match species across installs and taxonomies by this */
+                scientificName: string;
+                state: ("photographed" | "seen") | null;
+                isTarget: boolean;
+                firstCollected: string | null;
+                lastPhotographed: string | null;
+                photoCount: number;
+                bestRating: number | null;
+                coverPhotoId: string | null;
+                /** @description Full-precision time of the last change */
+                updatedAt: string;
+                deletedAt: string | null;
+              }[];
+              nextCursor: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the userdata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/userdata/v1/species/{id}/card-crop": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Set the crop of a species' featured photo
+     * @description Body `{ x, y, size }` in percent of the photo. 404 when the species has no featured photo. Undoable in Lifer.
+     */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            x: number;
+            y: number;
+            size: number;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+              changeId: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the userdata.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/userdata/v1/species/{id}/featured": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * A species' featured photo
+     * @description The featured photo of one of your species with its `cardCrop` (percent of the photo), rating, `flag` (pick or reject) and colour `label`, and whether the species is marked `needsBetterPhoto`. `photo` is null when the species has no featured photo of yours. 404 when you have no mark for the species.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              photo: {
+                /**
+                 * Format: uuid
+                 * @description Fetch with GET /api/userdata/v1/photos/{id}/display
+                 */
+                photoId: string;
+                /** @description The user or an app chose it, rather than Lifer */
+                chosenByUser: boolean;
+                cardCrop: {
+                  x: number;
+                  y: number;
+                  size: number;
+                } | null;
+                rating: number | null;
+                flag: ("pick" | "reject") | null;
+                label: ("red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray" | "black" | "white") | null;
+              } | null;
+              needsBetterPhoto: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the userdata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    /**
+     * Choose a species' featured photo
+     * @description Body `{ photoId }`, one of your photos of that species (403 otherwise). Lifer frames a fresh default crop. Undoable in Lifer.
+     */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** Format: uuid */
+            photoId: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+              changeId: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the userdata.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/userdata/v1/species/{id}/needs-better-photo": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Mark a species as needing a better photo
+     * @description Lifer shows the mark on the species page and as a Collection filter. Undoable in Lifer.
+     */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+              changeId: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the userdata.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    /** Clear the needs-a-better-photo mark */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+              changeId: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the userdata.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/userdata/v1/species/{id}/photos": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Your photos of a species, best first
+     * @description Your photos of that species (as the main or an additional subject), highest rating first, then newest, `limit` 1-200 (default 50). Each has its `captureId`, a `thumbnailUrl` to fetch with the same key, rating, `flag` (pick or reject), colour `label`, `takenAt` and whether it is the `featured` photo. Hidden and trashed photos are left out. 404 for an unknown species.
+     */
+    get: {
+      parameters: {
+        query?: {
+          /** @description 1-200 (default 50) */
+          limit?: number;
+        };
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: {
+                /** Format: uuid */
+                photoId: string;
+                /** Format: uuid */
+                captureId: string;
+                /** @description Relative to the server; fetch with the same key */
+                thumbnailUrl: string;
+                rating: number | null;
+                flag: ("pick" | "reject") | null;
+                label: ("red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray" | "black" | "white") | null;
+                takenAt: string | null;
+                /** @description This is the species' featured photo */
+                featured: boolean;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the userdata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/userdata/v1/species/{id}/similar-photos": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Your photos of a species closest to an image
+     * @description Body `{ model, vector, limit? }`: a 768-number image embedding from the model named in `model` (only Lifer's own model compares; any other answers 400). Returns your photos of that species nearest to it, closest first, with `similarity`, rating, `flag`, `label`, `takenAt` and whether each is the `featured` photo. Hidden and trashed photos are left out. Reads only.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /**
+             * @description The model the vector came from; only this one compares with Lifer's
+             * @constant
+             */
+            model: "clip-vit-l14-v2";
+            /** @description A 768-number image embedding */
+            vector: number[];
+            /** @description 1-50 (default 10) */
+            limit?: number;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              model: string;
+              items: {
+                /** Format: uuid */
+                photoId: string;
+                /** @description Cosine similarity, -1 to 1, higher is closer */
+                similarity: number;
+                rating: number | null;
+                flag: ("pick" | "reject") | null;
+                label: ("red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray" | "black" | "white") | null;
+                takenAt: string | null;
+                /** @description This is the species' featured photo */
+                featured: boolean;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the userdata.read scope */
         401: {
           headers: {
             [name: string]: unknown;
