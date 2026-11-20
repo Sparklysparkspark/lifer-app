@@ -73,8 +73,9 @@ describe.skipIf(!url)("library records: trips and album details", () => {
     // A trip of the first two photos, with a framed cover; an album with details and one without photos.
     const trip = await db.query<{ id: string }>(
       `INSERT INTO trips (user_id, name, description, source_folder, destination_folder, cover_capture_id,
-                          cover_crop_x, cover_crop_y, cover_crop_size)
-       VALUES ($1, 'Costa Rica', 'Two weeks on the Osa', $2, $3, $4, 10, 20, 50) RETURNING id`,
+                          cover_crop_x, cover_crop_y, cover_crop_size, start_date, end_date, active_override)
+       VALUES ($1, 'Costa Rica', 'Two weeks on the Osa', $2, $3, $4, 10, 20, 50, '2026-05-03', '2026-05-10', false)
+       RETURNING id`,
       [USER, tripFolder, path.join(tripFolder, "Wildlife"), captures[1]],
     );
     tripId = trip.rows[0].id;
@@ -115,6 +116,10 @@ describe.skipIf(!url)("library records: trips and album details", () => {
       destinationFolder: ".",
       cover: { file: "IMG_1.jpg", crop: { x: 10, y: 20, size: 50 } },
       photos: expect.arrayContaining(["IMG_0.jpg", "IMG_1.jpg"]),
+      startDate: "2026-05-03",
+      endDate: "2026-05-10",
+      regionId: null,
+      activeOverride: false,
     });
     expect(record.photos).toHaveLength(2);
   });
@@ -130,7 +135,8 @@ describe.skipIf(!url)("library records: trips and album details", () => {
     expect(restored).toEqual({ trips: 1, tripPhotos: 2, albums: 2 });
 
     const trip = await db.query(
-      `SELECT name, description, source_folder, destination_folder, cover_capture_id, cover_crop_x::float AS x
+      `SELECT name, description, source_folder, destination_folder, cover_capture_id, cover_crop_x::float AS x,
+              start_date::text AS start_date, end_date::text AS end_date, active_override
          FROM trips WHERE user_id = $1`,
       [USER],
     );
@@ -142,6 +148,9 @@ describe.skipIf(!url)("library records: trips and album details", () => {
         destination_folder: path.join(tripFolder, "Wildlife"),
         cover_capture_id: captures[1],
         x: 10,
+        start_date: "2026-05-03",
+        end_date: "2026-05-10",
+        active_override: false,
       },
     ]);
     const inTrip = await db.query(`SELECT id FROM captures WHERE user_id = $1 AND trip_id IS NOT NULL ORDER BY id`, [
@@ -224,5 +233,28 @@ describe.skipIf(!url)("library records: trips and album details", () => {
       records.removeTripRecord(id, tripFolder, path.join(tripFolder, "Wildlife"));
     expect(existsSync(recordFile())).toBe(false);
     expect(records.findTripRecords(library)).toEqual([]);
+  });
+
+  it("brings a smart album back with its rules and excluded photos", async () => {
+    const rules = { version: 2, query: { taxa: "aves", ratingMin: "3" } };
+    const smart = await db.query<{ id: string }>(
+      `INSERT INTO albums (user_id, name, rules) VALUES ($1, 'Rated birds', $2) RETURNING id`,
+      [USER, JSON.stringify(rules)],
+    );
+    await db.query(`INSERT INTO album_exclusions (album_id, capture_id) VALUES ($1, $2)`, [
+      smart.rows[0].id,
+      captures[1],
+    ]);
+    await records.saveAlbumDetails(USER);
+    await db.query(`DELETE FROM albums WHERE user_id = $1`, [USER]);
+
+    await records.restoreLibraryRecords(USER, library);
+    const back = await db.query<{ id: string; rules: unknown }>(
+      `SELECT id, rules FROM albums WHERE user_id = $1 AND name = 'Rated birds'`,
+      [USER],
+    );
+    expect(back.rows[0].rules).toEqual(rules);
+    const excluded = await db.query(`SELECT capture_id FROM album_exclusions WHERE album_id = $1`, [back.rows[0].id]);
+    expect(excluded.rows).toEqual([{ capture_id: captures[1] }]);
   });
 });

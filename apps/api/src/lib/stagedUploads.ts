@@ -14,7 +14,7 @@ export const STAGE_MAX_AGE_MS = 2 * 60 * 60_000;
 const FINGERPRINT = /^[0-9a-f]{64}$/;
 const USER_ID = /^[0-9a-f-]{36}$/i;
 
-function stagedPath(userId: string, fingerprint: string): string | null {
+export function stagedPath(userId: string, fingerprint: string): string | null {
   if (!USER_ID.test(userId) || !FINGERPRINT.test(fingerprint)) return null;
   return path.join(uploadStagingDir(), userId, fingerprint);
 }

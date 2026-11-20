@@ -16,11 +16,21 @@ const NON_JSON_SCOPED_ROUTES = [
   "GET /api/species/reference-gallery-photo/:photoId/display",
   "GET /api/species/reference-gallery-photo/:photoId/thumb",
   "GET /api/photos/:id/display",
+  "GET /api/userdata/v1/photos/:id/display",
+  "GET /api/userdata/v1/photos/:id/thumb",
   "GET /api/photos/:id/medium",
+  "GET /api/photos/:id/phone",
+  "GET /api/photos/:id/full",
+  "GET /api/photos/:id/card",
   "GET /api/photos/:id/thumb",
   "GET /api/photos/:id/original",
   "GET /api/photos/:id/original-raw",
+  "GET /api/companion/v1/model/text/:id",
+  "GET /api/companion/v1/reference/:id/thumb",
+  "GET /api/companion/v1/reference/:id/display",
+  "GET /api/companion/v1/square/:kind/:id",
   "GET /api/photos/:id/video",
+  "GET /api/photos/:id/audio",
   "GET /api/stats/export.csv",
   "GET /api/trips/:id/scan-preview",
   "POST /api/uploads/tus",
@@ -29,6 +39,47 @@ const NON_JSON_SCOPED_ROUTES = [
   "HEAD /api/uploads/tus/:id",
   "DELETE /api/uploads/tus/:id",
   "OPTIONS /api/uploads/tus/:id",
+];
+
+// Session-only routes with no success schema yet: files, redirects and streams, plus older JSON
+// routes. Only ever shrinks: a new route describes its answer.
+const SESSION_ROUTES_WITHOUT_SUCCESS_SCHEMA = [
+  // A file's bytes from a folder the user imported from (desktop), queued like a picked file.
+  "GET /api/uploads/source-folders/file",
+  // A JPEG preview of the user's own iNaturalist photo, not JSON.
+  "GET /api/inaturalist/observations/:observationId/photos/:photoId",
+  "GET /api/species/inat-search",
+  "POST /api/species/other-taxa",
+  "GET /api/species/other-taxa/bulk/status",
+  "POST /api/species/other-taxa/bulk/cancel",
+  "POST /api/species/other-taxa/bulk",
+  "POST /api/species/matching/warm",
+  "GET /api/species/matching-hardware",
+  "POST /api/species/matching-hardware/retest",
+  "POST /api/uploads/raw",
+  "GET /api/originals/:id/download",
+  "GET /api/regions/taxon-presence",
+  "GET /api/regions/boundaries",
+  "GET /api/species/:id/tier",
+  "GET /api/species/:id/split",
+  "GET /api/settings/catalog-update",
+  "GET /api/settings/browse-directory",
+  "GET /api/library/folder-status",
+  "POST /api/library/reimport",
+  "GET /api/library/reimport/status",
+  "GET /api/library/reimport/unmatched-preview/:index",
+  "GET /api/library/reimport/unmatched-preview-by-hash/:hash",
+  "GET /api/share/:token",
+  "POST /api/share/:token/unlock",
+  "GET /api/share/:token/photos/:photoId/display",
+  "GET /api/share/:token/photos/:photoId/thumb",
+  "GET /api/p/:token",
+  "GET /api/p/:token/life-list",
+  "GET /api/p/:token/photos/:file",
+  "GET /api/openapi.json",
+  "POST /api/inaturalist/connect",
+  "GET /api/inaturalist/callback",
+  "GET /api/inaturalist/server-config",
 ];
 
 // SQL that changes data, as it appears in a handler's own source.
@@ -76,6 +127,16 @@ describe("API route schemas", () => {
     // Keeps the list honest: every entry is a real API-key route.
     const byKey = new Set(scoped.map(key));
     expect([...exempt].filter((k) => !byKey.has(k))).toEqual([]);
+  });
+
+  it("describes the success answer of every new session-only route", () => {
+    const has2xx = (r: CatalogRoute) =>
+      Object.keys((r.schema?.response as Record<string, unknown> | undefined) ?? {}).some((s) => s.startsWith("2"));
+    const loose = routes.filter((r) => !r.scope && !has2xx(r)).map(key);
+    const known = new Set(SESSION_ROUTES_WITHOUT_SUCCESS_SCHEMA);
+    expect(loose.filter((k) => !known.has(k))).toEqual([]);
+    // A route that gained a schema comes off the list.
+    expect(SESSION_ROUTES_WITHOUT_SUCCESS_SCHEMA.filter((k) => !loose.includes(k))).toEqual([]);
   });
 
   // Process check: a route without a sign-in hook is public, so it has to be on the allowlist

@@ -107,6 +107,9 @@ export interface TusUploadRecord {
   size: number;
   sha256: string;
   finishedAt: string;
+  /** The file's mtime and ctime when sha256 was taken: unchanged, the bytes needn't be hashed again. */
+  mtimeMs?: number;
+  ctimeMs?: number;
 }
 
 function metadataValue(upload: Upload, ...keys: string[]): string | null {
@@ -164,7 +167,7 @@ async function recordFinishedUpload(upload: Upload, userId: string | null): Prom
   const filePath = path.join(filesDir(), upload.id);
   const running = runningHashes.get(upload.id);
   runningHashes.delete(upload.id);
-  const size = (await stat(filePath)).size;
+  const { size, mtimeMs, ctimeMs } = await stat(filePath);
   const sha256 = running && running.bytes === size ? running.hash.digest("hex") : await hashFile(filePath);
   const record: TusUploadRecord = {
     id: upload.id,
@@ -174,6 +177,8 @@ async function recordFinishedUpload(upload: Upload, userId: string | null): Prom
     size,
     sha256,
     finishedAt: new Date().toISOString(),
+    mtimeMs,
+    ctimeMs,
   };
   await mkdir(recordsDir(), { recursive: true });
   await writeFile(path.join(recordsDir(), `${upload.id}.json`), JSON.stringify(record));
@@ -217,7 +222,8 @@ export class TusClaimError extends Error {
 }
 
 /** Takes a finished upload for one import: checks the owner, that the bytes still hash to the
- *  recorded sha256 (streamed), and that no other import holds it. Call release() when done;
+ *  recorded sha256 (streamed, skipped while the file's times are as recorded), and that no other
+ *  import holds it. Call release() when done;
  *  after a successful import, removeTusUpload() too. */
 export async function claimTusUpload(
   userId: string,
@@ -233,7 +239,9 @@ export async function claimTusUpload(
         "That upload isn't here any more (finished, expired or never completed). Upload the file again.",
         410,
       );
-    if ((await hashFile(upload.path)) !== upload.sha256) {
+    const now = await stat(upload.path);
+    const untouched = now.mtimeMs === upload.mtimeMs && now.ctimeMs === upload.ctimeMs;
+    if (!untouched && (await hashFile(upload.path)) !== upload.sha256) {
       await removeTusUpload(uploadId);
       throw new TusClaimError("That upload changed after it finished. Upload the file again.", 410);
     }

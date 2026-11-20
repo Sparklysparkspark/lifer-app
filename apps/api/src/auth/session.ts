@@ -16,7 +16,7 @@ const LOCAL_USER_EMAIL = "local@lifer.app";
 // Desktop mode's single auto-provisioned user, created on first run. No password: getSessionUser
 // returns it for every request that carries the desktop app's credential (localCredential.ts).
 let cachedLocalUserId: string | null = null;
-async function getOrCreateLocalUser(): Promise<SessionUser> {
+export async function getOrCreateLocalUser(): Promise<SessionUser> {
   if (cachedLocalUserId) return { id: cachedLocalUserId, email: LOCAL_USER_EMAIL };
   // Several first-load requests race here on a new library, so the insert uses ON CONFLICT DO
   // NOTHING and the losers read back the winner's row.
@@ -127,22 +127,22 @@ export const requireAuth = Object.assign(
 // or null for every failure alike (missing header, unknown key, wrong scope).
 async function verifyApiKeyScope(
   request: FastifyRequest,
-  scope: string,
-): Promise<{ id: string; email: string } | null> {
+  scopes: readonly string[],
+): Promise<{ id: string; email: string; device: boolean; keyName: string } | null> {
   const token = request.headers["x-api-key"];
   if (typeof token !== "string" || !token) return null;
 
   const keyHash = hashApiKey(token);
-  const res = await pool.query<{ id: string; user_id: string; permissions: string[]; email: string }>(
-    `SELECT k.id, k.user_id, k.permissions, u.email FROM api_keys k JOIN users u ON u.id = k.user_id WHERE k.key_hash = $1`,
+  const res = await pool.query<{ id: string; user_id: string; permissions: string[]; email: string; name: string }>(
+    `SELECT k.id, k.user_id, k.permissions, k.name, u.email FROM api_keys k JOIN users u ON u.id = k.user_id WHERE k.key_hash = $1`,
     [keyHash],
   );
   const row = res.rows[0];
-  if (!row || !row.permissions.includes(scope)) return null;
+  if (!row || !scopes.some((s) => row.permissions.includes(s))) return null;
 
   // Fire-and-forget: a slow or failed write must not hold up the request.
   pool.query(`UPDATE api_keys SET last_used_at = now() WHERE id = $1`, [row.id]).catch(() => {});
-  return { id: row.user_id, email: row.email };
+  return { id: row.user_id, email: row.email, device: row.permissions.includes("companion"), keyName: row.name };
 }
 
 /**
@@ -151,19 +151,21 @@ async function verifyApiKeyScope(
  * the desktop app's own requests. The hook carries its scope, which the OpenAPI document reads
  * (lib/schema.ts routeCatalog).
  */
-export function requireScope(scope: string) {
+export function requireScope(scope: string, alsoAccept: readonly string[] = []) {
   const hook = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const sessionUser = await getSessionUser(request);
     if (sessionUser) {
       request.user = sessionUser;
       return;
     }
-    const apiKeyUser = await verifyApiKeyScope(request, scope);
+    const apiKeyUser = await verifyApiKeyScope(request, [scope, ...alsoAccept]);
     if (!apiKeyUser) {
       reply.code(401).send({ error: "Not authenticated" });
       return;
     }
-    request.user = apiKeyUser;
+    request.user = { id: apiKeyUser.id, email: apiKeyUser.email };
+    request.deviceKey = apiKeyUser.device;
+    request.apiKeyName = apiKeyUser.keyName;
   };
-  return Object.assign(hook, { scope, authKind: "scope" as const });
+  return Object.assign(hook, { scope, alsoAccept, authKind: "scope" as const });
 }

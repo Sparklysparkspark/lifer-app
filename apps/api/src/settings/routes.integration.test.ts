@@ -1,7 +1,7 @@
 // Runs only with TEST_DATABASE_URL pointing at a migrated, disposable database.
 // Settings routes on a server install: each one checks its input against its schema before the
 // handler runs, and valid input still saves.
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -25,7 +25,7 @@ describe.skipIf(!url)("settings routes", () => {
   const userRow = async () =>
     (
       await db.query(
-        `SELECT hide_obscure_species, technical_diving, species_naming_styles, locale FROM users WHERE id = $1`,
+        `SELECT hide_obscure_species, technical_diving, species_naming_styles, tips_seen, locale FROM users WHERE id = $1`,
         [USER],
       )
     ).rows[0];
@@ -42,6 +42,7 @@ describe.skipIf(!url)("settings routes", () => {
     const { settingsRoutes } = await import("./routes.js");
 
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
+    await db.query(`DELETE FROM install_settings WHERE key = $1`, [`species_name_display:${USER}`]);
     await db.query(
       `INSERT INTO users (id, email, password_hash, hide_obscure_species, species_naming_styles)
        VALUES ($1, 'settings-routes@test', 'x', true, '{common}')`,
@@ -62,6 +63,7 @@ describe.skipIf(!url)("settings routes", () => {
   afterAll(async () => {
     await app?.close();
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
+    await db.query(`DELETE FROM install_settings WHERE key = $1`, [`species_name_display:${USER}`]);
     await db.end();
     const { pool } = await import("@lifer/core/db.js");
     await pool.end();
@@ -95,6 +97,25 @@ describe.skipIf(!url)("settings routes", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("records each tip seen once, and Show tips again clears them", async () => {
+    for (const id of ["import-keys", "viewer-keys", "import-keys"]) {
+      expect((await call("POST", "/api/settings/tips/seen", { id })).statusCode).toBe(200);
+    }
+    expect((await call("GET", "/api/settings")).json()).toMatchObject({
+      tipsEnabled: true,
+      tipsSeen: ["import-keys", "viewer-keys"],
+    });
+    expect((await call("PUT", "/api/settings/tips", { enabled: false })).json()).toEqual({ tipsEnabled: false });
+    const reset = await call("POST", "/api/settings/tips/reset");
+    expect(reset.json()).toEqual({ tipsSeen: [], tipsEnabled: true });
+    expect((await userRow()).tips_seen).toEqual([]);
+  });
+
+  it("refuses a tip id that isn't a plain slug", async () => {
+    const res = await call("POST", "/api/settings/tips/seen", { id: "Bad Id!" });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("saves species naming styles in order, without repeats", async () => {
     const res = await call("PUT", "/api/settings/species-naming-style", { styles: ["latin", "common", "latin"] });
     expect([res.statusCode, res.json()]).toEqual([200, { speciesNamingStyles: ["latin", "common"] }]);
@@ -113,9 +134,68 @@ describe.skipIf(!url)("settings routes", () => {
     expect((await userRow()).species_naming_styles).toEqual(["common"]);
   });
 
+  it("saves a folder layout in order, without repeats, and reads it back", async () => {
+    const res = await call("PUT", "/api/settings/folder-layout", { layout: ["trip", "group", "species", "trip"] });
+    expect([res.statusCode, res.json()]).toEqual([200, { folderLayout: ["trip", "group", "species"] }]);
+    expect((await call("GET", "/api/settings")).json().folderLayout).toEqual(["trip", "group", "species"]);
+    await call("PUT", "/api/settings/folder-layout", { layout: ["group", "species"] });
+  });
+
+  it.each([
+    ["an unknown level", { layout: ["group", "camera"] }, /^Invalid body: layout\.1 must be one of /],
+    ["no levels", { layout: [] }, /^Invalid body: layout must /],
+    ["no layout", {}, /^Invalid body: layout is required$/],
+  ])("refuses %s as a folder layout", async (_name, payload, error) => {
+    const res = await call("PUT", "/api/settings/folder-layout", payload);
+    expect([res.statusCode, res.json()]).toEqual([400, invalid(error)]);
+    expect((await call("GET", "/api/settings")).json().folderLayout).toEqual(["group", "species"]);
+  });
+
+  it("shows a layout's example on a sample photo before there are any, and refuses unknown levels", async () => {
+    const res = await call("GET", "/api/settings/folder-layout/example?layout=country,province,place,group,species");
+    expect(res.json()).toEqual({
+      path: path.join("Canada", "Alberta", "Pigeon Lake", "Birds", "American Robin", "Adjusted", "IMG_4411.jpg"),
+      sample: true,
+    });
+    expect((await call("GET", "/api/settings/folder-layout/example?layout=year,date")).json().path).toBe(
+      path.join("2025", "2025-06-14", "Adjusted", "IMG_4411.jpg"),
+    );
+    expect((await call("GET", "/api/settings/folder-layout/example?layout=group,camera")).statusCode).toBe(400);
+  });
+
   it("still refuses aba_code when no pack has ABA codes, in the handler", async () => {
     const res = await call("PUT", "/api/settings/species-naming-style", { styles: ["aba_code"] });
-    expect([res.statusCode, res.json()]).toEqual([400, { error: "No downloaded pack has any ABA-coded species yet" }]);
+    expect([res.statusCode, res.json()]).toEqual([
+      400,
+      { error: "No downloaded region has any ABA-coded species yet" },
+    ]);
+  });
+
+  it("saves the View menu's species name choice in display order and reads it back", async () => {
+    expect((await call("GET", "/api/settings")).json().speciesNameDisplay).toBeNull();
+    const res = await call("PUT", "/api/settings/species-name-display", {
+      main: "scientific",
+      also: ["ebird", "other"],
+    });
+    const saved = { main: "scientific", also: ["other", "ebird"] };
+    expect([res.statusCode, res.json()]).toEqual([200, { speciesNameDisplay: saved }]);
+    expect((await call("GET", "/api/settings")).json().speciesNameDisplay).toEqual(saved);
+    // Nothing below the main name is a choice too.
+    const none = await call("PUT", "/api/settings/species-name-display", { main: "common", also: [] });
+    expect(none.json()).toEqual({ speciesNameDisplay: { main: "common", also: [] } });
+  });
+
+  it.each([
+    ["an unknown main name", { main: "latin", also: [] }],
+    ["an unknown extra", { main: "common", also: ["klingon"] }],
+    ["a repeated extra", { main: "common", also: ["aba", "aba"] }],
+    ["a single extra not in a list", { main: "common", also: "aba" }],
+    ["the earlier shape", { first: "common", second: "none" }],
+    ["an extra field", { main: "common", also: [], font: "big" }],
+  ])("refuses %s as the species name choice", async (_name, payload) => {
+    const res = await call("PUT", "/api/settings/species-name-display", payload);
+    expect([res.statusCode, res.json().code]).toEqual([400, "invalid_request"]);
+    expect((await call("GET", "/api/settings")).json().speciesNameDisplay).toEqual({ main: "common", also: [] });
   });
 
   it("saves the interface language, null meaning automatic, and reads it back", async () => {
@@ -151,16 +231,28 @@ describe.skipIf(!url)("settings routes", () => {
     expect((await call("GET", "/api/settings/browse-directory?path=/etc")).statusCode).toBe(403);
   });
 
+  it("makes a new folder for the folder picker, only inside an allowed one", async () => {
+    const res = await call("POST", "/api/settings/browse-directory/new-folder", { parent: dataDir, name: "Wildlife" });
+    expect(res.statusCode).toBe(200);
+    expect(existsSync(res.json().path)).toBe(true);
+    // Already there: it's simply used.
+    const again = await call("POST", "/api/settings/browse-directory/new-folder", { parent: dataDir, name: "Wildlife" });
+    expect(again.json()).toEqual(res.json());
+    for (const name of ["..", "a/b", "a\\b"]) {
+      const bad = await call("POST", "/api/settings/browse-directory/new-folder", { parent: dataDir, name });
+      expect(bad.statusCode).toBe(400);
+    }
+    const outside = await call("POST", "/api/settings/browse-directory/new-folder", { parent: "/etc", name: "x" });
+    expect(outside.statusCode).toBe(403);
+  });
+
   it("refuses a background value other than 1 for reorganizing", async () => {
     const res = await call("POST", "/api/settings/reorganize-originals?background=true");
     expect([res.statusCode, res.json()]).toEqual([400, invalid(/^Invalid query: background must be 1$/)]);
   });
 
   it("answers desktop-only routes with 404 on a server, whatever the body", async () => {
-    for (const [route, payload] of [
-      ["/api/settings/migrate-to-server", { serverUrl: 42 }],
-      ["/api/settings/delete-local-library", { confirm: "yes" }],
-    ] as const) {
+    for (const [route, payload] of [["/api/settings/delete-local-library", { confirm: "yes" }]] as const) {
       const res = await call("POST", route, payload);
       expect([res.statusCode, res.json().code]).toEqual([404, "desktop_only"]);
     }

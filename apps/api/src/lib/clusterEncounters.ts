@@ -1,6 +1,6 @@
 // Groups captures into encounters: 400 photos of one owl in 20 minutes is one sighting. A gap over
-// SESSION_GAP_MS starts a new encounter (the same rule as inaturalist/grouping.ts).
-const SESSION_GAP_MS = 60 * 60 * 1000;
+// an hour starts a new encounter (splitSessions, the rule shared with iNaturalist and import).
+import { splitSessions } from "@lifer/shared";
 
 export interface ClusterableCapture {
   id: string;
@@ -16,25 +16,12 @@ export interface Encounter {
 // Captures with no taken_at (rare, EXIF-less imports) each become their own single-photo
 // encounter rather than being guessed into a group by unrelated data (e.g. upload order).
 export function clusterIntoEncounters(captures: ClusterableCapture[]): Encounter[] {
-  const withTime = captures
-    .filter((c) => c.takenAt !== null)
-    .sort((a, b) => new Date(a.takenAt!).getTime() - new Date(b.takenAt!).getTime());
+  const withTime = captures.filter((c) => c.takenAt !== null);
   const withoutTime = captures.filter((c) => c.takenAt === null);
-
-  const encounters: Encounter[] = [];
-  let current: ClusterableCapture[] = [];
-  for (const capture of withTime) {
-    const prev = current[current.length - 1];
-    if (prev && new Date(capture.takenAt!).getTime() - new Date(prev.takenAt!).getTime() > SESSION_GAP_MS) {
-      encounters.push(toEncounter(current));
-      current = [];
-    }
-    current.push(capture);
-  }
-  if (current.length > 0) encounters.push(toEncounter(current));
-  for (const capture of withoutTime) encounters.push(toEncounter([capture]));
-
-  return encounters;
+  return [
+    ...splitSessions(withTime, (c) => new Date(c.takenAt!).getTime()).map(toEncounter),
+    ...withoutTime.map((c) => toEncounter([c])),
+  ];
 }
 
 function toEncounter(captures: ClusterableCapture[]): Encounter {

@@ -173,6 +173,9 @@ describe.skipIf(!url)("auth and API key routes input validation", () => {
     expect((await create({ permissions: ["photos.read"] })).json()).toEqual(invalid(/name is required/));
     expect((await create({ name: "x", permissions: ["photos.read"], admin: true })).statusCode).toBe(400);
     expect((await create({ name: "   ", permissions: ["photos.read"] })).json()).toEqual({ error: "name is required" });
+    for (const scope of ["sync", "companion"]) {
+      expect((await create({ name: "x", permissions: ["photos.read", scope] })).statusCode).toBe(400);
+    }
 
     const created = await create({ name: "Home Assistant", permissions: ["collection.read", "photos.read"] });
     expect(created.json()).toMatchObject({ name: "Home Assistant", permissions: ["collection.read", "photos.read"] });
@@ -182,5 +185,22 @@ describe.skipIf(!url)("auth and API key routes input validation", () => {
       expect([res.statusCode, res.json()]).toEqual([404, { error: "Key not found" }]);
     }
     expect((await call("DELETE", `/api/api-keys/${created.json().id}`)).json()).toEqual({ ok: true });
+  });
+
+  it("links a desktop app with a key carrying exactly the sync scopes, session auth only", async () => {
+    const { DESKTOP_LINK_SCOPES } = await import("./apiKeyRoutes.js");
+    const linked = await call("POST", "/api/auth/desktop-link", { name: "  Desktop app on laptop " });
+    expect(linked.statusCode).toBe(200);
+    expect(linked.json()).toMatchObject({ name: "Desktop app on laptop", permissions: [...DESKTOP_LINK_SCOPES] });
+    expect(linked.json().token).toMatch(/^lifer_/);
+    // The new key can't mint another link: key routes are session-only.
+    const viaKey = await app.inject({
+      method: "POST",
+      url: "/api/auth/desktop-link",
+      payload: { name: "x" },
+      headers: { "x-api-key": linked.json().token, "x-lifer-client": "1" },
+    });
+    expect(viaKey.statusCode).toBe(401);
+    expect((await call("DELETE", `/api/api-keys/${linked.json().id}`)).json()).toEqual({ ok: true });
   });
 });

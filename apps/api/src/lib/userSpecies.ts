@@ -21,6 +21,16 @@ export async function markCollected(
   );
 }
 
+// A recording of a species means it was heard: it counts as seen, never collected, and never
+// downgrades a species the user already photographed.
+export async function markHeard(db: Queryable, userId: string, speciesId: string): Promise<void> {
+  await db.query(
+    `INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'seen')
+     ON CONFLICT (user_id, species_id) DO UPDATE SET state = COALESCE(user_species.state, 'seen')`,
+    [userId, speciesId],
+  );
+}
+
 // A species' fallback cover: its best remaining photo, highest rated then newest (the same pick
 // as replaceUnshowableCover in photos/routes.ts). Photos where it's only a secondary tag come
 // last. Reads the `captures` view, so trashed captures never qualify.
@@ -80,29 +90,44 @@ export async function restoreCoversForCapture(db: Queryable, userId: string, cap
   return res.rows.filter((r) => r.cover_photo_id != null).map((r) => r.species_id);
 }
 
-/** Keeps "collected" in step with the photos you can see, for the species of `captureIds`: a
- *  species whose last photo went to the Trash stops counting as collected, and one whose photo came
- *  back from it counts again. Reads the `captures` view, which hides trashed captures; a photo
- *  where the species is a secondary tag counts too. Run after trashing or restoring. */
+/** Keeps the life-list state in step with the media you can see, for the species of `captureIds`:
+ *  a photo or video makes it collected, else a recording makes it heard (seen), else it falls back
+ *  to nothing. A seen state is only cleared when a trashed recording was what made it seen, so a
+ *  species marked seen by hand keeps it. Reads the `captures` view, which hides trashed captures;
+ *  a photo where the species is a secondary tag counts too. Run after trashing or restoring. */
 export async function syncCollectedState(db: Queryable, userId: string, captureIds: string[]): Promise<void> {
   if (captureIds.length === 0) return;
   await db.query(
     `WITH affected AS (
        SELECT species_id FROM captures_all WHERE id = ANY($2::uuid[])
        UNION SELECT species_id FROM capture_species WHERE capture_id = ANY($2::uuid[])
+     ),
+     visible AS (
+       SELECT c.species_id, p.kind FROM captures c JOIN photos p ON p.id = c.current_photo_id WHERE c.user_id = $1
+       UNION ALL
+       SELECT cs.species_id, p.kind FROM capture_species cs JOIN captures c ON c.id = cs.capture_id
+         JOIN photos p ON p.id = c.current_photo_id WHERE c.user_id = $1
+     ),
+     wanted AS (
+       SELECT a.species_id,
+              EXISTS (SELECT 1 FROM visible v WHERE v.species_id = a.species_id AND v.kind <> 'audio') AS has_photo,
+              EXISTS (SELECT 1 FROM visible v WHERE v.species_id = a.species_id AND v.kind = 'audio') AS has_audio,
+              EXISTS (SELECT 1 FROM captures_all t JOIN photos tp ON tp.id = t.current_photo_id
+                       WHERE t.id = ANY($2::uuid[]) AND t.species_id = a.species_id AND tp.kind = 'audio') AS touched_audio
+         FROM affected a
+     ),
+     next AS (
+       SELECT us.species_id,
+              CASE WHEN w.has_photo THEN 'collected'
+                   WHEN w.has_audio THEN 'seen'
+                   WHEN us.state = 'collected' OR (us.state = 'seen' AND w.touched_audio) THEN NULL
+                   ELSE us.state END AS state
+         FROM user_species us JOIN wanted w ON w.species_id = us.species_id
+        WHERE us.user_id = $1
      )
-     UPDATE user_species us
-        SET state = CASE WHEN has_photo THEN 'collected' END
-       FROM (
-         SELECT a.species_id,
-                EXISTS (SELECT 1 FROM captures c WHERE c.user_id = $1 AND c.species_id = a.species_id)
-             OR EXISTS (SELECT 1 FROM capture_species cs JOIN captures c ON c.id = cs.capture_id
-                         WHERE cs.species_id = a.species_id AND c.user_id = $1) AS has_photo
-           FROM affected a
-       ) p
-      WHERE us.user_id = $1 AND us.species_id = p.species_id
-        AND (p.has_photo AND us.state IS DISTINCT FROM 'collected'
-             OR NOT p.has_photo AND us.state = 'collected')`,
+     UPDATE user_species us SET state = n.state
+       FROM next n
+      WHERE us.user_id = $1 AND us.species_id = n.species_id AND us.state IS DISTINCT FROM n.state`,
     [userId, captureIds],
   );
 }

@@ -15,10 +15,21 @@ const ApiKeyFields = {
 };
 
 export const ApiKeyList = Open({
-  keys: Type.Array(Open({ ...ApiKeyFields, lastUsedAt: Nullable(DateTime()) })),
+  keys: Type.Array(
+    Open({
+      ...ApiKeyFields,
+      lastUsedAt: Nullable(DateTime()),
+      pluginId: Nullable(Type.String({ description: "The app this key was paired for, if any" })),
+    }),
+  ),
 });
 
 export const CreatedApiKey = Open({
   ...ApiKeyFields,
   token: Type.String({ description: "The key itself, shown only this once" }),
+});
+/** A desktop app's key, with the secret it later checks the server against (sync/linkProof.ts). */
+export const DesktopLink = Open({
+  ...CreatedApiKey.properties,
+  linkSecret: Type.String({ description: "Proves this server to the app that holds the key" }),
 });

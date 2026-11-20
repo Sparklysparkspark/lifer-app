@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createJob, describeError, JobCancelledError } from "./job.js";
+import { createJob, describeError, JobCancelledError, runningJobsProgress } from "./job.js";
 
 function deferred<T = void>() {
   let resolve!: (v: T) => void;
@@ -117,5 +117,26 @@ describe("describeError", () => {
   it("falls back to the plain message when there's no detail", () => {
     expect(describeError(new Error("boom"))).toBe("boom");
     expect(describeError("just a string")).toBe("just a string");
+  });
+});
+
+describe("runningJobsProgress", () => {
+  it("averages the jobs that can say how far along they are, and drops finished ones", async () => {
+    expect(runningJobsProgress()).toEqual({ running: 0, progress: null });
+    const gate = deferred();
+    const a = createJob("progress-a");
+    const b = createJob("progress-b");
+    const c = createJob("progress-c");
+    const hold = (processed: number | null, total: number | null) => async (ctx: { update: (p: object) => void }) => {
+      ctx.update({ processed, total });
+      await gate.promise;
+    };
+    a.start(hold(1, 4));
+    b.start(hold(3, 4));
+    c.start(hold(null, null));
+    expect(runningJobsProgress()).toEqual({ running: 3, progress: 0.5 });
+    gate.resolve();
+    await Promise.all([a.settled(), b.settled(), c.settled()]);
+    expect(runningJobsProgress()).toEqual({ running: 0, progress: null });
   });
 });

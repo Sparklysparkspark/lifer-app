@@ -13,6 +13,12 @@ import { ensureDir } from "@lifer/core/lib/safeFs.js";
 import { log } from "@lifer/core/lib/log.js";
 import { foldInnerAdditions } from "../regions/checklistAdditions.js";
 
+async function downloadedPackIds(): Promise<string[]> {
+  return (await pool.query<{ pack_id: string }>(`SELECT pack_id FROM downloaded_packs ORDER BY 1`)).rows.map(
+    (r) => r.pack_id,
+  );
+}
+
 export interface UserCollectionState {
   archived: string[];
   hiddenInRegions: Array<{ region: string; species: string }>;
@@ -24,21 +30,71 @@ export interface UserCollectionState {
   addedToRegions?: Array<{ region: string; species: string }>;
   /** Species added to a sea zone's checklist by hand, by the zone's name (names are unique). */
   addedToSeaZones?: Array<{ seaZone: string; species: string }>;
+  /** Each species card's cover photo and crop, so a reimport brings back cards as they were
+   *  arranged. The cover is found again by its original file's content hash, else its path in
+   *  the library (Lifer writing tags into a managed file changes its hash). */
+  cards?: SavedCard[];
+  /** Species added from iNaturalist (Other Taxa), which a fresh catalog doesn't have: re-added
+   *  from iNaturalist by their taxon id before a reimport matches photos to them. */
+  otherTaxa?: SavedOtherTaxon[];
+}
+
+export interface SavedOtherTaxon {
+  inatTaxonId: number;
+  scientificName: string;
+  commonName: string | null;
+}
+
+export interface SavedCard {
+  species: string;
+  coverFingerprint: string | null;
+  /** The cover's original file, relative to the library folder. */
+  coverPath: string | null;
+  cropX: number | null;
+  cropY: number | null;
+  cropSize: number | null;
 }
 
 interface CollectionStateFile {
   version: 1;
   updatedAt: string;
   users: Record<string, UserCollectionState>;
+  /** The offline packs this library's install had, so a fresh install opened on the library
+   *  downloads them again by itself (packs belong to the install, not an account). */
+  packs?: string[];
+}
+
+/** The library's record, if this library folder has one: an earlier Lifer install used it. The
+ *  regions it had are null in a record from before they were kept. */
+export function libraryRecord(dir: string = ORIGINALS_DIR): { packs: string[] | null } | null {
+  const file = readStateFile(dir);
+  return file ? { packs: file.packs ?? null } : null;
+}
+
+/** The saved state of this user in a record: theirs by email, or the only one in a one-user
+ *  record on a one-user install (a desktop library, whose account is always local). */
+async function savedFor(file: CollectionStateFile, userId: string): Promise<UserCollectionState | null> {
+  const user = (await pool.query<{ email: string }>(`SELECT email FROM users WHERE id = $1`, [userId])).rows[0];
+  if (!user) return null;
+  if (file.users[user.email]) return file.users[user.email];
+  const entries = Object.values(file.users);
+  if (entries.length !== 1) return null;
+  const userCount = (await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM users`)).rows[0].n;
+  return userCount === 1 ? entries[0] : null;
 }
 
 export function collectionStatePath(): string {
   return path.join(ORIGINALS_DIR, ".lifer", "collection-state.json");
 }
 
-function readStateFile(): CollectionStateFile | null {
+function recordPathIn(dir: string): string {
+  return path.join(dir, ".lifer", "collection-state.json");
+}
+
+/** This library's record, or another library folder's (an import of a second Lifer library). */
+function readStateFile(dir: string = ORIGINALS_DIR): CollectionStateFile | null {
   try {
-    const parsed = JSON.parse(readFileSync(collectionStatePath(), "utf8")) as CollectionStateFile;
+    const parsed = JSON.parse(readFileSync(recordPathIn(dir), "utf8")) as CollectionStateFile;
     return parsed && parsed.version === 1 && parsed.users ? parsed : null;
   } catch {
     return null;
@@ -57,7 +113,7 @@ const REGION_KEY_SQL = `COALESCE(r.external_codes[1], (
 ))`;
 
 export async function currentCollectionState(userId: string): Promise<UserCollectionState> {
-  const [archived, hidden, states, overrides, added, addedToSeaZones] = await Promise.all([
+  const [archived, hidden, states, overrides, added, addedToSeaZones, cards, otherTaxa] = await Promise.all([
     pool.query<{ name: string }>(
       `SELECT s.scientific_name AS name FROM user_archived_species a JOIN species s ON s.id = a.species_id WHERE a.user_id = $1 ORDER BY 1`,
       [userId],
@@ -91,7 +147,42 @@ export async function currentCollectionState(userId: string): Promise<UserCollec
         WHERE a.user_id = $1 ORDER BY 1, 2`,
       [userId],
     ),
+    pool.query<{
+      species: string;
+      fingerprint: string | null;
+      ref: string | null;
+      card_crop_x: string | null;
+      card_crop_y: string | null;
+      card_crop_size: string | null;
+    }>(
+      `SELECT s.scientific_name AS species, c.fingerprint,
+              (SELECT o.ref FROM originals o WHERE o.capture_id = c.id AND o.ref_type = 'path'
+                ORDER BY (o.kind = 'jpeg') DESC LIMIT 1) AS ref,
+              us.card_crop_x, us.card_crop_y, us.card_crop_size
+         FROM user_species us
+         JOIN species s ON s.id = us.species_id
+         JOIN photos p ON p.id = us.cover_photo_id
+         JOIN captures_all c ON c.id = p.capture_id
+        WHERE us.user_id = $1 ORDER BY 1`,
+      [userId],
+    ),
+    pool.query<{ inat_taxon_id: number; scientific_name: string; common_name: string | null }>(
+      `SELECT s.inat_taxon_id, s.scientific_name, s.common_name FROM species s
+        WHERE s.is_other_taxa AND s.inat_taxon_id IS NOT NULL AND (
+          EXISTS (SELECT 1 FROM user_species us WHERE us.user_id = $1 AND us.species_id = s.id)
+          OR EXISTS (SELECT 1 FROM captures_all c WHERE c.user_id = $1 AND c.species_id = s.id)
+          OR EXISTS (SELECT 1 FROM region_species_user_added a WHERE a.user_id = $1 AND a.species_id = s.id)
+          OR EXISTS (SELECT 1 FROM sea_zone_species_user_added a WHERE a.user_id = $1 AND a.species_id = s.id))
+        ORDER BY 2`,
+      [userId],
+    ),
   ]);
+  const relative = (ref: string | null) => {
+    if (!ref) return null;
+    const rel = path.relative(ORIGINALS_DIR, ref);
+    return rel.startsWith("..") || path.isAbsolute(rel) ? null : rel.split(path.sep).join("/");
+  };
+  const num = (v: string | null) => (v == null ? null : Number(v));
   return {
     archived: archived.rows.map((r) => r.name),
     hiddenInRegions: hidden.rows,
@@ -100,6 +191,19 @@ export async function currentCollectionState(userId: string): Promise<UserCollec
     tierOverrides: overrides.rows,
     addedToRegions: added.rows,
     addedToSeaZones: addedToSeaZones.rows,
+    cards: cards.rows.map((r) => ({
+      species: r.species,
+      coverFingerprint: r.fingerprint,
+      coverPath: relative(r.ref),
+      cropX: num(r.card_crop_x),
+      cropY: num(r.card_crop_y),
+      cropSize: num(r.card_crop_size),
+    })),
+    otherTaxa: otherTaxa.rows.map((r) => ({
+      inatTaxonId: r.inat_taxon_id,
+      scientificName: r.scientific_name,
+      commonName: r.common_name,
+    })),
   };
 }
 
@@ -128,10 +232,20 @@ export async function saveCollectionState(userId: string): Promise<void> {
   const user = (await pool.query<{ email: string }>(`SELECT email FROM users WHERE id = $1`, [userId])).rows[0];
   if (!user) return;
   const state = await currentCollectionState(userId);
+  const packs = await downloadedPackIds();
   const file = readStateFile() ?? { version: 1 as const, updatedAt: "", users: {} };
   // Nothing to keep and nothing kept before: don't create a file just to say so.
-  if (isEmpty(state) && !file.users[user.email]) return;
+  if (
+    isEmpty(state) &&
+    !state.cards?.length &&
+    !state.otherTaxa?.length &&
+    packs.length === 0 &&
+    !file.users[user.email]
+  )
+    return;
   file.users[user.email] = state;
+  // A fresh install has none yet; keep the old install's list for the setup screen to offer.
+  if (packs.length > 0) file.packs = packs;
   file.updatedAt = new Date().toISOString();
   await ensureDir(path.dirname(collectionStatePath()));
   writeFileAtomicSync(collectionStatePath(), JSON.stringify(file, null, 2));
@@ -164,6 +278,10 @@ const STATE_ROUTES = [
   /^\/api\/species\/other-taxa$/,
   /^\/api\/species\/[^/]+\/other-taxa$/,
   /^\/api\/imports\//,
+  // Choosing a card's cover photo or moving its crop.
+  /^\/api\/species\/[^/]+\/(cover|card-crop)$/,
+  // Downloading or removing a pack changes what a reopened library should download again.
+  /^\/api\/offline-packs\//,
 ];
 
 /** Called from /auth/me: tries a restore the first time each user shows up after startup. */
@@ -215,16 +333,15 @@ async function tryRestore(userId: string): Promise<RestoreResult | typeof CATALO
   if (!file) return null;
   const current = await currentCollectionState(userId);
   if (!isEmpty(current)) return null; // this install already has its own; the database wins
-  const user = (await pool.query<{ email: string }>(`SELECT email FROM users WHERE id = $1`, [userId])).rows[0];
-  if (!user) return null;
-  const entries = Object.entries(file.users);
-  let saved = file.users[user.email];
-  if (!saved && entries.length === 1) {
-    const userCount = (await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM users`)).rows[0].n;
-    if (userCount === 1) saved = entries[0][1];
-  }
+  const saved = await savedFor(file, userId);
   if (!saved || isEmpty(saved)) return null;
+  return applySaved(userId, saved);
+}
 
+/** Adds everything in a saved state that this install doesn't have yet. Only adds: nothing here
+ *  is removed or downgraded (a photographed species stays photographed), so it is safe to run on
+ *  an install that already has state of its own, as when a second library is merged in. */
+async function applySaved(userId: string, saved: UserCollectionState): Promise<RestoreResult | typeof CATALOG_MISSING> {
   const names = [
     ...new Set([
       ...saved.archived,
@@ -368,4 +485,101 @@ export async function syncCollectionStateOnStartup(): Promise<void> {
       log.warn(`[collection-state] ${(err as Error).message}`);
     }
   }
+}
+
+/** Brings back each saved card's cover and crop whose photo is in the library again: after a
+ *  reimport, when the photos are back. The record is saved on every cover or crop change, so it
+ *  is the latest arrangement and wins over the default crops a reimport gives new cards. */
+export async function restoreCards(userId: string, dir: string = ORIGINALS_DIR, merging = false): Promise<number> {
+  const file = readStateFile(dir);
+  if (!file) return 0;
+  const saved = await savedFor(file, userId);
+  const cards = saved?.cards ?? [];
+  if (cards.length === 0) return 0;
+  const ids = await speciesIdsByName(cards.map((c) => c.species));
+  let restored = 0;
+  await withTransaction(async (client) => {
+    for (const card of cards) {
+      const speciesId = ids.get(card.species);
+      if (!speciesId) continue;
+      const absolute = card.coverPath ? path.join(dir, ...card.coverPath.split("/")) : null;
+      // Merging a second library: a card whose cover this library already set from its own
+      // photos keeps it.
+      if (merging) {
+        const own = await client.query(
+          `SELECT 1 FROM user_species us JOIN photos p ON p.id = us.cover_photo_id
+             JOIN originals o ON o.capture_id = p.capture_id
+            WHERE us.user_id = $1 AND us.species_id = $2 AND left(o.ref, length($3)) <> $3`,
+          [userId, speciesId, dir.endsWith(path.sep) ? dir : dir + path.sep],
+        );
+        if (own.rowCount) continue;
+      }
+      const cover = await client.query<{ photo_id: string }>(
+        `SELECT c.current_photo_id AS photo_id FROM captures c
+          WHERE c.user_id = $1 AND c.current_photo_id IS NOT NULL
+            AND (c.fingerprint = $2 OR EXISTS (SELECT 1 FROM originals o WHERE o.capture_id = c.id AND o.ref = $3))
+          ORDER BY (c.fingerprint = $2) DESC LIMIT 1`,
+        [userId, card.coverFingerprint, absolute],
+      );
+      const photoId = cover.rows[0]?.photo_id;
+      if (!photoId) continue;
+      await client.query(
+        `INSERT INTO user_species (user_id, species_id, cover_photo_id, card_crop_x, card_crop_y, card_crop_size)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (user_id, species_id) DO UPDATE SET cover_photo_id = EXCLUDED.cover_photo_id,
+           card_crop_x = EXCLUDED.card_crop_x, card_crop_y = EXCLUDED.card_crop_y, card_crop_size = EXCLUDED.card_crop_size`,
+        [userId, speciesId, photoId, card.cropX, card.cropY, card.cropSize],
+      );
+      restored++;
+    }
+  });
+  if (restored) log.info(`[collection-state] Restored ${restored} card covers and crops from the library.`);
+  return restored;
+}
+
+/** Re-adds the record's hand-added species from iNaturalist, so photos filed under them match
+ *  again. Before the reimport walks the files. Best effort: offline, they stay unmatched and the
+ *  review list offers them. */
+export async function restoreOtherTaxa(userId: string, dir: string = ORIGINALS_DIR): Promise<number> {
+  const file = readStateFile(dir);
+  if (!file) return 0;
+  const saved = await savedFor(file, userId);
+  const wanted = saved?.otherTaxa ?? [];
+  if (wanted.length === 0) return 0;
+  const have = await pool.query<{ inat_taxon_id: number }>(
+    `SELECT inat_taxon_id FROM species WHERE inat_taxon_id = ANY($1::int[])`,
+    [wanted.map((t) => t.inatTaxonId)],
+  );
+  const present = new Set(have.rows.map((r) => r.inat_taxon_id));
+  // Lazy: species/otherTaxaSpecies.ts pulls in enrichment and the photo store.
+  const { resolveOrCreateOtherTaxaSpecies } = await import("../species/otherTaxaSpecies.js");
+  let added = 0;
+  for (const taxon of wanted) {
+    if (present.has(taxon.inatTaxonId)) continue;
+    try {
+      await resolveOrCreateOtherTaxaSpecies(taxon.inatTaxonId);
+      added++;
+    } catch (err) {
+      log.warn(`[collection-state] couldn't re-add ${taxon.scientificName}: ${(err as Error).message}`);
+    }
+  }
+  if (added) log.info(`[collection-state] Re-added ${added} hand-added species from iNaturalist.`);
+  return added;
+}
+
+/** After a reimport walks a Lifer library: everything its record holds that this install
+ *  doesn't, added, then its card covers and crops. `dir` is the library's folder; another one
+ *  than this install's own is merged without touching what this library already has. */
+export async function mergeLibraryRecord(userId: string, dir: string = ORIGINALS_DIR): Promise<void> {
+  const file = readStateFile(dir);
+  if (!file) return;
+  const saved = await savedFor(file, userId);
+  if (!saved) return;
+  if (!isEmpty(saved)) await applySaved(userId, saved);
+  await restoreCards(userId, dir, path.resolve(dir) !== path.resolve(ORIGINALS_DIR));
+}
+
+/** Whether a folder holds a Lifer library (its record). */
+export function isLiferLibrary(dir: string): boolean {
+  return readStateFile(dir) !== null;
 }

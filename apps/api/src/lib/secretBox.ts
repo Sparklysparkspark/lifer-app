@@ -134,4 +134,5 @@ export const SECRET_CONTEXT = {
   inatAccessToken: "inaturalist-access-token",
   inatRefreshToken: "inaturalist-refresh-token",
   shareLinkToken: "share-link-token",
+  immichApiKey: "immich-api-key",
 } as const;

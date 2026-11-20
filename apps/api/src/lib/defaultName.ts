@@ -1,3 +1,4 @@
+import { NAME_MAX_LENGTH } from "@lifer/shared";
 // Spelled-out sequential defaults ("Album One", "Trip Two") for when a user doesn't type a name.
 // Names are required at the DB layer, so creation always needs a real value.
 const ONES = [
@@ -35,3 +36,6 @@ export function nextDefaultName(prefix: string, existingCount: number): string {
   if (existingCount === 0) return `Untitled ${prefix}`;
   return `Untitled ${prefix} ${numberToWords(existingCount + 1)}`;
 }
+
+export const MAX_NAME_LENGTH = NAME_MAX_LENGTH;
+export const NAME_TOO_LONG = `Names can be at most ${MAX_NAME_LENGTH} characters`;

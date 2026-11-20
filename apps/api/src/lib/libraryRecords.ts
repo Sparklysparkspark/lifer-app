@@ -4,8 +4,8 @@
 // - trips in .lifer/trip.json in the folder their photos are filed in (destination folder, else
 //   source folder), by id with their owner's email: name, description, cover, and photos as paths
 //   relative to that folder, so the trip still finds them after the drive or folder moves;
-// - album details in <library>/.lifer/album-details.json, per user by email: description, cover
-//   and albums that have no photos yet.
+// - album details in <library>/.lifer/album-details.json, per user by email: description, cover,
+//   albums that have no photos yet, and a smart album's rules with its exclusions as files.
 // Written a couple of seconds after a change; read back after a library reimport (library/routes.ts)
 // for trips and albums this install doesn't have.
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
@@ -16,7 +16,9 @@ import { ORIGINALS_DIR } from "@lifer/core/config.js";
 import { isWithin } from "@lifer/core/lib/pathContainment.js";
 import { ensureDir } from "@lifer/core/lib/safeFs.js";
 import { log } from "@lifer/core/lib/log.js";
+import { Value } from "typebox/value";
 import { writeFileAtomicSync } from "./atomicWrite.js";
+import { SmartAlbumRulesInput, checkedRules, storedRules } from "../albums/smartRules.js";
 
 interface Crop {
   x: number;
@@ -41,6 +43,11 @@ export interface TripRecord {
   /** The trip's photos, relative to the record's folder when inside it, else absolute. */
   photos: string[];
   createdAt: string;
+  /** YYYY-MM-DD; absent in records written before trips had dates. */
+  startDate?: string | null;
+  endDate?: string | null;
+  regionId?: string | null;
+  activeOverride?: boolean | null;
 }
 /** A folder's trips by id; several trips can share a destination folder. */
 interface TripRecordFile {
@@ -53,6 +60,10 @@ interface AlbumDetails {
   cover: PhotoRef | null;
   quad: Array<PhotoRef | null>;
   createdAt: string;
+  /** A smart album's rules; its photos come from them, so membership files never list it. */
+  rules?: SmartAlbumRulesInput;
+  /** A smart album's excluded photos, as files like the cover's. */
+  excluded?: string[];
 }
 interface AlbumDetailsFile {
   version: 1;
@@ -134,10 +145,15 @@ export async function saveTripRecords(userId: string): Promise<void> {
     quad_photo_ids: (string | null)[] | null;
     quad_crops: unknown[] | null;
     created_at: Date;
+    start_date: string | null;
+    end_date: string | null;
+    region_id: string | null;
+    active_override: boolean | null;
   }>(
     `SELECT t.id, t.name, t.description, t.source_folder, t.destination_folder, t.cover_layout,
             ${captureFile("t.cover_capture_id")} AS cover_file, t.cover_crop_x, t.cover_crop_y, t.cover_crop_size,
-            t.quad_photo_ids, t.quad_crops, t.created_at
+            t.quad_photo_ids, t.quad_crops, t.created_at, t.start_date::text AS start_date,
+            t.end_date::text AS end_date, t.region_id, t.active_override
        FROM trips t WHERE t.user_id = $1`,
     [userId],
   );
@@ -162,6 +178,10 @@ export async function saveTripRecords(userId: string): Promise<void> {
       quad: quadRefs(base, t.quad_photo_ids, t.quad_crops, quadFiles),
       photos: photos.rows.filter((r) => r.file).map((r) => portable(base, r.file)),
       createdAt: t.created_at.toISOString(),
+      startDate: t.start_date,
+      endDate: t.end_date,
+      regionId: t.region_id,
+      activeOverride: t.active_override,
     };
     if (!byBase.has(base)) byBase.set(base, new Map());
     byBase.get(base)!.set(t.id, record);
@@ -215,9 +235,13 @@ export async function saveAlbumDetails(userId: string): Promise<void> {
     quad_photo_ids: (string | null)[] | null;
     quad_crops: unknown[] | null;
     created_at: Date;
+    rules: SmartAlbumRulesInput | null;
+    excluded_files: (string | null)[];
   }>(
     `SELECT name, description, cover_layout, cover_photo_id, cover_crop_x, cover_crop_y, cover_crop_size,
-            quad_photo_ids, quad_crops, created_at
+            quad_photo_ids, quad_crops, created_at, rules,
+            ARRAY(SELECT ${captureFile("ae.capture_id")} FROM album_exclusions ae WHERE ae.album_id = albums.id)
+              AS excluded_files
        FROM albums WHERE user_id = $1 ORDER BY created_at`,
     [userId],
   );
@@ -240,6 +264,10 @@ export async function saveAlbumDetails(userId: string): Promise<void> {
         : null,
       quad: quadRefs(ORIGINALS_DIR, a.quad_photo_ids, a.quad_crops, files),
       createdAt: a.created_at.toISOString(),
+      ...(a.rules && {
+        rules: storedRules(a.rules) ?? undefined,
+        excluded: a.excluded_files.filter((f): f is string => !!f).map((f) => portable(ORIGINALS_DIR, f)),
+      }),
     };
   }
   await ensureDir(path.dirname(albumDetailsPath()));
@@ -358,14 +386,26 @@ export async function restoreLibraryRecords(userId: string, root: string): Promi
     );
     let album = existing.rows[0];
     if (!album) {
-      // An album that had no photos: membership can't bring it back, the details can.
+      // An album that had no photos, or a smart one: membership can't bring it back, the details can.
+      // The file is user-editable, so rules that no longer pass the save checks are dropped.
+      const checked = Value.Check(SmartAlbumRulesInput, d.rules) ? checkedRules(d.rules) : null;
+      const rules = checked && "rules" in checked ? checked.rules : null;
       album = (
         await pool.query<{ id: string; description: string | null; cover_photo_id: string | null }>(
-          `INSERT INTO albums (user_id, name, created_at) VALUES ($1, $2, COALESCE($3::timestamptz, now()))
+          `INSERT INTO albums (user_id, name, created_at, rules) VALUES ($1, $2, COALESCE($3::timestamptz, now()), $4)
            RETURNING id, description, cover_photo_id`,
-          [userId, name, d.createdAt ?? null],
+          [userId, name, d.createdAt ?? null, rules ? JSON.stringify(rules) : null],
         )
       ).rows[0];
+      if (rules && d.excluded?.length) {
+        await pool.query(
+          `INSERT INTO album_exclusions (album_id, capture_id)
+           SELECT DISTINCT $1::uuid, o.capture_id FROM originals o JOIN captures c ON c.id = o.capture_id
+            WHERE c.user_id = $2 AND o.ref_type = 'path' AND o.ref = ANY($3)
+           ON CONFLICT DO NOTHING`,
+          [album.id, userId, d.excluded.map((f) => resolveFrom(ORIGINALS_DIR, f))],
+        );
+      }
     } else if (album.description != null || album.cover_photo_id != null) {
       continue; // This install has its own details for it.
     }
@@ -414,8 +454,9 @@ async function restoreTrip(userId: string, base: string, id: string, record: Tri
     if (known.rowCount) return null;
     await client.query(
       `INSERT INTO trips (id, user_id, name, description, source_folder, destination_folder, cover_layout,
-                          quad_photo_ids, quad_crops, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'single'), $8, $9, COALESCE($10::timestamptz, now()))`,
+                          quad_photo_ids, quad_crops, created_at, start_date, end_date, region_id, active_override)
+       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'single'), $8, $9, COALESCE($10::timestamptz, now()),
+               $11::date, $12::date, (SELECT id FROM regions WHERE id = $13::uuid), $14)`,
       [
         id,
         userId,
@@ -427,6 +468,11 @@ async function restoreTrip(userId: string, base: string, id: string, record: Tri
         quad?.ids ?? null,
         quad ? JSON.stringify(quad.crops) : null,
         record.createdAt ?? null,
+        record.startDate ?? null,
+        record.endDate ?? null,
+        // A region this install doesn't have is left out.
+        record.regionId ?? null,
+        record.activeOverride ?? null,
       ],
     );
     // Only photos that aren't in another trip already.

@@ -1,18 +1,26 @@
 // Response schemas for the settings routes. They document the answer in the OpenAPI document and
 // type the web app's calls; fields not listed still pass through.
 import { Type } from "typebox";
-import { Nullable, Open, jobStatusFields } from "../lib/schema.js";
+import { LoadProgress, Nullable, Open, jobStatusFields } from "../lib/schema.js";
+import { FOLDER_LEVELS } from "@lifer/shared";
+import { SpeciesNameDisplay } from "./speciesNameDisplay.js";
+
+/** Folder levels, outermost first (packages/shared/src/folderLayout.ts). */
+export const FolderLayout = Type.Array(Type.Enum([...FOLDER_LEVELS]), { minItems: 1, maxItems: FOLDER_LEVELS.length });
 
 // SettingsResponse in @lifer/shared settings.ts.
 export const Settings = Open({
-  organizeOriginalsByYear: Type.Boolean(),
-  organizeOriginalsByLocation: Type.Boolean(),
+  folderLayout: FolderLayout,
   hideObscureSpecies: Type.Boolean(),
   speciesSuggestEnabled: Type.Boolean(),
   anyTaxaSearchEnabled: Type.Boolean(),
   fetchWithheldPhotos: Type.Boolean({ description: "Per install, shared by every account on it" }),
   technicalDiving: Type.Boolean(),
   speciesNamingStyles: Type.Array(Type.String()),
+  // The View menu's species name choice, or null when never set.
+  speciesNameDisplay: Nullable(SpeciesNameDisplay),
+  tipsEnabled: Type.Boolean(),
+  tipsSeen: Type.Array(Type.String(), { description: "Ids of the in-app tips this account has seen" }),
   locale: Nullable(Type.String({ description: "The interface language, or null for automatic" })),
   abaCodesAvailable: Type.Boolean(),
   dataDir: Type.String({ description: "The photo library folder" }),
@@ -20,6 +28,7 @@ export const Settings = Open({
   catalogLoading: Nullable(
     Type.Enum(["running", "failed"], { description: "While a fresh server loads its species catalog" }),
   ),
+  catalogProgress: Type.Optional(Nullable(LoadProgress)),
   libraryRoots: Type.Array(Open({ label: Type.String(), path: Type.String() }), {
     description: "Admin-declared extra library folders; always empty on desktop",
   }),
@@ -34,6 +43,8 @@ export const MapStatus = Open({
   ...jobStatusFields(Type.Unknown()),
   available: Type.Boolean(),
   downloaded: Type.Boolean(),
+  reliefDownloaded: Type.Boolean(),
+  detail: Type.Array(Type.String(), { description: "Countries with a detailed map downloaded" }),
   sizeBytes: Nullable(Type.Number()),
   downloading: Type.Boolean(),
 });

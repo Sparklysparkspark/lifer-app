@@ -22,28 +22,38 @@ import {
 } from "@lifer/core/config.js";
 import { desktopRequestGate } from "./auth/desktopGate.js";
 import { recoverInterruptedStorageMigration } from "./settings/routes.js";
-import { apiRoutes } from "./apiRoutes.js";
+import { apiRoutes, apiVersionAlias } from "./apiRoutes.js";
 import { Type } from "typebox";
 import { installSchemas, replyToValidationError } from "./lib/schema.js";
 import { migrateDerivativesLocation } from "./uploads/migrateDerivativesLocation.js";
 import { adoptFlatLibraryLayout } from "./uploads/adoptFlatLibraryLayout.js";
 import { syncLibraryRootsFromEnv } from "./storageVolumes/syncLibraryRoots.js";
 import { runEmbeddingBackfill } from "./species/embeddingBackfill.js";
+import { scheduleArchiveHealth } from "./originals/health.js";
+import { scheduleMovedPhotos } from "./movedPhotos/relink.js";
+import { scheduleVersionGrouping } from "./uploads/versionGrouping.js";
 import { seedCatalogIfEmpty } from "./species/catalogSeedUpdate.js";
+import { startAssetAutoDownloads } from "./settings/assets.js";
 import { relinkCachedReferenceFiles } from "./species/relinkReferenceFiles.js";
 import { ensureGalleryEmbeddingsOnStartup } from "./species/galleryEmbeddingsAsset.js";
 import { ensureIdModelOnStartup } from "./species/modelDownloadJob.js";
 import { startWithheldPhotoFetch, stopWithheldPhotoFetch } from "./species/withheldPhotos.js";
+import { startReferencePhotoScoring } from "./species/portraitScoring.js";
+import { resumePendingPackHotspots } from "./offlinePacks/download.js";
+import { resumeTripFileMove } from "./trips/moveFiles.js";
 import { startAccelerationSelection } from "./species/accelerationSetup.js";
 import { pool, warmPool } from "@lifer/core/db.js";
 import { stopInference } from "@lifer/core/species/inference.js";
 import { closeExiftool } from "./uploads/exif.js";
+import { DiskFullError } from "@lifer/core/lib/freeSpace.js";
+import { cspDirectives } from "./csp.js";
 import { friendlyFsErrorMessage } from "./lib/friendlyFsError.js";
 import { registerRateLimit } from "./lib/rateLimit.js";
 import { checkWritableDir } from "./lib/writableDir.js";
 import { startEventLoopWatchdog } from "./lib/eventLoopWatchdog.js";
 import { startParentWatchdog } from "./lib/parentWatchdog.js";
-import { watchLibraryFolder } from "@lifer/core/lib/libraryFolder.js";
+import { LibraryFolderUnavailableError, watchLibraryFolder } from "@lifer/core/lib/libraryFolder.js";
+import { startWatchedFolders } from "./library/watchedFolders.js";
 import { registerCollectionStateSaving, syncCollectionStateOnStartup } from "./lib/collectionState.js";
 import { registerLibraryRecordSaving } from "./lib/libraryRecords.js";
 import { isBlockedCrossSiteWrite } from "@lifer/core/lib/requestGuard.js";
@@ -54,6 +64,10 @@ import { registerHealthRoute } from "./lib/health.js";
 import { trustProxyHint } from "./lib/trustProxyHint.js";
 import { encryptStoredInatTokens } from "./inaturalist/tokenStore.js";
 import { encryptStoredShareTokens } from "./shares/routes.js";
+import { buildReport, saveCrashReport } from "./crashReports/report.js";
+
+// How long background upkeep waits after the catalog is ready: the first screens load first.
+const STARTUP_QUIET_MS = 8_000;
 
 const desktopModeError = desktopModeStartupError(process.env);
 if (desktopModeError) {
@@ -93,14 +107,23 @@ const app = Fastify({
   loggerInstance: log,
   bodyLimit: MAX_JSON_BODY_BYTES,
   trustProxy: TRUST_PROXY,
+  rewriteUrl: apiVersionAlias,
 });
 
-// Route these to the app log. An uncaught exception may leave state half-updated, so it still exits.
+// Route these to the app log and a local crash report (crashReports/report.ts), offered on the
+// next launch. An uncaught exception may leave state half-updated, so it still exits. A rejection
+// repeating in a loop is reported once.
+const reportedRejections = new Set<string>();
 process.on("unhandledRejection", (reason) => {
   app.log.error({ err: reason }, "Unhandled promise rejection");
+  const report = buildReport("server-rejection", reason);
+  if (reportedRejections.has(report.message)) return;
+  reportedRejections.add(report.message);
+  saveCrashReport(report);
 });
 process.on("uncaughtException", (err) => {
   app.log.error({ err }, "Uncaught exception, exiting");
+  saveCrashReport(buildReport("server-exception", err));
   process.exit(1);
 });
 
@@ -146,6 +169,16 @@ app.setErrorHandler((err, request, reply) => {
   if (replyToValidationError(err as FastifyError, request, reply)) return;
   const code = (err as NodeJS.ErrnoException).code;
   const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
+  if (err instanceof DiskFullError || code === "ENOSPC") {
+    const full = err instanceof DiskFullError ? err : new DiskFullError(0, 0, "");
+    return reply
+      .code(507)
+      .send({ error: full.message, code: full.code, needed: full.needed, free: full.free, path: full.path });
+  }
+  // Says which folder is gone and what to do; the code lets the app bring its banner back.
+  if (err instanceof LibraryFolderUnavailableError) {
+    return reply.code(503).send({ error: err.message, code: "library_folder_unavailable" });
+  }
   if (code === "EPERM" || code === "EACCES" || code === "ENOENT") {
     if (statusCode >= 500) request.log.error({ err }, "File system error");
     return reply.code(statusCode).send({ error: friendlyFsErrorMessage(err) });
@@ -173,20 +206,7 @@ if (!SINGLE_USER_MODE) await registerRateLimit(app, RATE_LIMIT_PER_MINUTE);
 await app.register(helmet, {
   contentSecurityPolicy: {
     useDefaults: false,
-    directives: {
-      defaultSrc: ["'self'"],
-      baseUri: ["'self'"],
-      objectSrc: ["'none'"],
-      formAction: ["'self'"],
-      frameAncestors: ["'none'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "blob:", "https:"],
-      mediaSrc: ["'self'", "blob:"],
-      fontSrc: ["'self'", "data:"],
-      workerSrc: ["'self'", "blob:"],
-      connectSrc: ["'self'", "https:", "ipc:", "http://ipc.localhost"],
-    },
+    directives: cspDirectives(SINGLE_USER_MODE),
   },
   crossOriginEmbedderPolicy: false,
   frameguard: { action: "deny" },
@@ -251,14 +271,19 @@ startMaintenance(app.log);
 
 // Logs when the library folder goes missing under a running server.
 watchLibraryFolder();
+if (SINGLE_USER_MODE) startWatchedFolders();
 
 // Background, best-effort startup work: never delays listening, and a failure only means the
 // feature waits for the next restart (or a manual retry in Settings).
 runEmbeddingBackfill().catch((err) => app.log.warn({ err }, "Species-suggestion embedding backfill failed to start"));
+scheduleArchiveHealth();
+// A quiet look for photos the user moved or renamed, a few minutes after launch.
+scheduleMovedPhotos();
+scheduleVersionGrouping();
 // Moves species matching onto a GPU when this machine has a faster one that gives the same answers.
 startAccelerationSelection();
 
-// Seed an empty catalog (a fresh Docker install); a no-op when the catalog already has data.
+// Seed an empty catalog (a fresh install); a no-op when the catalog already has data.
 seedCatalogIfEmpty(pool)
   .then((result) => {
     if (result.seeded) app.log.info({ merged: result.merged }, "Auto-seeded an empty catalog on first boot");
@@ -273,8 +298,19 @@ seedCatalogIfEmpty(pool)
         if (n) app.log.info({ relinked: n }, "Linked cached reference photos to a fresh database");
       })
       .catch((err) => app.log.warn({ err }, "Couldn't link cached reference photos"));
-    ensureGalleryEmbeddingsOnStartup(pool);
-    ensureIdModelOnStartup(pool, app.log);
-    // Picks up photos packs couldn't include that are still left to fetch.
-    startWithheldPhotoFetch("startup");
+    // Background upkeep waits until the first screens have loaded, so it never competes with them.
+    setTimeout(() => {
+      ensureGalleryEmbeddingsOnStartup(pool);
+      ensureIdModelOnStartup(pool, app.log);
+      // A new install gets species recognition and the offline map without asking (autoDownloads.ts).
+      void startAssetAutoDownloads(pool, app.log);
+      // Picks up photos packs couldn't include that are still left to fetch.
+      startWithheldPhotoFetch("startup");
+      // Lists eggs, nests, maps and the like after the photos of the animal itself.
+      startReferencePhotoScoring();
+      // Finishes packs whose hotspots never landed (the app quit between a pack's two steps).
+      resumePendingPackHotspots().catch((err) => app.log.warn({ err }, "Couldn't resume pending pack hotspots"));
+      // Carries on moving a trip's files when the app quit partway through.
+      resumeTripFileMove().catch((err) => app.log.warn({ err }, "Couldn't resume moving a trip's files"));
+    }, STARTUP_QUIET_MS).unref();
   });

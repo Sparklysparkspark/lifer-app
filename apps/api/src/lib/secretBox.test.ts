@@ -47,7 +47,9 @@ describe("SecretBox", () => {
     const box = new SecretBox(dir);
     const stored = box.encrypt("secret", "inaturalist-access-token");
     expect(() => box.decrypt(stored, "share-link-token")).toThrow(SecretUnavailableError);
-    const altered = stored.slice(0, -2) + (stored.endsWith("A") ? "BB" : "AA");
+    // A middle character, where every bit counts (a final base64 character can carry unused bits).
+    const mid = Math.floor(stored.length / 2);
+    const altered = stored.slice(0, mid) + (stored[mid] === "A" ? "B" : "A") + stored.slice(mid + 1);
     expect(() => box.decrypt(altered, "inaturalist-access-token")).toThrow(SecretUnavailableError);
 
     unlinkSync(path.join(dir, "at-rest-key-v1"));

@@ -60,6 +60,8 @@ export async function tusUploadFile(
   const request = (url: string, init: RequestInit) =>
     fetch(url, {
       ...init,
+      // The headers carry the server key: never follow a redirect elsewhere with them.
+      redirect: "error",
       ...viaDispatcher(opts.dispatcher),
       signal: opts.signal
         ? AbortSignal.any([opts.signal, AbortSignal.timeout(timeoutMs)])
@@ -144,6 +146,7 @@ export async function tusUploadFile(
     void fetch(uploadUrl, {
       method: "DELETE",
       headers: base,
+      redirect: "error",
       ...viaDispatcher(opts.dispatcher),
       signal: AbortSignal.timeout(30_000),
     }).catch(() => {});

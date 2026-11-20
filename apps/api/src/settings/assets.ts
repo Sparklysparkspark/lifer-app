@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
+import type { Pool } from "pg";
 import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
-import { MAPS_DIR, MAP_DOWNLOAD_URL } from "@lifer/core/config.js";
+import { MAPS_DIR, MAP_DOWNLOAD_URL, RELIEF_DOWNLOAD_URL } from "@lifer/core/config.js";
 import { offloadAcceleration } from "../species/accelerationSetup.js";
 import { modelDownload, startModelDownloadJob } from "../species/modelDownloadJob.js";
 import { activeSuggestionModel, isModelDownloaded, offloadModel, MODEL_DIR } from "@lifer/core/species/embeddings.js";
@@ -16,36 +16,73 @@ import { isTextModelDownloaded } from "@lifer/core/species/textEmbedding.js";
 import { createJob } from "../lib/job.js";
 import { downloadResumable } from "@lifer/core/lib/resumableDownload.js";
 import { Ok, replies, withSchemas } from "../lib/schema.js";
+import { dirSizeBytes } from "@lifer/core/lib/freeSpace.js";
 import { EmbeddingModelStatus, MapStatus } from "./responses.js";
+import { AUTO_MAP_KEY, AUTO_MODELS_KEY, setAutoDownload, startAutoDownloads } from "./autoDownloads.js";
+import { catalogFirstBootState, waitForFirstBootCatalog } from "../species/catalogSeedUpdate.js";
+import { installedMapDetails } from "../offlinePacks/mapDetail.js";
 
 const Started = Type.Object({ started: Type.Boolean() });
 const Cancelled = Type.Object({ cancelled: Type.Boolean() });
 
-async function dirSizeBytes(dir: string): Promise<number> {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return 0;
-    throw err;
-  }
-  let total = 0;
-  for (const entry of entries) {
-    const entryPath = path.join(dir, entry.name);
-    total += entry.isDirectory() ? await dirSizeBytes(entryPath) : (await stat(entryPath)).size;
-  }
-  return total;
-}
-
-// Opt-in downloads of app-wide assets: the offline basemap and the species-matching models.
+// Downloads of app-wide assets: the offline basemap and the species-matching models. Both start
+// by themselves on a new install (autoDownloads.ts); Remove turns that off, Download back on.
 // Available on every install (a server wants the same downloads), unlike requireDesktopMode routes.
 // None of these routes take input; job status answers are left unschematized because the web app
 // reads whatever fields the job reports.
+// Streams straight to disk and reports byte counts, since the server may not send a length.
+const mapJob = createJob<{ bytes: number }>("offline-map");
+const MAP_FILE_PATH = path.join(MAPS_DIR, "world-z8.pmtiles");
+// Shaded relief and 3D terrain, fetched with the map. Optional: the map draws without it.
+const RELIEF_FILE_PATH = path.join(MAPS_DIR, "relief-z5.pmtiles");
+
+function startMapDownload(): boolean {
+  const url = MAP_DOWNLOAD_URL;
+  if (!url) return false;
+  return mapJob.start(
+    async (ctx) => {
+      mkdirSync(MAPS_DIR, { recursive: true });
+      // Never resumed: the rolling map has no checksum, so a partial file may be an older map.
+      rmSync(`${MAP_FILE_PATH}.part`, { force: true });
+      const { bytes } = existsSync(MAP_FILE_PATH)
+        ? { bytes: statSync(MAP_FILE_PATH).size }
+        : await downloadResumable(url, MAP_FILE_PATH, {
+            signal: ctx.signal,
+            label: "the offline map",
+            onProgress: (downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }),
+          });
+      if (!existsSync(RELIEF_FILE_PATH)) {
+        rmSync(`${RELIEF_FILE_PATH}.part`, { force: true });
+        // A failed relief download leaves a working map, so it is only logged by the job's error.
+        await downloadResumable(RELIEF_DOWNLOAD_URL, RELIEF_FILE_PATH, {
+          signal: ctx.signal,
+          label: "the map relief",
+          onProgress: (downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }),
+        }).catch((err) => {
+          if (ctx.signal.aborted) throw err;
+        });
+      }
+      return { bytes };
+    },
+    { phase: "downloading", downloadedBytes: 0 },
+  );
+}
+
+/** Called once at startup (index.ts), after the first-boot catalog seed, which shares the first
+ *  start's bandwidth and disk. */
+export async function startAssetAutoDownloads(
+  pool: Pool,
+  log: { warn: (obj: object, msg: string) => void },
+): Promise<void> {
+  if (catalogFirstBootState() === "running") await waitForFirstBootCatalog().catch(() => {});
+  await startAutoDownloads(pool, [MAP_FILE_PATH, RELIEF_FILE_PATH], {
+    models: () => startModelDownloadJob(pool, log),
+    map: startMapDownload,
+  }).catch((err) => log.warn({ err }, "Automatic downloads didn't start"));
+}
+
 export async function assetRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
-  // Streams straight to disk and reports byte counts, since the server may not send a length.
-  const mapJob = createJob<{ bytes: number }>("offline-map");
-  const MAP_FILE_PATH = path.join(MAPS_DIR, "world-z8.pmtiles");
 
   app.get(
     "/settings/map/status",
@@ -54,7 +91,11 @@ export async function assetRoutes(fastify: FastifyInstance): Promise<void> {
       available: MAP_DOWNLOAD_URL != null,
       downloaded: existsSync(MAP_FILE_PATH),
       // The on-disk size: the job's downloadedBytes resets on every restart.
-      sizeBytes: existsSync(MAP_FILE_PATH) ? statSync(MAP_FILE_PATH).size : null,
+      sizeBytes: existsSync(MAP_FILE_PATH)
+        ? statSync(MAP_FILE_PATH).size + (existsSync(RELIEF_FILE_PATH) ? statSync(RELIEF_FILE_PATH).size : 0)
+        : null,
+      reliefDownloaded: existsSync(RELIEF_FILE_PATH),
+      detail: installedMapDetails(),
       ...mapJob.status,
       // Alias for `running`, still read by the web app's onboarding page.
       downloading: mapJob.status.running,
@@ -65,24 +106,9 @@ export async function assetRoutes(fastify: FastifyInstance): Promise<void> {
     "/settings/map/download",
     { preValidation: requireAuth, schema: { response: replies(Started) } },
     async (_request, reply) => {
-      const url = MAP_DOWNLOAD_URL;
-      if (!url) return reply.code(400).send({ error: "No offline map is configured for this instance" });
-      const started = mapJob.start(
-        async (ctx) => {
-          mkdirSync(MAPS_DIR, { recursive: true });
-          // Lands atomically. Never resumed: the rolling map has no checksum to catch a partial
-          // file left by an older version.
-          rmSync(`${MAP_FILE_PATH}.part`, { force: true });
-          const { bytes } = await downloadResumable(url, MAP_FILE_PATH, {
-            signal: ctx.signal,
-            label: "the offline map",
-            onProgress: (downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }),
-          });
-          ctx.throwIfCancelled();
-          return { bytes };
-        },
-        { phase: "downloading", downloadedBytes: 0 },
-      );
+      if (!MAP_DOWNLOAD_URL) return reply.code(400).send({ error: "No offline map is configured for this instance" });
+      await setAutoDownload(pool, AUTO_MAP_KEY, true);
+      const started = startMapDownload();
       if (!started) return reply.code(409).send({ error: "The map is already downloading" });
       return { started: true };
     },
@@ -95,7 +121,11 @@ export async function assetRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   app.delete("/settings/map", { preValidation: requireAuth, schema: { response: replies(Ok) } }, async () => {
+    mapJob.cancel();
     rmSync(MAP_FILE_PATH, { force: true });
+    rmSync(RELIEF_FILE_PATH, { force: true });
+    // Removed on purpose: not downloaded again at the next start.
+    await setAutoDownload(pool, AUTO_MAP_KEY, false);
     return { ok: true };
   });
 
@@ -160,6 +190,7 @@ export async function assetRoutes(fastify: FastifyInstance): Promise<void> {
     "/settings/embedding-model/download",
     { preValidation: requireAuth, schema: { response: replies(Started) } },
     async (request, reply) => {
+      await setAutoDownload(pool, AUTO_MODELS_KEY, true);
       if (!startModelDownloadJob(pool, app.log)) {
         return reply.code(409).send({ error: "The model is already downloading" });
       }
@@ -192,6 +223,7 @@ export async function assetRoutes(fastify: FastifyInstance): Promise<void> {
       offloadModel();
       offloadAcceleration();
       invalidateModelSize();
+      await setAutoDownload(pool, AUTO_MODELS_KEY, false);
       await pool.query(`UPDATE users SET species_suggest_enabled = false`);
       return { ok: true };
     },

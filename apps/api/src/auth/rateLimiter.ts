@@ -20,11 +20,12 @@ function sweep(now: number): void {
   }
 }
 
-export function isRateLimited(key: string, max = MAX_ATTEMPTS): boolean {
+// A window shorter than WINDOW_MS (pairing's per minute limit) still works: sweeps only drop older entries.
+export function isRateLimited(key: string, max = MAX_ATTEMPTS, windowMs = WINDOW_MS): boolean {
   const now = Date.now();
   sweep(now);
   // Stryker disable next-line ArrayDeclaration: equivalent, a non-number in a new key's list is filtered out as NaN
-  const timestamps = (attempts.get(key) ?? []).filter((t) => now - t < WINDOW_MS);
+  const timestamps = (attempts.get(key) ?? []).filter((t) => now - t < windowMs);
   if (timestamps.length === 0) attempts.delete(key);
   else attempts.set(key, timestamps);
   return timestamps.length >= max;

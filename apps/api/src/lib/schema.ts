@@ -11,7 +11,7 @@ import type {
   RouteOptions,
 } from "fastify";
 import { TypeBoxValidatorCompiler, type TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
-import { Type, type TProperties, type TSchema } from "typebox";
+import { IsOptional, Type, type TProperties, type TSchema } from "typebox";
 
 type HttpPart = "body" | "querystring" | "params" | "headers";
 
@@ -67,6 +67,9 @@ export const NullableNumbers = (options: { description?: string } = {}) =>
   Type.Unsafe<number[] | null>({ type: ["array", "null"], items: { type: "number" }, ...options });
 
 /** The fields of a background job's status (JobStatus in @lifer/shared), with its own `result`. */
+/** @lifer/shared's LoadProgress: work done of the whole, for a time-left estimate. */
+export const LoadProgress = Open({ processed: Type.Number(), total: Type.Number() });
+
 export const jobStatusFields = <T extends TSchema>(result: T) => ({
   running: Type.Boolean(),
   phase: Nullable(Type.String()),
@@ -145,8 +148,9 @@ function unplainNumbers(schema: TSchema, value: unknown): FastifySchemaValidatio
 
 const validatorCompiler: FastifySchemaCompiler<TSchema> = (route) => {
   const validate = TypeBoxValidatorCompiler(route);
-  // Bodies are JSON with real numbers, and aren't converted.
-  if (route.httpPart === "body") return validate;
+  // Bodies are JSON with real numbers, and aren't converted. A body marked Optional may be left out.
+  if (route.httpPart === "body")
+    return IsOptional(route.schema) ? (value: unknown) => (value == null ? { value } : validate(value)) : validate;
   const strip = route.httpPart === "querystring";
   return (value: unknown) => {
     const input = strip ? withoutEmptyValues(value) : value;
@@ -168,7 +172,7 @@ function fieldName(instancePath: string): string {
 }
 
 /** One plain sentence for the first problem TypeBox found, e.g. `rating must be <= 5`. */
-export function describeValidationErrors(errors: FastifySchemaValidationError[]): string {
+function describeValidationErrors(errors: FastifySchemaValidationError[]): string {
   // anyOf reports each branch and then itself; the branches say what was wrong.
   const first = errors.find((e) => e.keyword !== "anyOf" && e.keyword !== "boolean") ?? errors[0];
   if (!first) return "invalid value";
@@ -231,6 +235,8 @@ export interface CatalogRoute {
   schema: RouteOptions["schema"];
   /** The API key scope from requireScope, when a key can reach the route. */
   scope?: string;
+  /** Further scopes requireScope also accepts on the route. */
+  alsoAccepts: readonly string[];
   /** The sign-in hook guarding the route ("session" for requireAuth, "scope" for requireScope),
    *  or null for a public one. Read by apiRoutes.test.ts's auth coverage test. */
   auth: AuthHookKind | null;
@@ -257,6 +263,14 @@ function scopeOf(hooks: unknown[]): string | undefined {
   return undefined;
 }
 
+function alsoAcceptsOf(hooks: unknown[]): readonly string[] {
+  for (const hook of hooks) {
+    const list = (hook as { alsoAccept?: unknown } | undefined)?.alsoAccept;
+    if (Array.isArray(list)) return list;
+  }
+  return [];
+}
+
 function authOf(hooks: unknown[]): AuthHookKind | null {
   for (const hook of hooks) {
     const kind = (hook as { authKind?: unknown } | undefined)?.authKind;
@@ -276,6 +290,7 @@ function recordRoute(route: RouteOptions): void {
       url: route.url,
       schema: route.schema,
       scope: scopeOf(hooks),
+      alsoAccepts: alsoAcceptsOf(hooks),
       auth: authOf(hooks),
       handler: route.handler,
     });

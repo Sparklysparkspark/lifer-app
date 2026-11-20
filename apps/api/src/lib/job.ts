@@ -41,6 +41,24 @@ export interface Job<TResult, TExtra extends object = object> {
   settled(): Promise<void>;
 }
 
+// Names of the jobs running right now, so long background work can yield to them.
+export const runningJobNames = new Set<string>();
+const runningStatuses = new Map<string, JobStatus<unknown>>();
+
+/** How many jobs are running and how far along they are together (0 to 1), for the taskbar or
+ *  dock progress. Null progress when none of them can say. */
+export function runningJobsProgress(): { running: number; progress: number | null } {
+  const fractions: number[] = [];
+  for (const s of runningStatuses.values()) {
+    if (s.total) fractions.push(Math.min(1, (s.processed ?? 0) / s.total));
+    else if (s.totalBytes) fractions.push(Math.min(1, (s.downloadedBytes ?? 0) / s.totalBytes));
+  }
+  return {
+    running: runningStatuses.size,
+    progress: fractions.length > 0 ? fractions.reduce((a, b) => a + b, 0) / fractions.length : null,
+  };
+}
+
 export function createJob<TResult = unknown, TExtra extends object = object>(
   name: string,
   extraDefaults?: TExtra,
@@ -58,6 +76,8 @@ export function createJob<TResult = unknown, TExtra extends object = object>(
     if (status.running) return false;
     // Claimed synchronously, before any await, so a concurrent request sees running = true.
     Object.assign(status, idleJobStatus<TResult>(), freshExtras(), initial ?? {}, { running: true });
+    runningJobNames.add(name);
+    runningStatuses.set(name, status);
     const ctl = new AbortController();
     controller = ctl;
     const ctx: JobContext<TResult, TExtra> = {
@@ -86,6 +106,8 @@ export function createJob<TResult = unknown, TExtra extends object = object>(
         }
       } finally {
         status.running = false;
+        runningJobNames.delete(name);
+        runningStatuses.delete(name);
         status.phase = null;
         status.currentItem = null;
         status.cancelRequested = false;

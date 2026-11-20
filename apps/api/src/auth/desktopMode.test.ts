@@ -12,7 +12,28 @@ vi.mock("@lifer/core/config.js", async (importOriginal) => ({
 vi.mock("@lifer/core/db.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@lifer/core/db.js")>()),
   pool: {
-    query: vi.fn(async (sql: string) => {
+    query: vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("FROM api_keys k")) {
+        const { hashApiKey } = await import("./apiKeys.js");
+        const permissions: Record<string, string[]> = {
+          [hashApiKey("plugin-key")]: ["userdata.read", "opendata.read"],
+          [hashApiKey("device-key")]: ["companion"],
+          [hashApiKey("broad-key")]: ["photos.read", "species.read", "photos.write", "sync"],
+        };
+        const found = permissions[String(params?.[0])];
+        return {
+          rows: found
+            ? [
+                {
+                  id: "k1",
+                  user_id: "00000000-0000-4000-8000-000000000001",
+                  permissions: found,
+                  email: "local@lifer.app",
+                },
+              ]
+            : [],
+        };
+      }
       if (sql.includes("INSERT INTO users")) return { rows: [{ id: "00000000-0000-4000-8000-000000000001" }] };
       if (sql.includes("SELECT email FROM users")) return { rows: [{ email: "local@lifer.app" }] };
       return { rows: [] };
@@ -171,14 +192,111 @@ describe("desktop mode sign-in", () => {
   });
 });
 
+describe("desktop mode plugin keys", () => {
+  let gated: FastifyInstance;
+  const savedToken = process.env.LIFER_LAUNCH_TOKEN;
+
+  beforeAll(async () => {
+    process.env.LIFER_LAUNCH_TOKEN = TOKEN;
+    gated = await buildApp(true);
+  }, 60_000);
+  afterAll(async () => {
+    await gated.close();
+    if (savedToken === undefined) delete process.env.LIFER_LAUNCH_TOKEN;
+    else process.env.LIFER_LAUNCH_TOKEN = savedToken;
+  });
+
+  const get = (url: string, headers: Record<string, string> = {}) =>
+    gated.inject({ method: "GET", url, headers: { ...HOST, ...headers } });
+
+  it("lets a key with a plugin scope reach that scope's route", async () => {
+    expect((await get("/api/userdata/v1/species", { "x-api-key": "plugin-key" })).statusCode).toBe(200);
+    expect((await get("/api/opendata/v1/regions", { "x-api-key": "plugin-key" })).statusCode).toBe(200);
+    const head = { ...HOST, "x-api-key": "plugin-key" };
+    expect((await gated.inject({ method: "HEAD", url: "/api/userdata/v1/species", headers: head })).statusCode).toBe(
+      200,
+    );
+  });
+
+  it("refuses a plugin key on every route without a plugin scope", async () => {
+    const { routeCatalog } = await import("../lib/schema.js");
+    const { PLUGIN_SCOPES } = await import("./desktopGate.js");
+    const others = [...routeCatalog.values()].filter((r) => r.auth !== null && !PLUGIN_SCOPES.has(r.scope ?? ""));
+    expect(others.length).toBeGreaterThan(10);
+    for (const r of others) {
+      const res = await gated.inject({
+        method: r.method as "GET",
+        url: r.url.replace(/:[A-Za-z]+/g, "00000000-0000-4000-8000-000000000009"),
+        headers: { ...HOST, "x-api-key": "plugin-key" },
+      });
+      expect(res.statusCode, `${r.method} ${r.url}`).toBe(401);
+    }
+  });
+
+  it("refuses keys without a plugin scope, even on routes their scope covers", async () => {
+    expect((await get("/api/captures", { "x-api-key": "broad-key" })).statusCode).toBe(401);
+    expect((await get("/api/userdata/v1/species", { "x-api-key": "broad-key" })).statusCode).toBe(401);
+  });
+
+  it("refuses no key, an unknown key and a key sent from a web page", async () => {
+    expect((await get("/api/userdata/v1/species")).statusCode).toBe(401);
+    expect((await get("/api/userdata/v1/species", { "x-api-key": "nope" })).statusCode).toBe(401);
+    for (const origin of ["http://127.0.0.1:5555", "null", ""]) {
+      const fromPage = { "x-api-key": "plugin-key", origin };
+      expect((await get("/api/userdata/v1/species", fromPage)).statusCode, origin).toBe(401);
+    }
+  });
+
+  it("still refuses other hosts and relayed requests with a valid key", async () => {
+    const key = { "x-api-key": "plugin-key" };
+    expect((await get("/api/userdata/v1/species", { ...key, host: "evil.example:4310" })).statusCode).toBe(403);
+    expect((await get("/api/userdata/v1/species", { ...key, "x-forwarded-for": "10.0.0.2" })).statusCode).toBe(403);
+  });
+
+  it("lets a device key reach the routes that accept the companion scope, and no others", async () => {
+    const { routeCatalog } = await import("../lib/schema.js");
+    const { PLUGIN_SCOPES, MCP_SCOPES, COMPANION_SCOPES } = await import("./desktopGate.js");
+    const key = { ...HOST, "x-api-key": "device-key" };
+    expect((await gated.inject({ method: "GET", url: "/api/sync/user-species", headers: key })).statusCode).toBe(200);
+    const refused = [...routeCatalog.values()].filter(
+      (r) =>
+        r.method === "GET" &&
+        r.auth !== null &&
+        ![r.scope ?? "", ...r.alsoAccepts].some(
+          (s) => COMPANION_SCOPES.has(s) || PLUGIN_SCOPES.has(s) || MCP_SCOPES.has(s),
+        ),
+    );
+    expect(refused.length).toBeGreaterThan(10);
+    for (const r of refused) {
+      const url = r.url.replace(/:[A-Za-z]+/g, "00000000-0000-4000-8000-000000000009");
+      expect((await gated.inject({ method: "GET", url, headers: key })).statusCode, r.url).toBe(401);
+    }
+  });
+
+  it("lists only real scopes as plugin scopes", async () => {
+    const { API_KEY_SCOPES } = await import("./apiKeyRoutes.js");
+    const { PLUGIN_SCOPES, MCP_SCOPES, COMPANION_SCOPES } = await import("./desktopGate.js");
+    for (const scope of [...PLUGIN_SCOPES, ...MCP_SCOPES, ...COMPANION_SCOPES]) expect(API_KEY_SCOPES).toContain(scope);
+    // The MCP server never gets to import, edit photos or share.
+    for (const scope of ["photos.write", "imports.write", "share.write", "sync"])
+      expect(MCP_SCOPES.has(scope)).toBe(false);
+  });
+});
+
 describe("GET /health", () => {
   it("gives the non-secret launch id, never the launch secret", async () => {
     const { registerHealthRoute } = await import("../lib/health.js");
     const app = Fastify();
-    registerHealthRoute(app, { LIFER_LAUNCH_TOKEN: TOKEN, LIFER_LAUNCH_ID: "launch-id-1" });
+    registerHealthRoute(app, { LIFER_LAUNCH_TOKEN: TOKEN, LIFER_LAUNCH_ID: "launch-id-1" }, async () => "inst-1");
     const res = await app.inject({ method: "GET", url: "/health" });
     await app.close();
-    expect(res.json()).toEqual({ ok: true, launchId: "launch-id-1" });
+    expect(res.json()).toEqual({
+      ok: true,
+      launchId: "launch-id-1",
+      instanceId: "inst-1",
+      syncProtocol: 2,
+      version: "dev",
+    });
     expect(res.body).not.toContain(TOKEN);
   });
 });

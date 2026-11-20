@@ -2,7 +2,7 @@
 //   TEST_DATABASE_URL=postgres://lifer@127.0.0.1:55432/lifer npx vitest run collectionState
 // A fresh install pointed at an existing library gets its archived, hidden, seen and target
 // species, the user's own tiers and their checklist additions, back from the library's own record.
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import pg from "pg";
@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const url = process.env.TEST_DATABASE_URL;
 const USER = "ffffffff-0000-4000-8000-000000000110";
+const OTHER_USER = "ffffffff-0000-4000-8000-000000000111";
 const SP = [
   "ffffffff-0000-4000-8000-0000000000a1",
   "ffffffff-0000-4000-8000-0000000000a2",
@@ -74,7 +75,7 @@ describe.skipIf(!url)("collection state record", () => {
   });
 
   afterAll(async () => {
-    await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
+    await db.query(`DELETE FROM users WHERE id = ANY($1)`, [[USER, OTHER_USER]]);
     await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[...SP, HAND]]);
     await db.query(`DELETE FROM regions WHERE id = $1`, [SUBREGION]);
     await db.query(`DELETE FROM regions WHERE id = $1`, [REGION]);
@@ -100,6 +101,8 @@ describe.skipIf(!url)("collection state record", () => {
       ],
       addedToRegions: [{ region: "ZZ-ST", species: "Statea species3" }],
       addedToSeaZones: [{ seaZone: "Zzstate Sea", species: "Statea species0" }],
+      cards: [],
+      otherTaxa: [],
     });
 
     // A fresh install: same photos folder, none of this state in the database.
@@ -201,5 +204,39 @@ describe.skipIf(!url)("collection state record", () => {
       [USER, HAND],
     );
     expect(added.rows).toEqual([{ region_id: REGION }]);
+  });
+
+  it("doesn't give another user's record to a user on a multi-user install", async () => {
+    const { mergeLibraryRecord } = await import("./collectionState.js");
+    await db.query(`DELETE FROM users WHERE id = $1`, [OTHER_USER]);
+    await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'bob@test', 'x')`, [OTHER_USER]);
+    const libDir = mkdtempSync(path.join(tmpdir(), "lifer-state-lib-"));
+    try {
+      mkdirSync(path.join(libDir, ".lifer"));
+      const alice = { archived: ["Statea species0"], hiddenInRegions: [], seen: ["Statea species2"], targets: [] };
+      writeFileSync(
+        path.join(libDir, ".lifer", "collection-state.json"),
+        JSON.stringify({ version: 1, updatedAt: "", users: { "alice@test": alice } }),
+      );
+      await mergeLibraryRecord(OTHER_USER, libDir);
+      const got = await db.query(
+        `SELECT (SELECT count(*) FROM user_archived_species WHERE user_id = $1)::int AS archived,
+                (SELECT count(*) FROM user_species WHERE user_id = $1)::int AS species`,
+        [OTHER_USER],
+      );
+      expect(got.rows[0]).toEqual({ archived: 0, species: 0 });
+    } finally {
+      rmSync(libDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the old install's pack list until this install has packs of its own", async () => {
+    const { saveCollectionState, collectionStatePath } = await import("./collectionState.js");
+    const file = JSON.parse(readFileSync(collectionStatePath(), "utf8"));
+    writeFileSync(collectionStatePath(), JSON.stringify({ ...file, packs: ["old-pack"] }));
+    await saveCollectionState(USER);
+    const own = (await db.query<{ pack_id: string }>(`SELECT pack_id FROM downloaded_packs ORDER BY 1`)).rows;
+    const saved = JSON.parse(readFileSync(collectionStatePath(), "utf8"));
+    expect(saved.packs).toEqual(own.length ? own.map((r) => r.pack_id) : ["old-pack"]);
   });
 });
