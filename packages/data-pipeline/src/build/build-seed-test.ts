@@ -104,16 +104,16 @@ async function main() {
     }
   }
 
-  console.log("[build-seed-test] region occurrence counts (direct per-species query, no seasonality: test-scoped)");
+  console.log("[build-seed-test] region occurrence counts (direct per-species query, test-scoped)");
   const regions = await buildRegions();
-  const regionSpecies: Record<string, Array<{ gbifKey: number; recordCount: number; seasonality: number[] | null }>> = {};
+  const regionSpecies: Record<string, Array<{ gbifKey: number; recordCount: number }>> = {};
   for (const region of regions) {
     if (region.externalCodes.length === 0) continue;
     for (const code of region.externalCodes) {
       const counts = [];
       for (const g of gbif) {
         const count = await fetchOccurrenceCountForSpecies(g.gbifKey, code);
-        counts.push({ gbifKey: g.gbifKey, recordCount: count, seasonality: null });
+        counts.push({ gbifKey: g.gbifKey, recordCount: count });
       }
       regionSpecies[region.name] = counts.filter((c) => c.recordCount >= MIN_OCCURRENCE_RECORDS);
     }
