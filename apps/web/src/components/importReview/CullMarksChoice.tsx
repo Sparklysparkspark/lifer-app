@@ -1,12 +1,12 @@
 import type { CullMarksOption } from "@lifer/shared";
+import { useTranslation } from "react-i18next";
 import Select from "../Select";
-import { pluralize } from "../../lib/pluralize";
 import { formatNumber } from "../../lib/format";
 
-const OPTIONS: Array<{ value: CullMarksOption; label: string }> = [
-  { value: "skip", label: "Skip them" },
-  { value: "hide", label: "Import them hidden" },
-  { value: "ignore", label: "Import them anyway" },
+const OPTIONS: Array<{ value: CullMarksOption; labelKey: string }> = [
+  { value: "skip", labelKey: "import.cullMarks.skip" },
+  { value: "hide", labelKey: "import.cullMarks.hide" },
+  { value: "ignore", labelKey: "import.cullMarks.ignore" },
 ];
 
 /** "212 photos, 37 marked rejected by your culling app" and what to do with those, on an import
@@ -24,29 +24,26 @@ export default function CullMarksChoice({
   onChange: (value: CullMarksOption) => void;
   disabled?: boolean;
 }) {
+  const { t } = useTranslation();
   if (rejected === 0) return null;
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-surface-muted px-3 py-2 text-sm text-muted">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-control border border-line bg-surface-muted px-3 py-2 text-callout text-muted">
       <span data-testid="cull-summary">
-        {pluralize(total, "photo")}, {formatNumber(rejected)} marked rejected by your culling app.
+        {t("import.cullMarks.summary", { count: total, rejected: formatNumber(rejected) })}
       </span>
       <Select
-        label="Rejected photos"
+        label={t("import.cullMarks.label")}
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value as CullMarksOption)}
       >
         {OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>
-            {o.label}
+            {t(o.labelKey)}
           </option>
         ))}
       </Select>
-      {value === "hide" && (
-        <span className="text-xs">
-          Hidden photos stay out of your gallery and life list. Find them with the Gallery's Hidden filter.
-        </span>
-      )}
+      {value === "hide" && <span className="text-footnote">{t("import.cullMarks.hiddenHint")}</span>}
     </div>
   );
 }

@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useLatest } from "../../hooks/useLatest";
+import { isTypingTarget } from "../../hooks/useKeyboardShortcuts";
+import { matches } from "../../lib/keymap";
 import type { SpeciesResult, SuggestedSpecies } from "../SpeciesPicker";
 import type { PossibleDuplicate } from "../../lib/uploadQueue";
 import type { CullMarks } from "@lifer/shared";
 import { useSpeciesName } from "../../lib/speciesName";
+import { nextToConfirm } from "./compareQueue";
 
 // What every species-review row has, wherever its photo came from: a file dropped on the import
 // screen (PhotoImportRows) or one found by a trip scan (TripDetailPage).
@@ -15,7 +18,9 @@ export interface ReviewRowBase {
   /** Content match against an already-imported photo. `undefined` = not checked, `null` = none. */
   possibleDuplicate?: PossibleDuplicate | null;
   /** The photo shows no wildlife (species/wildlifeCheck.ts): left out unless "Import anyway". */
-  notWildlife?: { looksLike: string } | null;
+  notWildlife?: { looksLike: string; marked?: boolean } | null;
+  /** Probably not wildlife, short of the flag: the row asks, and is never left out on its own. */
+  maybeNotWildlife?: { looksLike: string; share: number } | null;
   /** A RAW of a photo already imported: it's filed with that photo, so its species is set. */
   rawMatch?: { captureId: string; speciesName: string } | null;
   /** An insect, spider or the like (wildlifeCheck.ts), which the checklists rarely cover. */
@@ -26,17 +31,28 @@ export interface ReviewRowBase {
   suggestError?: string;
   /** What a culling app marked the photo (CullMarksChoice). `undefined` = not read yet. */
   cull?: CullMarks | null;
+  /** The animal's box in percent of the shown photo, which compare mode opens zoomed on. */
+  subject?: { x: number; y: number; w: number; h: number } | null;
 }
 
-/** Selection, bulk and one-at-a-time assignment, and the keyboard flow of a species review:
- * Left/Right move the highlighted suggestion, Enter assigns and moves on, Up reopens the previous
- * row, and Enter with every row assigned calls `onAllAssignedEnter`. Ignored while a text field has focus. */
+/** Compare mode's opening state: the photo, the ticked photos it confirms with, a species to show first. */
+export interface CompareTarget {
+  key: string;
+  group: string[] | null;
+  speciesId?: string;
+}
+
 /** The suggestions a row shows: only the top one when it's certain or confidently ahead. */
 export function visibleSuggestions<T extends { score: number; confident?: boolean }>(suggestions: T[]): T[] {
   const topIsCertain = suggestions.length > 0 && Math.round(suggestions[0].score * 100) >= 100;
   return topIsCertain || suggestions[0]?.confident ? suggestions.slice(0, 1) : suggestions;
 }
 
+/** Selection, bulk and one-at-a-time assignment, and the keyboard flow of a species review:
+ * Up and Down move between photos and never confirm, Left/Right or 1 to 5 move the highlighted
+ * suggestion, Enter confirms it and moves on, Backspace clears a species, Mod+Z undoes the last
+ * confirm or clear, and Enter with every row assigned calls `onAllAssignedEnter`; C opens compare
+ * mode. Ignored while a text field or compare has focus. */
 export function useImportReview<R extends ReviewRowBase>(
   rows: R[],
   setRows: Dispatch<SetStateAction<R[]>>,
@@ -45,6 +61,10 @@ export function useImportReview<R extends ReviewRowBase>(
   const speciesName = useSpeciesName();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [focusedRowKey, setFocusedRowKey] = useState<string | null>(null);
+  // The photo Up and Down moved to; null follows the first photo without a species.
+  const [cursorKey, setCursorKey] = useState<string | null>(null);
+  // Compare mode owns the keyboard while it's open.
+  const [compare, setCompare] = useState<CompareTarget | null>(null);
 
   // Set when a row was just assigned (or reopened with Up), so the next row to do is scrolled into view.
   const scrollToActiveRow = useRef(false);
@@ -67,14 +87,113 @@ export function useImportReview<R extends ReviewRowBase>(
     setSelected((prev) => new Set([...prev, ...keys]));
   }
 
-  // The next unassigned row's top suggestion gets highlighted, so Enter keeps the batch moving.
+  // Mod+Z takes back the last confirm or clear: each entry is the row's species before it.
+  // One step per action, covering every photo it changed (a set marked "no animal" at once).
+  type Before = Pick<ReviewRowBase, "key" | "speciesId" | "speciesLabel" | "notWildlife" | "maybeNotWildlife">;
+  const undoStack = useRef<Before[][]>([]);
+  const remember = (keys: string[]) => {
+    const step = rows
+      .filter((r) => keys.includes(r.key))
+      .map((r) => ({
+        key: r.key,
+        speciesId: r.speciesId,
+        speciesLabel: r.speciesLabel,
+        notWildlife: r.notWildlife,
+        maybeNotWildlife: r.maybeNotWildlife,
+      }));
+    if (step.length) undoStack.current.push(step);
+  };
+
+  // Confirms and moves on to the next photo still without a species, its top suggestion highlighted.
   function assignAndAdvance(key: string, result: SpeciesResult) {
+    remember([key]);
     assignSpecies([key], result);
     setFocusedRowKey(null);
+    setCursorKey(nextToConfirm(rows, key, [key]));
     scrollToActiveRow.current = true;
   }
 
+  function undoLast() {
+    const step = undoStack.current.pop();
+    if (!step) return;
+    const before = new Map(step.map((e) => [e.key, e]));
+    setRows((prev) => prev.map((r) => (before.has(r.key) ? { ...r, ...before.get(r.key)! } : r)));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const e of step) {
+        if (e.speciesId) next.add(e.key);
+        else next.delete(e.key);
+      }
+      return next;
+    });
+    // Back on the photo, a taken-back pick highlighted so Enter puts it back.
+    const first = step[0];
+    const row = rows.find((r) => r.key === first.key);
+    setCursorKey(first.key);
+    if (!first.speciesId && row?.speciesId) {
+      setHighlightFor(first.key);
+      setHighlightIndex(
+        Math.max(
+          visibleSuggestions(row.suggestions).findIndex((x) => x.id === row.speciesId),
+          0,
+        ),
+      );
+    }
+    scrollToActiveRow.current = true;
+  }
+
+  /** "No animal": the photos are left out like ones that don't look like wildlife (the row's
+   *  "Import anyway" brings one back, Mod+Z the whole step), and the keys move on. */
+  function markNoAnimal(keys: string[]) {
+    remember(keys);
+    setRows((prev) =>
+      prev.map((r) =>
+        keys.includes(r.key)
+          ? {
+              ...r,
+              speciesId: null,
+              speciesLabel: null,
+              notWildlife: { looksLike: r.maybeNotWildlife?.looksLike ?? "", marked: true },
+              maybeNotWildlife: null,
+            }
+          : r,
+      ),
+    );
+    setSelected((prev) => new Set([...prev].filter((k) => !keys.includes(k))));
+    setFocusedRowKey(null);
+    setCursorKey(nextToConfirm(rows, keys[keys.length - 1], keys));
+    scrollToActiveRow.current = true;
+  }
+
+  // Backspace: the photo goes back to its suggestions, its pick highlighted, undoably.
+  function clearSpecies(row: R) {
+    if (!row.speciesId || row.rawMatch) return;
+    remember([row.key]);
+    reopen(row);
+  }
+
+  // Clears a row's species and unticks it, keeping its pick highlighted so Enter puts it back.
+  function reopen(row: R) {
+    const pick = visibleSuggestions(row.suggestions).findIndex((s) => s.id === row.speciesId);
+    setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, speciesId: null, speciesLabel: null } : r)));
+    setSelected((prev) => {
+      if (!prev.has(row.key)) return prev;
+      const next = new Set(prev);
+      next.delete(row.key);
+      return next;
+    });
+    setHighlightFor(row.key);
+    setHighlightIndex(Math.max(pick, 0));
+  }
+
   function toggleSelected(key: string) {
+    // A tick means confirmed, so unticking a confirmed photo reopens its suggestions.
+    const row = rows.find((r) => r.key === key);
+    if (row?.speciesId && !row.rawMatch && selected.has(key)) {
+      reopen(row);
+      setCursorKey(key);
+      return;
+    }
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -92,11 +211,12 @@ export function useImportReview<R extends ReviewRowBase>(
       return next;
     });
     if (focusedRowKey === key) setFocusedRowKey(null);
+    if (cursorKey === key) setCursorKey(null);
   }
 
   /** "Import anyway" on a duplicate or not-wildlife warning. A duplicate's earlier photo is the best
    *  match there is, so its species is filled in (unless one was already picked). */
-  function dismissWarning(key: string, warning: "possibleDuplicate" | "notWildlife") {
+  function dismissWarning(key: string, warning: "possibleDuplicate" | "notWildlife" | "maybeNotWildlife") {
     setRows((prev) =>
       prev.map((r) => {
         if (r.key !== key) return r;
@@ -110,8 +230,8 @@ export function useImportReview<R extends ReviewRowBase>(
     );
   }
 
-  // Keyboard actions target the first unassigned row; not-wildlife rows are skipped.
-  const activeRow = rows.find((r) => !r.speciesId && !r.notWildlife);
+  // Keyboard actions target the cursor row, else the first unassigned row; not-wildlife rows are skipped.
+  const activeRow = rows.find((r) => r.key === cursorKey) ?? rows.find((r) => !r.speciesId && !r.notWildlife);
   const activeKey = activeRow?.key;
   // A new active row starts at its first suggestion.
   const [highlightIndex, setHighlightIndex] = useState(0);
@@ -128,57 +248,92 @@ export function useImportReview<R extends ReviewRowBase>(
       ?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [activeKey]);
 
-  // Up undoes a stray Enter: reopens the previous assigned row with its pick still highlighted.
-  function goBackToPreviousRow() {
-    const activeIdx = activeRow ? rows.findIndex((r) => r.key === activeRow.key) : rows.length;
-    for (let i = activeIdx - 1; i >= 0; i--) {
-      const row = rows[i];
-      if (!row.speciesId) continue;
-      const prevIndex = row.suggestions.findIndex((s) => s.id === row.speciesId);
-      setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, speciesId: null, speciesLabel: null } : r)));
-      setSelected((prev) => {
-        if (!prev.has(row.key)) return prev;
-        const next = new Set(prev);
-        next.delete(row.key);
-        return next;
-      });
-      setHighlightIndex(prevIndex >= 0 ? prevIndex : 0);
-      scrollToActiveRow.current = true;
-      return;
-    }
+  function moveCursor(step: 1 | -1) {
+    const from = activeRow ? rows.indexOf(activeRow) : step > 0 ? -1 : rows.length;
+    const next = rows[Math.min(Math.max(from + step, 0), rows.length - 1)];
+    if (!next) return;
+    setCursorKey(next.key);
+    scrollToActiveRow.current = true;
+  }
+
+  // Ticks on confirmed rows mean "confirmed", so bulk assign acts only on the ones still to do.
+  const bulkKeys = rows.filter((r) => selected.has(r.key) && !r.speciesId).map((r) => r.key);
+
+  // A ticked photo compares with the rest of the ticked ones still to confirm, as one set.
+  function openCompare(key: string, speciesId?: string) {
+    const group = bulkKeys.includes(key) && bulkKeys.length > 1 ? bulkKeys : null;
+    setCompare({ key, group, speciesId });
   }
 
   const { onAllAssignedEnter, enterStartsImport } = opts;
   // The key handler outlives renders; these keep it calling the current versions.
   const assignRef = useLatest(assignAndAdvance);
-  const goBackRef = useLatest(goBackToPreviousRow);
+  const undoRef = useLatest(undoLast);
+  const clearRef = useLatest(clearSpecies);
+  const noAnimalRef = useLatest(markNoAnimal);
+  const moveRef = useLatest(moveCursor);
+  const openCompareRef = useLatest(openCompare);
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
-      if (e.key === "ArrowUp") {
+      if (compare || isTypingTarget(e.target)) return;
+      if (matches(e, "compareImport") && activeRow) {
         e.preventDefault();
-        goBackRef.current();
+        openCompareRef.current(activeRow.key);
+        return;
+      }
+      // Only what's on screen: a confident top match hides the rest.
+      const pickable = activeRow && !activeRow.speciesId && !activeRow.notWildlife;
+      const shown = pickable ? visibleSuggestions(activeRow.suggestions) : [];
+      // Up and Down only move between photos: leaving one never confirms its highlighted suggestion.
+      if (matches(e, "previousGroup") || matches(e, "nextGroup")) {
+        e.preventDefault();
+        moveRef.current(matches(e, "nextGroup") ? 1 : -1);
+        return;
+      }
+      if (matches(e, "importUndo")) {
+        e.preventDefault();
+        undoRef.current();
+        return;
+      }
+      if (matches(e, "importNoAnimal") && activeRow && !activeRow.notWildlife) {
+        e.preventDefault();
+        noAnimalRef.current([activeRow.key]);
+        return;
+      }
+      if (matches(e, "importClear") && activeRow?.speciesId) {
+        e.preventDefault();
+        clearRef.current(activeRow);
         return;
       }
       if (!activeRow) {
         // Every row assigned: Enter starts the import.
-        if (e.key === "Enter" && enterStartsImport && onAllAssignedEnter) {
+        if (matches(e, "confirm") && enterStartsImport && onAllAssignedEnter) {
           e.preventDefault();
           onAllAssignedEnter();
         }
         return;
       }
-      // Only what's on screen: a confident top match hides the rest.
-      const shown = visibleSuggestions(activeRow.suggestions);
-      if (shown.length === 0) return;
-      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      if (shown.length === 0) {
+        // Nothing to pick on this photo: Enter opens its species box.
+        if (matches(e, "confirm")) {
+          e.preventDefault();
+          setFocusedRowKey(activeRow.key);
+        }
+        return;
+      }
+      if (matches(e, "next")) {
         e.preventDefault();
         setHighlightIndex((i) => Math.min(i + 1, shown.length - 1));
-      } else if (e.key === "ArrowLeft") {
+      } else if (matches(e, "previous")) {
         e.preventDefault();
         setHighlightIndex((i) => Math.max(i - 1, 0));
-      } else if (e.key === "Enter") {
+      } else if (matches(e, "compareSpecies")) {
+        const n = Number(e.code.slice(-1)) - 1;
+        if (n < shown.length) {
+          e.preventDefault();
+          setHighlightIndex(n);
+        }
+      } else if (matches(e, "confirm")) {
         e.preventDefault();
         const pick = shown[highlightIndex];
         if (pick) assignRef.current(activeRow.key, pick);
@@ -186,11 +341,25 @@ export function useImportReview<R extends ReviewRowBase>(
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeRow, highlightIndex, enterStartsImport, onAllAssignedEnter, rows, assignRef, goBackRef]);
+  }, [
+    compare,
+    activeRow,
+    cursorKey,
+    highlightIndex,
+    enterStartsImport,
+    onAllAssignedEnter,
+    assignRef,
+    undoRef,
+    clearRef,
+    noAnimalRef,
+    moveRef,
+    openCompareRef,
+  ]);
 
   return {
     selected,
     setSelected,
+    bulkKeys,
     toggleSelected,
     focusedRowKey,
     setFocusedRowKey,
@@ -200,5 +369,9 @@ export function useImportReview<R extends ReviewRowBase>(
     assignAndAdvance,
     forgetRow,
     dismissWarning,
+    markNoAnimal,
+    compare,
+    openCompare,
+    closeCompare: () => setCompare(null),
   };
 }

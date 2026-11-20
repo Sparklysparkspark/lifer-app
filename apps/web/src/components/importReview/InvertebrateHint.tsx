@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import AddOtherTaxaModal from "../AddOtherTaxaModal";
 import type { SpeciesResult } from "../SpeciesPicker";
 import { useServerSetting } from "../../pages/settings/useServerSetting";
+import Button from "../Button";
 
 // An insect or spider: the built-in checklists cover vertebrates, so suggestions would only be the
 // nearest bird. Points to adding the species from iNaturalist instead, assigned to this photo.
@@ -26,16 +27,18 @@ export default function InvertebrateHint({
   }
 
   return (
-    <div className="mt-2 ml-7 flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface-muted px-2 py-1.5 text-xs text-ink">
+    <div className="mt-2 ml-7 flex flex-wrap items-center gap-2 rounded-control border border-line bg-surface-muted px-2 py-1.5 text-footnote text-ink">
       <span>{t("import.invertebrate.message", { looksLike })}</span>
-      <button
+      <Button
+        variant="link"
+        size="sm"
         onClick={() => void start()}
         disabled={search.saving}
-        title={search.value ? undefined : t("import.invertebrate.searchOptIn")}
-        className="ml-auto font-medium underline disabled:opacity-50"
+        tooltip={search.value ? undefined : { label: t("import.invertebrate.searchOptIn") }}
+        className="ml-auto font-medium text-current! underline"
       >
         {t("import.invertebrate.search")}
-      </button>
+      </Button>
       {search.error && <span className="w-full text-rose-700 dark:text-rose-300">{search.error}</span>}
       {open && (
         <AddOtherTaxaModal initialQuery="" initialRegionId={regionId} onAdded={onPick} onClose={() => setOpen(false)} />

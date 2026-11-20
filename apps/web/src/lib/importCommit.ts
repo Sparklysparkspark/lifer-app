@@ -1,5 +1,6 @@
 import type { CullMarksOption } from "@lifer/shared";
 import { mapWithConcurrency } from "./concurrency";
+import type { StagedPlace } from "../components/importReview/importGroups";
 
 // The commit and undo steps of PhotoImportRows, kept free of React and the network so they can be
 // tested on their own. Callers pass in the upload and request functions.
@@ -83,6 +84,42 @@ export async function undoImports(
     ),
   );
   return { undone: batch.filter((_, i) => ok[i]), failed: batch.filter((_, i) => !ok[i]) };
+}
+
+/** One entry of POST /places/apply. */
+export interface PlaceApply {
+  captureIds: string[];
+  spotId?: string;
+  lat?: number;
+  lon?: number;
+  regionId?: string;
+  label?: string;
+}
+
+/** The places staged on the import screen, for the photos that imported, one entry per distinct
+ *  place. A photo with no place is left as it is: its camera GPS stays, or it waits in Needs placing. */
+export function placeAssignments(
+  rows: Array<{ captureId: string; place?: StagedPlace | null; label?: string }>,
+): PlaceApply[] {
+  const byPlace = new Map<string, PlaceApply>();
+  for (const { captureId, place, label } of rows) {
+    if (!place) continue;
+    // A label typed for the photos stays rather than being replaced by the spot's name.
+    const typed = label?.trim() || undefined;
+    const target: Omit<PlaceApply, "captureIds"> | null = place.spotId
+      ? { spotId: place.spotId, label: typed }
+      : place.point
+        ? { lat: place.point.lat, lon: place.point.lon, regionId: place.regionId ?? undefined }
+        : place.regionId
+          ? { regionId: place.regionId }
+          : null;
+    if (!target) continue;
+    const key = JSON.stringify(target);
+    const entry = byPlace.get(key);
+    if (entry) entry.captureIds.push(captureId);
+    else byPlace.set(key, { captureIds: [captureId], ...JSON.parse(key) });
+  }
+  return [...byPlace.values()];
 }
 
 /** Rows whose capture was deleted go back to "ready" for another import; the rest are unchanged. */

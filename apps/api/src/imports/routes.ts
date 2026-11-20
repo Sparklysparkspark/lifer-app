@@ -1,10 +1,14 @@
 // eBird "Download My Data" CSV import, which fills the `seen` state. Only a "Scientific Name"
 // column is required, since eBird's headers vary between export versions.
 import type { FastifyInstance } from "fastify";
+import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
-import { replies, withSchemas } from "../lib/schema.js";
+import { Uuid, replies, withSchemas } from "../lib/schema.js";
 import { EbirdImportSummary } from "./responses.js";
+
+// Larger than any eBird life list.
+const MAX_UNDO_SPECIES = 50_000;
 
 function parseCsv(text: string): Record<string, string>[] {
   // Doesn't handle commas inside quoted fields, which eBird's export doesn't use.
@@ -42,31 +46,65 @@ export async function importRoutes(fastify: FastifyInstance): Promise<void> {
 
       // One statement: match every name, insert the new ones. Never downgrades collected -> seen
       // and never touches an already-seen row (ON CONFLICT DO NOTHING).
-      const res = await pool.query<{ matched: number; inserted: number }>(
+      const res = await pool.query<{ matched_names: string[]; added_ids: string[] }>(
         `WITH hit AS (
-         SELECT DISTINCT ON (s.scientific_name) s.id
+         SELECT DISTINCT ON (s.scientific_name) s.id, s.scientific_name
          FROM species s WHERE s.scientific_name = ANY($2::text[])
        ),
        ins AS (
          INSERT INTO user_species (user_id, species_id, state)
          SELECT $1, hit.id, 'seen' FROM hit
          ON CONFLICT (user_id, species_id) DO NOTHING
-         RETURNING 1
+         RETURNING species_id
        )
-       SELECT (SELECT COUNT(*) FROM hit)::int AS matched, (SELECT COUNT(*) FROM ins)::int AS inserted`,
+       SELECT COALESCE((SELECT array_agg(scientific_name) FROM hit), '{}')::text[] AS matched_names,
+              COALESCE((SELECT array_agg(species_id) FROM ins), '{}')::text[] AS added_ids`,
         [userId, scientificNames],
       );
-      const matched = res.rows[0]?.matched ?? 0;
-      const alreadySeenOrCollected = matched - (res.rows[0]?.inserted ?? 0);
-      const unmatched = scientificNames.length - matched;
+      const matchedNames = new Set(res.rows[0]?.matched_names ?? []);
+      const addedSpeciesIds = res.rows[0]?.added_ids ?? [];
+      const unmatchedNames = scientificNames.filter((n) => !matchedNames.has(n));
 
       return {
         totalRows: rows.length,
         uniqueSpecies: scientificNames.length,
-        matched,
-        alreadySeenOrCollected,
-        unmatched,
+        matched: matchedNames.size,
+        alreadySeenOrCollected: matchedNames.size - addedSpeciesIds.length,
+        unmatched: unmatchedNames.length,
+        unmatchedNames,
+        addedSpeciesIds,
       };
+    },
+  );
+
+  // Undo takes back the ids an import returned. Only rows still plain `seen` are cleared, so a
+  // species photographed since stays collected and a target flag survives.
+  app.post(
+    "/imports/ebird-csv/undo",
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          { speciesIds: Type.Array(Uuid(), { maxItems: MAX_UNDO_SPECIES }) },
+          { additionalProperties: false },
+        ),
+        response: replies(Type.Object({ removed: Type.Integer() })),
+      },
+    },
+    async (request) => {
+      const userId = request.user!.id;
+      const ids = request.body.speciesIds;
+      const deleted = await pool.query(
+        `DELETE FROM user_species
+         WHERE user_id = $1 AND species_id = ANY($2::uuid[]) AND state = 'seen' AND NOT is_target`,
+        [userId, ids],
+      );
+      const cleared = await pool.query(
+        `UPDATE user_species SET state = NULL
+         WHERE user_id = $1 AND species_id = ANY($2::uuid[]) AND state = 'seen'`,
+        [userId, ids],
+      );
+      return { removed: (deleted.rowCount ?? 0) + (cleared.rowCount ?? 0) };
     },
   );
 }

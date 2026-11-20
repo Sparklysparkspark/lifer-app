@@ -10,4 +10,8 @@ export const EbirdImportSummary = Open({
   matched: Type.Integer(),
   alreadySeenOrCollected: Type.Integer(),
   unmatched: Type.Integer(),
+  /** Scientific names in the file that matched no species. */
+  unmatchedNames: Type.Array(Type.String()),
+  /** Species this import newly marked seen; send back to the undo route. */
+  addedSpeciesIds: Type.Array(Type.String()),
 });

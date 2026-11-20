@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { commitImport, importFields, resetUndoneRows, undoImports, type ImportTarget } from "./importCommit";
+import {
+  commitImport,
+  importFields,
+  placeAssignments,
+  resetUndoneRows,
+  undoImports,
+  type ImportTarget,
+} from "./importCommit";
+import type { StagedPlace } from "../components/importReview/importGroups";
 
 const photo: ImportTarget = {
   speciesId: "sp1",
@@ -76,5 +84,56 @@ describe("undo", () => {
       ["b", "done", "c2"],
       ["c", "ready", undefined],
     ]);
+  });
+});
+
+describe("placeAssignments", () => {
+  const pond: StagedPlace = { source: "spot", name: "Pond", spotId: "s1", regionId: null, point: null };
+  const bc: StagedPlace = { source: "region", name: "British Columbia", spotId: null, regionId: "r1", point: null };
+  const session: StagedPlace = {
+    source: "session",
+    name: "Near Prince George",
+    spotId: null,
+    regionId: "r1",
+    point: { lat: 53.9, lon: -122.7 },
+  };
+
+  it("sends one entry per place, and nothing for photos without one", () => {
+    expect(
+      placeAssignments([
+        { captureId: "a", place: pond },
+        { captureId: "b", place: { ...pond } },
+        { captureId: "c", place: bc },
+        { captureId: "d", place: session },
+        { captureId: "e", place: null },
+        { captureId: "f" },
+      ]),
+    ).toEqual([
+      { captureIds: ["a", "b"], spotId: "s1" },
+      { captureIds: ["c"], regionId: "r1" },
+      { captureIds: ["d"], lat: 53.9, lon: -122.7, regionId: "r1" },
+    ]);
+  });
+
+  it("keeps a typed label over the spot's name, as its own entry", () => {
+    expect(
+      placeAssignments([
+        { captureId: "a", place: pond, label: "  North shore " },
+        { captureId: "b", place: pond, label: "" },
+      ]),
+    ).toEqual([
+      { captureIds: ["a"], spotId: "s1", label: "North shore" },
+      { captureIds: ["b"], spotId: "s1" },
+    ]);
+  });
+
+  it("groups 2,000 photos in 60 places into 60 entries", () => {
+    const rows = Array.from({ length: 2000 }, (_, i) => ({
+      captureId: `c${i}`,
+      place: { ...pond, spotId: `s${i % 60}` },
+    }));
+    const out = placeAssignments(rows);
+    expect(out).toHaveLength(60);
+    expect(out.reduce((n, p) => n + p.captureIds.length, 0)).toBe(2000);
   });
 });

@@ -25,6 +25,9 @@ vi.mock("../api/client", async (importOriginal) => ({
 
 // The tus transfer itself is out of scope: the upload just finishes with a known id.
 const uploadFile = vi.fn();
+// The species-matching download's status, set per test.
+const matchingJob = vi.hoisted(() => ({ status: null as { running: boolean } | null }));
+vi.mock("../hooks/useJobPoll", () => ({ useJobPoll: () => ({ status: matchingJob.status }) }));
 vi.mock("../lib/tusUpload", () => ({
   uploadFile: (...a: unknown[]) => uploadFile(...a),
   discardUpload: vi.fn(),
@@ -61,6 +64,7 @@ function formFields(form: unknown): Record<string, string> {
 }
 
 beforeEach(() => {
+  matchingJob.status = null;
   resetAccountCaches();
   localStorage.clear();
   vi.clearAllMocks();
@@ -84,6 +88,47 @@ beforeEach(() => {
 });
 
 describe("PhotoImportRows", () => {
+  it("says matching is still downloading, then checks a waiting photo again once it's done", async () => {
+    localStorage.setItem("lifer:lastRegionId", "bc");
+    matchingJob.status = { running: true };
+    get.mockImplementation((path: string) => {
+      if (path === "/settings")
+        return Promise.resolve({
+          deploymentMode: "server",
+          dataDir: "/data",
+          libraryRoots: [],
+          speciesSuggestEnabled: true,
+        });
+      if (path === "/regions") return Promise.resolve({ regions: [] });
+      if (path.startsWith("/places")) return Promise.resolve({ places: [] });
+      if (path === "/offline-packs/index") return Promise.resolve({ generatedAt: "", packs: [] });
+      return Promise.resolve({});
+    });
+    post.mockImplementation((path: string) =>
+      path === "/uploads/inspect"
+        ? Promise.resolve({ possibleDuplicate: null, suggestions: [], previewDataUrl: null })
+        : Promise.reject(new Error(`unexpected POST ${path}`)),
+    );
+    const page = () => (
+      <MemoryRouter>
+        <ToastContext.Provider value={toast}>
+          <PhotoImportRows />
+        </ToastContext.Provider>
+      </MemoryRouter>
+    );
+    const { container, rerender } = render(page());
+    const input = container.querySelector<HTMLInputElement>('input[type="file"][accept]')!;
+    fireEvent.change(input, { target: { files: [new File(["jpeg"], "heron.jpg", { type: "image/jpeg" })] } });
+    expect(await screen.findByText(/Species suggestions are still downloading/)).toBeTruthy();
+    const inspects = () => post.mock.calls.filter((c) => c[0] === "/uploads/inspect").length;
+    await waitFor(() => expect(inspects()).toBe(1));
+
+    matchingJob.status = { running: false };
+    rerender(page());
+    await waitFor(() => expect(inspects()).toBe(2));
+    expect(screen.queryByText(/Species suggestions are still downloading/)).toBeNull();
+  });
+
   it("imports a dropped photo with the species picked from its suggestions", async () => {
     const onImported = vi.fn();
     const { container } = render(
@@ -119,5 +164,13 @@ describe("PhotoImportRows", () => {
     expect(uploadFile).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(onImported).toHaveBeenCalledTimes(1));
     expect(screen.getByRole("button", { name: "Undo last import (1)" })).toBeTruthy();
+
+    // The result also goes in a toast, whose Undo works after the page is left.
+    const [message, options] = vi.mocked(toast.show).mock.calls[0];
+    expect(message).toBe("1 photo filed under 1 species");
+    del.mockResolvedValue({});
+    options!.actions!.find((a) => a.label === "Undo")!.onClick();
+    await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Undo last import/ })).toBeNull());
   });
 });

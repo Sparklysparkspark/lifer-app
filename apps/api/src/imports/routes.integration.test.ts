@@ -94,12 +94,39 @@ describe.skipIf(!url)("eBird CSV import", () => {
     const res = await post(csvForm(csv), `multipart/form-data; boundary=${BOUNDARY}`);
     expect([res.statusCode, res.json()]).toEqual([
       200,
-      { totalRows: 2, uniqueSpecies: 2, matched: 1, alreadySeenOrCollected: 0, unmatched: 1 },
+      {
+        totalRows: 2,
+        uniqueSpecies: 2,
+        matched: 1,
+        alreadySeenOrCollected: 0,
+        unmatched: 1,
+        unmatchedNames: ["Nonexistus nullus"],
+        addedSpeciesIds: [SPECIES],
+      },
     ]);
     const row = await db.query(`SELECT state FROM user_species WHERE user_id = $1 AND species_id = $2`, [
       USER,
       SPECIES,
     ]);
     expect(row.rows).toEqual([{ state: "seen" }]);
+  });
+
+  it("undo clears only seen marks, never a collected species", async () => {
+    const undo = (speciesIds: string[]) =>
+      app.inject({
+        method: "POST",
+        url: "/api/imports/ebird-csv/undo",
+        payload: { speciesIds },
+        cookies: { [cookieName]: TOKEN },
+      });
+    await db.query(`UPDATE user_species SET state = 'collected' WHERE user_id = $1 AND species_id = $2`, [
+      USER,
+      SPECIES,
+    ]);
+    expect((await undo([SPECIES])).json()).toEqual({ removed: 0 });
+    await db.query(`UPDATE user_species SET state = 'seen' WHERE user_id = $1 AND species_id = $2`, [USER, SPECIES]);
+    expect((await undo([SPECIES])).json()).toEqual({ removed: 1 });
+    const row = await db.query(`SELECT 1 FROM user_species WHERE user_id = $1 AND species_id = $2`, [USER, SPECIES]);
+    expect(row.rowCount).toBe(0);
   });
 });
