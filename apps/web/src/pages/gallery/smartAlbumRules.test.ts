@@ -29,6 +29,7 @@ const base: Omit<GalleryQuery, "sortBy"> = {
   regionIds: [],
   tags: [],
   places: [],
+  appearance: { lifeStage: [], sex: [], plumage: [], morph: [] },
   bbox: null,
   scopeTripId: null,
   scopeAlbumId: null,
@@ -94,6 +95,25 @@ describe("smart album rules", () => {
       "Birds · Flying or Behaviour · Environmental · 5 stars",
     );
     expect(rulesSummary(rulesFromQuery(base), { regionNames: [], namingStyles: [] })).toBe("All photos");
+  });
+
+  it("round-trips and summarizes appearance rules as lists", () => {
+    const query = {
+      ...base,
+      appearance: { lifeStage: ["juvenile", "adult"], sex: ["female"], plumage: ["eclipse"], morph: ["dark morph"] },
+    };
+    const rules = rulesFromQuery(query);
+    expect(rules.query).toEqual({
+      excludeVideo: "1",
+      lifeStage: ["juvenile", "adult"],
+      sex: ["female"],
+      plumage: ["eclipse"],
+      morph: ["dark morph"],
+    });
+    expect(queryFromRules(rules)).toEqual(query);
+    expect(rulesSummary(rules, { regionNames: [], namingStyles: [] })).toBe(
+      "Juvenile or Adult · Female · eclipse · dark morph",
+    );
   });
 
   it("reads rules saved with the older single shotKind as the axis it stands for", () => {

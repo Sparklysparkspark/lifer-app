@@ -858,6 +858,12 @@
       "search": "Placeholder and label of the box that narrows a long species list in that section.",
       "clear": "Link under the species list: unpicks every species."
     },
+    "appearance": {
+      "findPlumage": "Placeholder and label of the box that narrows a long list of the plumages (breeding, eclipse, first winter...) used on the library's photos, in the Filters panel's Appearance section.",
+      "clearPlumage": "Link under that plumage list: unpicks every plumage.",
+      "findMorph": "Placeholder and label of the box that narrows a long list of the colour morphs (dark morph, blue phase...) used on the library's photos, in the Filters panel's Appearance section.",
+      "clearMorph": "Link under that morph list: unpicks every morph."
+    },
     "rawFiles": {
       "label": "Filter heading: RAW-only files (photos with no edited JPEG) can be shown, hidden, or shown alone.",
       "only": "Filter option: show only RAW files."
@@ -1610,6 +1616,12 @@
     "showingAll": "Under the Gallery title when every version is listed as its own photo. {count} is the number of items listed.",
     "notice": {
       "found": "Shown after Lifer grouped prints, edits and exports of photos. {versions} files were grouped under {photos} photos."
+    }
+  },
+  "tour": {
+    "versions": {
+      "title": "Last step of the guided tour, pointing at the Gallery item in the sidebar: photo versions (edits, prints and exports of one photo grouped as one).",
+      "body": "Tour card text. The stack badge is the small \"N versions\" label on a photo thumbnail; \"Versions\" is the item in a photo's ⋯ (more) menu."
     }
   }
 }

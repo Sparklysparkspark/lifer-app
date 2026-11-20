@@ -125,6 +125,14 @@ describe.skipIf(!url)("smart albums", () => {
     expect((await create({ version: 1, query: { shotKind: "flight" } })).statusCode).toBe(200);
     expect((await create({ version: 1, query: { action: "sleeping" } })).statusCode).toBe(400);
     expect((await create({ version: 1, query: { shotKind: "macro" } })).statusCode).toBe(400);
+    // Appearance: lists of known stages and sexes, and any plumage or morph text.
+    const looks = await create({
+      version: 2,
+      query: { lifeStage: ["juvenile"], sex: ["male"], morph: ["dark morph"] },
+    });
+    expect(looks.statusCode).toBe(200);
+    expect(looks.json().rules.query).toEqual({ lifeStage: ["juvenile"], sex: ["male"], morph: ["dark morph"] });
+    expect((await create({ version: 2, query: { lifeStage: ["hatchling"] } })).statusCode).toBe(400);
 
     // A hand-picked album never turns into a smart one.
     const manual = (await call("POST", "/api/albums", { name: "Manual" })).json();

@@ -11,8 +11,15 @@ import {
   type RawFilesFilter,
 } from "../../lib/photoListFilters";
 import { SHOT_ACTIONS, SHOT_FRAMINGS, parseShotList } from "@lifer/shared";
-import { countActiveFilters, shotTypeForKind, shotTypeForSearch, shotTypeValues } from "./galleryHelpers";
-import type { GalleryQuery } from "./types";
+import {
+  NO_APPEARANCE_FILTER,
+  appearanceFromParams,
+  countActiveFilters,
+  shotTypeForKind,
+  shotTypeForSearch,
+  shotTypeValues,
+} from "./galleryHelpers";
+import type { AppearanceFilter, AppearanceKind, GalleryQuery } from "./types";
 import { ignore } from "../../lib/ignore";
 
 type Scope = { id: string; name: string | null };
@@ -108,6 +115,10 @@ export function useGalleryFilters(
   // Seeded from ?place=X (Settings > Library > Places), or picked in the Filters panel.
   const [places, setPlacesState] = useState<readonly string[]>(() =>
     seed ? seed.places : searchParams.getAll("place"),
+  );
+  // ?lifeStage=, ?sex=, ?plumage= and ?morph=, each repeated for several values.
+  const [appearance, setAppearanceState] = useState<AppearanceFilter>(() =>
+    seed ? seed.appearance : appearanceFromParams(searchParams),
   );
   // From a point clicked on the map view: ?bbox=west,south,east,north.
   const [bbox, setBboxState] = useState<string | null>(() => (seed ? (seed.bbox ?? null) : searchParams.get("bbox")));
@@ -220,6 +231,10 @@ export function useGalleryFilters(
     setPlacesState(value);
     writeParams({ place: value });
   }
+  function setAppearance(kind: AppearanceKind, value: readonly string[]) {
+    setAppearanceState((prev) => ({ ...prev, [kind]: value }));
+    writeParams({ [kind]: value });
+  }
   // `alsoWrite`: other params changed in the same step (the map view closing as it opens an area).
   function setBbox(value: string | null, alsoWrite: Record<string, string | null> = {}) {
     setBboxState(value);
@@ -298,6 +313,7 @@ export function useGalleryFilters(
     regionIds,
     tags,
     places,
+    appearance,
     bbox,
     similarTo,
     scopeTripId,
@@ -325,6 +341,7 @@ export function useGalleryFilters(
     setRegionIdsState([]);
     setTagsState([]);
     setPlacesState([]);
+    setAppearanceState(NO_APPEARANCE_FILTER);
     setBboxState(null);
     setMissingDateState(false);
     setMissingCoordinatesState(false);
@@ -347,6 +364,10 @@ export function useGalleryFilters(
       regionId: null,
       tag: null,
       place: null,
+      lifeStage: null,
+      sex: null,
+      plumage: null,
+      morph: null,
       bbox: null,
       // A page's own filters kept in the URL (a trip's species), cleared in the same write.
       ...Object.fromEntries(alsoClear.map((name) => [name, null])),
@@ -373,6 +394,7 @@ export function useGalleryFilters(
     setRegionIdsState(q.regionIds);
     setTagsState(q.tags);
     setPlacesState(q.places);
+    setAppearanceState(q.appearance);
     setBboxState(q.bbox ?? null);
     setMissingDateState(q.missingDate);
     setMissingCoordinatesState(q.missingCoordinates);
@@ -397,6 +419,7 @@ export function useGalleryFilters(
       regionId: q.regionIds,
       tag: q.tags,
       place: q.places,
+      ...q.appearance,
       bbox: q.bbox ?? null,
     });
   }
@@ -424,6 +447,7 @@ export function useGalleryFilters(
     setRegionIds,
     setTags,
     setPlaces,
+    setAppearance,
     setBbox,
     setSortBy,
     scopeTrip,

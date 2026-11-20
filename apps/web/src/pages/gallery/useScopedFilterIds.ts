@@ -13,6 +13,7 @@ export function needsServerFilter(q: GalleryQuery): boolean {
     q.shotFramings.size > 0 ||
     q.regionIds.length > 0 ||
     q.places.length > 0 ||
+    Object.values(q.appearance).some((values) => values.length > 0) ||
     q.tags.length > 0 ||
     q.animalsMin !== null ||
     q.animalsMax !== null ||

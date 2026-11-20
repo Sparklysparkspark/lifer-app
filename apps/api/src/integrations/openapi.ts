@@ -527,6 +527,9 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
         "Photos of the same species, taken within 15 seconds and almost the same picture, or within 3 minutes and closer still, judged by their stored image vectors. Photos with no date or no vector are never grouped. List a group with GET /gallery?similarTo= its captureId. Lifer only lists them: nothing is changed or deleted.",
     },
   },
+  "/gallery/appearance": {
+    get: { summary: "The life stages, sexes, plumages and morphs in the library, with photo counts" },
+  },
   "/gallery/map": {
     get: {
       summary: "Where the photos matching the GET /gallery filters are, for a map",

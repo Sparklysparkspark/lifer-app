@@ -4,7 +4,7 @@ import { LIFE_STAGES, PLUMAGE_SUGGESTIONS, SEXES, type Appearance, type LifeStag
 export const NO_APPEARANCE: Appearance = { lifeStage: null, sex: null, plumage: null, morph: null };
 
 // Literal keys, so the i18n check sees each one.
-const STAGE_KEYS: Record<LifeStage, string> = {
+export const STAGE_KEYS: Record<LifeStage, string> = {
   egg: "appearance.stage.egg",
   larva: "appearance.stage.larva",
   nymph: "appearance.stage.nymph",
@@ -13,7 +13,7 @@ const STAGE_KEYS: Record<LifeStage, string> = {
   subadult: "appearance.stage.subadult",
   adult: "appearance.stage.adult",
 };
-const SEX_KEYS: Record<Sex, string> = {
+export const SEX_KEYS: Record<Sex, string> = {
   male: "appearance.sex.male",
   female: "appearance.sex.female",
   unknown: "appearance.sex.unknown",

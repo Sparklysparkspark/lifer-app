@@ -16,6 +16,7 @@ import { requireAuth, requireScope } from "../auth/session.js";
 import { PLACE_NAME_MAX } from "../captures/places.js";
 import { versionLabel } from "../uploads/versionGrouping.js";
 import { EMBEDDING_MODEL_VERSION, SCENE_MODEL_VERSION } from "@lifer/core/config.js";
+import { filesCaptureOf } from "../lib/versionFiles.js";
 import { dismissSimilarGroup, setDismissed, similarGroupOf, similarGroups } from "./similar.js";
 import {
   parseSearchQuery,
@@ -29,7 +30,10 @@ import {
 } from "./photoSearch.js";
 import type { GroupPredicate } from "./searchTaxonSynonyms.js";
 import {
+  APPEARANCE_TEXT_MAX,
   LEGACY_SHOT_KINDS,
+  LIFE_STAGES,
+  SEXES,
   SHOT_ACTIONS,
   SHOT_FRAMINGS,
   parseShotList,
@@ -84,11 +88,11 @@ export const GALLERY_ITEM_COLUMNS = `
   c.lat, c.lon, c.region_id, reg.name AS region_name, c.location_label, p.kind AS photo_kind, p.duration_seconds, c.tags,
   c.cull_verdict, c.cull_label, c.hidden_at IS NOT NULL AS hidden, c.life_stage, c.sex, c.plumage, c.morph,
   (p.id = us.cover_photo_id) AS is_featured,
-  EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw_original,
+  EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = ${filesCaptureOf("c")} AND ro.kind = 'raw') AS has_raw_original,
   (SELECT io.status FROM capture_inaturalist_observations io WHERE io.capture_id = c.id AND io.photo_sent) AS inat_status,
   (SELECT io.inat_observation_id FROM capture_inaturalist_observations io WHERE io.capture_id = c.id AND io.photo_sent) AS inat_observation_id,
   o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind,
-  (SELECT rr.ref FROM originals rr WHERE rr.capture_id = c.id AND rr.kind = 'raw' LIMIT 1) AS raw_ref,
+  (SELECT rr.ref FROM originals rr WHERE rr.capture_id = ${filesCaptureOf("c")} AND rr.kind = 'raw' LIMIT 1) AS raw_ref,
   s.taxon_order, s.family, s.sort_order, s.is_other_taxa, s.inat_iconic_taxon,
   ${GALLERY_TIER_SQL} AS tier,
   cfr.box AS frame_box, cfr.box_unsure AS frame_unsure, cfr.aspect AS frame_aspect, cfr.light AS light_stats,
@@ -117,7 +121,7 @@ export const GALLERY_ITEM_JOINS = `
   -- from THIS row is what "include RAW-derived photos" filters against: a capture whose only
   -- original is a RAW file has no jpeg to win the tiebreak, so this resolves to 'raw'.
   LEFT JOIN LATERAL (
-    SELECT * FROM originals lo WHERE lo.capture_id = c.id ORDER BY (lo.kind = 'jpeg') DESC LIMIT 1
+    SELECT * FROM originals lo WHERE lo.capture_id = ${filesCaptureOf("c")} ORDER BY (lo.kind = 'jpeg') DESC LIMIT 1
   ) o ON true
 `;
 /** GALLERY_ITEM_JOINS plus the photo's frame, for queries that select GALLERY_ITEM_COLUMNS. Kept
@@ -159,6 +163,11 @@ export interface GalleryFilters {
   tags: string[];
   /** Only photos with exactly one of these place names (location_label). */
   places: string[];
+  /** Appearance (migration 196): life stage and sex exactly, plumage and morph ignoring case. */
+  lifeStages: string[];
+  sexes: string[];
+  plumages: string[];
+  morphs: string[];
   /** Only photos whose coordinates fall in this box (west, south, east, north); west > east crosses
    *  the antimeridian. */
   bbox?: [number, number, number, number] | null;
@@ -224,6 +233,10 @@ export const GalleryFilterQuery = Type.Object({
   ),
   tag: Many(Type.String(), "Only photos with this tag"),
   place: Many(Type.String({ maxLength: PLACE_NAME_MAX }), "Only photos with this place name"),
+  lifeStage: Many(Type.Enum([...LIFE_STAGES]), "Only photos of this life stage"),
+  sex: Many(Type.Enum([...SEXES]), "Only photos of this sex"),
+  plumage: Many(Type.String({ maxLength: APPEARANCE_TEXT_MAX }), "Only photos with this plumage, ignoring case"),
+  morph: Many(Type.String({ maxLength: APPEARANCE_TEXT_MAX }), "Only photos with this morph, ignoring case"),
   bbox: Type.Optional(
     Type.String({
       pattern: "^-?[0-9.]+,-?[0-9.]+,-?[0-9.]+,-?[0-9.]+$",
@@ -363,6 +376,10 @@ export function parseGalleryFilters(q: GalleryFilterQuery): GalleryFilters | { e
     regionIds: distinct(q.regionId),
     tags: distinct(q.tag),
     places: distinct(q.place?.map((p) => p.trim())),
+    lifeStages: distinct(q.lifeStage),
+    sexes: distinct(q.sex),
+    plumages: distinct(q.plumage?.map((p) => p.trim().toLowerCase())),
+    morphs: distinct(q.morph?.map((m) => m.trim().toLowerCase())),
     bbox: bbox as [number, number, number, number] | null,
     orRegionOnly: distinct(q.orRegionOnly),
     spotId: q.spotId || null,
@@ -470,6 +487,10 @@ export function galleryFilterSql(f: GalleryFilters, param: (v: unknown) => strin
       : "",
     f.tags.length > 0 ? `AND c.tags && ${param(f.tags)}::text[]` : "",
     f.places.length > 0 ? placeClause(param(f.places)) : "",
+    f.lifeStages.length > 0 ? `AND c.life_stage = ANY(${param(f.lifeStages)}::text[])` : "",
+    f.sexes.length > 0 ? `AND c.sex = ANY(${param(f.sexes)}::text[])` : "",
+    f.plumages.length > 0 ? `AND lower(c.plumage) = ANY(${param(f.plumages)}::text[])` : "",
+    f.morphs.length > 0 ? `AND lower(c.morph) = ANY(${param(f.morphs)}::text[])` : "",
     mapAreaSql(f, param),
     insideSpotSql(f.spotId, param),
     f.tripIds.length > 0 ? `AND c.trip_id = ANY(${param(f.tripIds)}::uuid[])` : "",
@@ -1335,6 +1356,47 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
         [userId],
       );
       return { taxa: res.rows.map((r) => r.taxon_class) };
+    },
+  );
+
+  // The appearance values the user's photos hold, with photo counts, so the Appearance filter only
+  // offers choices that match. Plumage and morph group ignoring case, most used first, capped.
+  const AppearanceFacet = Type.Array(Type.Object({ value: Type.String(), count: Type.Integer() }));
+  app.get(
+    "/gallery/appearance",
+    {
+      preValidation: requireScope("gallery.read"),
+      schema: {
+        response: replies(
+          Type.Object({
+            lifeStage: AppearanceFacet,
+            sex: AppearanceFacet,
+            plumage: AppearanceFacet,
+            morph: AppearanceFacet,
+          }),
+        ),
+      },
+    },
+    async (request) => {
+      const res = await pool.query<{ kind: "lifeStage" | "sex" | "plumage" | "morph"; value: string; count: number }>(
+        `SELECT 'lifeStage' AS kind, life_stage AS value, count(*)::int AS count FROM captures
+          WHERE user_id = $1 AND life_stage IS NOT NULL GROUP BY life_stage
+         UNION ALL
+         SELECT 'sex', sex, count(*)::int FROM captures WHERE user_id = $1 AND sex IS NOT NULL GROUP BY sex
+         UNION ALL
+         (SELECT 'plumage', min(plumage), count(*)::int FROM captures
+           WHERE user_id = $1 AND plumage IS NOT NULL GROUP BY lower(plumage) ORDER BY 3 DESC, 2 LIMIT $2)
+         UNION ALL
+         (SELECT 'morph', min(morph), count(*)::int FROM captures
+           WHERE user_id = $1 AND morph IS NOT NULL GROUP BY lower(morph) ORDER BY 3 DESC, 2 LIMIT $2)`,
+        [request.user!.id, MAX_FILTER_VALUES],
+      );
+      const out = { lifeStage: [], sex: [], plumage: [], morph: [] } as Record<
+        (typeof res.rows)[number]["kind"],
+        Array<{ value: string; count: number }>
+      >;
+      for (const r of res.rows) out[r.kind].push({ value: r.value, count: r.count });
+      return out;
     },
   );
 

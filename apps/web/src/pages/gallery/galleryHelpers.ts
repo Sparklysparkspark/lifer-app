@@ -2,12 +2,13 @@ import { shotDataLine } from "../../lib/shotData";
 import { mediaNoun } from "../../lib/mediaNoun";
 import { DEFAULT_RAW_FILES, rawFilterParams, type MediaFilter } from "../../lib/photoListFilters";
 import i18n from "../../i18n";
-import type { GalleryItem, GalleryQuery, SearchInterpretation } from "./types";
+import type { AppearanceFilter, GalleryItem, GalleryQuery, SearchInterpretation } from "./types";
 import { formatList } from "../../lib/format";
 import { groupInto } from "../../lib/groupInto";
 import { tierLabel } from "../../lib/speciesGroups";
 import { orderGroupKeys, speciesGroupKey, type SpeciesGroupBy } from "../../lib/speciesGrouping";
 import {
+  APPEARANCE_FIELDS,
   LEGACY_SHOT_KINDS,
   SHOT_ACTIONS,
   SHOT_FRAMINGS,
@@ -15,6 +16,15 @@ import {
   type ShotAction,
   type ShotFraming,
 } from "@lifer/shared";
+
+/** No appearance filter set. */
+export const NO_APPEARANCE_FILTER: AppearanceFilter = { lifeStage: [], sex: [], plumage: [], morph: [] };
+
+/** The appearance filter a URL carries. */
+export function appearanceFromParams(params: URLSearchParams): AppearanceFilter {
+  const all = (kind: string) => params.getAll(kind);
+  return { lifeStage: all("lifeStage"), sex: all("sex"), plumage: all("plumage"), morph: all("morph") };
+}
 
 // Matches the API's UNCATEGORIZED_REGION_ID sentinel (gallery/routes.ts): captures with no region.
 export const UNCATEGORIZED_REGION_ID = "uncategorized";
@@ -66,6 +76,7 @@ export function galleryParams(q: Omit<GalleryQuery, "sortBy">): URLSearchParams 
   for (const id of q.regionIds) params.append("regionId", id);
   for (const tag of q.tags) params.append("tag", tag);
   for (const place of q.places) params.append("place", place);
+  for (const kind of APPEARANCE_FIELDS) for (const v of q.appearance[kind]) params.append(kind, v);
   if (q.bbox) params.set("bbox", q.bbox);
   if (q.scopeTripId) params.set("tripId", q.scopeTripId);
   if (q.scopeAlbumId) params.set("albumId", q.scopeAlbumId);
@@ -91,6 +102,7 @@ export function countActiveFilters(q: GalleryQuery): number {
     (q.regionIds.length > 0 ? 1 : 0) +
     (q.tags.length > 0 ? 1 : 0) +
     (q.places.length > 0 ? 1 : 0) +
+    APPEARANCE_FIELDS.filter((kind) => q.appearance[kind].length > 0).length +
     (q.bbox ? 1 : 0) +
     (q.shotActions.size > 0 || q.shotFramings.size > 0 ? 1 : 0) +
     (q.tiers.length > 0 ? 1 : 0) +

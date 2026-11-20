@@ -38,6 +38,7 @@ const query: GalleryQuery = {
   regionIds: [],
   tags: [],
   places: [],
+  appearance: { lifeStage: [], sex: [], plumage: [], morph: [] },
   scopeTripId: null,
   scopeAlbumId: null,
   sortBy: "newest",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  appearanceFromParams,
   shotTypeForSearch,
   anySelectedIn,
   appendNew,
@@ -99,6 +100,7 @@ const defaults: GalleryQuery = {
   regionIds: [],
   tags: [],
   places: [],
+  appearance: { lifeStage: [], sex: [], plumage: [], morph: [] },
   scopeTripId: null,
   scopeAlbumId: null,
   sortBy: "newest",
@@ -181,6 +183,23 @@ describe("countActiveFilters", () => {
         scopeAlbumId: "album",
       }),
     ).toBe(12);
+  });
+});
+
+describe("appearance filter", () => {
+  const appearance = { lifeStage: ["juvenile", "adult"], sex: ["male"], plumage: [], morph: ["Dark morph", "a, b"] };
+
+  it("reads and writes the URL as repeated params, a morph with a comma kept whole", () => {
+    const params = galleryParams({ ...defaults, appearance });
+    expect(params.toString()).toBe(
+      "excludeVideo=1&lifeStage=juvenile&lifeStage=adult&sex=male&morph=Dark+morph&morph=a%2C+b",
+    );
+    expect(appearanceFromParams(params)).toEqual(appearance);
+    expect(appearanceFromParams(new URLSearchParams())).toEqual({ lifeStage: [], sex: [], plumage: [], morph: [] });
+  });
+
+  it("counts each kind with a value once", () => {
+    expect(countActiveFilters({ ...defaults, appearance })).toBe(3);
   });
 });
 

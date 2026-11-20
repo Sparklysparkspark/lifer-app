@@ -1,11 +1,20 @@
 // A smart album's rules are the Gallery's own query params, so saving and editing one goes
 // through the same filter state the Gallery uses.
-import { MULTI_VALUE_FILTERS, SHOT_ACTIONS, SHOT_FRAMINGS, parseShotList, taxonDisplayLabel } from "@lifer/shared";
+import {
+  MULTI_VALUE_FILTERS,
+  SHOT_ACTIONS,
+  SHOT_FRAMINGS,
+  parseShotList,
+  taxonDisplayLabel,
+  type LifeStage,
+  type Sex,
+} from "@lifer/shared";
 import type { ApiResponse } from "../../api/client";
 import i18n from "../../i18n";
 import { useRegions } from "../../hooks/useRegions";
 import { useSettings } from "../../hooks/useSettings";
 import { tierLabel } from "../../lib/speciesGroups";
+import { SEX_KEYS, STAGE_KEYS } from "../../lib/appearance";
 import { formatList } from "../../lib/format";
 import {
   SHOT_ACTION_LABELS,
@@ -74,6 +83,7 @@ export function queryFromRules({ query: r }: SmartAlbumRules): Omit<GalleryQuery
     regionIds: r.regionId ?? [],
     tags: r.tag ?? [],
     places: r.place ?? [],
+    appearance: { lifeStage: r.lifeStage ?? [], sex: r.sex ?? [], plumage: r.plumage ?? [], morph: r.morph ?? [] },
     bbox: r.bbox ?? null,
     scopeTripId: r.tripId?.[0] ?? null,
     scopeAlbumId: r.albumId?.[0] ?? null,
@@ -111,6 +121,17 @@ export function rulesSummary(
       ...regionNames,
     ]),
     summarizeValues(q.places),
+    // "Juvenile or Adult · Male"; plumage and morph as typed.
+    formatList(
+      q.appearance.lifeStage.map((v) => t(STAGE_KEYS[v as LifeStage])),
+      "disjunction",
+    ),
+    formatList(
+      q.appearance.sex.map((v) => t(SEX_KEYS[v as Sex])),
+      "disjunction",
+    ),
+    summarizeValues(q.appearance.plumage),
+    summarizeValues(q.appearance.morph),
     q.tags.length > 0 && t("albums.smart.summary.tag", { tag: summarizeValues(q.tags) }),
     q.dateFrom && q.dateTo
       ? t("albums.smart.summary.dateRange", { from: q.dateFrom, to: q.dateTo })

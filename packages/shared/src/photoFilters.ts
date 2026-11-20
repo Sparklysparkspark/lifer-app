@@ -1,7 +1,18 @@
 // Gallery filters that take several values: a photo matches any one of a filter's values (OR),
 // and every filter that is set must match (AND). Smart album rules and the Gallery's URL both
 // carry each of these as a list.
-export const MULTI_VALUE_FILTERS = ["regionId", "tag", "place", "tripId", "albumId", "tier"] as const;
+export const MULTI_VALUE_FILTERS = [
+  "regionId",
+  "tag",
+  "place",
+  "tripId",
+  "albumId",
+  "tier",
+  "lifeStage",
+  "sex",
+  "plumage",
+  "morph",
+] as const;
 export type MultiValueFilter = (typeof MULTI_VALUE_FILTERS)[number];
 
 /** A smart album rule query written before filters took lists (rules version 1), as the lists

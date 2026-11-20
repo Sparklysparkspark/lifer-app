@@ -241,6 +241,60 @@ describe.skipIf(!url)("GET /gallery keyset pages", () => {
     }
   });
 
+  it("filters by appearance, any value within a kind and every kind together, and lists the values held", async () => {
+    const set: Array<[string, string | null, string | null, string | null, string | null]> = [
+      ["gallery-page-0", "juvenile", "male", null, "Dark morph"],
+      ["gallery-page-1", "juvenile", "female", "eclipse", "dark morph"],
+      ["gallery-page-2", "adult", "male", "Eclipse", "light morph"],
+      ["gallery-page-3", "adult", null, null, null],
+    ];
+    try {
+      for (const [fp, stage, sex, plumage, morph] of set)
+        await db.query(
+          `UPDATE captures_all SET life_stage = $3, sex = $4, plumage = $5, morph = $6 WHERE user_id = $1 AND fingerprint = $2`,
+          [USER, fp, stage, sex, plumage, morph],
+        );
+      const count = async (qs: string) => {
+        const res = await get(`/gallery?${qs}`);
+        expect(res.status).toBe(200);
+        return res.body.total as number;
+      };
+      expect(await count("lifeStage=juvenile")).toBe(2);
+      expect(await count("lifeStage=juvenile&lifeStage=adult")).toBe(4);
+      expect(await count("lifeStage=adult&sex=male")).toBe(1);
+      // Plumage and morph ignore case and surrounding spaces.
+      expect(await count("morph=DARK%20MORPH%20")).toBe(2);
+      expect(await count("plumage=eclipse&morph=light%20morph")).toBe(1);
+      expect(await count("sex=unknown")).toBe(0);
+      expect((await get("/gallery?lifeStage=hatchling")).status).toBe(400);
+      expect((await get(`/gallery?morph=${"x".repeat(101)}`)).status).toBe(400);
+      expect((await get("/gallery/ids?sex=female")).body.captureIds).toHaveLength(1);
+      const search = await get("/gallery/search?q=paging%20warbler&quick=1&lifeStage=adult");
+      expect(search.body.items).toHaveLength(2);
+
+      const facets = await get("/gallery/appearance");
+      expect(facets.status).toBe(200);
+      expect(facets.body.lifeStage).toEqual(
+        expect.arrayContaining([
+          { value: "juvenile", count: 2 },
+          { value: "adult", count: 2 },
+        ]),
+      );
+      expect(facets.body.sex).toHaveLength(2);
+      // One entry per value ignoring case, the most used first.
+      expect(facets.body.morph).toEqual([
+        { value: expect.stringMatching(/^dark morph$/i), count: 2 },
+        { value: "light morph", count: 1 },
+      ]);
+      expect(facets.body.plumage).toEqual([{ value: expect.stringMatching(/^eclipse$/i), count: 2 }]);
+    } finally {
+      await db.query(
+        `UPDATE captures_all SET life_stage = NULL, sex = NULL, plumage = NULL, morph = NULL WHERE user_id = $1`,
+        [USER],
+      );
+    }
+  });
+
   it("takes several values per filter: any one of a filter's values, and all filters together", async () => {
     // A region with no parent is a root, which also matches photos with no region.
     const root = (await db.query<{ id: string }>(`INSERT INTO regions (name) VALUES ('Multi Root') RETURNING id`))
@@ -385,7 +439,12 @@ describe.skipIf(!url)("GET /gallery keyset pages", () => {
     expect(lenient.body.total).toBe(18);
     const ids = await get(`/gallery/ids?missingDate=1`);
     expect(ids.status).toBe(200);
-    expect(Object.keys(ids.body).sort()).toEqual(["captureIds", "locatedCaptureIds", "rawCaptureIds", "videoCaptureIds"]);
+    expect(Object.keys(ids.body).sort()).toEqual([
+      "captureIds",
+      "locatedCaptureIds",
+      "rawCaptureIds",
+      "videoCaptureIds",
+    ]);
     expect(ids.body.captureIds.length).toBeGreaterThan(0);
   });
 

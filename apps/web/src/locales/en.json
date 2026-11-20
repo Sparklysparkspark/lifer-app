@@ -2101,6 +2101,12 @@
       "search": "Find a species",
       "clear": "Clear species"
     },
+    "appearance": {
+      "findPlumage": "Find a plumage",
+      "clearPlumage": "Clear plumages",
+      "findMorph": "Find a morph",
+      "clearMorph": "Clear morphs"
+    },
     "rawFiles": {
       "label": "RAW files",
       "show": "Show",
@@ -4729,6 +4735,10 @@
     "search": {
       "title": "Search and shortcuts",
       "body": "Press {palette} to find any species, photo, place or setting. Press {shortcuts} to see every shortcut."
+    },
+    "versions": {
+      "title": "Photo versions",
+      "body": "Edits, prints and exports of one photo stack together, so the photo counts once. To link one yourself, choose Versions in its ⋯ menu."
     }
   },
   "movedPhotos": {

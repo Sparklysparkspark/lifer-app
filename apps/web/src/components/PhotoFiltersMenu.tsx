@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { ALL_TAXON_CLASSES, SHOT_ACTIONS, SHOT_FRAMINGS, taxonDisplayLabel } from "@lifer/shared";
+import { ALL_TAXON_CLASSES, LIFE_STAGES, SEXES, SHOT_ACTIONS, SHOT_FRAMINGS, taxonDisplayLabel } from "@lifer/shared";
 import { useRegions } from "../hooks/useRegions";
 import { useInatStatus } from "../hooks/useInatStatus";
 import { regionLabel } from "../lib/regionSearch";
@@ -15,6 +15,7 @@ import FilterPopover, { FilterFieldLabel, FilterSectionHeading } from "./FilterP
 import SearchInput from "./SearchInput";
 import { formatNumber } from "../lib/format";
 import { normalizeForSearch } from "../lib/searchNormalize";
+import { useAppearanceLabels } from "../lib/appearance";
 import { DateRangeField, FilterCheckbox, MediaFilterField, RawFilterFields } from "./PhotoGridControls";
 import {
   SHOT_ACTION_LABELS,
@@ -26,6 +27,7 @@ import {
 } from "../pages/gallery/galleryHelpers";
 import type { GalleryFacets } from "../pages/gallery/useGalleryFacets";
 import type { GalleryFilters } from "../pages/gallery/useGalleryFilters";
+import type { AppearanceKind } from "../pages/gallery/types";
 import type { PhotoFilterSection } from "../lib/photoGridSections";
 
 // Choices for the Number of animals filter; larger groups are better found by searching ("50 geese").
@@ -102,7 +104,15 @@ export function PhotoFilterFields({ filters, facets, tagOptions, sections, speci
         </div>
       )}
 
-      {on.has("species") && species && species.options.length > 1 && <SpeciesFilterField {...species} />}
+      {on.has("species") && species && species.options.length > 1 && (
+        <ChecklistField
+          {...species}
+          heading={<FilterSectionHeading>{t("photoFilters.species.heading")}</FilterSectionHeading>}
+          label={t("photoFilters.species.heading")}
+          searchLabel={t("photoFilters.species.search")}
+          clearLabel={t("photoFilters.species.clear")}
+        />
+      )}
 
       {/* The palette's "search this trip/album" scope, for the smart album builder. */}
       {on.has("scope") && (filters.scopeTrip || filters.scopeAlbum) && (
@@ -239,6 +249,8 @@ export function PhotoFilterFields({ filters, facets, tagOptions, sections, speci
         </div>
       )}
 
+      {on.has("appearance") && <AppearanceFilterField filters={filters} facets={facets} />}
+
       {on.has("region") && (
         <div>
           <FilterSectionHeading>{t("gallery.toolbar.region")}</FilterSectionHeading>
@@ -362,33 +374,40 @@ export function PhotoFilterFields({ filters, facets, tagOptions, sections, speci
   );
 }
 
-// Picks any number of a page's species. A long list scrolls, and past a screenful a search narrows
-// it; picked species stay listed so they can be unpicked.
-function SpeciesFilterField({ options, selected, onChange }: SpeciesFilterChoices) {
-  const { t } = useTranslation();
+// Picks any number of a list's values (a page's species, the library's morphs). A long list scrolls,
+// and past a screenful a search narrows it; picked values stay listed so they can be unpicked.
+function ChecklistField({
+  options,
+  selected,
+  onChange,
+  heading,
+  label,
+  searchLabel,
+  clearLabel,
+}: SpeciesFilterChoices & { heading: ReactNode; label: string; searchLabel: string; clearLabel: string }) {
   const [query, setQuery] = useState("");
   const q = normalizeForSearch(query);
   const shown = q ? options.filter((o) => selected.has(o.id) || normalizeForSearch(o.label).includes(q)) : options;
   return (
     <div>
-      <FilterSectionHeading>{t("photoFilters.species.heading")}</FilterSectionHeading>
+      {heading}
       {options.length > 8 && (
         <SearchInput
           value={query}
           onChange={setQuery}
-          placeholder={t("photoFilters.species.search")}
-          aria-label={t("photoFilters.species.search")}
+          placeholder={searchLabel}
+          aria-label={searchLabel}
           className="mb-1.5 w-full"
         />
       )}
-      <div role="group" aria-label={t("photoFilters.species.heading")} className="max-h-48 space-y-1 overflow-y-auto">
+      <div role="group" aria-label={label} className="max-h-48 space-y-1 overflow-y-auto">
         {shown.map((o) => (
           <FilterCheckbox
             key={o.id}
             checked={selected.has(o.id)}
             onChange={() => onChange(toggleInSet(new Set(selected), o.id))}
           >
-            <span className="flex min-w-0 gap-2">
+            <span className="flex min-w-0 flex-1 gap-2">
               <span className="min-w-0 break-words">{o.label}</span>
               <span className="ml-auto shrink-0 tabular-nums text-muted">{formatNumber(o.count)}</span>
             </span>
@@ -397,9 +416,108 @@ function SpeciesFilterField({ options, selected, onChange }: SpeciesFilterChoice
       </div>
       {selected.size > 0 && (
         <Button variant="link" size="sm" onClick={() => onChange(new Set())} className="mt-1">
-          {t("photoFilters.species.clear")}
+          {clearLabel}
         </Button>
       )}
+    </div>
+  );
+}
+
+// Life stage and sex as pills, plumage and morph as checklists with photo counts. Only values the
+// library holds are offered (plus any already picked), and the section hides when there are none.
+function AppearanceFilterField({ filters, facets }: Pick<FilterFieldsProps, "filters" | "facets">) {
+  const { t } = useTranslation();
+  const labels = useAppearanceLabels();
+  const chosen = filters.query.appearance;
+  const held = (kind: AppearanceKind) =>
+    new Set([...(facets.appearance?.[kind] ?? []).map((f) => f.value), ...chosen[kind]]);
+  const stages = LIFE_STAGES.filter((v) => held("lifeStage").has(v));
+  const sexes = SEXES.filter((v) => held("sex").has(v));
+  const checklist = (kind: "plumage" | "morph", label: string, searchLabel: string, clearLabel: string) => {
+    const counted = facets.appearance?.[kind] ?? [];
+    const options = [
+      ...chosen[kind].filter((v) => !counted.some((f) => f.value === v)).map((v) => ({ id: v, label: v, count: 0 })),
+      ...counted.map((f) => ({ id: f.value, label: f.value, count: f.count })),
+    ];
+    if (options.length === 0) return null;
+    return (
+      <ChecklistField
+        options={options}
+        selected={new Set(chosen[kind])}
+        onChange={(next) => filters.setAppearance(kind, [...next])}
+        heading={<FilterFieldLabel>{label}</FilterFieldLabel>}
+        label={label}
+        searchLabel={searchLabel}
+        clearLabel={clearLabel}
+      />
+    );
+  };
+  const plumage = checklist(
+    "plumage",
+    t("appearance.plumageLabel"),
+    t("photoFilters.appearance.findPlumage"),
+    t("photoFilters.appearance.clearPlumage"),
+  );
+  const morph = checklist(
+    "morph",
+    t("appearance.morph"),
+    t("photoFilters.appearance.findMorph"),
+    t("photoFilters.appearance.clearMorph"),
+  );
+  if (stages.length === 0 && sexes.length === 0 && !plumage && !morph) return null;
+  const setStages = (next: string[]) => filters.setAppearance("lifeStage", next);
+  const setSexes = (next: string[]) => filters.setAppearance("sex", next);
+  return (
+    <div className="space-y-1.5">
+      <FilterSectionHeading>{t("appearance.title")}</FilterSectionHeading>
+      {stages.length > 0 && (
+        <PillGroup
+          label={t("appearance.lifeStage")}
+          values={stages}
+          labelOf={labels.stage}
+          chosen={chosen.lifeStage}
+          onChange={setStages}
+        />
+      )}
+      {sexes.length > 0 && (
+        <PillGroup
+          label={t("appearance.sexLabel")}
+          values={sexes}
+          labelOf={labels.sex}
+          chosen={chosen.sex}
+          onChange={setSexes}
+        />
+      )}
+      {plumage}
+      {morph}
+    </div>
+  );
+}
+
+// A labelled row of pills; its choices are alternatives (any of them).
+function PillGroup<T extends string>({
+  label,
+  values,
+  labelOf,
+  chosen,
+  onChange,
+}: {
+  label: string;
+  values: readonly T[];
+  labelOf: (v: T) => string;
+  chosen: readonly string[];
+  onChange: (next: string[]) => void;
+}) {
+  return (
+    <div role="group" aria-label={label}>
+      <FilterFieldLabel>{label}</FilterFieldLabel>
+      <div className="flex flex-wrap gap-1">
+        {values.map((v) => (
+          <Pill key={v} size="sm" active={chosen.includes(v)} onClick={() => onChange(toggleInList(chosen, v))}>
+            {labelOf(v)}
+          </Pill>
+        ))}
+      </div>
     </div>
   );
 }

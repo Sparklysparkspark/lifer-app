@@ -1,3 +1,4 @@
+import type { APPEARANCE_FIELDS } from "@lifer/shared";
 import type { ApiResponse } from "../../api/client";
 import type { EditedRawFilter, MediaFilter, PhotoSort, RawFilesFilter } from "../../lib/photoListFilters";
 
@@ -48,6 +49,8 @@ export interface GalleryQuery {
   tags: readonly string[];
   /** Exact place names, from Settings > Library > Places. */
   places: readonly string[];
+  /** Appearance values by the API's param name; plumage and morph match ignoring case. */
+  appearance: AppearanceFilter;
   /** A map area, "west,south,east,north", from a point clicked on the map view. */
   bbox?: string | null;
   /** A photo whose near-identical group is shown on its own, every other filter set aside. */
@@ -56,3 +59,6 @@ export interface GalleryQuery {
   scopeAlbumId: string | null;
   sortBy: PhotoSort;
 }
+
+export type AppearanceKind = (typeof APPEARANCE_FIELDS)[number];
+export type AppearanceFilter = Readonly<Record<AppearanceKind, readonly string[]>>;

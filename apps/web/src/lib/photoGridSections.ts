@@ -71,6 +71,7 @@ export type PhotoFilterSection =
   | "animalCount"
   | "rarity"
   | "shotKind"
+  | "appearance"
   | "region"
   | "place"
   | "tag"
@@ -87,6 +88,7 @@ export const ALL_PHOTO_FILTER_SECTIONS: readonly PhotoFilterSection[] = [
   "animalCount",
   "rarity",
   "shotKind",
+  "appearance",
   "region",
   "place",
   "tag",

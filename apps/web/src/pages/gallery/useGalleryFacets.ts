@@ -3,6 +3,10 @@ import { ALL_TAXON_CLASSES } from "@lifer/shared";
 import { api } from "../../api/client";
 import { useSettings } from "../../hooks/useSettings";
 import { ignore } from "../../lib/ignore";
+import type { AppearanceKind } from "./types";
+
+/** Each appearance value the library holds, with its photo count. */
+export type AppearanceFacets = Record<AppearanceKind, ReadonlyArray<{ value: string; count: number }>>;
 
 // One empty list, so the grid's grouping isn't redone on every render while settings load.
 const NO_NAMING_STYLES: string[] = [];
@@ -51,6 +55,10 @@ export function useGalleryFacets() {
       .then((res) => setRegionsWithPhotos(new Set(res.regionIds)))
       .catch(ignore("Couldn't load gallery filters"));
   }, []);
+  const [appearance, setAppearance] = useState<AppearanceFacets | null>(null);
+  useEffect(() => {
+    api.get<AppearanceFacets>("/gallery/appearance").then(setAppearance).catch(ignore("Couldn't load gallery filters"));
+  }, []);
 
   return {
     hiddenCount,
@@ -60,6 +68,7 @@ export function useGalleryFacets() {
     otherTaxaClasses,
     namingStyles,
     regionsWithPhotos,
+    appearance,
     libraryEmpty: availableTaxa !== null && availableTaxa.size === 0,
   };
 }

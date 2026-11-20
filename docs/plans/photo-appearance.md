@@ -40,6 +40,16 @@ The vocabulary lives in `packages/shared/src/appearance.ts`.
   appearance** action in the Gallery's selection bar (fields start at **Leave as is**), and a quiet
   "Your photos show: ..." line on the species page (capped at 8 values, then "and N more").
 
+## Gallery filters
+
+The Filters menu's **Appearance** section (Gallery, albums, trips and the smart album builder):
+life stage and sex as pills, plumage and morph as checklists with photo counts, searchable past 8.
+Only values the library holds are offered (`GET /api/gallery/appearance`, plumage and morph grouped
+ignoring case, at most 500 each, most used first). They're repeated query params, `lifeStage`,
+`sex`, `plumage` and `morph`, in the URL, the gallery API and smart album and pinned filter rules:
+any value within a kind matches, and every kind set must match. Plumage and morph match ignoring
+case. No index: on 300,000 photos a page takes under 50 ms whether a value is rare or common.
+
 ## Sync
 
 The `updated_at` trigger compares whole rows, so editing any of the four bumps `updated_at` like
@@ -58,8 +68,8 @@ iNaturalist reports them changed. Plumage has no iNaturalist annotation to map.
 
 ## Not done
 
-- **Gallery filters** for life stage, sex and morph: a filter touches the URL state, smart album
-  rules, the filter menu and the gallery query, so it waits for its own change.
+- **Search words**: "juvenile" stays a picture word for CLIP. Reading it as the life stage filter
+  would hide every juvenile photo nobody has marked yet.
 - **Files**: not written to XMP. There is no standard field, and a keyword would come back as a tag
   on reimport.
 - **Export and import**: there is no per-field data export; backups copy the whole database, so
