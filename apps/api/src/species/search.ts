@@ -1,10 +1,11 @@
 // GET /species: the species picker's search.
 import type { FastifyInstance } from "fastify";
-import { Type } from "typebox";
-import { pool } from "@lifer/core/db.js";
+import { Type, type Static } from "typebox";
+import { pool, withTransaction } from "@lifer/core/db.js";
 import { requireScope } from "../auth/session.js";
 import { Nullable, Uuid, replies, withSchemas } from "../lib/schema.js";
 import { log } from "@lifer/core/lib/log.js";
+import { GROUP_TERMS, normalizeWordForm } from "@lifer/shared";
 
 const SearchQuery = Type.Object({
   q: Type.Optional(Type.String({ description: "Search text. Empty returns your most recently photographed species" })),
@@ -18,18 +19,28 @@ const SearchResults = Type.Object({
       id: Type.String({ format: "uuid" }),
       scientific_name: Type.String(),
       common_name: Nullable(Type.String()),
+      aba_code: Type.Optional(Nullable(Type.String())),
+      ebird_code: Type.Optional(Nullable(Type.String())),
       rank: Type.Optional(Type.Number({ description: "Higher is better" })),
     }),
   ),
 });
 
+type SpeciesHit = Static<typeof SearchResults>["results"][number];
+
 // GET /species over species_search_names (migration 111). $1 normalized text, $2 the same with
-// LIKE wildcards escaped, $3 user id, $4 optional region id. Tiers: exact 4/6-letter code, exact
-// name, whole-name prefix, word prefix, code prefix, family prefix, fuzzy. Region checklist and the user's own
-// collection add a small boost inside a tier, never across one.
+// LIKE wildcards escaped, $3 user id, $4 optional region id, $5 the GroupPredicate a group word
+// ("raptors") names, as JSON. Tiers: exact 4/6-letter code, exact name, whole-name prefix, group,
+// word prefix, code prefix, family prefix, compound ending, fuzzy. A compound ending is one word of
+// 3+ letters ending an English name's last word ("ray": Southern Stingray), as nameMatchScore
+// does. Fuzzy and mid-word hits show only when nothing else matches ("purple finch" never lists
+// Purple Martin). Region checklist and the user's own collection add a small boost inside a tier.
 const SPECIES_SEARCH_SQL = `
   WITH name_hits AS (
     SELECT n.species_id,
+      BOOL_OR(n.name_norm LIKE $2 || '%' OR n.name_norm LIKE '% ' || $2 || '%'
+              OR (n.kind IN ('common', 'alias') AND length($1) >= 3 AND position(' ' in $1) = 0
+                  AND n.name_norm LIKE '%_' || $2)) AS literal,
       MAX(CASE
         WHEN n.kind = 'code' THEN
           CASE WHEN n.name_norm = $1 AND length($1) IN (4, 6) THEN 100
@@ -39,12 +50,16 @@ const SPECIES_SEARCH_SQL = `
           CASE WHEN n.name_norm = $1 THEN 90
                WHEN n.name_norm LIKE $2 || '%' THEN 70 + 10 * similarity(n.name_norm, $1)
                WHEN n.name_norm LIKE '% ' || $2 || '%' THEN 55 + 10 * word_similarity($1, n.name_norm)
+               WHEN n.kind = 'common' AND length($1) >= 3 AND position(' ' in $1) = 0
+                    AND n.name_norm LIKE '%_' || $2 THEN 30
                ELSE 40 * similarity(n.name_norm, $1) + 20 * word_similarity($1, n.name_norm) END
         -- Aliases and old names rank a step below the same kind of match on a current name.
         ELSE
           CASE WHEN n.name_norm = $1 THEN 80
                WHEN n.name_norm LIKE $2 || '%' THEN 50 + 10 * similarity(n.name_norm, $1)
                WHEN n.name_norm LIKE '% ' || $2 || '%' THEN 45 + 10 * word_similarity($1, n.name_norm)
+               WHEN n.kind = 'alias' AND length($1) >= 3 AND position(' ' in $1) = 0
+                    AND n.name_norm LIKE '%_' || $2 THEN 25
                ELSE 35 * similarity(n.name_norm, $1) + 15 * word_similarity($1, n.name_norm) END
       END) AS score
     FROM species_search_names n
@@ -55,16 +70,28 @@ const SPECIES_SEARCH_SQL = `
     GROUP BY n.species_id
   ),
   family_hits AS (
-    SELECT s.id AS species_id, 30 AS score FROM species s
+    SELECT s.id AS species_id, true AS literal, 30 AS score FROM species s
     WHERE length($1) >= 3 AND lifer_search_norm(s.family) LIKE $2 || '%'
   ),
+  -- speciesInGroup (searchTaxonSynonyms.ts) in SQL; no rows when $5 is null.
+  group_hits AS (
+    SELECT s.id AS species_id, true AS literal, 60 AS score
+    FROM jsonb_to_record($5::jsonb) AS g(classes text[], orders text[], families text[], "excludeClasses" text[],
+           "excludeOrders" text[], "excludeFamilies" text[], "excludeNameWords" text[], "includeNameWords" text[])
+    JOIN species s
+      ON lower(s.taxon_class) = ANY(g.classes) OR lower(s.taxon_order) = ANY(g.orders) OR lower(s.family) = ANY(g.families)
+    WHERE NOT COALESCE(lower(s.taxon_class) = ANY(g."excludeClasses") OR lower(s.taxon_order) = ANY(g."excludeOrders")
+                       OR lower(s.family) = ANY(g."excludeFamilies"), false)
+      AND NOT COALESCE(lower(s.common_name) ~ ('\\m(' || array_to_string(g."excludeNameWords", '|') || ')\\M'), false)
+      AND COALESCE(lower(s.common_name) ~ ('\\m(' || array_to_string(g."includeNameWords", '|') || ')\\M'), true)
+  ),
   hits AS (
-    SELECT species_id, MAX(score) AS score
-    FROM (SELECT * FROM name_hits UNION ALL SELECT * FROM family_hits) u
+    SELECT species_id, BOOL_OR(literal) AS literal, MAX(score) AS score
+    FROM (SELECT * FROM name_hits UNION ALL SELECT * FROM family_hits UNION ALL SELECT * FROM group_hits) u
     WHERE score > 0
     GROUP BY species_id
   )
-  SELECT s.id, s.scientific_name, s.common_name,
+  SELECT s.id, s.scientific_name, s.common_name, s.aba_code, s.ebird_code, h.literal,
          ((h.score
            + CASE us.state WHEN 'collected' THEN 6 WHEN 'seen' THEN 3 ELSE 0 END
            + CASE WHEN $4::uuid IS NOT NULL AND EXISTS (
@@ -76,33 +103,66 @@ const SPECIES_SEARCH_SQL = `
   LEFT JOIN species_traits t ON t.species_id = s.id
   LEFT JOIN user_species us ON us.user_id = $3 AND us.species_id = s.id
   WHERE COALESCE(t.fully_extinct, false) = false
+    AND (h.literal OR NOT EXISTS (SELECT 1 FROM hits WHERE literal))
   ORDER BY rank DESC, s.common_name IS NULL, length(COALESCE(s.common_name, s.scientific_name)), s.sort_order NULLS LAST, s.scientific_name
   LIMIT 20`;
 
-// A --disable-triggers catalog restore (desktop first boot) leaves species_search_names empty.
-// Rebuilt once in the background at startup; until then GET /species uses the legacy scan.
+// A first catalog load skips row triggers (catalogSeedUpdate.ts), leaving species_search_names
+// empty. Rebuilt in the background at startup and after that load; until then GET /species uses
+// the legacy scan.
 let searchNamesReady = false;
 let searchNamesCheck: Promise<void> | null = null;
+// Small enough that a pack apply or catalog update queues behind one batch only briefly.
+const REBUILD_BATCH = 5000;
 /** Resolves once the startup check (and any rebuild) has finished. */
 export function whenSpeciesSearchReady(): Promise<void> {
   return searchNamesCheck ?? Promise.resolve();
 }
-async function ensureSpeciesSearchNames(): Promise<void> {
+async function buildSpeciesSearchNames(rebuild: boolean): Promise<void> {
   const res = await pool.query<{ empty: boolean; has_species: boolean }>(
     `SELECT NOT EXISTS (SELECT 1 FROM species_search_names) AS empty, EXISTS (SELECT 1 FROM species) AS has_species`,
   );
-  if (res.rows[0].empty && res.rows[0].has_species) {
+  const { empty, has_species } = res.rows[0];
+  if (has_species && (empty || rebuild)) {
+    // Each species' names are swapped in one transaction, so search keeps working meanwhile.
+    if (empty) searchNamesReady = false;
     log.info("Building the species search index");
-    await pool.query(`SELECT refresh_species_search_names(NULL)`);
+    let after = "00000000-0000-0000-0000-000000000000";
+    for (;;) {
+      // Under the reference-data lock, so pack applies and catalog updates (which rename species
+      // across several statements) never interleave with a batch. Species rows are locked first,
+      // in id order, then their names: the order a species delete takes them in.
+      const ids = await withTransaction(
+        async (client) => {
+          const res = await client.query<{ id: string }>(
+            `SELECT id FROM species WHERE id > $1 ORDER BY id LIMIT $2 FOR KEY SHARE`,
+            [after, REBUILD_BATCH],
+          );
+          const batch = res.rows.map((r) => r.id);
+          if (batch.length) await client.query(`SELECT refresh_species_search_names($1::uuid[])`, [batch]);
+          return batch;
+        },
+        { lockReferenceData: true },
+      );
+      if (ids.length < REBUILD_BATCH) break;
+      after = ids[ids.length - 1];
+    }
   }
   searchNamesReady = true;
+}
+/** Builds the search names when the catalog has species but they have none, or always with
+ *  `rebuild`. Never throws. */
+export function ensureSpeciesSearchNames(rebuild = false): Promise<void> {
+  // Chained, so two rebuilds never overlap and awaiting the latest covers both.
+  searchNamesCheck = (searchNamesCheck ?? Promise.resolve())
+    .then(() => buildSpeciesSearchNames(rebuild))
+    .catch((err) => log.error({ err }, "Species search index check failed"));
+  return searchNamesCheck;
 }
 
 export async function speciesSearchRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
-  searchNamesCheck ??= ensureSpeciesSearchNames().catch((err) =>
-    log.error({ err }, "Species search index check failed"),
-  );
+  if (!searchNamesCheck) void ensureSpeciesSearchNames();
 
   app.get(
     "/species",
@@ -117,7 +177,7 @@ export async function speciesSearchRoutes(fastify: FastifyInstance): Promise<voi
       if (!q) {
         // No query yet: pin the user's most recently photographed species first.
         const recent = await pool.query(
-          `SELECT s.id, s.scientific_name, s.common_name, u.last_used
+          `SELECT s.id, s.scientific_name, s.common_name, s.aba_code, s.ebird_code, u.last_used
          FROM (
            SELECT species_id, MAX(created_at) AS last_used
            FROM captures
@@ -135,16 +195,30 @@ export async function speciesSearchRoutes(fastify: FastifyInstance): Promise<voi
       if (searchNamesReady) {
         const norm = (await pool.query<{ n: string | null }>(`SELECT lifer_search_norm($1) AS n`, [q])).rows[0].n ?? "";
         if (!norm) return { results: [] };
-        const like = norm.replace(/[\\%_]/g, (m) => `\\${m}`);
-        const res = await pool.query(SPECIES_SEARCH_SQL, [norm, like, userId, request.query.regionId || null]);
-        return { results: res.rows };
+        const run = async (text: string) => {
+          const like = text.replace(/[\\%_]/g, (m) => `\\${m}`);
+          const group = GROUP_TERMS.get(text) ?? GROUP_TERMS.get(normalizeWordForm(text));
+          const res = await pool.query<SpeciesHit & { literal: boolean }>(SPECIES_SEARCH_SQL, [
+            text,
+            like,
+            userId,
+            request.query.regionId || null,
+            group ? JSON.stringify(group.predicate) : null,
+          ]);
+          return res.rows;
+        };
+        let rows = await run(norm);
+        // "foxes", "geese": the singular when the plural fits no name.
+        const singular = norm.split(" ").map(normalizeWordForm).join(" ");
+        if (singular !== norm && !rows.some((r) => r.literal)) rows = await run(singular);
+        return { results: rows.map(({ literal: _literal, ...r }) => r) };
       }
 
       // Legacy scan, used only until species_search_names is built: fuzzy match on common and
       // scientific names and aliases, prefix match on codes, genus and family (ranked lower).
       // Fully extinct species can't be photographed, so they're left out.
       const res = await pool.query(
-        `SELECT s.id, s.scientific_name, s.common_name,
+        `SELECT s.id, s.scientific_name, s.common_name, s.aba_code, s.ebird_code,
               GREATEST(
                 similarity(s.common_name, $1),
                 similarity(s.scientific_name, $1),

@@ -13,6 +13,8 @@ export const CollectionItem = Open({
   speciesId: Uuid(),
   scientificName: Type.String(),
   commonName: Nullable(Type.String()),
+  abaCode: Type.Optional(Nullable(Type.String({ description: "ABA bird code, North American birds only" }))),
+  ebirdCode: Type.Optional(Nullable(Type.String({ description: "eBird species code, birds only" }))),
   taxonClass: Nullable(
     Type.String({ description: "A catalog taxon class, or iNaturalist's iconic taxon for an added other taxon" }),
   ),
@@ -20,6 +22,9 @@ export const CollectionItem = Open({
   taxonOrder: Type.Optional(Nullable(Type.String())),
   state: Type.Enum(["collected", "seen", "unseen"]),
   isTarget: Type.Boolean(),
+  needsBetterPhoto: Type.Optional(
+    Type.Boolean({ description: "The user (or a connected app) marked it as needing a better photo" }),
+  ),
   tier: Nullable(Tier),
   localTier: Nullable(Tier),
   tierReason: Type.Optional(Nullable(Type.String())),
@@ -27,8 +32,13 @@ export const CollectionItem = Open({
   tierOverridden: Type.Optional(Type.Boolean()),
   nameChanged: Type.Optional(Type.Boolean()),
   vagrant: Type.Boolean(),
+  introduced: Type.Boolean(),
   seasonality: NullableNumbers({ description: "12 monthly values, on region checklist rows" }),
   capturedYears: Nullable(Type.Array(Type.Integer())),
+  heard: Type.Optional(Type.Boolean()),
+  suggested: Type.Optional(
+    Type.Boolean({ description: "Collected only through photos Lifer filed, none confirmed yet" }),
+  ),
   endemic: Type.Boolean(),
   isGhost: Type.Boolean(),
   isLost: Type.Boolean(),
@@ -47,15 +57,36 @@ export const CollectionItem = Open({
   userAddedRegion: Type.Optional(
     Nullable(Open({ id: Uuid(), name: Type.String(), kind: Type.Enum(["region", "seaZone"]) })),
   ),
+  photographedWhere: Type.Optional(
+    Nullable(
+      Type.Enum(["here", "elsewhere"], {
+        description:
+          "Region checklist rows: a photo of it was taken in this region, or located photos all outside it; null with none located",
+      }),
+    ),
+  ),
 });
 
 export const CollectionItems = Open({ items: Type.Array(CollectionItem) });
 
-export const CollectionCount = Open({ total: Type.Integer(), collected: Type.Integer(), seen: Type.Integer() });
+export const CollectionCount = Open({
+  total: Type.Integer(),
+  collected: Type.Integer(),
+  seen: Type.Integer(),
+  suggestedCount: Type.Integer({ description: "Of `collected`, species with no confirmed photo yet" }),
+});
 
 export const CollectionStats = Open({
   totalCollected: Type.Integer(),
-  byTier: Type.Record(Type.String(), Type.Integer()),
+  // Every tier is always listed, at 0 when none are collected.
+  byTier: Open({
+    common: Type.Integer(),
+    occasional: Type.Integer(),
+    uncommon: Type.Integer(),
+    rare: Type.Integer(),
+    legendary: Type.Integer(),
+    unrated: Type.Integer(),
+  }),
   byFamily: Type.Array(Open({ family: Type.String(), count: Type.Integer() })),
   byYear: Type.Array(Open({ year: Type.Integer(), count: Type.Integer() })),
   tierRegions: Type.Array(Open({ id: Type.String(), name: Type.String() })),

@@ -6,27 +6,16 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { Type } from "typebox";
 import { pool, withTransaction } from "@lifer/core/db.js";
 import { isUuid } from "../lib/validate.js";
-import { IdParams, Ok, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
+import { IdParams, Nullable, Ok, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth } from "../auth/session.js";
-import {
-  enrichSpecies,
-  persistEnrichment,
-  persistGalleryPromotingMainIfMissing,
-} from "@lifer/core/species/lazyEnrich.js";
 import { createJob } from "../lib/job.js";
 import { addToRegionChecklist, findChecklistRegion, noChecklistError } from "../regions/checklistAdditions.js";
 import { scheduleCollectionStateSave } from "../lib/collectionState.js";
-import { iucnCodeFromInatLevel, normalizeIucnStatus } from "@lifer/shared";
 import { httpFetch } from "@lifer/core/lib/http.js";
+import { statFile } from "../lib/cachedFile.js";
+import { deleteUnreferencedFiles } from "../offlinePacks/remove.js";
 import { syncInatDistribution } from "./inatDistribution.js";
-
-const INAT_TAXA_API = "https://api.inaturalist.org/v1/taxa";
-// Live lookups for a person waiting on them: the shared client's pacing and User-Agent, no retries.
-const LOOKUP = { timeoutMs: 15_000, maxRetries: 0 };
-// iNaturalist's vernacular names are inconsistently cased; the rest of the catalog is title case.
-function titleCaseCommonName(name: string): string {
-  return name.replace(/(^|[\s-])([a-z])/g, (_, sep: string, ch: string) => sep + ch.toUpperCase());
-}
+import { INAT_TAXA_API, LOOKUP, resolveOrCreateOtherTaxaSpecies, titleCaseCommonName } from "./otherTaxaSpecies.js";
 
 async function requireAnyTaxaSearchEnabled(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
   const res = await pool.query<{ any_taxa_search_enabled: boolean }>(
@@ -34,7 +23,9 @@ async function requireAnyTaxaSearchEnabled(request: FastifyRequest, reply: Fasti
     [request.user!.id],
   );
   if (!res.rows[0]?.any_taxa_search_enabled) {
-    reply.code(403).send({ error: "Any-taxa search isn't enabled (Settings > Species & Import)" });
+    reply
+      .code(403)
+      .send({ error: "Searching iNaturalist for other species isn't turned on (Settings > Species & Import)" });
     return false;
   }
   return true;
@@ -42,103 +33,123 @@ async function requireAnyTaxaSearchEnabled(request: FastifyRequest, reply: Fasti
 
 /** The species row for an iNat taxon, created and enriched on first use. Doesn't put it on any
  *  checklist; each caller decides that. */
-async function resolveOrCreateOtherTaxaSpecies(
-  inatTaxonId: number,
-): Promise<{ speciesId: string; scientificName: string }> {
-  const existing = await pool.query<{ id: string; scientific_name: string }>(
-    `SELECT id, scientific_name FROM species WHERE inat_taxon_id = $1 AND is_other_taxa = true`,
-    [inatTaxonId],
+/** Your iNaturalist-added species per region you added them to, with their photo files. */
+async function addedOtherTaxa(userId: string) {
+  const res = await pool.query<{
+    species_id: string;
+    region_id: string;
+    region_name: string;
+    iconic: string | null;
+    photographed: boolean;
+    paths: string[];
+  }>(
+    `SELECT a.species_id, a.region_id, r.name AS region_name, s.inat_iconic_taxon AS iconic,
+            EXISTS (SELECT 1 FROM captures_all c WHERE c.user_id = $1 AND (c.species_id = s.id
+                    OR EXISTS (SELECT 1 FROM capture_species cs WHERE cs.capture_id = c.id AND cs.species_id = s.id)))
+              AS photographed,
+            array_remove(ARRAY[s.reference_display_path, s.reference_thumb_path]
+              || coalesce((SELECT array_agg(p) FROM species_reference_photos srp,
+                           unnest(ARRAY[srp.display_path, srp.thumb_path]) AS p WHERE srp.species_id = s.id), '{}'), NULL)
+              AS paths
+       FROM region_species_user_added a
+       JOIN species s ON s.id = a.species_id AND s.is_other_taxa
+       JOIN regions r ON r.id = a.region_id
+      WHERE a.user_id = $1
+      ORDER BY r.name, s.inat_iconic_taxon`,
+    [userId],
   );
-  if (existing.rows[0]) return { speciesId: existing.rows[0].id, scientificName: existing.rows[0].scientific_name };
-  if (!Number.isSafeInteger(inatTaxonId) || inatTaxonId <= 0) throw new Error("Not an iNaturalist taxon id");
-
-  const taxonRes = await httpFetch(`${INAT_TAXA_API}/${inatTaxonId}`, LOOKUP);
-  if (!taxonRes.ok) throw new Error("Couldn't look up that species on iNaturalist");
-  const taxonData = (await taxonRes.json()) as {
-    results: Array<{
-      id: number;
-      name: string;
-      preferred_common_name?: string;
-      iconic_taxon_name?: string;
-      // The singular `conservation_status` is place-aware and null without a place, so the
-      // plural list is what's read.
-      conservation_statuses?: Array<{
-        status: string;
-        authority: string;
-        place: unknown | null;
-        iucn: number | null;
-      }> | null;
-    }>;
+  // The country each place is in: the place under a continent (World > continent > country).
+  const regionsRes = await pool.query<{ id: string; name: string; parent_id: string | null }>(
+    `SELECT id, name, parent_id FROM regions`,
+  );
+  const byId = new Map(regionsRes.rows.map((r) => [r.id, r]));
+  const countryOf = (id: string): string => {
+    let node = byId.get(id);
+    while (node) {
+      const parent = node.parent_id ? byId.get(node.parent_id) : undefined;
+      if (!parent || !parent.parent_id || !byId.get(parent.parent_id)?.parent_id) return node.name;
+      node = parent;
+    }
+    return "";
   };
-  const taxon = taxonData.results[0];
-  if (!taxon) throw new Error("Species not found on iNaturalist");
-  // Conservation status fills the rarity badge's slot. A global assessment (IUCN first) wins;
-  // most of these taxa only have regional ones, and any real status beats none.
-  const statuses = taxon.conservation_statuses ?? [];
-  const globalStatuses = statuses.filter((s) => s.place == null);
-  const best =
-    globalStatuses.find((s) => s.authority === "IUCN Red List") ??
-    globalStatuses[0] ??
-    statuses.find((s) => s.authority === "IUCN Red List") ??
-    statuses[0] ??
-    null;
-  // Every conservation_statuses entry, whatever the authority or place, carries iNat's normalized
-  // numeric `iucn` level, so one mapping (packages/shared/src/iucn.ts) reads them all.
-  const iucnStatus = best ? (iucnCodeFromInatLevel(best.iucn) ?? normalizeIucnStatus(best.status)) : null;
+  return res.rows.map((r) => ({ ...r, country: countryOf(r.region_id) || r.region_name }));
+}
 
-  // The real GBIF key when one resolves, else a synthetic negative one (real keys are positive).
-  let gbifKey = -taxon.id;
-  // Family and order come from the same GBIF match and fill the detail page's stats box.
-  let family: string | null = null;
-  let order: string | null = null;
-  try {
-    const gbifRes = await httpFetch(
-      `https://api.gbif.org/v1/species/match?name=${encodeURIComponent(taxon.name)}&strict=false`,
-      LOOKUP,
-    );
-    const gbifData = (await gbifRes.json()) as { usageKey?: number; family?: string; order?: string };
-    if (gbifData.usageKey) gbifKey = gbifData.usageKey;
-    family = gbifData.family ?? null;
-    order = gbifData.order ?? null;
-  } catch {
-    // Best effort: the synthetic key works, and family/order just stay empty.
+/** Takes Other Taxa species off one user's lists, and drops each species row (and its photo
+ *  files) once nobody else uses it. The caller has checked the user has no photos of them.
+ *  Returns how many species rows went. */
+async function removeOtherTaxaForUser(
+  userId: string,
+  speciesIds: string[],
+  log: { warn: (obj: object, msg: string) => void },
+  /** Only these places' additions; the species stays on your other lists. */
+  regionIds?: string[],
+): Promise<number> {
+  const filesToDelete: string[] = [];
+  let deleted = 0;
+  for (const speciesId of speciesIds) {
+    const gone = await withTransaction(async (client) => {
+      if (regionIds) {
+        await client.query(
+          `DELETE FROM region_species_user_added WHERE user_id = $1 AND species_id = $2 AND region_id = ANY($3)`,
+          [userId, speciesId, regionIds],
+        );
+        const stillMine = await client.query(
+          `SELECT 1 FROM region_species_user_added WHERE user_id = $1 AND species_id = $2
+           UNION ALL SELECT 1 FROM sea_zone_species_user_added WHERE user_id = $1 AND species_id = $2 LIMIT 1`,
+          [userId, speciesId],
+        );
+        // Still on another of your lists: your seen and target marks stay with it.
+        if ((stillMine.rowCount ?? 0) > 0) return null;
+      }
+      for (const table of [
+        "user_species",
+        "user_archived_species",
+        "region_species_user_added",
+        "sea_zone_species_user_added",
+        "region_species_hidden",
+        "user_tier_overrides",
+      ]) {
+        await client.query(`DELETE FROM ${table} WHERE user_id = $1 AND species_id = $2`, [userId, speciesId]);
+      }
+      // Another user's additions would cascade away with the species row, so it stays while any
+      // remain. Their photos and seen marks keep it too, through the foreign keys, caught below.
+      const othersRes = await client.query(
+        `SELECT 1 FROM region_species_user_added WHERE species_id = $1
+         UNION ALL SELECT 1 FROM sea_zone_species_user_added WHERE species_id = $1
+         LIMIT 1`,
+        [speciesId],
+      );
+      if ((othersRes.rowCount ?? 0) > 0) return null;
+      const files = await client.query<{ p: string }>(
+        `SELECT p FROM species s, unnest(ARRAY[s.reference_display_path, s.reference_thumb_path]) AS p
+          WHERE s.id = $1 AND p IS NOT NULL
+         UNION ALL
+         SELECT p FROM species_reference_photos srp, unnest(ARRAY[srp.display_path, srp.thumb_path]) AS p
+          WHERE srp.species_id = $1 AND p IS NOT NULL`,
+        [speciesId],
+      );
+      await client.query("SAVEPOINT drop_species");
+      try {
+        await client.query(`DELETE FROM species WHERE id = $1`, [speciesId]);
+        return files.rows.map((r) => r.p);
+      } catch (err) {
+        await client.query("ROLLBACK TO SAVEPOINT drop_species");
+        log.warn(
+          { err, speciesId },
+          "Other Taxa species still referenced elsewhere: removed from your lists, species row kept",
+        );
+        return null;
+      }
+    });
+    if (gone) {
+      deleted++;
+      filesToDelete.push(...gone);
+    }
   }
-
-  const inserted = await pool.query<{ id: string }>(
-    `INSERT INTO species (gbif_key, scientific_name, common_name, taxon_class, is_other_taxa, inat_taxon_id, inat_iconic_taxon, family, taxon_order)
-     VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8)
-     ON CONFLICT (gbif_key) DO UPDATE SET gbif_key = species.gbif_key
-     RETURNING id`,
-    [
-      gbifKey,
-      taxon.name,
-      taxon.preferred_common_name ? titleCaseCommonName(taxon.preferred_common_name) : null,
-      (taxon.iconic_taxon_name ?? "other").toLowerCase(),
-      taxon.id,
-      taxon.iconic_taxon_name ?? null,
-      family,
-      order,
-    ],
-  );
-  const speciesId = inserted.rows[0].id;
-  // Conservation status lives in species_traits like every species' (migration 129). DO NOTHING:
-  // the gbif_key conflict above can hand back an existing species, whose status stays its own.
-  if (iucnStatus) {
-    await pool.query(
-      `INSERT INTO species_traits (species_id, iucn_status, iucn_source, source_attribution)
-       VALUES ($1, $2, 'inaturalist', 'iNaturalist') ON CONFLICT (species_id) DO NOTHING`,
-      [speciesId, iucnStatus],
-    );
-  }
-
-  // The same photo and description enrichment as every other species; persistEnrichment also
-  // computes its reference vector, so it's matchable right away.
-  const enrichment = await enrichSpecies({ id: speciesId, scientific_name: taxon.name });
-  await persistEnrichment(speciesId, enrichment);
-  if (enrichment.gallery.length > 0) {
-    await persistGalleryPromotingMainIfMissing(speciesId, enrichment.gallery, enrichment.referencePhoto != null);
-  }
-  return { speciesId, scientificName: taxon.name };
+  // After the commits, and only files no row points at any more.
+  await deleteUnreferencedFiles(filesToDelete);
+  return deleted;
 }
 
 // Live counters are top-level; `result` repeats them once the run finishes.
@@ -210,7 +221,7 @@ export async function otherTaxaRoutes(fastify: FastifyInstance): Promise<void> {
 
       let speciesId: string;
       try {
-        ({ speciesId } = await resolveOrCreateOtherTaxaSpecies(inatTaxonId));
+        ({ speciesId } = await resolveOrCreateOtherTaxaSpecies(inatTaxonId, { enrichLater: true }));
       } catch (err) {
         return reply.code(502).send({ error: (err as Error).message });
       }
@@ -219,6 +230,78 @@ export async function otherTaxaRoutes(fastify: FastifyInstance): Promise<void> {
       // Its chart and tags for the country, fetched now so the species page works offline.
       void syncInatDistribution(speciesId, regionId);
       return { speciesId };
+    },
+  );
+
+  // Species you added from iNaturalist, by place and iNaturalist group, with the space their
+  // photos take: Downloaded regions offers to remove them like a downloaded region.
+  app.get(
+    "/species/other-taxa/added",
+    {
+      preValidation: requireAuth,
+      schema: {
+        response: replies(
+          Type.Object({
+            groups: Type.Array(
+              Type.Object({
+                country: Type.String({ description: "The country it was added in, or the place itself" }),
+                iconicTaxon: Nullable(Type.String({ description: "iNaturalist group, e.g. Insecta" })),
+                speciesCount: Type.Integer(),
+                photographedCount: Type.Integer({ description: "Kept on removal: you have photos of them" }),
+                bytes: Type.Integer({ description: "Space their reference photos take" }),
+              }),
+            ),
+          }),
+        ),
+      },
+    },
+    async (request) => {
+      const rows = await addedOtherTaxa(request.user!.id);
+      const groups = new Map<string, (typeof rows)[number][]>();
+      for (const r of rows) {
+        const key = `${r.country}|${r.iconic ?? ""}`;
+        groups.set(key, [...(groups.get(key) ?? []), r]);
+      }
+      return {
+        groups: await Promise.all(
+          [...groups.values()].map(async (list) => ({
+            country: list[0].country,
+            iconicTaxon: list[0].iconic,
+            speciesCount: list.length,
+            photographedCount: list.filter((r) => r.photographed).length,
+            bytes: (
+              await Promise.all(list.flatMap((r) => r.paths).map((p) => statFile(p).then((st) => st?.size ?? 0)))
+            ).reduce((a, b) => a + b, 0),
+          })),
+        ),
+      };
+    },
+  );
+
+  app.post(
+    "/species/other-taxa/added/remove",
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          { country: Type.String({ minLength: 1 }), iconicTaxon: Nullable(Type.String()) },
+          { additionalProperties: false },
+        ),
+        response: replies(Type.Object({ removed: Type.Integer(), kept: Type.Integer() })),
+      },
+    },
+    async (request) => {
+      const userId = request.user!.id;
+      const { country, iconicTaxon } = request.body;
+      const group = (await addedOtherTaxa(userId)).filter(
+        (r) => r.country === country && (r.iconic ?? null) === iconicTaxon,
+      );
+      // Your photos keep their species.
+      const removable = group.filter((r) => !r.photographed);
+      const speciesIds = [...new Set(removable.map((r) => r.species_id))];
+      const regionIds = [...new Set(removable.map((r) => r.region_id))];
+      if (speciesIds.length > 0) await removeOtherTaxaForUser(userId, speciesIds, request.log, regionIds);
+      return { removed: speciesIds.length, kept: new Set(group.map((r) => r.species_id)).size - speciesIds.length };
     },
   );
 
@@ -240,7 +323,7 @@ export async function otherTaxaRoutes(fastify: FastifyInstance): Promise<void> {
     ]);
     if (speciesRes.rows.length === 0) return reply.code(404).send({ error: "Species not found" });
     if (!speciesRes.rows[0].is_other_taxa) {
-      return reply.code(400).send({ error: "Only an Other Taxa species can be removed this way" });
+      return reply.code(400).send({ error: "Only a species from Other species can be removed this way" });
     }
 
     const captureCountRes = await pool.query<{ count: string }>(
@@ -254,39 +337,7 @@ export async function otherTaxaRoutes(fastify: FastifyInstance): Promise<void> {
         .send({ error: "You have photos of this species. Delete or reassign them first, then remove it." });
     }
 
-    const speciesDeleted = await withTransaction(async (client) => {
-      for (const table of [
-        "user_species",
-        "user_archived_species",
-        "region_species_user_added",
-        "sea_zone_species_user_added",
-        "region_species_hidden",
-        "user_tier_overrides",
-      ]) {
-        await client.query(`DELETE FROM ${table} WHERE user_id = $1 AND species_id = $2`, [userId, speciesId]);
-      }
-      // Another user's additions would cascade away with the species row, so it stays while any
-      // remain. Their photos and seen marks keep it too, through the foreign keys, caught below.
-      const othersRes = await client.query(
-        `SELECT 1 FROM region_species_user_added WHERE species_id = $1
-         UNION ALL SELECT 1 FROM sea_zone_species_user_added WHERE species_id = $1
-         LIMIT 1`,
-        [speciesId],
-      );
-      if ((othersRes.rowCount ?? 0) > 0) return false;
-      await client.query("SAVEPOINT drop_species");
-      try {
-        await client.query(`DELETE FROM species WHERE id = $1`, [speciesId]);
-        return true;
-      } catch (err) {
-        await client.query("ROLLBACK TO SAVEPOINT drop_species");
-        request.log.warn(
-          { err, speciesId },
-          "Other Taxa species still referenced elsewhere: removed from your lists, species row kept",
-        );
-        return false;
-      }
-    });
+    const speciesDeleted = (await removeOtherTaxaForUser(userId, [speciesId], request.log)) > 0;
     request.log.info({ speciesId, speciesDeleted }, "Removed an Other Taxa species");
     return { ok: true };
   });

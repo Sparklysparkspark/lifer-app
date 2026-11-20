@@ -2,15 +2,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PackStatusEntry } from "../../lib/packIndex";
 import { useLatest } from "../../hooks/useLatest";
 import { Link } from "react-router-dom";
+import { Trans, useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { formatBytes } from "../../lib/format";
-import { usePackIndex } from "../../lib/packIndex";
+import { useConnection, usePackIndex } from "../../lib/packIndex";
+import ConnectionNote from "../../components/ConnectionNote";
+import FreeSpaceNote from "../../components/FreeSpaceNote";
 import AddOtherTaxaModal from "../../components/AddOtherTaxaModal";
 import JobProgress from "../../components/JobProgress";
-import { buttonClasses } from "../../lib/buttonClasses";
-import { PACK_DOWNLOAD_PHASES, packProgressDetail, usePackDownloadJob } from "../../hooks/usePackDownloadStatus";
+import Button from "../../components/Button";
+import { usePackDownloadJob } from "../../hooks/usePackDownloadStatus";
+import PackProgress from "../../components/PackProgress";
 import { isOtherTaxaFilter, taxonFilterLabel, type TaxonFilter } from "./taxonLabels";
-import { PANEL } from "../../lib/layout";
+import Panel from "../../components/Panel";
+import { SPECIES_DOWNLOADS_PATH } from "../../lib/speciesDownloads";
 
 const CANCEL_URL = "/offline-packs/download/cancel";
 const NO_ZONES: Array<{ id: string; name: string }> = [];
@@ -42,12 +47,9 @@ function usePackDownloadAndWait(onDone: (packIds: string[]) => void) {
 function DownloadProgress({ job }: { job: ReturnType<typeof usePackDownloadJob> }) {
   return (
     <div className="mx-auto mt-4 max-w-sm text-left">
-      <JobProgress
+      <PackProgress
         status={job.status}
-        phases={PACK_DOWNLOAD_PHASES}
-        fallbackLabel="Downloading…"
-        detail={packProgressDetail(job.status)}
-        onCancel={() => void job.cancel(CANCEL_URL)}
+        onCancel={(downloadsOnly) => void job.cancel(CANCEL_URL, downloadsOnly ? { downloadsOnly } : undefined)}
         cancelling={job.cancelling}
       />
     </div>
@@ -55,12 +57,13 @@ function DownloadProgress({ job }: { job: ReturnType<typeof usePackDownloadJob> 
 }
 
 function DownloadOutcome({ job, startedHere }: { job: ReturnType<typeof usePackDownloadJob>; startedHere: boolean }) {
+  const { t } = useTranslation();
   return (
     <div className="mx-auto mt-2 max-w-sm text-left">
       <JobProgress
         status={startedHere ? job.status : null}
         error={job.actionError}
-        errorPrefix="Couldn't download this pack"
+        errorPrefix={t("collection.packPrompt.regionFailed")}
       />
     </div>
   );
@@ -78,8 +81,10 @@ export function NeedsPackPrompt({
   onDownloaded: () => void;
   banner?: boolean;
 }) {
+  const { t } = useTranslation();
   // undefined while the index loads ("checking"), null when no pack covers the region.
-  const { packs, error: packsError } = usePackIndex();
+  const { packs, freeBytes, indexUnavailable, error: packsError } = usePackIndex();
+  const connection = useConnection();
   const pack = packs
     ? (packs.find((p) => p.type === "region" && p.region === region.name) ?? null)
     : packsError
@@ -88,47 +93,52 @@ export function NeedsPackPrompt({
   const { job, download, running, startedHere } = usePackDownloadAndWait(onDownloaded);
 
   return (
-    <div className={banner ? `mb-4 ${PANEL} text-center` : `${PANEL} text-center`}>
-      <h2 className={banner ? "text-base font-semibold text-ink" : "text-lg font-semibold text-ink"}>
-        {region.name}'s checklist isn't downloaded yet
+    <Panel className={banner ? "mb-4 text-center" : "text-center"}>
+      <h2 className={banner ? "text-headline font-semibold text-ink" : "text-title-3 font-semibold text-ink"}>
+        {t("collection.packPrompt.notDownloaded", { region: region.name })}
       </h2>
       {banner && (
-        <p className="mx-auto mt-1 max-w-md text-sm text-muted">
-          Below are the species you've photographed here or added yourself. The pack adds the rest.
-        </p>
+        <p className="mx-auto mt-1 max-w-md text-callout text-muted">{t("collection.packPrompt.bannerHint")}</p>
       )}
       {pack === undefined ? (
-        <p className="mt-2 text-sm text-muted">Checking for a pack…</p>
+        <p className="mt-2 text-callout text-muted">{t("collection.packPrompt.checking")}</p>
+      ) : (connection === "offline" && !running) || (indexUnavailable && pack === null) ? (
+        // No list yet reads as slow, never as "nothing published".
+        <ConnectionNote
+          state={connection === "online" ? "slow" : connection}
+          className="mx-auto mt-2 max-w-sm justify-center"
+        />
       ) : pack === null ? (
-        <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
-          No offline pack is published for {region.name} yet. Check{" "}
-          <Link to="/offline-packs" state={{ backLabel: "Collection" }} className="underline">
-            Offline packs
-          </Link>{" "}
-          later, or ask whoever runs this Lifer instance about it.
+        <p className="mx-auto mt-2 max-w-sm text-callout text-muted">
+          <Trans
+            i18nKey="collection.packPrompt.noPack"
+            values={{ region: region.name }}
+            components={{
+              a: <Link to={SPECIES_DOWNLOADS_PATH} state={{ backLabel: t("nav.collection") }} className="underline" />,
+            }}
+          />
         </p>
       ) : (
         <>
-          <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
-            {pack.speciesCount} species, {formatBytes(pack.sizeBytes)}.
+          <p className="mx-auto mt-2 max-w-sm text-callout text-muted">
+            {t("collection.packPrompt.size", { count: pack.speciesCount, size: formatBytes(pack.sizeBytes) })}
+            <FreeSpaceNote needed={pack.sizeBytes} free={freeBytes} />
           </p>
           {running ? (
             <DownloadProgress job={job} />
           ) : (
             <>
-              <button
-                onClick={() => void download([pack.id])}
-                disabled={job.starting}
-                className={buttonClasses("primary", "md", "mt-4")}
-              >
-                {job.starting ? "Starting…" : `Download ${region.name}'s pack`}
-              </button>
+              <Button onClick={() => void download([pack.id])} disabled={job.starting} className="mt-4">
+                {job.starting
+                  ? t("collection.packPrompt.starting")
+                  : t("collection.packPrompt.downloadRegion", { region: region.name })}
+              </Button>
               <DownloadOutcome job={job} startedHere={startedHere} />
             </>
           )}
         </>
       )}
-    </div>
+    </Panel>
   );
 }
 
@@ -153,10 +163,12 @@ export function TaxonPackPrompt({
   onDownloaded: () => void;
   photographed?: number;
 }) {
+  const { t } = useTranslation();
   const otherTaxa = isOtherTaxaFilter(taxon);
   // Fish can also come from a nearby sea zone's own pack. The zones are tagged with the region they
   // were looked up for, so another region reads as "checking" until its own answer arrives.
-  const { packs, error: packsError } = usePackIndex();
+  const { packs, freeBytes, indexUnavailable, error: packsError } = usePackIndex();
+  const connection = useConnection();
   const wantsZones = taxon === "actinopterygii" && !otherTaxa;
   const [zonesFor, setZonesFor] = useState<{ regionId: string; zones: Array<{ id: string; name: string }> } | null>(
     null,
@@ -209,21 +221,23 @@ export function TaxonPackPrompt({
 
   if (otherTaxa) {
     return (
-      <div className={`${PANEL} text-center`}>
-        <h2 className="text-lg font-semibold text-ink">No Other Taxa added for {regionName} yet</h2>
-        <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
-          There's no pack to download for this one, Other Taxa covers whatever Lifer doesn't already have a dataset for
-          (insects, plants, fungi, and more). Jump to a species by scientific name (that matches best) and you'll get
-          the option to search iNaturalist and add it here, or paste in a whole list of names at once from the same
-          search screen.
-        </p>
-        <button onClick={() => setOtherTaxaModalOpen(true)} className={buttonClasses("primary", "md", "mt-4")}>
-          Search iNaturalist
-        </button>
+      <Panel className="text-center">
+        <h2 className="text-title-3 font-semibold text-ink">
+          {taxon === "other-taxa"
+            ? t("collection.packPrompt.otherTaxaTitle", { region: regionName })
+            : t("collection.packPrompt.otherTaxaGroupTitle", {
+                group: taxonFilterLabel(taxon, []).toLowerCase(),
+                region: regionName,
+              })}
+        </h2>
+        <p className="mx-auto mt-2 max-w-sm text-callout text-muted">{t("collection.packPrompt.otherTaxaBody")}</p>
+        <Button onClick={() => setOtherTaxaModalOpen(true)} className="mt-4">
+          {t("collection.packPrompt.searchInaturalist")}
+        </Button>
         {otherTaxaModalOpen && (
           <AddOtherTaxaModal initialQuery="" initialRegionId={regionId} onClose={() => setOtherTaxaModalOpen(false)} />
         )}
-      </div>
+      </Panel>
     );
   }
 
@@ -232,43 +246,59 @@ export function TaxonPackPrompt({
   const banner = photographed != null && photographed > 0;
 
   return (
-    <div className={banner ? `mb-4 ${PANEL} text-center` : `${PANEL} text-center`}>
-      <h2 className={banner ? "text-base font-semibold text-ink" : "text-lg font-semibold text-ink"}>
+    <Panel className={banner ? "mb-4 text-center" : "text-center"}>
+      <h2 className={banner ? "text-headline font-semibold text-ink" : "text-title-3 font-semibold text-ink"}>
         {banner
-          ? `You've photographed ${photographed} ${taxonName} species in ${regionName}`
-          : `${regionName}'s ${taxonName} pack isn't downloaded yet`}
+          ? t("collection.packPrompt.taxonBanner", { count: photographed, taxon: taxonName, region: regionName })
+          : t("collection.packPrompt.taxonNotDownloaded", { taxon: taxonName, region: regionName })}
       </h2>
       {pack === undefined ? (
-        <p className="mt-2 text-sm text-muted">Checking for a pack…</p>
+        <p className="mt-2 text-callout text-muted">{t("collection.packPrompt.checking")}</p>
+      ) : (connection === "offline" && !running) || (indexUnavailable && pack === null) ? (
+        // No list yet reads as slow, never as "nothing published".
+        <ConnectionNote
+          state={connection === "online" ? "slow" : connection}
+          className="mx-auto mt-2 max-w-sm justify-center"
+        />
       ) : pack === null ? (
-        <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
-          No offline pack covers {regionName}'s {taxonName} yet. Check{" "}
-          <Link to="/offline-packs" state={{ backLabel: "Collection" }} className="underline">
-            Offline packs
-          </Link>{" "}
-          later.
+        <p className="mx-auto mt-2 max-w-sm text-callout text-muted">
+          <Trans
+            i18nKey="collection.packPrompt.noTaxonPack"
+            values={{ region: regionName, taxon: taxonName }}
+            components={{
+              a: <Link to={SPECIES_DOWNLOADS_PATH} state={{ backLabel: t("nav.collection") }} className="underline" />,
+            }}
+          />
         </p>
       ) : (
         <>
-          <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
+          <p className="mx-auto mt-2 max-w-sm text-callout text-muted">
             {banner
-              ? `Download ${regionName}'s ${taxonName} pack to see the rest: ${pack.speciesCount} species, ${formatBytes(pack.sizeBytes)}.`
-              : `${pack.speciesCount} species, ${formatBytes(pack.sizeBytes)}.`}
+              ? t("collection.packPrompt.taxonBannerSize", {
+                  region: regionName,
+                  taxon: taxonName,
+                  count: pack.speciesCount,
+                  size: formatBytes(pack.sizeBytes),
+                })
+              : t("collection.packPrompt.size", { count: pack.speciesCount, size: formatBytes(pack.sizeBytes) })}
+            <FreeSpaceNote needed={pack.sizeBytes} free={freeBytes} />
           </p>
           {running && !zoneRunning ? (
             <DownloadProgress job={job} />
           ) : (
             <>
-              <button
+              <Button
                 onClick={() => {
                   setDownloadingZoneId(null);
                   void download([pack.id]);
                 }}
                 disabled={job.starting || running}
-                className={buttonClasses("primary", "md", "mt-4")}
+                className="mt-4"
               >
-                {job.starting && downloadingZoneId === null ? "Starting…" : "Download now"}
-              </button>
+                {job.starting && downloadingZoneId === null
+                  ? t("collection.packPrompt.starting")
+                  : t("collection.packPrompt.downloadNow")}
+              </Button>
               {downloadingZoneId === null && <DownloadOutcome job={job} startedHere={startedHere} />}
             </>
           )}
@@ -276,44 +306,46 @@ export function TaxonPackPrompt({
       )}
       {seaZonePacks !== null && seaZonePacks.length > 0 && (
         <div className="mx-auto mt-6 max-w-sm border-t border-line pt-4 text-left">
-          <p className="text-sm text-muted">
-            Or get fish from a nearby sea zone instead. It's a separate, optional download, not part of {regionName}'s
-            own pack above:
-          </p>
+          <p className="text-callout text-muted">{t("collection.packPrompt.seaZones", { region: regionName })}</p>
           <div className="mt-3 space-y-2">
             {seaZonePacks.map((zone) => (
-              <div key={zone.zoneId} className="space-y-2 rounded-md border border-line px-3 py-2">
+              <div key={zone.zoneId} className="space-y-2 rounded-panel border border-line px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm text-ink">
-                    {zone.zoneName} <span className="text-muted">({zone.pack.speciesCount} species)</span>
+                  <span className="text-callout text-ink">
+                    {zone.zoneName}{" "}
+                    <span className="text-muted">
+                      {t("collection.packPrompt.zoneCount", { count: zone.pack.speciesCount })}
+                    </span>
                   </span>
                   {!(zoneRunning && downloadingZoneId === zone.zoneId) && (
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       onClick={() => {
                         setDownloadingZoneId(zone.zoneId);
                         void download([zone.pack.id]);
                       }}
-                      disabled={job.starting || running}
-                      className={buttonClasses("secondary", "sm", "shrink-0 py-1 text-xs")}
+                      disabled={job.starting || running || connection === "offline"}
+                      className="shrink-0"
                     >
-                      Download
-                    </button>
+                      {t("collection.packPrompt.download")}
+                    </Button>
                   )}
                 </div>
                 {downloadingZoneId === zone.zoneId &&
                   (running ? (
-                    <JobProgress
+                    <PackProgress
                       status={job.status}
-                      phases={PACK_DOWNLOAD_PHASES}
-                      fallbackLabel="Downloading…"
-                      onCancel={() => void job.cancel(CANCEL_URL)}
+                      onCancel={(downloadsOnly) =>
+                        void job.cancel(CANCEL_URL, downloadsOnly ? { downloadsOnly } : undefined)
+                      }
                       cancelling={job.cancelling}
                     />
                   ) : (
                     <JobProgress
                       status={startedHere ? job.status : null}
                       error={job.actionError}
-                      errorPrefix="Couldn't download this pack"
+                      errorPrefix={t("collection.packPrompt.zoneFailed")}
                     />
                   ))}
               </div>
@@ -321,6 +353,6 @@ export function TaxonPackPrompt({
           </div>
         </div>
       )}
-    </div>
+    </Panel>
   );
 }

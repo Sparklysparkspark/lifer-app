@@ -1,23 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Trans, useTranslation } from "react-i18next";
 import { api, apiPath } from "../api/client";
-import PageHeader from "../components/PageHeader";
-import InfoTip from "../components/InfoTip";
-import { Spinner } from "../components/LoadingScreen";
-import PhotoPlaceholder from "../components/PhotoPlaceholder";
-import SearchInput from "../components/SearchInput";
+import ManageListPage, { ManageList, RowThumb } from "../components/ManageListPage";
+import { docsUrl } from "../lib/docs";
 import RegionPicker from "../components/RegionPicker";
-import EmptyState from "../components/EmptyState";
 import Button from "../components/Button";
+import EmptyState from "../components/EmptyState";
 import { useConfirm } from "../hooks/useConfirm";
 import { useToast } from "../hooks/useToast";
 import { formatList } from "../lib/format";
 import { useSpeciesName } from "../lib/speciesName";
 
-const HIDDEN_INFO_PARAGRAPHS = [
-  "Hiding a species from a region only removes it from that region's own checklist. Its global record, photos, and history are untouched, and any other region it's also found on still shows it normally.",
-  "Hiding from a whole country also hides it from every province/state under that country.",
-];
+const HIDDEN_INFO_PARAGRAPH_KEYS = ["hiddenSpecies.info.region", "hiddenSpecies.info.country"];
 
 interface HiddenItem {
   speciesId: string;
@@ -38,8 +32,9 @@ interface HiddenResponse {
 }
 
 // Species hidden with a card's "Hide from this region". Navigation is the same breadcrumb and
-// one-level "Drill in" pills as RegionBrowser; the grid below always matches the current scope.
+// one-level "Drill in" pills as RegionBrowser; the list below always matches the current scope.
 export default function HiddenSpeciesPage() {
+  const { t } = useTranslation();
   const speciesName = useSpeciesName();
   const [data, setData] = useState<HiddenResponse | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -60,7 +55,7 @@ export default function HiddenSpeciesPage() {
     setSelectedRegionId(null);
   }
 
-  // A refetch after an unhide keeps the current grid up instead of flashing a spinner.
+  // A refetch after an unhide keeps the current list up instead of flashing a spinner.
   function fetchHidden() {
     api
       .get("/regions/hidden-species")
@@ -142,11 +137,17 @@ export default function HiddenSpeciesPage() {
     if (!openCountryGroup) return [];
     return [
       ...(openCountryGroup.hasCountryLevel
-        ? [{ id: openCountryGroup.id, name: "Whole country", count: openCountryGroup.countryLevelCount }]
+        ? [
+            {
+              id: openCountryGroup.id,
+              name: t("hiddenSpecies.wholeCountry"),
+              count: openCountryGroup.countryLevelCount,
+            },
+          ]
         : []),
       ...openCountryGroup.provinces,
     ];
-  }, [openCountryGroup]);
+  }, [openCountryGroup, t]);
 
   // Raw rows in scope: bulk unhide must clear every underlying region row, not just the cards.
   const scopedItems = useMemo(() => {
@@ -179,7 +180,7 @@ export default function HiddenSpeciesPage() {
 
   const scopeLabel = selectedRegionId
     ? openCountryProvinces.find((p) => p.id === selectedRegionId)?.name
-    : (openCountryGroup?.name ?? "all hidden species");
+    : (openCountryGroup?.name ?? t("hiddenSpecies.allScope"));
 
   async function unhideOne(item: HiddenItem) {
     setBusyIds((prev) => new Set(prev).add(item.speciesId));
@@ -200,10 +201,10 @@ export default function HiddenSpeciesPage() {
             "unit",
           );
           const alsoChildren = await confirm({
-            title: `Also unhide from ${names}?`,
-            message: `It's also hidden in ${res.children.length === 1 ? "this province" : "these provinces"}.`,
-            confirmLabel: "Unhide everywhere",
-            cancelLabel: "Only the country",
+            title: t("hiddenSpecies.unhideChildren.title", { names }),
+            message: t("hiddenSpecies.unhideChildren.message", { count: res.children.length }),
+            confirmLabel: t("hiddenSpecies.unhideChildren.confirm"),
+            cancelLabel: t("hiddenSpecies.unhideChildren.cancel"),
           });
           if (alsoChildren) cascadeRegionIds = res.children.map((c) => c.regionId);
         }
@@ -211,7 +212,7 @@ export default function HiddenSpeciesPage() {
       const query = cascadeRegionIds.length > 0 ? `?cascadeRegionIds=${cascadeRegionIds.join(",")}` : "";
       await api.delete(`/regions/${item.regionId}/species/${item.speciesId}/hide${query}`);
     } catch {
-      toast.error("Couldn't unhide that species. Try again.");
+      toast.error(t("hiddenSpecies.unhideFailed"));
     } finally {
       setBusyIds((prev) => {
         const next = new Set(prev);
@@ -227,8 +228,8 @@ export default function HiddenSpeciesPage() {
   async function unhideScope() {
     const uniqueSpeciesCount = new Set(scopedItems.map((i) => i.speciesId)).size;
     const ok = await confirm({
-      title: `Unhide all ${uniqueSpeciesCount} species from "${scopeLabel}"?`,
-      confirmLabel: "Unhide all",
+      title: t("hiddenSpecies.unhideAll.title", { count: uniqueSpeciesCount, scope: scopeLabel }),
+      confirmLabel: t("hiddenSpecies.unhideAll.confirm"),
     });
     if (!ok) return;
     setBulkBusy(true);
@@ -241,172 +242,139 @@ export default function HiddenSpeciesPage() {
         ),
       );
     } catch {
-      toast.error("Couldn't unhide that group. Try again.");
+      toast.error(t("hiddenSpecies.unhideGroupFailed"));
     } finally {
       setBulkBusy(false);
       load();
     }
   }
 
+  const title = t("hiddenSpecies.title");
   return (
-    <div className="flex-1 bg-canvas">
-      <PageHeader
-        sticky
-        title="Hidden species"
-        backFallbackTo="/settings"
-        backLabel="Settings"
-        titleAddon={<InfoTip paragraphs={HIDDEN_INFO_PARAGRAPHS} />}
-        actions={
-          <>
-            <SearchInput
-              value={search}
-              onChange={setSearch}
-              placeholder="Search hidden or a region…"
-              className="w-56"
-            />
-          </>
-        }
-      />
-
-      {loadError ? (
-        <div className="flex flex-col items-center justify-center gap-3 py-24">
-          <p className="text-muted">Couldn't load hidden species.</p>
-          <button onClick={load} className="text-sm text-ink underline">
-            Retry
-          </button>
-        </div>
-      ) : !data ? (
-        <Spinner />
-      ) : (
-        <main className="space-y-section p-page">
-          {countryGroups.length > 0 && (
-            <div className="space-y-2">
-              <nav className="flex flex-wrap items-center gap-1 text-sm text-muted">
-                <button
-                  onClick={() => {
-                    setOpenCountryId(null);
-                    setSelectedRegionId(null);
-                  }}
-                  className="hover:underline"
-                >
-                  All countries
-                </button>
-                {openCountryGroup && (
-                  <span className="flex items-center gap-1">
-                    <span className="text-muted">/</span>
-                    {selectedRegionId ? (
-                      <button onClick={() => setSelectedRegionId(null)} className="hover:underline">
-                        {openCountryGroup.name}
-                      </button>
-                    ) : (
-                      <span className="font-medium text-ink">{openCountryGroup.name}</span>
-                    )}
-                  </span>
+    <ManageListPage
+      title={title}
+      backLabel={t("nav.settings")}
+      description={t("hiddenSpecies.description")}
+      help={HIDDEN_INFO_PARAGRAPH_KEYS.map((key) => t(key))}
+      docsHref={docsUrl("/guides/collection-and-checklists#undoing-hide-and-archive")}
+      search={{ value: search, onChange: setSearch, placeholder: t("hiddenSpecies.searchPlaceholder") }}
+      actions={
+        displayedItems.length > 0 && (
+          <Button variant="secondary" size="sm" onClick={unhideScope} loading={bulkBusy}>
+            {bulkBusy ? t("hiddenSpecies.unhiding") : t("hiddenSpecies.unhideAllShown")}
+          </Button>
+        )
+      }
+      loading={!data}
+      error={loadError ? t("hiddenSpecies.loadFailed") : null}
+      onRetry={load}
+      isEmpty={data?.items.length === 0}
+      empty={{
+        icon: (
+          <svg
+            viewBox="0 0 24 24"
+            className="h-6 w-6 text-muted"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.75}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M3 3l18 18" />
+            <path d="M10.6 5.2A9.4 9.4 0 0 1 12 5c5.5 0 9 5 9 7a11 11 0 0 1-3 3.4M6.1 6.1C3.9 7.7 2.5 10 2.5 12c0 2 3.5 7 9.5 7 1.5 0 2.8-.3 4-.8" />
+            <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+          </svg>
+        ),
+        title: t("hiddenSpecies.empty.title"),
+        description: t("hiddenSpecies.empty.description"),
+      }}
+    >
+      {countryGroups.length > 0 && (
+        <div className="space-y-2">
+          <nav className="flex flex-wrap items-center gap-1 text-callout text-muted">
+            <Button
+              variant="link"
+              onClick={() => {
+                setOpenCountryId(null);
+                setSelectedRegionId(null);
+              }}
+            >
+              {t("hiddenSpecies.allCountries")}
+            </Button>
+            {openCountryGroup && (
+              <span className="flex items-center gap-1">
+                <span className="text-muted">/</span>
+                {selectedRegionId ? (
+                  <Button variant="link" onClick={() => setSelectedRegionId(null)}>
+                    {openCountryGroup.name}
+                  </Button>
+                ) : (
+                  <span className="font-medium text-ink">{openCountryGroup.name}</span>
                 )}
-                {selectedRegionId && (
-                  <span className="flex items-center gap-1">
-                    <span className="text-muted">/</span>
-                    <span className="font-medium text-ink">
-                      {openCountryProvinces.find((p) => p.id === selectedRegionId)?.name}
-                    </span>
-                  </span>
-                )}
-              </nav>
-              {!selectedRegionId && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-muted">Drill in:</span>
-                  <RegionPicker
-                    mode="single"
-                    items={
-                      openCountryId
-                        ? openCountryProvinces.map((p) => ({ id: p.id, name: `${p.name} (${p.count})` }))
-                        : countryGroups.map((g) => ({ id: g.id, name: `${g.name} (${g.count})` }))
-                    }
-                    selectedId={null}
-                    onSelectItem={openCountryId ? setSelectedRegionId : openCountry}
-                  />
-                </div>
-              )}
+              </span>
+            )}
+            {selectedRegionId && (
+              <span className="flex items-center gap-1">
+                <span className="text-muted">/</span>
+                <span className="font-medium text-ink">
+                  {openCountryProvinces.find((p) => p.id === selectedRegionId)?.name}
+                </span>
+              </span>
+            )}
+          </nav>
+          {!selectedRegionId && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-footnote text-muted">{t("hiddenSpecies.drillIn")}</span>
+              <RegionPicker
+                mode="single"
+                items={
+                  openCountryId
+                    ? openCountryProvinces.map((p) => ({ id: p.id, name: `${p.name} (${p.count})` }))
+                    : countryGroups.map((g) => ({ id: g.id, name: `${g.name} (${g.count})` }))
+                }
+                selectedId={null}
+                onSelectItem={openCountryId ? setSelectedRegionId : openCountry}
+              />
             </div>
           )}
-          {data.items.length === 0 ? (
-            <EmptyState
-              icon={
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-6 w-6 text-muted"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={1.75}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M3 3l18 18" />
-                  <path d="M10.6 5.2A9.4 9.4 0 0 1 12 5c5.5 0 9 5 9 7a11 11 0 0 1-3 3.4M6.1 6.1C3.9 7.7 2.5 10 2.5 12c0 2 3.5 7 9.5 7 1.5 0 2.8-.3 4-.8" />
-                  <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
-                </svg>
-              }
-              title="Nothing hidden yet"
-              description={`Use "Hide from this region" on a species card in your collection to keep a vagrant or one-off record off that region's checklist without touching its global record.`}
-            />
-          ) : displayedItems.length === 0 ? (
-            <p className="text-muted">No hidden species match "{search}".</p>
-          ) : (
-            <>
-              <div className="flex items-center gap-3">
-                <p className="text-sm font-medium text-ink">
-                  {displayedItems.length} species <span className="font-normal text-muted">in {scopeLabel}</span>
-                </p>
-                <button
-                  onClick={unhideScope}
-                  disabled={bulkBusy}
-                  className="text-xs text-muted hover:text-ink hover:underline disabled:opacity-50"
-                >
-                  {bulkBusy ? "Unhiding…" : "Unhide all shown"}
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-item sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-                {displayedItems.map((item) => (
-                  <div key={item.speciesId} className="rounded-lg border border-line bg-surface p-2">
-                    <Link to={`/species/${item.speciesId}`} state={{ backLabel: "Hidden species" }} className="block">
-                      <div className="aspect-square overflow-hidden rounded bg-surface-muted">
-                        {item.referenceThumbUrl ? (
-                          <img
-                            src={item.referenceThumbUrl}
-                            alt={speciesName(item)}
-                            loading="lazy"
-                            className="h-full w-full object-cover"
-                          />
-                        ) : item.referencePhoto ? (
-                          <img
-                            src={item.referencePhoto}
-                            alt={speciesName(item)}
-                            loading="lazy"
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <PhotoPlaceholder className="h-full w-full" />
-                        )}
-                      </div>
-                      <p className="mt-1 truncate text-xs font-medium text-ink">{speciesName(item)}</p>
-                      <p className="truncate text-xs italic text-muted">{item.scientificName}</p>
-                    </Link>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => unhideOne(item)}
-                      loading={busyIds.has(item.speciesId)}
-                      className="mt-1 w-full"
-                    >
-                      Unhide
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </main>
+        </div>
       )}
-    </div>
+      {displayedItems.length === 0 ? (
+        <EmptyState compact title={t("hiddenSpecies.noMatch", { search })} />
+      ) : (
+        <>
+          <p className="text-subheadline font-medium text-ink">
+            <Trans
+              i18nKey="hiddenSpecies.count"
+              values={{ count: displayedItems.length, scope: scopeLabel }}
+              components={{ muted: <span className="font-normal text-muted" /> }}
+            />
+          </p>
+          <ManageList
+            label={title}
+            rows={displayedItems.map((item) => ({
+              key: `${item.speciesId}:${item.regionId}`,
+              thumb: <RowThumb src={item.referenceThumbUrl ?? item.referencePhoto} alt="" />,
+              primary: speciesName(item),
+              // The region shares the second line, so a long name keeps the row's width.
+              secondary: (
+                <>
+                  <i>{item.scientificName}</i> · {item.regionName}
+                </>
+              ),
+              to: `/species/${item.speciesId}`,
+              linkState: { backLabel: title },
+              menu: [
+                {
+                  label: busyIds.has(item.speciesId) ? t("hiddenSpecies.unhiding") : t("hiddenSpecies.unhide"),
+                  disabled: busyIds.has(item.speciesId),
+                  onSelect: () => void unhideOne(item),
+                },
+              ],
+            }))}
+          />
+        </>
+      )}
+    </ManageListPage>
   );
 }

@@ -17,7 +17,8 @@ export default function BackToCollectionLink({
   const goBack = useGoBack();
   const state = useLocation().state as { backLabel?: string } | null;
   return (
-    <button onClick={() => goBack(fallbackTo)} className={className}>
+    // raw-control: the back link, styled by its page header as a link.
+    <button type="button" onClick={() => goBack(fallbackTo)} className={className}>
       ← {state?.backLabel ?? label ?? t("nav.collection")}
     </button>
   );

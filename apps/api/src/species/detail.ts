@@ -1,4 +1,5 @@
 // The species page: GET /species/:id and the per-species lists and marks around it.
+import { monthlyFromWeekly } from "@lifer/core/species/seasonality.js";
 import { existsSync } from "node:fs";
 import { access as fsAccess, readFile as fsReadFile } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";
@@ -20,6 +21,7 @@ import { cosineSimilarity } from "@lifer/core/species/embeddings.js";
 import { BURST_MAX_GAP_MS, BURST_SIMILARITY } from "./bursts.js";
 import { computeSharpness } from "../lib/sharpness.js";
 import { log } from "@lifer/core/lib/log.js";
+import { PORTRAITS_FIRST_SQL } from "@lifer/core/species/referencePortrait.js";
 import { scheduleInatDistributionSync, storedInatWeekly } from "./inatDistribution.js";
 import { bboxDiagonalDegrees, ringBoundingBox, type BoundingBox } from "@lifer/core/lib/geometry.js";
 import { SENSITIVE_CLUSTER_DIAGONAL_KM } from "@lifer/core/species/sensitiveSpecies.js";
@@ -37,6 +39,19 @@ const readOptions = <T extends TSchema>(response: T) => ({
   config: speciesNotFound,
   schema: { params: IdParams, response: replies(response) },
 });
+
+const TALLY_CAP = 20;
+
+/** Name and photo count, most used first, capped; rows with no value (no EXIF) are skipped, as the
+ *  matching counts skip them. */
+export function tally(values: Array<string | null>): Array<{ name: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const v of values) if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
+  return [...counts]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+    .slice(0, TALLY_CAP);
+}
 
 export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
@@ -190,6 +205,7 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
           `SELECT c.*, p.id AS photo_id, p.width, p.height,
                     p.kind AS photo_kind, p.duration_seconds, reg.name AS region_name,
                     o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind,
+                    (SELECT io.inat_observation_id FROM capture_inaturalist_observations io WHERE io.capture_id = c.id AND io.photo_sent) AS inat_observation_id,
                     o.volume_id AS original_volume_id, o.volume_relative_path AS original_volume_relative_path,
                     EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw_original,
                     -- Shown by name in the photo viewer, so you can find the RAW on disk yourself.
@@ -203,7 +219,10 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
                SELECT * FROM originals o WHERE o.capture_id = c.id ORDER BY (o.kind = 'jpeg') DESC LIMIT 1
              ) o ON true
              WHERE c.user_id = $1
-               AND (c.species_id = $2 OR EXISTS (SELECT 1 FROM capture_species cs WHERE cs.capture_id = c.id AND cs.species_id = $2))
+               -- An IN over a UNION, not "species_id = $2 OR EXISTS", so both indexes are used
+               -- instead of a scan of every capture.
+               AND c.id IN (SELECT x.id FROM captures x WHERE x.user_id = $1 AND x.species_id = $2
+                            UNION SELECT cs.capture_id FROM capture_species cs WHERE cs.species_id = $2)
              ORDER BY c.taken_at DESC NULLS LAST, c.created_at DESC`,
           [userId, id],
         ),
@@ -216,13 +235,13 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
           `SELECT p.id, p.photo_url, p.credit, p.license, p.display_path IS NOT NULL AS has_cached_photo,
                   p.focal_x, p.focal_y, p.photo_url = s.reference_photo AS is_main
              FROM species_reference_photos p JOIN species s ON s.id = p.species_id
-            WHERE p.species_id = $1 ORDER BY p.sort_order`,
+            WHERE p.species_id = $1 ORDER BY ${PORTRAITS_FIRST_SQL("p")}, p.sort_order`,
           [id],
         ),
         // Monthly and weekly observation data and local rarity only mean something per region.
         regionId
           ? pool.query(
-              `SELECT seasonality, local_tier, is_vagrant, is_invasive, weekly_frequency FROM region_species WHERE region_id = $1 AND species_id = $2`,
+              `SELECT local_tier, is_vagrant, is_invasive, weekly_frequency FROM region_species WHERE region_id = $1 AND species_id = $2`,
               [regionId, id],
             )
           : Promise.resolve(null),
@@ -249,7 +268,7 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
           : Promise.resolve(null),
       ]);
       const isArchived = archivedRes.rows.length > 0;
-      const seasonality: number[] | null = regionSpeciesRes?.rows[0]?.seasonality ?? null;
+      const seasonality = monthlyFromWeekly(regionSpeciesRes?.rows[0]?.weekly_frequency);
       // Rarity ranked against this region's own checklist, alongside the global tier.
       const localTier: string | null = regionSpeciesRes?.rows[0]?.local_tier ?? null;
       const isVagrant = regionSpeciesRes?.rows[0]?.is_vagrant === true;
@@ -292,6 +311,8 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
       const captures = capturesRes.rows.map(
         ({ original_volume_id: _volumeId, original_volume_relative_path: _relativePath, ...c }, i) => ({
           ...c,
+          // A numeric column, so text from Postgres; the page works in seconds.
+          duration_seconds: c.duration_seconds == null ? null : Number(c.duration_seconds),
           original_available: originalStatuses[i].available,
           original_volume_label: originalStatuses[i].volumeLabel,
         }),
@@ -361,7 +382,8 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
             null,
           );
           return {
-            hotspotDistribution: hotspots.length > 0 ? (isWidespread ? "widespread" : "clustered") : null,
+            hotspotDistribution:
+              hotspots.length > 0 ? (isWidespread ? ("widespread" as const) : ("clustered" as const)) : null,
             hotspots: hotspots.map((h) => ({
               centroidLat: h.centroid_lat,
               centroidLon: h.centroid_lon,
@@ -465,9 +487,11 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
       camera_model: string | null;
       lens: string | null;
       kind: string | null;
+      region_name: string | null;
     }>(
-      `SELECT c.id, c.taken_at, c.region_id, c.camera_model, c.lens, p.kind
+      `SELECT c.id, c.taken_at, c.region_id, c.camera_model, c.lens, p.kind, reg.name AS region_name
        FROM captures c LEFT JOIN photos p ON p.id = c.current_photo_id
+       LEFT JOIN regions reg ON reg.id = c.region_id
        WHERE c.species_id = $1 AND c.user_id = $2`,
       [request.params.id, request.user!.id],
     );
@@ -475,13 +499,18 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
     const takenDates = res.rows.map((r) => r.taken_at).filter((t): t is string => t !== null);
     // Videos are counted apart from photos (kind lives on photos, migration 230).
     const videoCount = res.rows.filter((r) => r.kind === "video").length;
+    const audioCount = res.rows.filter((r) => r.kind === "audio").length;
     return {
-      totalPhotos: res.rows.length - videoCount,
+      totalPhotos: res.rows.length - videoCount - audioCount,
       videoCount,
+      audioCount,
       encounterCount: encounters.length,
       locationCount: new Set(res.rows.map((r) => r.region_id).filter(Boolean)).size,
       cameraCount: new Set(res.rows.map((r) => r.camera_model).filter(Boolean)).size,
       lensCount: new Set(res.rows.map((r) => r.lens).filter(Boolean)).size,
+      locations: tally(res.rows.map((r) => (r.region_id ? (r.region_name ?? r.region_id) : null))),
+      cameras: tally(res.rows.map((r) => r.camera_model)),
+      lenses: tally(res.rows.map((r) => r.lens)),
       firstPhotographedAt: takenDates.length ? takenDates.reduce((a, b) => (a < b ? a : b)) : null,
       lastPhotographedAt: takenDates.length ? takenDates.reduce((a, b) => (a > b ? a : b)) : null,
     };

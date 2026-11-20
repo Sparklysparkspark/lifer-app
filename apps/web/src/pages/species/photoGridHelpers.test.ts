@@ -27,6 +27,7 @@ function capture(id: string, partial: Partial<SpeciesCapture> = {}): SpeciesCapt
     tags: [],
     photo_kind: "image",
     duration_seconds: null,
+    inat_observation_id: null,
     original_ref: null,
     original_managed: null,
     original_kind: "jpeg",

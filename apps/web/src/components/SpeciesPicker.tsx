@@ -1,19 +1,21 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
+import { matches } from "../lib/keymap";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { SEARCH_DEBOUNCE_MS } from "../lib/searchNormalize";
 import AddOtherTaxaModal from "./AddOtherTaxaModal";
+import type { SpeciesResult } from "./speciesResult";
+import type { ProbableGroup } from "./ProbableGroupText";
 import SearchInput from "./SearchInput";
 import { useLatest } from "../hooks/useLatest";
 import { useSettings } from "../hooks/useSettings";
-import { useSpeciesName } from "../lib/speciesName";
+import { namePartClass, useSpeciesNameParts } from "../lib/speciesName";
+import SpeciesNameText from "./SpeciesNameText";
+import { useAnchoredBox } from "../lib/anchoredBox";
 
-export interface SpeciesResult {
-  id: string;
-  scientific_name: string;
-  common_name: string | null;
-}
+export type { SpeciesResult };
 
 export interface SuggestedSpecies extends SpeciesResult {
   /** Blended image+text match score, 0-1. */
@@ -23,6 +25,8 @@ export interface SuggestedSpecies extends SpeciesResult {
   confident?: boolean;
   /** 0-100: show this, not `Math.round(score * 100)` (see embeddings.ts assignDisplayPercents). */
   matchPercent?: number;
+  /** Only on a top suggestion that isn't confident: the genus (else family) the close guesses share. */
+  probably?: ProbableGroup;
   /** What it matched on; "keyword_tag" is a species named in the photo's own keywords. */
   source?: string;
 }
@@ -36,6 +40,8 @@ export default function SpeciesPicker({
   placeholder,
   regionId,
   inline = false,
+  anchorRef,
+  ariaLabel,
 }: {
   onSelect?: (r: SpeciesResult) => void;
   autoFocus?: boolean;
@@ -44,9 +50,14 @@ export default function SpeciesPicker({
   regionId?: string | null;
   /** Full width with the results listed below it rather than dropped over the page, for a dialog. */
   inline?: boolean;
+  /** Shows the results as a popover against this element (a card the field sits in), on the
+   *  page's top layer, below or above as there's room. The field then fills its container. */
+  anchorRef?: RefObject<HTMLElement | null>;
+  /** When the placeholder is only an example. */
+  ariaLabel?: string;
 }) {
   const { t } = useTranslation();
-  const speciesName = useSpeciesName();
+  const speciesNameParts = useSpeciesNameParts();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SpeciesResult[]>([]);
   // The query `results` answer, so Enter never picks from an older query's list.
@@ -110,6 +121,13 @@ export default function SpeciesPicker({
   // Clamped so a shorter result list never leaves the highlight past the end.
   const active = optionCount === 0 ? -1 : Math.min(Math.max(highlighted, 0), optionCount - 1);
   const listOpen = (inline || open) && optionCount > 0;
+  // With iNaturalist search on, its row already covers an empty result.
+  const noMatch =
+    (inline || open) &&
+    !anyTaxaSearchEnabled &&
+    query.trim().length >= 2 &&
+    resultsFor === query.trim() &&
+    !results.length;
 
   function selectResult(r: SpeciesResult) {
     setOpen(false);
@@ -125,14 +143,14 @@ export default function SpeciesPicker({
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "ArrowDown") {
+    if (matches(e, "listNext")) {
       e.preventDefault();
       setOpen(true);
       if (optionCount > 0) setHighlighted((active + 1) % optionCount);
-    } else if (e.key === "ArrowUp") {
+    } else if (matches(e, "listPrevious")) {
       e.preventDefault();
       if (optionCount > 0) setHighlighted((active - 1 + optionCount) % optionCount);
-    } else if (e.key === "Enter") {
+    } else if (matches(e, "choose")) {
       e.preventDefault();
       if (resultsFor !== query.trim()) {
         // Results are still for an older query: fetch now and pick the top match on arrival.
@@ -143,7 +161,7 @@ export default function SpeciesPicker({
       }
       if (showInatRow && active === results.length) openInatSearch();
       else if (results[active]) selectResult(results[active]);
-    } else if (e.key === "Escape" && listOpen && !inline) {
+    } else if (matches(e, "close") && listOpen && !inline) {
       // Close just the suggestions, not an enclosing dialog too. Inline, the list is the dialog's
       // content, so Escape closes the dialog.
       e.preventDefault();
@@ -153,8 +171,28 @@ export default function SpeciesPicker({
 
   const optionId = (i: number) => `${listId}-opt-${i}`;
 
+  // Anchored, the list or the no-match note floats on the page's top layer against the anchor.
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const popoverBox = useAnchoredBox(!!anchorRef && (listOpen || noMatch), anchorRef, popoverRef);
+  const popover = (content: ReactNode) =>
+    !anchorRef || !content
+      ? content
+      : createPortal(
+          <div
+            ref={popoverRef}
+            data-species-popover
+            style={popoverBox ?? { visibility: "hidden" }}
+            // Keeps focus in the field, so its blur doesn't close the list before a pick.
+            onMouseDown={(e) => e.preventDefault()}
+            className="fixed z-50 flex flex-col overflow-hidden rounded-panel shadow-lg"
+          >
+            {content}
+          </div>,
+          document.body,
+        );
+
   return (
-    <div className={inline ? "w-full" : "relative w-64"}>
+    <div className={inline || anchorRef ? "w-full" : "relative w-64"}>
       <SearchInput
         value={query}
         onChange={(v) => {
@@ -163,7 +201,7 @@ export default function SpeciesPicker({
         }}
         placeholder={placeholder ?? t("species.picker.placeholder")}
         autoFocus={autoFocus}
-        aria-label={placeholder ?? t("species.picker.label")}
+        aria-label={ariaLabel ?? placeholder ?? t("species.picker.label")}
         onFocus={() => {
           if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
           setOpen(true);
@@ -182,52 +220,81 @@ export default function SpeciesPicker({
           "aria-activedescendant": listOpen && active >= 0 ? optionId(active) : undefined,
         }}
       />
-      {listOpen && (
-        <ul
-          id={listId}
-          role="listbox"
-          aria-label={t("species.picker.listLabel")}
-          className={`w-full overflow-y-auto rounded-md border border-line bg-surface ${
-            inline ? "mt-2 max-h-80" : "absolute z-10 mt-1 max-h-72 shadow-lg"
-          }`}
-        >
-          {results.map((r, i) => (
-            <li
-              key={r.id}
-              id={optionId(i)}
-              role="option"
-              aria-selected={i === active}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                selectResult(r);
-              }}
-              onMouseEnter={() => setHighlighted(i)}
-              className={`cursor-pointer px-3 py-2 text-sm ${i === active ? "bg-surface-muted" : ""}`}
+      {popover(
+        listOpen && (
+          <ul
+            id={listId}
+            role="listbox"
+            aria-label={t("species.picker.listLabel")}
+            className={`w-full overflow-y-auto rounded-panel border border-line bg-surface ${
+              inline ? "mt-2 max-h-80" : anchorRef ? "min-h-0" : "absolute z-10 mt-1 max-h-72 shadow-lg"
+            }`}
+          >
+            {results.map((r, i) => {
+              const { primary, secondary } = speciesNameParts(r);
+              return (
+                <li
+                  key={r.id}
+                  id={optionId(i)}
+                  role="option"
+                  aria-selected={i === active}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    selectResult(r);
+                  }}
+                  onMouseEnter={() => setHighlighted(i)}
+                  className={`cursor-pointer px-3 py-2 text-callout wrap-anywhere ${i === active ? "bg-surface-muted" : ""}`}
+                >
+                  <span className={`font-medium text-ink ${namePartClass(primary)}`}>{primary.text}</span>
+                  {secondary.length > 0 && (
+                    <>
+                      {" "}
+                      <span className="text-muted">
+                        <SpeciesNameText parts={secondary} />
+                      </span>
+                    </>
+                  )}
+                </li>
+              );
+            })}
+            {showInatRow && (
+              <li
+                id={optionId(results.length)}
+                role="option"
+                aria-selected={active === results.length}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  openInatSearch();
+                }}
+                onMouseEnter={() => setHighlighted(results.length)}
+                className={`cursor-pointer px-3 py-2 text-left text-callout text-accent ${active === results.length ? "bg-surface-muted" : ""}`}
+              >
+                {results.length === 0
+                  ? t("species.picker.searchInaturalistNoMatch", { query })
+                  : t("species.picker.searchInaturalist")}
+              </li>
+            )}
+          </ul>
+        ),
+      )}
+      {popover(
+        noMatch && (
+          <div
+            className={`w-full rounded-panel border border-line bg-surface px-3 py-2 text-callout text-muted ${
+              inline ? "mt-2" : anchorRef ? "" : "absolute z-10 mt-1 shadow-lg"
+            }`}
+          >
+            <p>{t("species.picker.noMatch")}</p>
+            <Link
+              to="/settings/species"
+              // Keeps focus so the blur timer doesn't close this before the click lands.
+              onMouseDown={(e) => e.preventDefault()}
+              className="mt-1 block text-footnote underline hover:text-ink"
             >
-              <span className="font-medium text-ink">
-                {speciesName({ commonName: r.common_name, scientificName: r.scientific_name })}
-              </span>{" "}
-              <span className="italic text-muted">{r.scientific_name}</span>
-            </li>
-          ))}
-          {showInatRow && (
-            <li
-              id={optionId(results.length)}
-              role="option"
-              aria-selected={active === results.length}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                openInatSearch();
-              }}
-              onMouseEnter={() => setHighlighted(results.length)}
-              className={`cursor-pointer px-3 py-2 text-left text-sm text-accent ${active === results.length ? "bg-surface-muted" : ""}`}
-            >
-              {results.length === 0
-                ? t("species.picker.searchInaturalistNoMatch", { query })
-                : t("species.picker.searchInaturalist")}
-            </li>
-          )}
-        </ul>
+              {t("species.picker.turnOnInaturalist")}
+            </Link>
+          </div>
+        ),
       )}
       {otherTaxaModalOpen && (
         <AddOtherTaxaModal

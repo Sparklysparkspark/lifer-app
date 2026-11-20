@@ -1,12 +1,15 @@
 // Per-user card state shared by GET /collection and GET /regions/:id/species.
 import type { RarityTier } from "@lifer/shared";
 import { MEDIA_CACHE_BUST } from "@lifer/core/config.js";
+import { monthlyFromWeekly } from "@lifer/core/species/seasonality.js";
 import { TECHNICAL_MAX_DEPTH_M, WELL_DOCUMENTED_MIN_OCCURRENCES } from "../species/obscurity.js";
 
 export interface CollectionRow {
   species_id: string;
   scientific_name: string;
   common_name: string | null;
+  aba_code?: string | null;
+  ebird_code?: string | null;
   taxon_class?: string;
   family?: string | null;
   /** species.taxon_order, for broad groups like Songbirds or Frogs & Toads. */
@@ -26,8 +29,8 @@ export interface CollectionRow {
   /** Region rows only: records here are concentrated in very few years, so a single
    *  much-photographed vagrant doesn't read as an established species. */
   is_vagrant?: boolean | null;
-  /** Region rows only: 12 monthly values, from seasonality or folded from weekly_frequency. */
-  seasonality?: number[] | null;
+  /** Region rows only: an established population here, but not native (migration 085). */
+  is_invasive?: boolean | null;
   /** 52 weekly values; most regions only have this, not the monthly column. */
   weekly_frequency?: number[] | null;
   /** Set when the species is only recorded in one country. */
@@ -46,6 +49,7 @@ export interface CollectionRow {
   was_lost_when_collected?: boolean | null;
   state: "collected" | "seen" | null;
   is_target?: boolean;
+  needs_better_photo?: boolean;
   cover_photo_id: string | null;
   card_crop_x: string | number | null;
   card_crop_y: string | number | null;
@@ -61,12 +65,18 @@ export interface CollectionRow {
   inat_iconic_taxon?: string | null;
   /** Every year with a non-trashed capture, not just the first, so "big year" filters work. */
   captured_years?: number[] | null;
+  /** Seen only because a recording of it exists. */
+  heard?: boolean | null;
+  /** Collected only through suggested photos (captures/identification.ts). */
+  suggested?: boolean | null;
   /** Region rows only: the region (or selected sea zone) the user added this species to by hand,
    *  when the catalog doesn't list it here (regions/checklistAdditions.ts). */
   user_added_region_id?: string | null;
   user_added_region_name?: string | null;
   /** "seaZone" when user_added_region_id is a sea zone; null or absent for a region. */
   user_added_kind?: string | null;
+  /** Region rows only: where the user's photos of it were taken (checklist.ts PHOTOGRAPHED_WHERE_SQL). */
+  photographed_where?: "here" | "elsewhere" | null;
 }
 
 // Ghost: fewer GBIF records than this, or no reference photo at all. Packs set only the thumb
@@ -96,20 +106,6 @@ export function isLostSpecies(row: CollectionRow): boolean {
   return row.last_occurrence_year < currentYear - LOST_YEARS_SILENT && row.last_occurrence_year >= LOST_MIN_YEAR;
 }
 
-/** Folds 52 weekly values into 12 monthly averages, by each week's middle day. */
-export function monthlyFromWeekly(weekly: number[] | null | undefined): number[] | null {
-  if (!weekly || weekly.length === 0) return null;
-  const sums = new Array(12).fill(0);
-  const counts = new Array(12).fill(0);
-  weekly.forEach((value, week) => {
-    const midDay = week * 7 + 3; // day of the year, 0-based
-    const month = Math.min(11, Math.floor(midDay / (365 / 12)));
-    sums[month] += Number(value) || 0;
-    counts[month]++;
-  });
-  return sums.map((sum, m) => (counts[m] ? sum / counts[m] : 0));
-}
-
 export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNICAL_MAX_DEPTH_M) {
   const state = row.state ?? ("unseen" as const);
   const hasOwnCover = state === "collected" && row.has_cover_photo;
@@ -117,11 +113,14 @@ export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNIC
     speciesId: row.species_id,
     scientificName: row.scientific_name,
     commonName: row.common_name,
+    abaCode: row.aba_code ?? null,
+    ebirdCode: row.ebird_code ?? null,
     taxonClass: row.taxon_class ?? null,
     family: row.family ?? null,
     taxonOrder: row.taxon_order ?? null,
     state,
     isTarget: row.is_target === true,
+    needsBetterPhoto: row.needs_better_photo === true,
     // A tier the user set wins: over the local tier where there is one, else over the worldwide one.
     tier: row.override_tier && row.local_tier === undefined ? row.override_tier : row.tier,
     localTier: row.override_tier && row.local_tier !== undefined ? row.override_tier : (row.local_tier ?? null),
@@ -129,7 +128,8 @@ export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNIC
     localTierReason: row.local_tier_reason ?? null,
     tierOverridden: row.override_tier != null,
     vagrant: row.is_vagrant === true,
-    seasonality: row.seasonality ?? monthlyFromWeekly(row.weekly_frequency),
+    introduced: row.is_invasive === true,
+    seasonality: monthlyFromWeekly(row.weekly_frequency),
     endemic: row.endemic_country_iso3 != null || row.endemic_region_label != null,
     isGhost: isGhostSpecies(row, maxDepthM),
     isLost: isLostSpecies(row),
@@ -153,6 +153,9 @@ export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNIC
     isOtherTaxa: row.is_other_taxa === true,
     inatIconicTaxon: row.inat_iconic_taxon ?? null,
     capturedYears: row.captured_years ?? null,
+    heard: row.heard === true,
+    suggested: row.suggested === true,
+    ...(row.photographed_where !== undefined && { photographedWhere: row.photographed_where }),
     // Only region rows carry it, so GET /collection items are unchanged.
     ...(row.user_added_region_id !== undefined && {
       userAddedRegion: row.user_added_region_id

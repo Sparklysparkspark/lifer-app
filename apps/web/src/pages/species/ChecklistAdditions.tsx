@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import Button from "../../components/Button";
+import { useTranslation } from "react-i18next";
+import Button, { IconButton } from "../../components/Button";
+import Panel from "../../components/Panel";
+import Pill from "../../components/Pill";
 import RegionBrowser from "../../components/RegionBrowser";
 import SearchInput from "../../components/SearchInput";
 import SegmentedControl from "../../components/SegmentedControl";
@@ -24,8 +27,8 @@ import { errorMessage } from "../../lib/errorMessage";
 
 type PickerMode = "region" | "seaZone";
 const PICKER_MODES = [
-  { value: "region", label: "Country or province" },
-  { value: "seaZone", label: "Sea zone" },
+  { value: "region", label: "species.checklists.modeRegion" },
+  { value: "seaZone", label: "species.checklists.modeSeaZone" },
 ] as const;
 // Enough matches to pick from without a long list pushing the buttons off a phone screen.
 const SEA_ZONE_RESULTS = 8;
@@ -47,8 +50,9 @@ function AdditionChip({
   removing: boolean;
   onRemove: () => void;
 }) {
+  const { t } = useTranslation();
   return (
-    <li className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-dashed border-accent py-0.5 pl-2 pr-1 text-ink">
+    <li className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-control border border-dashed border-accent py-0.5 pl-2 pr-1 text-ink">
       {to ? (
         <Link to={to} className="truncate hover:underline">
           {target.name}
@@ -56,22 +60,21 @@ function AdditionChip({
       ) : (
         <span className="truncate">{target.name}</span>
       )}
-      {target.kind === "seaZone" && <span className="shrink-0 text-muted">(sea)</span>}
+      {target.kind === "seaZone" && <span className="shrink-0 text-muted">{t("species.checklists.sea")}</span>}
       {alsoListed && (
-        <span className="shrink-0 text-muted" title="The catalog lists it there too">
-          (also listed)
+        <span className="shrink-0 text-muted" title={t("species.checklists.alsoListedTitle")}>
+          {t("species.checklists.alsoListed")}
         </span>
       )}
-      <button
-        type="button"
+      <IconButton
+        tone="plain"
         onClick={onRemove}
         disabled={removing}
-        aria-label={`Remove from ${checklistLabel(target)}`}
-        title={`Remove from ${checklistLabel(target)}`}
-        className="shrink-0 rounded px-1 leading-none text-muted hover:bg-surface-muted hover:text-ink disabled:opacity-50"
+        aria-label={t("species.checklists.removeFrom", { checklist: checklistLabel(target) })}
+        className="shrink-0 leading-none"
       >
         ×
-      </button>
+      </IconButton>
     </li>
   );
 }
@@ -89,6 +92,7 @@ export default function ChecklistAdditions({
   adding: boolean;
   onDoneAdding: () => void;
 }) {
+  const { t } = useTranslation();
   const toast = useToast();
   const { regions } = useRegions();
   const byId = useMemo(() => new Map((regions ?? []).map((r) => [r.id, r])), [regions]);
@@ -187,9 +191,9 @@ export default function ChecklistAdditions({
   return (
     <div className="mt-2 space-y-2">
       {hasAdditions && (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-          <span>Added by you to:</span>
-          <ul className="flex min-w-0 flex-wrap items-center gap-2" aria-label="Checklists you added this species to">
+        <div className="flex flex-wrap items-center gap-2 text-footnote text-muted">
+          <span>{t("species.checklists.addedByYou")}</span>
+          <ul className="flex min-w-0 flex-wrap items-center gap-2" aria-label={t("species.checklists.listLabel")}>
             {regionAdditions.map((a) => (
               <AdditionChip
                 key={a.regionId}
@@ -214,50 +218,42 @@ export default function ChecklistAdditions({
         </div>
       )}
       {adding && (
-        <div
-          className="space-y-3 rounded-lg border border-line bg-surface p-3 text-sm"
-          role="group"
-          aria-label="Add to another checklist"
-        >
-          <p className="text-xs text-muted">
-            Pick a country, a province or state, or a sea zone, to put {speciesName} on its checklist. It shows there
-            marked "Added by you".
-          </p>
-          <SegmentedControl value={mode} options={PICKER_MODES} onChange={setMode} />
+        <Panel className="space-y-3 text-callout" role="group" aria-label={t("species.detail.addToChecklist")}>
+          <p className="text-footnote text-muted">{t("species.checklists.pickHint", { species: speciesName })}</p>
+          <SegmentedControl
+            value={mode}
+            options={PICKER_MODES.map((m) => ({ ...m, label: t(m.label) }))}
+            onChange={setMode}
+          />
           {mode === "region" ? (
             <RegionBrowser regionId={regionId} onChange={setRegionId} allowAnyRegion />
           ) : seaZoneError ? (
-            <p className="text-xs text-muted">Couldn't load the sea zones. Close this and try again.</p>
+            <p className="text-footnote text-muted">{t("species.checklists.seaZonesFailed")}</p>
           ) : (
             <div className="space-y-2">
               <SearchInput
                 value={zoneSearch}
                 onChange={setZoneSearch}
-                placeholder={seaZones ? "Search sea zones…" : "Loading sea zones…"}
-                aria-label="Search sea zones"
+                placeholder={
+                  seaZones ? t("species.checklists.searchSeaZones") : t("species.checklists.loadingSeaZones")
+                }
+                aria-label={t("species.checklists.searchSeaZonesLabel")}
               />
               {zoneMatches.length > 0 && (
-                <ul className="flex flex-wrap gap-2" aria-label="Matching sea zones">
+                <ul className="flex flex-wrap gap-2" aria-label={t("species.checklists.matchingSeaZones")}>
                   {zoneMatches.map((z) => (
                     <li key={z.id} className="min-w-0 max-w-full">
-                      <button
-                        type="button"
-                        onClick={() => setZoneId(z.id)}
-                        aria-pressed={zoneId === z.id}
-                        className={`max-w-full truncate rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
-                          zoneId === z.id
-                            ? "border-accent bg-accent text-accent-fg"
-                            : "border-line bg-surface-muted text-ink hover:border-accent"
-                        }`}
-                      >
-                        {z.name}
-                      </button>
+                      <Pill size="sm" active={zoneId === z.id} onClick={() => setZoneId(z.id)} className="max-w-full">
+                        <span className="truncate">{z.name}</span>
+                      </Pill>
                     </li>
                   ))}
                 </ul>
               )}
               {seaZones && zoneSearch.trim() && zoneMatches.length === 0 && (
-                <p className="text-xs text-muted">No sea zone matches "{zoneSearch.trim()}".</p>
+                <p className="text-footnote text-muted">
+                  {t("species.checklists.noSeaZoneMatch", { query: zoneSearch.trim() })}
+                </p>
               )}
             </div>
           )}
@@ -269,18 +265,20 @@ export default function ChecklistAdditions({
               disabled={!target}
               loading={saving}
             >
-              <span className="truncate">{target ? `Add to ${target.name}` : "Add"}</span>
+              <span className="truncate">
+                {target ? t("species.checklists.addTo", { name: target.name }) : t("species.checklists.add")}
+              </span>
             </Button>
             <Button variant="secondary" size="sm" className="shrink-0" onClick={onDoneAdding}>
-              Cancel
+              {t("common.cancel")}
             </Button>
           </div>
           {mode === "region" && pickedRegion && !target && (
-            <p className="text-xs text-muted">
-              {pickedRegion.name} has no checklist of its own. Pick a country or a region inside one.
+            <p className="text-footnote text-muted">
+              {t("species.checklists.noChecklist", { region: pickedRegion.name })}
             </p>
           )}
-        </div>
+        </Panel>
       )}
     </div>
   );

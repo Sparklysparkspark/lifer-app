@@ -11,10 +11,15 @@
 //                server's URL, verified against its sha256.
 // GET  /status   { ready, downloading, downloadedBytes, totalBytes, error, pipelineVersion }
 // POST /embed    raw image bytes; ?targets=clip,clip-crop,id-crop. Returns clientVectors JSON.
+//                ?raw=1: the bytes are a camera RAW; its embedded preview is extracted the same
+//                way the server does (uploads/exif.ts) and that is what gets embedded, so the
+//                vectors carry the preview's hash, which is what the server keys a RAW by.
 // GET  /health   { ok: true }
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, statSync } from "node:fs";
+import { rm, writeFile } from "node:fs/promises";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EMBED_PIPELINE_VERSION } from "@lifer/shared";
@@ -28,15 +33,17 @@ import {
 } from "@lifer/core/species/clientVectors.js";
 import type { PhotoVectorKind } from "@lifer/core/species/embeddings.js";
 import {
-  DETECTOR_MODEL_PATH,
+  activeDetectorPath,
   analyzeImage,
   contentHash,
   inferenceRuntime,
+  useAnimalDetector,
   warmModels,
   type EmbedTarget,
 } from "@lifer/core/species/inference.js";
 import { placementFor } from "@lifer/core/species/acceleration.js";
 import { selectAcceleration } from "./accelerationSelect.js";
+import { extractEmbeddedPreview } from "../uploads/exif.js";
 
 const MAX_BODY_BYTES = 512 * 1024 * 1024;
 const MAX_JSON_BYTES = 64 * 1024;
@@ -56,7 +63,8 @@ export interface MatchingInfo {
   runtime: string;
   activeModel: string | null;
   targets: PhotoVectorKind[];
-  models: { clip: ModelRef; bioclip?: ModelRef; yolo: { version: string; sha256: string } };
+  /** `detector`: the animal detector the server crops with; without it, the basic one (`yolo`). */
+  models: { clip: ModelRef; bioclip?: ModelRef; yolo: { version: string; sha256: string }; detector?: ModelRef };
   dims: number;
 }
 
@@ -76,7 +84,7 @@ const state = {
   error: null as string | null,
 };
 
-let detectorSha: Promise<string> | null = null;
+let basicDetectorSha: Promise<string> | null = null;
 // A file already checked (by path, size and mtime) isn't hashed again.
 const verified = new Set<string>();
 
@@ -119,11 +127,15 @@ export function validateInfo(info: unknown): MatchingInfo {
 }
 
 async function prepare(info: MatchingInfo, dir: string): Promise<void> {
-  detectorSha ??= sha256OfFile(DETECTOR_MODEL_PATH);
-  // A different detector finds different crops, so its vectors wouldn't match the server's.
-  if ((await detectorSha) !== info.models.yolo.sha256)
-    throw new Error("This server uses a different animal detector than this app");
   mkdirSync(dir, { recursive: true });
+  // A different detector finds different crops, so its vectors wouldn't match the server's.
+  if (info.models.detector) useAnimalDetector(await ensureModel(dir, info.models.detector, () => {}));
+  else {
+    useAnimalDetector(null);
+    basicDetectorSha ??= sha256OfFile(activeDetectorPath());
+    if ((await basicDetectorSha) !== info.models.yolo.sha256)
+      throw new Error("This server uses a different animal detector than this app");
+  }
   const wanted: Array<[ModelRef, PhotoVectorKind[]]> = [];
   const clipKinds = info.targets.filter((k) => k === "clip" || k === "clip-crop");
   if (clipKinds.length > 0) wanted.push([info.models.clip, clipKinds]);
@@ -158,8 +170,8 @@ async function prepare(info: MatchingInfo, dir: string): Promise<void> {
     models: [
       {
         family: "detector",
-        cpuPath: DETECTOR_MODEL_PATH,
-        gpuPath: DETECTOR_MODEL_PATH,
+        cpuPath: activeDetectorPath(),
+        gpuPath: activeDetectorPath(),
         downloadGpuCopy: async () => {},
         dims: [1, 3, 640, 640],
       },
@@ -234,25 +246,22 @@ export async function embedForServer(
   const usable = kinds.filter((k, i) => KINDS.includes(k) && kinds.indexOf(k) === i && prepared.models[k]);
   const target = (k: PhotoVectorKind): EmbedTarget => targetFor(k, prepared.models);
   const hash = contentHash(bytes);
+  // The server ranks the crop with the whole photo (embeddings.ts suggestionVectors), so the
+  // identification model's whole-photo vector goes too, sparing the server that model run.
+  const withWhole = usable.includes("id-crop");
   const result =
     usable.length > 0
-      ? await analyzeImage(bytes, { targets: usable.map(target), key: hash, subject: true, priority: "interactive" })
+      ? await analyzeImage(bytes, {
+          targets: [...usable.map(target), ...(withWhole ? [{ ...target("id-crop"), crop: false }] : [])],
+          key: hash,
+          subject: true,
+          priority: "interactive",
+        })
       : null;
   const computed = new Map<PhotoVectorKind, Float32Array | { error: string }>(
     usable.map((k, i) => [k, result!.vectors[i]]),
   );
-  // The server backs an unsure crop with the whole photo (embeddings.ts suggestionVectors), so
-  // the identification model's whole-photo vector goes too, sparing the server that model run.
-  if (result?.subjectUnsure && prepared.models["id-crop"]) {
-    const [whole] = (
-      await analyzeImage(bytes, {
-        targets: [{ ...target("id-crop"), crop: false }],
-        key: hash,
-        priority: "interactive",
-      })
-    ).vectors;
-    computed.set("id", whole);
-  }
+  if (withWhole) computed.set("id", result!.vectors[usable.length]);
   const out: ClientVectors = { pipelineVersion: EMBED_PIPELINE_VERSION, contentHash: hash };
   if (result?.subjectUnsure != null) out.subjectUnsure = result.subjectUnsure;
   for (const [field, kind] of Object.entries(CLIENT_FIELD_KIND) as Array<
@@ -264,6 +273,17 @@ export async function embedForServer(
       out[field] = { modelVersion: model.version, b64f32: encodeVector(v) } satisfies EncodedVector;
   }
   return out;
+}
+
+/** The preview inside a RAW, read from a temporary copy since exiftool works on files. */
+export async function rawPreview(bytes: Buffer): Promise<Buffer | null> {
+  const tmp = path.join(os.tmpdir(), `lifer-raw-${randomUUID()}`);
+  try {
+    await writeFile(tmp, bytes);
+    return await extractEmbeddedPreview(tmp);
+  } finally {
+    await rm(tmp, { force: true }).catch(() => {});
+  }
 }
 
 function readBody(req: http.IncomingMessage, limit: number): Promise<Buffer> {
@@ -313,7 +333,9 @@ export function createLocalInferenceServer(opts: { token: string; modelDir: stri
         ) as PhotoVectorKind[];
         const bytes = await readBody(req, MAX_BODY_BYTES);
         if (bytes.length === 0) return send(res, 400, { error: "No image" });
-        return send(res, 200, await embedForServer(bytes, kinds, prepared));
+        const image = url.searchParams.get("raw") === "1" ? await rawPreview(bytes) : bytes;
+        if (!image) return send(res, 422, { error: "This RAW has no preview image to match on" });
+        return send(res, 200, await embedForServer(image, kinds, prepared));
       }
       return send(res, 404, { error: "Not found" });
     } catch (err) {

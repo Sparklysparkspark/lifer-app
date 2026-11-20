@@ -74,11 +74,12 @@ export function captureInfo(c: SpeciesCapture): NonNullable<LightboxSlide["info"
   };
 }
 
-export function deleteNoun(selected: SpeciesCapture[]): "file" | "video" | "photo" | "RAW" {
+export function deleteNoun(selected: SpeciesCapture[]): "file" | "video" | "photo" | "RAW" | "recording" {
   return mediaNoun(
     selected.some((c) => c.photo_kind === "video"),
-    selected.some((c) => c.photo_kind !== "video"),
+    selected.some((c) => c.photo_kind !== "video" && c.photo_kind !== "audio"),
     selected.length > 0 && selected.every((c) => c.original_kind === "raw"),
+    selected.some((c) => c.photo_kind === "audio"),
   );
 }
 

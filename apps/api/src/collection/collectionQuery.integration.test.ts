@@ -33,6 +33,8 @@ const OLD_SQL = (maxDepthM: number) => `SELECT
            s.id AS species_id,
            s.scientific_name,
            s.common_name,
+           s.aba_code,
+           s.ebird_code,
            s.taxon_class,
            s.family,
            s.taxon_order,
@@ -202,7 +204,12 @@ describe.skipIf(!url)("collection query rewrite", () => {
         await db.query(collectionQuerySql(maxDepthM), [USER, taxa, hideObscure]),
       ];
       expect(newRes.rows.length).toBe(oldRes.rows.length);
-      expect(newRes.rows).toEqual(oldRes.rows);
+      // `heard`, `needs_better_photo` and `suggested` are new since the old query; nothing here has any.
+      expect(newRes.rows.every((r) => r.heard === false && r.suggested === false)).toBe(true);
+      expect(newRes.rows.every((r) => !r.needs_better_photo)).toBe(true);
+      expect(
+        newRes.rows.map(({ heard: _heard, needs_better_photo: _nb, suggested: _s, ...rest }) => rest),
+      ).toEqual(oldRes.rows);
     }
     const res = await db.query(collectionQuerySql(60), [USER, null, true]);
     const byId = new Map(res.rows.map((r) => [r.species_id, r]));
@@ -220,7 +227,7 @@ describe.skipIf(!url)("collection query rewrite", () => {
     for (const [taxa, hideObscure, maxDepthM] of combos) {
       const oldRes = await db.query(OLD_COUNT_SQL(maxDepthM), [USER, taxa, hideObscure]);
       const newRes = await db.query(collectionCountSql(maxDepthM), [USER, taxa, hideObscure]);
-      expect(newRes.rows).toEqual(oldRes.rows);
+      expect(newRes.rows.map(({ suggested, ...rest }) => (expect(suggested).toBe("0"), rest))).toEqual(oldRes.rows);
     }
   }, 180_000);
 

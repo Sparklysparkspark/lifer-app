@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLatest } from "../../hooks/useLatest";
 import type { CollectionItem, RegionSpeciesResponse, RegionSpeciesResult, RegionStats } from "@lifer/shared";
-import { api } from "../../api/client";
+import { api, apiPath } from "../../api/client";
 import { onAccountReset } from "../../lib/resource";
 import { useUploadQueue } from "../../lib/uploadQueue";
+import { usePackDownloadStatus } from "../../hooks/usePackDownloadStatus";
 import type { SpeciesChange } from "../../components/SpeciesCard";
 import type { TaxonFilter } from "./taxonLabels";
+import type { PhotographedIn } from "./useCollectionDisplayPrefs";
 
 type RegionMeta = RegionSpeciesResult["region"];
 interface Counts {
@@ -23,8 +25,20 @@ interface CollectionCacheEntry {
 const collectionCache = new Map<string, CollectionCacheEntry>();
 onAccountReset(() => collectionCache.clear());
 
-function cacheKey(regionId: string | null, taxonRaw: string, seaZoneIds: string[], includeLand: boolean): string {
-  return JSON.stringify([regionId, taxonRaw.split(",").filter(Boolean).sort(), [...seaZoneIds].sort(), includeLand]);
+function cacheKey(
+  regionId: string | null,
+  taxonRaw: string,
+  seaZoneIds: string[],
+  includeLand: boolean,
+  photographedIn: PhotographedIn,
+): string {
+  return JSON.stringify([
+    regionId,
+    taxonRaw.split(",").filter(Boolean).sort(),
+    [...seaZoneIds].sort(),
+    includeLand,
+    photographedIn,
+  ]);
 }
 
 /** The region last picked in the Collection (or an import), the app-wide default region. */
@@ -46,6 +60,7 @@ export function useCollectionData({
   regionKnownHub,
   firstRunPrompt,
   ready,
+  photographedIn = "anywhere",
 }: {
   regionId: string | null;
   taxonRaw: string;
@@ -57,11 +72,13 @@ export function useCollectionData({
   firstRunPrompt: boolean;
   // False until the region list is in and the region to show is decided.
   ready: boolean;
+  // Only a region's checklist has a country to scope to; the server maps it to the page's places.
+  photographedIn?: PhotographedIn;
 }) {
   // Arriving from the nav has no ?region= yet (it's restored after the first render), so the
   // cache is looked up by the region about to be restored.
   const [initial] = useState(() =>
-    collectionCache.get(cacheKey(regionId ?? storedLastRegionId(), taxonRaw, seaZoneIds, includeLand)),
+    collectionCache.get(cacheKey(regionId ?? storedLastRegionId(), taxonRaw, seaZoneIds, includeLand, photographedIn)),
   );
   const [items, setItemsState] = useState<CollectionItem[] | null>(initial?.items ?? null);
   const [regionMeta, setRegionMeta] = useState<RegionMeta | null>(initial?.regionMeta ?? null);
@@ -79,10 +96,11 @@ export function useCollectionData({
   const [quickCount, setQuickCount] = useState<Counts | null>(null);
   // For a hub: which downloaded countries it aggregated, to tell "none downloaded" from "no match".
   const [downloadedHubCountryNames, setDownloadedHubCountryNames] = useState<string[]>([]);
-  const [loadError, setLoadError] = useState(false);
+  // What the last load threw; null once one succeeds.
+  const [loadError, setLoadError] = useState<unknown>(null);
 
   const itemsRef = useRef(items);
-  const currentKey = cacheKey(regionId, taxonRaw, seaZoneIds, includeLand);
+  const currentKey = cacheKey(regionId, taxonRaw, seaZoneIds, includeLand, photographedIn);
   const currentKeyRef = useLatest(currentKey);
 
   const replaceItems = useCallback(
@@ -100,11 +118,13 @@ export function useCollectionData({
   const seaZoneQuery = seaZonesRelevant && seaZoneIds.length > 0 ? `seaZoneIds=${seaZoneIds.join(",")}` : "";
   const includeLandQuery = seaZoneQuery && !includeLand ? "includeLand=0" : "";
   const taxonQuery = taxonRaw ? `taxon=${taxonRaw.split(",").filter(Boolean).join(",")}` : "";
+  const photographedInQuery =
+    regionId && !regionKnownHub && photographedIn !== "anywhere" ? `photographedIn=${photographedIn}` : "";
 
   // Clears what the previous list showed before a new one loads. A hub's bar and map are cleared
   // too, so the previous region's don't linger until the list arrives.
   const resetForLoad = useCallback(() => {
-    setLoadError(false);
+    setLoadError(null);
     setQuickCount(null);
     setNeedsPackFor(null);
     setTaxonPackMissingFor(null);
@@ -119,7 +139,14 @@ export function useCollectionData({
   const fetchList = useCallback(() => {
     const generation = ++loadGeneration.current;
     const current = () => generation === loadGeneration.current;
-    const key = cacheKey(regionId, taxonRaw, seaZoneIds, includeLand);
+    const key = cacheKey(regionId, taxonRaw, seaZoneIds, includeLand, photographedIn);
+    // Offline or unreachable: this list as last loaded beats an error, if it was ever loaded.
+    const failed = (err: unknown) => {
+      if (!current()) return;
+      const cached = collectionCache.get(key);
+      if (cached) replaceItems(cached.items, cached.regionMeta, cached.regionStats);
+      else setLoadError(err ?? new Error("load failed"));
+    };
 
     if (regionId && regionKnownHub) {
       // A hub aggregates the checklists of its downloaded countries.
@@ -132,13 +159,11 @@ export function useCollectionData({
           replaceItems(res.items, null, null, key);
           setDownloadedHubCountryNames(res.downloadedCountryNames);
         })
-        .catch(() => {
-          if (current()) setLoadError(true);
-        });
+        .catch(failed);
     } else if (regionId) {
-      const query = `${taxonQuery}&${seaZoneQuery}&${includeLandQuery}`;
+      const query = `${taxonQuery}&${seaZoneQuery}&${includeLandQuery}&${photographedInQuery}`;
       api
-        .get<Counts>(`/regions/${regionId}/species/count?${query}`)
+        .get(apiPath("/regions/{id}/species/count", { id: regionId }, new URLSearchParams(query)))
         .then((res) => {
           if (current()) setQuickCount(res);
         })
@@ -153,13 +178,11 @@ export function useCollectionData({
             setTaxonPackMissingFor({ id: res.region.id, name: res.region.name, taxon: singleTaxonFilter });
           }
         })
-        .catch(() => {
-          if (current()) setLoadError(true);
-        });
+        .catch(failed);
     } else if (!firstRunPrompt) {
       const query = taxonQuery ? `?${taxonQuery}` : "";
       api
-        .get<Counts>(`/collection/count${query}`)
+        .get(apiPath("/collection/count", {}, new URLSearchParams(query)))
         .then((res) => {
           if (current()) setQuickCount(res);
         })
@@ -169,16 +192,15 @@ export function useCollectionData({
         .then((res) => {
           if (current()) replaceItems(res.items, null, null, key);
         })
-        .catch(() => {
-          if (current()) setLoadError(true);
-        });
+        .catch(failed);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- taxonRaw, seaZoneIds and includeLand reach the request through the query strings; the cache key follows them
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- taxonRaw, seaZoneIds, includeLand and photographedIn reach the request through the query strings; the cache key follows them
   }, [
     regionId,
     taxonQuery,
     seaZoneQuery,
     includeLandQuery,
+    photographedInQuery,
     firstRunPrompt,
     regionKnownHub,
     singleTaxonFilter,
@@ -199,6 +221,7 @@ export function useCollectionData({
         taxonQuery,
         seaZoneQuery,
         includeLandQuery,
+        photographedInQuery,
         firstRunPrompt,
         regionKnownHub,
         singleTaxonFilter ?? null,
@@ -215,8 +238,9 @@ export function useCollectionData({
 
   // The import screen hands back here while photos are still uploading. Each finished upload
   // reloads quietly, at most every 1.5s so a big batch doesn't reload once per photo.
-  const { jobs: uploadJobs } = useUploadQueue();
-  const finishedUploads = uploadJobs.filter((j) => j.done && !j.error && !j.skipped).length;
+  const { jobs: uploadJobs, removals } = useUploadQueue();
+  // An undo after the upload removes photos again: also a change worth a reload.
+  const finishedUploads = uploadJobs.filter((j) => j.done && !j.error && !j.skipped).length + removals;
   const latestLoad = useLatest(load);
   const uploadReloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -232,6 +256,17 @@ export function useCollectionData({
     },
     [],
   );
+
+  // Packs set up in the background (onboarding lets the user in after the first) bring species
+  // and photos: reload as each lands.
+  const lanes = usePackDownloadStatus()?.lanes;
+  const packsLanded = (lanes?.setup.processed ?? 0) + (lanes?.photos.processed ?? 0);
+  const lastPacksLanded = useRef(packsLanded);
+  useEffect(() => {
+    const grew = packsLanded > lastPacksLanded.current;
+    lastPacksLanded.current = packsLanded;
+    if (grew && ready) latestLoad.current();
+  }, [packsLanded, ready, latestLoad]);
 
   // A card or bulk action changed some rows: patch them (and the header counts) in place
   // instead of refetching the whole checklist.

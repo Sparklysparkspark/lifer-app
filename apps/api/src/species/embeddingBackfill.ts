@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from "pg";
 import { pool } from "@lifer/core/db.js";
 import {
   isInferenceStuck,
+  isModelDownloaded,
   photoVector,
   refreshSpeciesVectors,
   storeCaptureEmbedding,
@@ -13,6 +14,9 @@ import { EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION, SCENE_MODEL_VERSION } from "
 import { idModel } from "@lifer/core/species/idModel.js";
 import { sceneModel, storeCaptureScene } from "@lifer/core/species/sceneModel.js";
 import { createJob } from "../lib/job.js";
+import { countCaptureSubjects } from "./detectAndCrop.js";
+import { runFrameBackfill } from "./frames.js";
+import { log } from "@lifer/core/lib/log.js";
 
 export const embeddingBackfillJob = createJob("embedding-backfill");
 
@@ -38,7 +42,7 @@ export async function runEmbeddingBackfill(): Promise<void> {
     let processed = 0;
     for (const row of missingRes.rows) {
       // Stop rather than queue thousands of calls behind a hung native inference.
-      if (isInferenceStuck()) throw new Error("Stopped: species matching is stuck on an earlier photo");
+      if (isInferenceStuck()) throw new Error("Stopped: species recognition is stuck on an earlier photo");
       try {
         await backfillOne(row.id, row.display_path);
       } catch {
@@ -70,7 +74,7 @@ export async function runSpeciesEmbeddingBackfill(): Promise<void> {
     const stored: string[] = [];
     try {
       for (const row of missingRes.rows) {
-        if (isInferenceStuck()) throw new Error("Stopped: species matching is stuck on an earlier photo");
+        if (isInferenceStuck()) throw new Error("Stopped: species recognition is stuck on an earlier photo");
         try {
           const embedding = await photoVector("clip", { path: row.reference_display_path }, { priority: "background" });
           await pool.query(
@@ -193,4 +197,45 @@ export async function runSceneBackfill(): Promise<void> {
     return null;
   });
   await sceneBackfillJob.settled();
+}
+
+// Animal counts for Gallery search, for captures imported before counting existed or without the
+// upload path. Only uncounted captures; the detector ships with the app, so no model check.
+export const subjectCountBackfillJob = createJob("subject-count-backfill");
+
+export async function runSubjectCountBackfill(): Promise<void> {
+  subjectCountBackfillJob.start(async (ctx) => {
+    const captures = await pool.query<{ id: string; display_path: string }>(
+      `SELECT c.id, p.display_path
+       FROM captures c
+       JOIN photos p ON p.id = c.current_photo_id
+       WHERE c.subject_count IS NULL AND p.display_path IS NOT NULL`,
+    );
+    ctx.update({ total: captures.rows.length, processed: 0 });
+
+    let processed = 0;
+    for (const row of captures.rows) {
+      if (isInferenceStuck()) throw new Error("Stopped: the animal detector is stuck on an earlier photo");
+      try {
+        await countCaptureSubjects(row.id, { path: row.display_path }, "background");
+      } catch {
+        // one unreadable display file shouldn't stop the whole backfill
+      }
+      ctx.update({ processed: ++processed });
+    }
+    return null;
+  });
+  await subjectCountBackfillJob.settled();
+}
+
+/** Photos added without the upload path (a library reimport) get their search and suggestion
+ *  vectors and scene reading here. Only what's missing is computed. */
+export function catchUpPhotoBackfills(): void {
+  if (!isModelDownloaded()) return;
+  runEmbeddingBackfill()
+    .then(() => runIdEmbeddingBackfill())
+    .then(() => runSceneBackfill())
+    .then(() => runSubjectCountBackfill())
+    .then(() => runFrameBackfill())
+    .catch((err) => log.warn({ err }, "Photo vector catch-up after import failed"));
 }

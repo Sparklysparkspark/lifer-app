@@ -1,3 +1,10 @@
+/** One camera, lens or place with its photo count; the list is capped, so `count` of the matching
+ *  total can exceed its length. */
+export interface NamedCount {
+  name: string;
+  count: number;
+}
+
 // GET /api/species/:id/encounters: photos vs encounters vs locations summary.
 export interface EncountersResponse {
   totalPhotos: number;
@@ -6,6 +13,9 @@ export interface EncountersResponse {
   locationCount: number;
   cameraCount: number;
   lensCount: number;
+  locations: NamedCount[];
+  cameras: NamedCount[];
+  lenses: NamedCount[];
   firstPhotographedAt: string | null;
   lastPhotographedAt: string | null;
 }
@@ -23,6 +33,7 @@ export interface UnmatchedRaw {
 // species.habitat_notes / identification_notes (migration 140) and summary_notes (migration 143).
 export interface SpeciesNotes {
   sections: { heading: string; bullets: string[] }[];
+  credit?: string | null;
   source_url: string | null;
   revision_id: number | null;
 }
@@ -77,6 +88,7 @@ export interface SpeciesDetail {
   userSpecies: {
     state: "collected" | "seen" | null;
     is_target: boolean;
+    needs_better_photo?: boolean;
     cover_photo_id: string | null;
     card_crop_x: string | number | null;
     card_crop_y: string | number | null;
@@ -129,9 +141,10 @@ export interface SpeciesCapture {
   iso: number | null;
   quality_rating: number | null;
   tags: string[];
-  photo_kind: "image" | "video" | null;
+  photo_kind: "image" | "video" | "audio" | null;
   duration_seconds: number | null;
   original_ref: string | null;
+  inat_observation_id: string | null;
   original_managed: boolean | null;
   original_kind: string | null;
   original_available: boolean | null;
@@ -141,6 +154,9 @@ export interface SpeciesCapture {
   raw_ref: string | null;
   region_id: string | null;
   region_name: string | null;
+  trip_id?: string | null;
+  lat?: number | string | null;
+  lon?: number | string | null;
   // Free-text place name nested under region_id ("Prince George" under British Columbia).
   location_label: string | null;
 }

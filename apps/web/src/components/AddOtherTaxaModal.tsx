@@ -1,11 +1,13 @@
+import ProgressiveImg from "./ProgressiveImg";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { JobStatus } from "@lifer/shared";
-import { api } from "../api/client";
+import { api, apiPath } from "../api/client";
 import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
 import { useJobPoll } from "../hooks/useJobPoll";
 import { useRegions } from "../hooks/useRegions";
+import { useToast } from "../hooks/useToast";
 import { regionHasChecklist } from "../lib/checklistAdditions";
 import { errorMessage } from "../lib/errorMessage";
 import { backStateFor } from "../lib/backLabel";
@@ -17,7 +19,10 @@ import RegionBrowser from "./RegionBrowser";
 import SearchInput from "./SearchInput";
 import { formatList } from "../lib/format";
 import { useSpeciesName } from "../lib/speciesName";
-import type { SpeciesResult } from "./SpeciesPicker";
+import type { SpeciesResult } from "./speciesResult";
+import { TextArea } from "./TextField";
+import Checkbox from "./Checkbox";
+import SegmentedControl from "./SegmentedControl";
 
 interface InatSearchResult {
   inatTaxonId: number;
@@ -34,6 +39,8 @@ type BulkJobStatus = JobStatus & {
 };
 
 const NO_RESULTS: InatSearchResult[] = [];
+// Scientific names read the same in every language.
+const BULK_PLACEHOLDER = "Apis mellifera\nBombus impatiens\n...";
 
 // The "any taxa" search: adds a species from iNaturalist (taxa Lifer has no dataset for) to one
 // region's checklist under Other Taxa, as your own checklist addition. Any country or province
@@ -50,7 +57,9 @@ export default function AddOtherTaxaModal({
   /** Hands the added species back (the import screen assigns it) instead of opening its page. */
   onAdded?: (species: SpeciesResult) => void;
 }) {
+  const { t } = useTranslation();
   const speciesName = useSpeciesName();
+  const toast = useToast();
   const [mode, setMode] = useState<"search" | "bulk">("search");
   const [query, setQuery] = useState(initialQuery);
   // Tagged with the query they answer: any other query is still searching, and the last list stays
@@ -68,15 +77,13 @@ export default function AddOtherTaxaModal({
   const pickedRegion = regionId ? regionsById.get(regionId) : undefined;
   const regionOk = regionHasChecklist(pickedRegion, regionsById);
   const regionHint = pickedRegion && !regionOk && (
-    <p className="mt-2 text-xs text-muted">
-      {pickedRegion.name} has no checklist of its own. Pick a country, or a province or state inside one.
-    </p>
+    <p className="mt-2 text-footnote text-muted">{t("otherTaxa.noChecklist", { region: pickedRegion.name })}</p>
   );
   const [adding, setAdding] = useState(false);
+  const [markSeen, setMarkSeen] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const { t } = useTranslation();
 
   const [bulkText, setBulkText] = useState("");
   const bulkJob = useJobPoll<BulkJobStatus>("/species/other-taxa/bulk/status");
@@ -129,93 +136,117 @@ export default function AddOtherTaxaModal({
         inatTaxonId: selected.inatTaxonId,
         regionId,
       });
+      // With onAdded the caller decides (a photo being assigned, or a dialog that marks it itself).
+      if (!onAdded && markSeen)
+        await api
+          .patch(apiPath("/species/{id}/seen", { id: res.speciesId }))
+          .catch(() => toast.error(t("otherTaxa.markSeenFailed", { name: speciesName(selected) })));
       onClose();
       if (onAdded)
         onAdded({ id: res.speciesId, scientific_name: selected.scientificName, common_name: selected.commonName });
       else navigate(`/species/${res.speciesId}`, { state: backStateFor(location, t) });
     } catch (err) {
-      setError(errorMessage(err, "Couldn't add that species"));
+      setError(errorMessage(err, t("otherTaxa.addFailed")));
     } finally {
       setAdding(false);
     }
   }
 
   return (
-    <Modal open onClose={onClose} title="Search iNaturalist" size="lg">
-      <p className="mb-3 text-xs text-muted">
-        For species Lifer has no data for, like insects, plants and fungi. They get a photo and description from
-        iNaturalist, but no tier or occurrence data.
-      </p>
-
-      <div className="mb-3 flex gap-1 rounded-md border border-line p-0.5 text-sm">
-        <button
-          type="button"
-          onClick={() => setMode("search")}
-          className={`flex-1 rounded px-2 py-1 ${mode === "search" ? "bg-surface-muted font-medium text-ink" : "text-muted"}`}
-        >
-          One species
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode("bulk")}
-          className={`flex-1 rounded px-2 py-1 ${mode === "bulk" ? "bg-surface-muted font-medium text-ink" : "text-muted"}`}
-        >
-          Import a list
-        </button>
+    <Modal
+      open
+      onClose={onClose}
+      title={t("otherTaxa.title")}
+      description={t("otherTaxa.intro")}
+      footer={
+        mode === "bulk" ? (
+          <>
+            <Button variant="secondary" onClick={onClose}>
+              {t("otherTaxa.close")}
+            </Button>
+            <Button
+              onClick={startBulkImport}
+              disabled={!regionOk || bulkText.trim().length === 0 || bulkStatus?.running}
+            >
+              {bulkStatus?.running ? t("otherTaxa.importingEllipsis") : t("otherTaxa.startImport")}
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="secondary" onClick={onClose}>
+              {t("common.cancel")}
+            </Button>
+            {selected && (
+              <Button onClick={confirmAdd} disabled={!regionOk} loading={adding}>
+                {adding ? t("otherTaxa.adding") : t("otherTaxa.addSpecies")}
+              </Button>
+            )}
+          </>
+        )
+      }
+    >
+      <div className="mb-3">
+        <SegmentedControl
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: "search", label: t("otherTaxa.oneSpecies") },
+            { value: "bulk", label: t("otherTaxa.importList") },
+          ]}
+        />
       </div>
 
       {mode === "bulk" ? (
         <>
-          <p className="mb-2 text-xs text-muted">
-            One species per line. Scientific names work best; common names and iNaturalist taxon IDs also work.
-          </p>
-          <textarea
+          <p className="mb-2 text-footnote text-muted">{t("otherTaxa.bulkHint")}</p>
+          <TextArea
             value={bulkText}
             onChange={(e) => setBulkText(e.target.value)}
-            placeholder={"Apis mellifera\nBombus impatiens\n..."}
+            placeholder={BULK_PLACEHOLDER}
             rows={6}
             disabled={bulkStatus?.running}
-            className="mb-3 w-full rounded-md border border-line px-3 py-1.5 font-mono text-xs disabled:opacity-50"
+            className="mb-3 font-mono"
           />
-          <p className="mb-2 text-xs text-muted">Which region should these appear under?</p>
-          <RegionBrowser regionId={regionId} onChange={setRegionId} allowAnyRegion />
+          <p className="mb-2 text-footnote text-muted">{t("otherTaxa.whichRegionMany")}</p>
+          <RegionBrowser
+            regionId={regionId}
+            onChange={setRegionId}
+            allowAnyRegion
+            suggestedRegionIds={[initialRegionId]}
+          />
           {regionHint}
           <FormMessage error={bulkJob.actionError} className="mt-2" />
           {bulkStatus && (
-            <div className="mt-3 space-y-2 border-t border-line pt-3 text-xs text-muted">
+            <div className="mt-3 space-y-2 border-t border-line pt-3 text-footnote text-muted">
               {bulkStatus.running && (
                 <JobProgress
                   status={bulkStatus}
-                  phases={{ importing: { label: "Importing", progress: "count" } }}
+                  phases={{ importing: { label: t("otherTaxa.importing"), progress: "count" } }}
                   onCancel={() => void bulkJob.cancel("/species/other-taxa/bulk/cancel")}
                   cancelling={bulkJob.cancelling}
                 />
               )}
               <p>
-                {bulkStatus.running ? "" : bulkStatus.cancelled ? "Cancelled. " : "Done. "}
-                {bulkStatus.added} added, {bulkStatus.alreadyPresent} already on the list
-                {bulkStatus.notFound.length > 0 && `, ${bulkStatus.notFound.length} not found`}.
+                {bulkStatus.running
+                  ? ""
+                  : `${bulkStatus.cancelled ? t("otherTaxa.bulkCancelled") : t("otherTaxa.bulkDone")} `}
+                {bulkStatus.notFound.length > 0
+                  ? t("otherTaxa.bulkSummaryNotFound", {
+                      added: bulkStatus.added,
+                      alreadyPresent: bulkStatus.alreadyPresent,
+                      notFound: bulkStatus.notFound.length,
+                    })
+                  : t("otherTaxa.bulkSummary", { added: bulkStatus.added, alreadyPresent: bulkStatus.alreadyPresent })}
               </p>
               {!bulkStatus.running && bulkStatus.notFound.length > 0 && (
                 <p className="mt-1">
-                  Not found on iNaturalist: <span className="italic">{formatList(bulkStatus.notFound, "unit")}</span>
+                  {t("otherTaxa.notFoundList")}{" "}
+                  <span className="italic">{formatList(bulkStatus.notFound, "unit")}</span>
                 </p>
               )}
               <FormMessage error={bulkStatus.error} className="mt-1" />
             </div>
           )}
-          <div className="mt-3 flex justify-end gap-2">
-            <Button variant="secondary" size="sm" onClick={onClose}>
-              Close
-            </Button>
-            <Button
-              size="sm"
-              onClick={startBulkImport}
-              disabled={!regionOk || bulkText.trim().length === 0 || bulkStatus?.running}
-            >
-              {bulkStatus?.running ? "Importing…" : "Start import"}
-            </Button>
-          </div>
         </>
       ) : !selected ? (
         <>
@@ -223,64 +254,67 @@ export default function AddOtherTaxaModal({
             value={query}
             onChange={setQuery}
             autoFocus
-            placeholder="Scientific or common name…"
+            placeholder={t("otherTaxa.searchPlaceholder")}
             className="mb-3"
           />
-          {searching && <p className="text-xs text-muted">Searching…</p>}
+          {searching && <p className="text-footnote text-muted">{t("otherTaxa.searching")}</p>}
           <ul className="space-y-1">
             {results.map((r) => (
               <li key={r.inatTaxonId}>
+                {/* raw-control: a row of the search results. */}
                 <button
                   type="button"
                   onClick={() => setSelected(r)}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-muted"
+                  className="flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left text-callout hover:bg-surface-muted"
                 >
                   {r.thumbnailUrl ? (
-                    <img src={r.thumbnailUrl} alt="" loading="lazy" className="h-8 w-8 rounded object-cover" />
+                    <ProgressiveImg thumbSrc={r.thumbnailUrl} alt="" className="h-8 w-8 rounded-badge object-cover" />
                   ) : (
-                    <span className="h-8 w-8 rounded bg-surface-muted" />
+                    <span className="h-8 w-8 rounded-badge bg-surface-muted" />
                   )}
                   <span>
                     <span className="font-medium text-ink">{speciesName(r)}</span>{" "}
                     <span className="italic text-muted">{r.scientificName}</span>
-                    {r.iconicTaxon && <span className="ml-1.5 text-xs text-muted">· {r.iconicTaxon}</span>}
+                    {r.iconicTaxon && <span className="ml-1.5 text-footnote text-muted">· {r.iconicTaxon}</span>}
                   </span>
                 </button>
               </li>
             ))}
             {!searching && query.trim().length >= 2 && results.length === 0 && (
-              <li className="px-2 py-1.5 text-sm text-muted">No matches on iNaturalist.</li>
+              <li className="px-2 py-1.5 text-callout text-muted">{t("otherTaxa.noMatches")}</li>
             )}
           </ul>
         </>
       ) : (
         <>
-          <div className="mb-3 flex items-center gap-2 border-b border-line pb-3 text-sm">
+          <div className="mb-3 flex items-center gap-2 border-b border-line pb-3 text-callout">
             {selected.thumbnailUrl ? (
-              <img src={selected.thumbnailUrl} alt="" className="h-8 w-8 rounded object-cover" />
+              <img src={selected.thumbnailUrl} alt="" className="h-8 w-8 rounded-badge object-cover" />
             ) : (
-              <span className="h-8 w-8 rounded bg-surface-muted" />
+              <span className="h-8 w-8 rounded-badge bg-surface-muted" />
             )}
             <span>
               <span className="font-medium text-ink">{speciesName(selected)}</span>{" "}
               <span className="italic text-muted">{selected.scientificName}</span>
             </span>
             <Button variant="ghost" size="sm" onClick={() => setSelected(null)} className="ml-auto">
-              Change
+              {t("otherTaxa.change")}
             </Button>
           </div>
-          <p className="mb-2 text-xs text-muted">Which region should this appear under?</p>
-          <RegionBrowser regionId={regionId} onChange={setRegionId} allowAnyRegion />
+          <p className="mb-2 text-footnote text-muted">{t("otherTaxa.whichRegionOne")}</p>
+          <RegionBrowser
+            regionId={regionId}
+            onChange={setRegionId}
+            allowAnyRegion
+            suggestedRegionIds={[initialRegionId]}
+          />
           {regionHint}
+          {!onAdded && (
+            <Checkbox checked={markSeen} onChange={setMarkSeen} className="mt-3">
+              {t("otherTaxa.markSeen")}
+            </Checkbox>
+          )}
           <FormMessage error={error} className="mt-2" />
-          <div className="mt-3 flex justify-end gap-2">
-            <Button variant="secondary" size="sm" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={confirmAdd} disabled={!regionOk} loading={adding}>
-              {adding ? "Adding…" : "Add species"}
-            </Button>
-          </div>
         </>
       )}
     </Modal>

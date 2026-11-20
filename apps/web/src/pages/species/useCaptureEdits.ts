@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
+import { matches } from "../../lib/keymap";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { api, apiPath, ApiError } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import type { useSelectMode } from "../../hooks/useSelectMode";
 import type { SpeciesCapture } from "./types";
 import { ignore } from "../../lib/ignore";
+import { useSpeciesName } from "../../lib/speciesName";
+import type { SpeciesResult } from "../../components/SpeciesPicker";
 
 function errorText(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
@@ -28,6 +32,8 @@ export function useCaptureEdits({
 }) {
   const { t } = useTranslation();
   const toast = useToast();
+  const navigate = useNavigate();
+  const speciesName = useSpeciesName();
   const { selectMode, selectedIds, setSelectedIds, clear: clearSelection, exit: exitSelect } = select;
   const [tagOptions, setTagOptions] = useState<string[]>([]);
   const [bulkTags, setBulkTags] = useState<string[]>([]);
@@ -83,46 +89,79 @@ export function useCaptureEdits({
     [addTagOptions, updateCaptures, toast, load, t],
   );
 
-  const setCaptureLocation = useCallback(
-    async (captureId: string, locationLabel: string, regionId: string | null) => {
-      updateCaptures([captureId], () => ({ location_label: locationLabel.trim() || null, region_id: regionId }));
-      try {
-        await api.patch(apiPath("/captures/{id}/region", { id: captureId }), { locationLabel, regionId });
-      } catch (err) {
-        toast.error(errorText(err, t("species.edits.locationFailed")));
-      }
-      // Region names come from the server.
-      load();
-    },
-    [updateCaptures, toast, load, t],
-  );
+  // shortcut: one PATCH per photo, fine for an interactive selection; add a batch endpoint if it's slow.
+  async function rateSelected(rating: number | null) {
+    const ids = [...selectedIds];
+    updateCaptures(ids, () => ({ quality_rating: rating }));
+    const results = await Promise.allSettled(
+      ids.map((captureId) => api.patch(apiPath("/captures/{id}/rating", { id: captureId }), { rating })),
+    );
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed > 0) toast.error(t("species.edits.rateSomeFailed", { failed, total: ids.length }));
+    load();
+  }
 
-  async function setCover(photoId: string) {
+  async function hide(captureIds: string[]) {
+    closeMenu();
+    try {
+      const res = await api.post("/captures/hide", { captureIds });
+      if (selectMode) exitSelectMode();
+      load();
+      const undo = () =>
+        void api
+          .post("/captures/unhide", { captureIds })
+          // Put back the featured photos the hide moved off.
+          .then(() =>
+            Promise.allSettled(
+              res.covers.map((c) =>
+                api.patch(apiPath("/species/{id}/cover", { id: c.speciesId }), { photoId: c.photoId }),
+              ),
+            ),
+          )
+          .then(load)
+          .catch((err) => toast.error(errorText(err, t("species.edits.unhideFailed"))));
+      toast.show(
+        captureIds.length === 1 ? t("species.edits.hidden") : t("species.edits.hiddenMany", { count: res.hidden }),
+        { tone: "success", actions: [{ label: t("species.edits.undo"), onClick: undo }] },
+      );
+    } catch (err) {
+      toast.error(errorText(err, t("species.edits.hideFailed")));
+    }
+  }
+
+  // shortcut: undo moves the photos back to this page's species, which for a photo listed here only
+  // as "also features" was a secondary tag, not its species; send the old species if that matters.
+  function showMoved(captureIds: string[], to: SpeciesResult) {
+    const undo = () =>
+      void Promise.allSettled(
+        captureIds.map((id) => api.patch(apiPath("/captures/{id}/reassign", { id }), { speciesId })),
+      ).then((results) => {
+        if (results.some((r) => r.status === "rejected")) toast.error(t("species.edits.moveBackFailed"));
+        load();
+      });
+    const name = speciesName(to);
+    toast.show(
+      captureIds.length === 1
+        ? t("species.edits.movedTo", { species: name })
+        : t("species.edits.movedMany", { count: captureIds.length, species: name }),
+      {
+        tone: "success",
+        actions: [
+          { label: t("species.edits.view"), onClick: () => navigate(`/species/${to.id}`) },
+          { label: t("species.edits.undo"), onClick: undo },
+        ],
+      },
+    );
+  }
+
+  // Null goes back to the automatic choice.
+  async function setCover(photoId: string | null) {
     closeMenu();
     try {
       await api.patch(apiPath("/species/{id}/cover", { id: speciesId }), { photoId });
       load();
     } catch (err) {
       toast.error(errorText(err, t("species.edits.featuredFailed")));
-    }
-  }
-
-  async function revealInFinder(path: string) {
-    closeMenu();
-    try {
-      await api.post("/originals/reveal", { path });
-    } catch {
-      toast.error(t("species.edits.revealFailed"));
-    }
-  }
-
-  async function copyPath(path: string) {
-    closeMenu();
-    try {
-      await navigator.clipboard.writeText(path);
-      toast.success(t("species.edits.pathCopied"));
-    } catch {
-      toast.error(t("species.edits.copyPathFailed"));
     }
   }
 
@@ -137,31 +176,33 @@ export function useCaptureEdits({
     }
   }
 
-  async function reassignSpecies(captureId: string, newSpeciesId: string) {
+  async function reassignSpecies(captureId: string, to: SpeciesResult) {
     closeMenu();
     setReassignError(null);
     try {
-      await api.patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: newSpeciesId });
+      await api.patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: to.id });
       load();
+      showMoved([captureId], to);
     } catch (err) {
       setReassignError(errorText(err, t("species.edits.reassignFailed")));
     }
   }
 
   // No batch endpoint: reassignment batches are small and interactive.
-  async function reassignSelected(newSpeciesId: string) {
+  async function reassignSelected(to: SpeciesResult) {
     setBatchReassigning(true);
     setReassignError(null);
+    const ids = [...selectedIds];
     try {
       const results = await Promise.allSettled(
-        [...selectedIds].map((captureId) =>
-          api.patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: newSpeciesId }),
-        ),
+        ids.map((captureId) => api.patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: to.id })),
       );
       const failed = results.filter((r) => r.status === "rejected").length;
       if (failed > 0) setReassignError(t("species.edits.reassignSomeFailed", { failed, total: results.length }));
       exitSelectMode();
       load();
+      const moved = ids.filter((_, i) => results[i].status === "fulfilled");
+      if (moved.length > 0) showMoved(moved, to);
     } finally {
       setBatchReassigning(false);
     }
@@ -211,7 +252,7 @@ export function useCaptureEdits({
   }
 
   function onDeleteDialogKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key !== "Enter" || e.nativeEvent.isComposing || e.defaultPrevented) return;
+    if (!matches(e, "confirm") || e.nativeEvent.isComposing || e.defaultPrevented) return;
     if ((e.target as HTMLElement).tagName === "BUTTON") return;
     e.preventDefault();
     void confirmDeleteSelected();
@@ -224,11 +265,11 @@ export function useCaptureEdits({
     reassignError,
     exitSelectMode,
     rateCapture,
+    rateSelected,
+    hide,
+    hideSelected: () => hide([...selectedIds]),
     tagCapture,
-    setCaptureLocation,
     setCover,
-    revealInFinder,
-    copyPath,
     tagSpecies,
     reassignSpecies,
     reassignSelected,

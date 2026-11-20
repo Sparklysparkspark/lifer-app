@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
-import { Nullable, Uuid, withSchemas } from "../lib/schema.js";
+import { Nullable, Open, replies, Uuid, withSchemas } from "../lib/schema.js";
 import { EMBED_PIPELINE_VERSION } from "@lifer/shared";
 import { EMBEDDING_MODEL_URL, EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION } from "@lifer/core/config.js";
 import { CLIENT_VECTOR_DIMS } from "@lifer/core/species/clientVectors.js";
@@ -14,6 +14,7 @@ import {
   type PhotoVectorKind,
 } from "@lifer/core/species/embeddings.js";
 import { idModel } from "@lifer/core/species/idModel.js";
+import { animalDetector } from "@lifer/core/species/detectorModel.js";
 import { inferenceRuntime } from "@lifer/core/species/inference.js";
 import { accelerationStatus } from "./accelerationSelect.js";
 import { startAccelerationSelection } from "./accelerationSetup.js";
@@ -47,41 +48,56 @@ export async function matchingRoutes(fastify: FastifyInstance): Promise<void> {
 
   // What a desktop app needs to compute import vectors exactly as this server would: model files
   // (URL and sha256), the preprocessing version, and which vectors this server uses (`targets`).
-  app.get("/species/matching-info", { preValidation: requireAuth, schema: {} }, async () => {
-    const activeModel = await activeSuggestionModel(pool);
-    const targets: PhotoVectorKind[] = [];
-    if (isModelDownloaded()) targets.push("clip");
-    if (idModel.isDownloaded()) targets.push("id-crop");
-    if (activeModel === "general") targets.push("clip-crop");
-    return {
-      pipelineVersion: EMBED_PIPELINE_VERSION,
-      runtime: inferenceRuntime(),
-      activeModel,
-      targets,
-      models: {
-        clip: {
-          version: EMBEDDING_MODEL_VERSION,
-          url: EMBEDDING_MODEL_URL,
-          sha256: expectedModelSha256(EMBEDDING_MODEL_URL),
+  app.get(
+    "/species/matching-info",
+    // Only what the web app reads is listed; the rest passes through to the desktop shell.
+    { preValidation: requireAuth, schema: { response: replies(Open({ targets: Type.Array(Type.String()) })) } },
+    async () => {
+      const activeModel = await activeSuggestionModel(pool);
+      const targets: PhotoVectorKind[] = [];
+      if (isModelDownloaded()) targets.push("clip");
+      if (idModel.isDownloaded()) targets.push("id-crop");
+      if (activeModel === "general") targets.push("clip-crop");
+      return {
+        pipelineVersion: EMBED_PIPELINE_VERSION,
+        runtime: inferenceRuntime(),
+        activeModel,
+        targets,
+        models: {
+          clip: {
+            version: EMBEDDING_MODEL_VERSION,
+            url: EMBEDDING_MODEL_URL,
+            sha256: expectedModelSha256(EMBEDDING_MODEL_URL),
+          },
+          ...(idModel.isDownloaded()
+            ? {
+                bioclip: {
+                  version: ID_MODEL_VERSION,
+                  // The file this server runs on its CPU (full precision on an Intel Mac, see idModel.ts).
+                  url: idModel.url,
+                  sha256: expectedModelSha256(idModel.url),
+                  // The full-precision copy a desktop app runs if its own GPU is faster (acceleration.ts),
+                  // when the CPU file isn't already that copy.
+                  ...(idModel.gpuCopy
+                    ? { gpu: { url: idModel.gpuCopy.url, sha256: expectedModelSha256(idModel.gpuCopy.url) } }
+                    : {}),
+                },
+              }
+            : {}),
+          yolo: { version: YOLO_MODEL_VERSION, sha256: YOLO_MODEL_SHA256 },
+          // The animal detector this server crops with, when it has it (else the basic one above).
+          ...(animalDetector.isDownloaded()
+            ? {
+                detector: {
+                  version: animalDetector.version,
+                  url: animalDetector.url,
+                  sha256: expectedModelSha256(animalDetector.url),
+                },
+              }
+            : {}),
         },
-        ...(idModel.isDownloaded()
-          ? {
-              bioclip: {
-                version: ID_MODEL_VERSION,
-                // The file this server runs on its CPU (full precision on an Intel Mac, see idModel.ts).
-                url: idModel.url,
-                sha256: expectedModelSha256(idModel.url),
-                // The full-precision copy a desktop app runs if its own GPU is faster (acceleration.ts),
-                // when the CPU file isn't already that copy.
-                ...(idModel.gpuCopy
-                  ? { gpu: { url: idModel.gpuCopy.url, sha256: expectedModelSha256(idModel.gpuCopy.url) } }
-                  : {}),
-              },
-            }
-          : {}),
-        yolo: { version: YOLO_MODEL_VERSION, sha256: YOLO_MODEL_SHA256 },
-      },
-      dims: CLIENT_VECTOR_DIMS,
-    };
-  });
+        dims: CLIENT_VECTOR_DIMS,
+      };
+    },
+  );
 }

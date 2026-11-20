@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../../api/client";
+import { api, apiPath } from "../../api/client";
 import { useUploadQueue } from "../../lib/uploadQueue";
 import type { EncountersResponse, SpeciesCapture, SpeciesDetail, UnmatchedRaw } from "./types";
 import { ignore } from "../../lib/ignore";
@@ -12,7 +12,7 @@ const NO_RAWS: UnmatchedRaw[] = [];
 /** Loads a species' detail, encounter summary and unmatched RAWs. Every request is aborted when a
  *  newer one starts or the species changes, so a slow response can't show the previous species. */
 export function useSpeciesDetail(id: string | undefined, regionId: string | null) {
-  const { jobs: uploadJobs } = useUploadQueue();
+  const { jobs: uploadJobs, removals } = useUploadQueue();
   const pendingUploadCount = uploadJobs.filter((j) => j.speciesId === id && !j.done).length;
 
   // Each result is tagged with the species it belongs to, so a different species never flashes
@@ -31,9 +31,8 @@ export function useSpeciesDetail(id: string | undefined, regionId: string | null
     const controller = new AbortController();
     detailController.current = controller;
     const key = JSON.stringify([id, regionId]);
-    const query = regionId ? `?regionId=${encodeURIComponent(regionId)}` : "";
     api
-      .get<SpeciesDetail>(`/species/${id}${query}`, { signal: controller.signal })
+      .get(apiPath("/species/{id}", { id }, { regionId: regionId ?? undefined }), { signal: controller.signal })
       .then((res) => {
         if (!controller.signal.aborted) setLoadedDetail({ id, detail: res });
       })
@@ -89,6 +88,13 @@ export function useSpeciesDetail(id: string | undefined, regionId: string | null
     }
     prevPendingUploadCountRef.current = pendingUploadCount;
   }, [pendingUploadCount, load, loadUnmatchedRaws]);
+  // Imported photos removed again (an undo from the toast): reload.
+  const seenRemovals = useRef(removals);
+  useEffect(() => {
+    if (removals === seenRemovals.current) return;
+    seenRemovals.current = removals;
+    load();
+  }, [removals, load]);
 
   const [loadedEncounters, setLoadedEncounters] = useState<{ id: string; encounters: EncountersResponse } | null>(null);
   const encounters = loadedEncounters && loadedEncounters.id === id ? loadedEncounters.encounters : null;
@@ -96,7 +102,7 @@ export function useSpeciesDetail(id: string | undefined, regionId: string | null
     if (!id) return;
     const controller = new AbortController();
     api
-      .get<EncountersResponse>(`/species/${id}/encounters`, { signal: controller.signal })
+      .get(apiPath("/species/{id}/encounters", { id }), { signal: controller.signal })
       .then((res) => {
         if (!controller.signal.aborted) setLoadedEncounters({ id, encounters: res });
       })

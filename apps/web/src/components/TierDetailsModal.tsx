@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
-import { describeSeason, describeTier, TIER_ORDER, type TierExplain, type TierReason } from "@lifer/shared";
+import { useTranslation } from "react-i18next";
+import { TIER_ORDER, type TierExplain, type TierReason } from "@lifer/shared";
 import { api, apiPath } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
+import { describeSeason, describeTier } from "../lib/tierDescription";
 import { tierLabel } from "../lib/speciesGroups";
 import { iucnBadge, iucnCategoryName } from "../lib/iucnDisplay";
+import i18n from "../i18n";
 import Modal from "./Modal";
+import { useToast } from "../hooks/useToast";
 import Button from "./Button";
 import Select from "./Select";
 import FormMessage from "./FormMessage";
+import Checkbox from "./Checkbox";
 
 interface TierSide {
   tier: string | null;
@@ -37,6 +42,8 @@ export default function TierDetailsModal({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const { t } = useTranslation();
+  const toast = useToast();
   const [details, setDetails] = useState<TierDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -53,11 +60,11 @@ export default function TierDetailsModal({
         setChoice(d.override?.tier ?? "");
         if (d.override) setEverywhere(d.override.everywhere);
       })
-      .catch((err) => !cancelled && setError(errorMessage(err, "Couldn't load this tier")));
+      .catch((err) => !cancelled && setError(errorMessage(err, t("tierDetails.loadFailed"))));
     return () => {
       cancelled = true;
     };
-  }, [speciesId, regionId]);
+  }, [speciesId, regionId, t]);
 
   async function save(tier: string | null) {
     setSaving(true);
@@ -68,8 +75,9 @@ export default function TierDetailsModal({
       await api.put(apiPath("/species/{id}/tier-override", { id: speciesId }), { regionId: target, tier });
       onChanged();
       onClose();
+      toast.success(t("tierDetails.saved"));
     } catch (err) {
-      setError(errorMessage(err, "Couldn't save your tier"));
+      setError(errorMessage(err, t("tierDetails.saveFailed")));
     } finally {
       setSaving(false);
     }
@@ -84,29 +92,36 @@ export default function TierDetailsModal({
     ? [
         ...(local ? describeTier(local.explain, local.reason, place) : []),
         ...(details.global.tier || !local ? describeTier(details.global.explain, details.global.reason, null) : []),
-        ...(iucn && iucn.code !== "NE"
-          ? [
-              "IUCN status is about how threatened a species is, not how hard it is to find, so it doesn't change the tier.",
-            ]
-          : []),
+        ...(iucn && iucn.code !== "NE" ? [t("tierDetails.iucnNote")] : []),
       ]
     : [];
 
   return (
-    <Modal open onClose={onClose} title={speciesName} size="sm">
+    <Modal
+      open
+      onClose={onClose}
+      title={speciesName}
+      footer={
+        <Button variant="secondary" onClick={onClose}>
+          {t("common.done")}
+        </Button>
+      }
+    >
       <FormMessage error={error} />
       {!details ? (
-        !error && <p className="text-sm text-muted">Loading…</p>
+        !error && <p className="text-callout text-muted">{t("common.loading")}</p>
       ) : (
-        <div className="space-y-4 text-sm">
+        <div className="space-y-4 text-callout">
           <div className="space-y-1.5">
-            {local && <TierRow label="Here" text={sideText(local, place)} />}
-            {(details.global.tier || !local) && <TierRow label="Worldwide" text={sideText(details.global, null)} />}
-            {iucn && iucn.code !== "NE" && <TierRow label="IUCN" text={iucnCategoryName(iucn.code)} />}
+            {local && <TierRow label={t("tierDetails.here")} text={sideText(local, place)} />}
+            {(details.global.tier || !local) && (
+              <TierRow label={t("tierDetails.worldwide")} text={sideText(details.global, null)} />
+            )}
+            {iucn && iucn.code !== "NE" && <TierRow label={t("tierDetails.iucn")} text={iucnCategoryName(iucn.code)} />}
           </div>
           {why.length > 0 && (
-            <details className="text-xs text-muted">
-              <summary className="cursor-pointer hover:text-ink">How Lifer rates this</summary>
+            <details className="text-footnote text-muted">
+              <summary className="cursor-pointer hover:text-ink">{t("tierDetails.howRated")}</summary>
               <ul className="mt-1 space-y-0.5">
                 {why.map((l) => (
                   <li key={l}>{l}</li>
@@ -117,14 +132,14 @@ export default function TierDetailsModal({
           <div className="border-t border-line pt-3">
             <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-3">
               <label htmlFor="own-tier" className="text-muted">
-                Your tier
+                {t("tierDetails.yourRarity")}
               </label>
               <div className="flex items-center gap-2">
                 <Select id="own-tier" value={choice} onChange={(e) => setChoice(e.target.value)} className="flex-1">
-                  <option value="">Lifer's tier</option>
-                  {TIER_ORDER.map((t) => (
-                    <option key={t} value={t}>
-                      {tierLabel(t)}
+                  <option value="">{t("tierDetails.lifersRarity")}</option>
+                  {TIER_ORDER.map((tier) => (
+                    <option key={tier} value={tier}>
+                      {tierLabel(tier)}
                     </option>
                   ))}
                 </Select>
@@ -135,22 +150,16 @@ export default function TierDetailsModal({
                   disabled={choice === (details.override?.tier ?? "")}
                   onClick={() => void save(choice || null)}
                 >
-                  Save
+                  {t("common.save")}
                 </Button>
               </div>
             </div>
-            <div className="mt-1.5 space-y-1 pl-[calc(6rem+0.75rem)] text-xs text-muted">
-              <p>Replaces Lifer's tier on this device.</p>
+            <div className="mt-1.5 space-y-1 pl-[calc(6rem+0.75rem)] text-footnote text-muted">
+              <p>{t("tierDetails.replaces")}</p>
               {regionId && choice && (
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={everywhere}
-                    onChange={(e) => setEverywhere(e.target.checked)}
-                    className="accent-accent"
-                  />
-                  Everywhere, not just {place ?? "here"}
-                </label>
+                <Checkbox checked={everywhere} onChange={setEverywhere}>
+                  {place ? t("tierDetails.everywhereNotJust", { place }) : t("tierDetails.everywhereNotJustHere")}
+                </Checkbox>
               )}
             </div>
           </div>
@@ -174,11 +183,13 @@ const SHORT_PLACE: Record<string, string> = { "United States of America": "the U
 
 /** "Occasional in British Columbia · mostly Sep to Jun": the tier, then the few facts worth a glance. */
 function sideText(side: TierSide, place: string | null): string {
-  if (!side.tier || side.reason === "thin_data" || side.reason === "no_data") return "Not rated yet";
-  const facts = [`${tierLabel(side.tier)}${place ? ` in ${place}` : ""}`];
-  if (side.reason === "vagrant") facts.push("rare visitor");
+  if (!side.tier || side.reason === "thin_data" || side.reason === "no_data") return i18n.t("tierDetails.notRated");
+  const facts = [place ? i18n.t("tierDetails.tierIn", { tier: tierLabel(side.tier), place }) : tierLabel(side.tier)];
+  if (side.reason === "vagrant") facts.push(i18n.t("tierDetails.rareVisitor"));
   if (!place && side.explain?.easiestIn)
-    facts.push(`easiest to find in ${SHORT_PLACE[side.explain.easiestIn] ?? side.explain.easiestIn}`);
+    facts.push(
+      i18n.t("tierDetails.easiestIn", { place: SHORT_PLACE[side.explain.easiestIn] ?? side.explain.easiestIn }),
+    );
   const season = side.explain ? describeSeason(side.explain.season) : null;
   if (season) facts.push(season.charAt(0).toLowerCase() + season.slice(1));
   return facts.join(" · ");

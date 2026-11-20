@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import Lightbox, { type LightboxSlide } from "../../components/Lightbox";
 import PhotoPlaceholder from "../../components/PhotoPlaceholder";
 import { fullSizeUrl, type SpeciesDetail } from "./types";
 import { useSpeciesName } from "../../lib/speciesName";
 import { formatDate } from "../../lib/format";
+import PhotoArrows from "../../components/PhotoArrows";
 import { captureInfo } from "./photoGridHelpers";
 
 function focal(value: number | string | null): number | null {
@@ -48,6 +50,7 @@ const FRAME = "mx-auto aspect-[3/2] w-full overflow-hidden rounded-panel";
 const FRAME_STYLE = { maxWidth: "calc(75vh * 1.5)" };
 
 export default function SpeciesHero({ detail }: { detail: SpeciesDetail }) {
+  const { t } = useTranslation();
   const speciesName = useSpeciesName();
   const slides = useMemo(() => heroSlides(detail), [detail]);
   const [rawIndex, setRawIndex] = useState(0);
@@ -91,27 +94,19 @@ export default function SpeciesHero({ detail }: { detail: SpeciesDetail }) {
           />
           {slides.length > 1 && (
             <>
-              <button
-                onClick={() => setRawIndex((index - 1 + slides.length) % slides.length)}
-                className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/30 px-2.5 py-1 text-lg text-white hover:bg-black/50"
-                aria-label="Previous reference photo"
-              >
-                ‹
-              </button>
-              <button
-                onClick={() => setRawIndex((index + 1) % slides.length)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/30 px-2.5 py-1 text-lg text-white hover:bg-black/50"
-                aria-label="Next reference photo"
-              >
-                ›
-              </button>
-              <span className="absolute bottom-2 right-2 rounded bg-black/40 px-1.5 py-0.5 text-[10px] text-white">
+              <PhotoArrows
+                onPrevious={() => setRawIndex((index - 1 + slides.length) % slides.length)}
+                onNext={() => setRawIndex((index + 1) % slides.length)}
+                previousLabel={t("species.hero.previous")}
+                nextLabel={t("species.hero.next")}
+              />
+              <span className="absolute bottom-2 right-2 rounded-badge bg-black/40 px-1.5 py-0.5 text-caption text-white">
                 {index + 1} / {slides.length}
               </span>
             </>
           )}
         </div>
-        {slide.caption && <figcaption className="mt-1 text-[11px] text-muted">{slide.caption}</figcaption>}
+        {slide.caption && <figcaption className="mt-1 text-caption text-muted">{slide.caption}</figcaption>}
       </figure>
       {lightboxIndex != null && (
         <Lightbox

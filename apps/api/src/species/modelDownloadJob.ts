@@ -11,7 +11,9 @@ import {
   runIdEmbeddingBackfill,
   runSceneBackfill,
   runSpeciesEmbeddingBackfill,
+  runSubjectCountBackfill,
 } from "./embeddingBackfill.js";
+import { runFrameBackfill } from "./frames.js";
 import { idModel } from "@lifer/core/species/idModel.js";
 import { sceneModel } from "@lifer/core/species/sceneModel.js";
 import { runGalleryEmbeddingsUpdate, type ReferenceVectorsResult } from "./galleryEmbeddingsAsset.js";
@@ -64,12 +66,17 @@ export function startModelDownloadJob(pool: Pool, log: Log): boolean {
   });
 }
 
-/** The identification backfill, then the scene one (both a no-op without their model). */
+/** The identification backfill, then the scene one (both a no-op without their model), then the
+ * animal counts, then composition, light and backgrounds for search. */
 function runModelBackfills(log: Log): void {
   runIdEmbeddingBackfill()
     .catch((err) => log.warn({ err }, "Identification embedding backfill failed"))
     .then(() => runSceneBackfill())
-    .catch((err) => log.warn({ err }, "Scene backfill failed"));
+    .catch((err) => log.warn({ err }, "Scene backfill failed"))
+    .then(() => runSubjectCountBackfill())
+    .catch((err) => log.warn({ err }, "Animal count backfill failed"))
+    .then(() => runFrameBackfill())
+    .catch((err) => log.warn({ err }, "Search frames backfill failed"));
 }
 
 /** Deletes a downloaded model file whose sha256 doesn't match (no-op without a known checksum). */

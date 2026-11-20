@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RegionSummary } from "@lifer/shared";
 
+/** Whether the desktop app's first run should start onboarding: no pack at all, known for sure.
+ *  A pack list that failed to load, or a download still putting its first pack in, isn't a first
+ *  run (onboarding sends a running download back here). `downloadRunning` is null until known. */
+export function startsOnboarding(o: {
+  desktop: boolean;
+  packCount: number | null;
+  packsError: boolean;
+  downloadRunning: boolean | null;
+}): boolean {
+  return o.desktop && o.packCount === 0 && !o.packsError && o.downloadRunning === false;
+}
+
 // With no ?region=, restore the last region viewed. A first visit shows a download prompt; with
 // exactly one downloaded country, jump straight into it.
 export function useFirstRunRegion({
@@ -67,6 +79,18 @@ export function useFirstRunRegion({
     setFirstRunPrompt(true);
   }
 
+  // A restored region whose country's download was since removed falls back to a country that's
+  // still downloaded (same continent first), else its continent. Only for the restore: a region
+  // browsed to on purpose keeps its download prompt.
+  const checkedRestore = useRef(false);
+  useEffect(() => {
+    if (checkedRestore.current || !decision.restore || regionId !== decision.restore) return;
+    if (!regionsLoaded || !downloadedCountryNames) return;
+    checkedRestore.current = true;
+    const fallbackId = restoreFallback(decision.restore, allRegions, downloadedCountryNames);
+    if (fallbackId) setRegionParam(fallbackId, { replace: true });
+  }, [decision.restore, regionId, regionsLoaded, downloadedCountryNames, allRegions, setRegionParam]);
+
   // With exactly one downloaded country and no region chosen, go straight into it. Stops applying
   // on its own once a second country is downloaded.
   const onlyName = downloadedCountryNames?.size === 1 ? [...downloadedCountryNames][0] : null;
@@ -78,4 +102,25 @@ export function useFirstRunRegion({
   }, [autoRegionId, setRegionParam]);
 
   return { firstRunPrompt, regionResolved, navigateToRegion };
+}
+
+/** Where a restored region should go instead when its country is no longer downloaded, or null to
+ *  keep it. Hubs (World, continents) always stay. */
+export function restoreFallback(
+  regionId: string,
+  allRegions: RegionSummary[],
+  downloadedCountryNames: Set<string>,
+): string | null {
+  const byId = new Map(allRegions.map((r) => [r.id, r]));
+  const start = byId.get(regionId);
+  if (!start) return null;
+  const chain: RegionSummary[] = [];
+  for (let r: RegionSummary | undefined = start; r; r = r.parentId ? byId.get(r.parentId) : undefined) chain.push(r);
+  if (!start.hasScopedChecklist || chain.some((r) => downloadedCountryNames.has(r.name))) return null;
+  const continent = chain.find((r) => r !== start && !r.hasScopedChecklist) ?? null;
+  const downloaded = allRegions
+    .filter((r) => downloadedCountryNames.has(r.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const sameContinent = continent ? downloaded.find((r) => r.parentId === continent.id) : undefined;
+  return (sameContinent ?? downloaded[0] ?? continent)?.id ?? null;
 }

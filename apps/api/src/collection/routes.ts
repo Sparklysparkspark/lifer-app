@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { taxonomicOrderBy } from "../lib/taxonomicOrder.js";
 import { readFile } from "node:fs/promises";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { Type } from "typebox";
@@ -20,16 +21,67 @@ import {
 import { isValidCrop } from "../lib/crop.js";
 
 // Best-effort re-sync of the previous cover's capture so its "Lifer:Cover" keyword comes off.
-async function syncCoverCaptureXmp(userId: string, photoId: string | null): Promise<void> {
+export async function syncCoverCaptureXmp(userId: string, photoId: string | null): Promise<void> {
   if (!photoId) return;
   const res = await pool.query<{ capture_id: string }>(`SELECT capture_id FROM photos WHERE id = $1`, [photoId]);
   if (res.rows[0]) await syncCaptureXmpSidecarsLogged(userId, res.rows[0].capture_id);
 }
 
+/** Sets a species' featured photo (null un-features it), framing a fresh default crop. False when the
+ *  photo isn't one of the user's photos of this species. Shared with the companion-app write route. */
+export async function setSpeciesCover(userId: string, speciesId: string, photoId: string | null): Promise<boolean> {
+  // Resolve the old cover before overwriting cover_photo_id, to re-sync its sidecar.
+  const priorRes = await pool.query<{ cover_photo_id: string | null }>(
+    `SELECT cover_photo_id FROM user_species WHERE user_id = $1 AND species_id = $2`,
+    [userId, speciesId],
+  );
+  const priorCoverPhotoId = priorRes.rows[0]?.cover_photo_id ?? null;
+
+  if (photoId === null) {
+    await pool.query(
+      `UPDATE user_species SET cover_photo_id = NULL, cover_chosen_photo_id = NULL,
+         card_crop_x = NULL, card_crop_y = NULL, card_crop_size = NULL
+       WHERE user_id = $1 AND species_id = $2`,
+      [userId, speciesId],
+    );
+    await syncCoverCaptureXmp(userId, priorCoverPhotoId);
+    return true;
+  }
+  // Confirm this photo belongs to a capture the user owns, for this species: its main one or
+  // one it also features.
+  const ownershipRes = await pool.query<{ capture_id: string; display_path: string | null }>(
+    `SELECT c.id AS capture_id, p.display_path FROM photos p
+     JOIN captures c ON c.id = p.capture_id
+     WHERE p.id = $1 AND c.user_id = $2
+       AND (c.species_id = $3
+            OR EXISTS (SELECT 1 FROM capture_species cs WHERE cs.capture_id = c.id AND cs.species_id = $3))`,
+    [photoId, userId, speciesId],
+  );
+  if (ownershipRes.rows.length === 0) return false;
+
+  // The saved crop was framed for the old cover, so clear it and try an automatic crop centered
+  // on the subject. A detection miss leaves the plain center crop.
+  const displayPath = ownershipRes.rows[0].display_path;
+  const defaultCrop = displayPath
+    ? await readFile(displayPath)
+        .then((buf) => detectDefaultCardCrop(buf, { priority: "interactive" }))
+        .catch(() => null)
+    : null;
+  await pool.query(
+    `UPDATE user_species SET cover_photo_id = $1, cover_chosen_photo_id = $1,
+       card_crop_x = $2, card_crop_y = $3, card_crop_size = $4
+     WHERE user_id = $5 AND species_id = $6`,
+    [photoId, defaultCrop?.x ?? null, defaultCrop?.y ?? null, defaultCrop?.size ?? null, userId, speciesId],
+  );
+  await syncCoverCaptureXmp(userId, priorCoverPhotoId);
+  await syncCaptureXmpSidecarsLogged(userId, ownershipRes.rows[0].capture_id);
+  return true;
+}
+
 // Species a downloaded pack covers, computed once per request instead of SPECIES_UNLOCKED_SQL's
 // two EXISTS subqueries per catalog row. Same logic as obscurity.ts's SPECIES_UNLOCKED_SQL, except
 // for hand-imported species, which COLLECTION_WHERE counts per user through their additions.
-const UNLOCKED_SPECIES_CTE = `pack_regions AS MATERIALIZED (
+export const UNLOCKED_SPECIES_CTE = `pack_regions AS MATERIALIZED (
   -- The handful of regions a downloaded pack covers, resolved first so region_species is read
   -- through its (region_id, species_id) key instead of scanned in full.
   SELECT r2.id AS region_id, dp.taxon
@@ -58,7 +110,7 @@ unlocked AS (
   JOIN downloaded_packs dp2 ON dp2.region = sz.name
 )`;
 
-const COLLECTION_WHERE = (maxDepthM: number) => `
+export const COLLECTION_WHERE = (maxDepthM: number) => `
   WHERE (($2::text[] IS NULL) OR ($2 @> ARRAY['other-taxa']::text[] AND s.is_other_taxa = true) OR s.taxon_class = ANY($2)) AND COALESCE(t.fully_extinct, false) = false
     AND ($3 = false OR ${ALREADY_OWNED_SQL} OR NOT ${obscureSpeciesSql(maxDepthM)})
     AND ${NOT_ARCHIVED_SQL}
@@ -86,6 +138,8 @@ export function collectionQuerySql(maxDepthM: number): string {
       s.id AS species_id,
       s.scientific_name,
       s.common_name,
+      s.aba_code,
+      s.ebird_code,
       s.taxon_class,
       s.family,
       s.taxon_order,
@@ -106,6 +160,7 @@ export function collectionQuerySql(maxDepthM: number): string {
       t.depth_min_m,
       us.state,
       us.is_target,
+      us.needs_better_photo,
       us.was_ghost_when_collected,
       us.was_lost_when_collected,
       us.cover_photo_id,
@@ -116,6 +171,10 @@ export function collectionQuerySql(maxDepthM: number): string {
       -- (the trash-excluding captures view) stops a card keeping a soft-deleted cover photo.
       (p.thumb_path IS NOT NULL AND cc.id IS NOT NULL) AS has_cover_photo,
       sv.label AS cover_volume_label,
+      (us.state = 'seen' AND EXISTS (SELECT 1 FROM captures ch JOIN photos hp ON hp.id = ch.current_photo_id
+         WHERE ch.user_id = $1 AND ch.species_id = s.id AND hp.kind = 'audio')) AS heard,
+      (us.state = 'collected' AND COALESCE((SELECT bool_and(sc.identification_state = 'suggested') FROM captures sc
+         WHERE sc.user_id = $1 AND sc.species_id = s.id), false)) AS suggested,
       y.captured_years
     FROM species s
     LEFT JOIN species_rarity r ON r.species_id = s.id
@@ -129,7 +188,7 @@ export function collectionQuerySql(maxDepthM: number): string {
     LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
     LEFT JOIN years y ON y.species_id = s.id
     ${COLLECTION_WHERE(maxDepthM)}
-    ORDER BY s.sort_order NULLS LAST, s.scientific_name`;
+    ORDER BY ${taxonomicOrderBy()}`;
 }
 
 export function collectionCountSql(maxDepthM: number): string {
@@ -137,7 +196,10 @@ export function collectionCountSql(maxDepthM: number): string {
     SELECT
       count(*) AS total,
       count(*) FILTER (WHERE us.state = 'collected') AS collected,
-      count(*) FILTER (WHERE us.state = 'seen') AS seen
+      count(*) FILTER (WHERE us.state = 'seen') AS seen,
+      -- Collected only through photos Lifer filed itself: counted, and marked until confirmed.
+      count(*) FILTER (WHERE us.state = 'collected' AND (SELECT bool_and(sc.identification_state = 'suggested')
+        FROM captures sc WHERE sc.user_id = $1 AND sc.species_id = s.id)) AS suggested
     FROM species s
     LEFT JOIN species_traits t ON t.species_id = s.id
     LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
@@ -266,14 +328,19 @@ export async function collectionRoutes(fastify: FastifyInstance): Promise<void> 
       if (version.notModified) return reply.code(304).send();
 
       const res = await version.client
-        .query<{ total: string; collected: string; seen: string }>(collectionCountSql(maxDepthM), [
+        .query<{ total: string; collected: string; seen: string; suggested: string }>(collectionCountSql(maxDepthM), [
           userId,
           taxa,
           hideObscure,
         ])
         .finally(() => version.release());
       const row = res.rows[0];
-      return { total: Number(row.total), collected: Number(row.collected), seen: Number(row.seen) };
+      return {
+        total: Number(row.total),
+        collected: Number(row.collected),
+        seen: Number(row.seen),
+        suggestedCount: Number(row.suggested),
+      };
     },
   );
 
@@ -356,7 +423,7 @@ export async function collectionRoutes(fastify: FastifyInstance): Promise<void> 
         [userId],
       );
 
-      const byTier: Record<string, number> = {
+      const byTier = {
         common: 0,
         occasional: 0,
         uncommon: 0,
@@ -364,7 +431,7 @@ export async function collectionRoutes(fastify: FastifyInstance): Promise<void> 
         legendary: 0,
         unrated: 0,
       };
-      for (const row of byTierRes.rows) byTier[row.tier] = row.count;
+      for (const row of byTierRes.rows) byTier[row.tier as keyof typeof byTier] = row.count;
 
       return {
         totalCollected: totalRes.rows[0].total,
@@ -389,53 +456,8 @@ export async function collectionRoutes(fastify: FastifyInstance): Promise<void> 
       },
     },
     async (request, reply) => {
-      const { id: speciesId } = request.params;
-      const { photoId } = request.body;
-      const userId = request.user!.id;
-
-      // Resolve the old cover before overwriting cover_photo_id, to re-sync its sidecar.
-      const priorRes = await pool.query<{ cover_photo_id: string | null }>(
-        `SELECT cover_photo_id FROM user_species WHERE user_id = $1 AND species_id = $2`,
-        [userId, speciesId],
-      );
-      const priorCoverPhotoId = priorRes.rows[0]?.cover_photo_id ?? null;
-
-      // photoId: null un-features the species (the Gallery's featured toggle).
-      if (photoId === null) {
-        await pool.query(
-          `UPDATE user_species SET cover_photo_id = NULL, card_crop_x = NULL, card_crop_y = NULL, card_crop_size = NULL
-           WHERE user_id = $1 AND species_id = $2`,
-          [userId, speciesId],
-        );
-        await syncCoverCaptureXmp(userId, priorCoverPhotoId);
-        return { ok: true };
-      }
-      // Confirm this photo belongs to a capture the user owns, for this species.
-      const ownershipRes = await pool.query<{ capture_id: string; display_path: string | null }>(
-        `SELECT c.id AS capture_id, p.display_path FROM photos p
-         JOIN captures c ON c.id = p.capture_id
-         WHERE p.id = $1 AND c.user_id = $2 AND c.species_id = $3`,
-        [photoId, userId, speciesId],
-      );
-      if (ownershipRes.rows.length === 0) {
-        return reply.code(403).send({ error: "That photo doesn't belong to you for this species" });
-      }
-
-      // The saved crop was framed for the old cover, so clear it and try an automatic crop centered
-      // on the subject. A detection miss leaves the plain center crop.
-      const displayPath = ownershipRes.rows[0].display_path;
-      const defaultCrop = displayPath
-        ? await readFile(displayPath)
-            .then((buf) => detectDefaultCardCrop(buf, { priority: "interactive" }))
-            .catch(() => null)
-        : null;
-      await pool.query(
-        `UPDATE user_species SET cover_photo_id = $1, card_crop_x = $2, card_crop_y = $3, card_crop_size = $4
-         WHERE user_id = $5 AND species_id = $6`,
-        [photoId, defaultCrop?.x ?? null, defaultCrop?.y ?? null, defaultCrop?.size ?? null, userId, speciesId],
-      );
-      await syncCoverCaptureXmp(userId, priorCoverPhotoId);
-      await syncCaptureXmpSidecarsLogged(userId, ownershipRes.rows[0].capture_id);
+      const ok = await setSpeciesCover(request.user!.id, request.params.id, request.body.photoId);
+      if (!ok) return reply.code(403).send({ error: "That photo doesn't belong to you for this species" });
       return { ok: true };
     },
   );

@@ -5,6 +5,7 @@ import type { SpeciesDetail } from "./types";
 
 const base = {
   description: "The emerald-chinned hummingbird is a species of hummingbird.",
+  description_credit: "Wikipedia contributors (CC BY-SA)",
   description_source_url: "https://en.wikipedia.org/wiki/Emerald-chinned_hummingbird",
   habitat_description: "Montane forest.",
   identification_notes: null,
@@ -25,10 +26,10 @@ describe("SpeciesNotes", () => {
     const html = render(base);
     expect(html).toContain("is a species of hummingbird");
     expect(html).toContain("Montane forest.");
-    expect(html).not.toContain("Summarised from");
+    expect(html.match(/Wikipedia contributors/g)).toHaveLength(1);
   });
 
-  it("shows the notes instead of the text they replace, crediting Wikipedia on the credits page, not here", () => {
+  it("shows the notes instead of the text they replace, with one credit line", () => {
     const html = render({
       ...base,
       identification_notes: notes("Identification", ["Small, 7-8.6 cm; short black bill."]),
@@ -39,7 +40,7 @@ describe("SpeciesNotes", () => {
     expect(html).toContain("Humid montane forest edges.");
     expect(html).not.toContain("is a species of hummingbird");
     expect(html).not.toContain("Montane forest.");
-    expect(html).not.toContain("Summarised from");
+    expect(html.match(/Wikipedia contributors/g)).toHaveLength(1);
   });
 
   it("replaces each text on its own: habitat notes leave the description in place", () => {
@@ -53,5 +54,22 @@ describe("SpeciesNotes", () => {
     const html = render({ ...base, identification_notes: notes("Overview", []) });
     expect(html).toContain("is a species of hummingbird");
     expect(html).not.toContain(">Overview<");
+  });
+
+  it("credits every kind of Wikipedia text with the article and licence links", () => {
+    const summary = render({ ...base, summary_notes: notes("Summary", ["A long article title."]) });
+    for (const html of [summary, render(base), render({ ...base, habitat_notes: notes("Habitat", ["Forest."]) })]) {
+      expect(html).toContain('href="https://en.wikipedia.org/wiki/Emerald-chinned_hummingbird"');
+      expect(html).toContain('href="https://creativecommons.org/licenses/by-sa/4.0/"');
+      expect(html).toContain("Wikipedia contributors");
+      expect(html).toContain("CC BY-SA");
+    }
+  });
+
+  it("links only the licence when the article is unknown, and shows no credit for other sources", () => {
+    const html = render({ ...base, description_source_url: null });
+    expect(html).toContain("Wikipedia contributors");
+    expect(html).not.toContain("wikipedia.org");
+    expect(render({ ...base, description_credit: "Someone else (CC BY)" })).not.toContain("Wikipedia contributors");
   });
 });

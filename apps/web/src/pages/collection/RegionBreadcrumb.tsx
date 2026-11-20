@@ -1,6 +1,7 @@
 import { formatNumber } from "../../lib/format";
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { Trans, useTranslation } from "react-i18next";
 import type { RegionSpeciesResult, RegionStats, RegionSummary } from "@lifer/shared";
 import { api, apiPath } from "../../api/client";
 import ProgressBar from "../../components/ProgressBar";
@@ -8,6 +9,15 @@ import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
 import type { ChecklistTarget } from "../../lib/checklistAdditions";
 import AddSpeciesToChecklistModal from "./AddSpeciesToChecklistModal";
+import AreaPills from "./AreaPills";
+import { useRegionsWithPhotos } from "../../hooks/useRegionsWithPhotos";
+import Button from "../../components/Button";
+import Menu, { MenuItem, MenuLink, MenuNote, MenuPanel, MenuSeparator } from "../../components/Menu";
+import { useDropdownMenu } from "../../hooks/useDropdownMenu";
+import { groupsForCountries, useConnection, usePackIndex } from "../../lib/packIndex";
+import AddGroupsModal from "./AddGroupsModal";
+import TargetListImportModal from "../../components/TargetListImportModal";
+import { SPECIES_DOWNLOADS_PATH } from "../../lib/speciesDownloads";
 
 function addTargets(
   region: { id: string; name: string },
@@ -40,6 +50,8 @@ export default function RegionBreadcrumb({
   onChecklistChanged,
   selectedSeaZones,
   includeLand,
+  groupCountries,
+  namingStyles,
 }: {
   regionId: string | null;
   worldRegion: RegionSummary | undefined;
@@ -62,9 +74,24 @@ export default function RegionBreadcrumb({
   selectedSeaZones: Array<{ id: string; name: string }>;
   /** False when the view shows only the ticked sea zones, so they come first in the dialog. */
   includeLand: boolean;
+  /** The countries "Download animal groups" offers groups for (countriesInView). */
+  groupCountries: Array<{ id: string; name: string }>;
+  namingStyles: string[];
 }) {
+  const { t } = useTranslation();
   const [drillingDown, setDrillingDown] = useState(false);
+  const regionsWithPhotos = useRegionsWithPhotos();
   const [addingSpecies, setAddingSpecies] = useState(false);
+  const addMenu = (
+    <AddSpeciesMenu
+      countries={groupCountries}
+      onlyDownloaded={!regionId || regionKnownHub}
+      namingStyles={namingStyles}
+      onAddByHand={regionMeta && !regionKnownHub ? () => setAddingSpecies(true) : null}
+      regionId={regionId}
+      onTargetsImported={onChecklistChanged}
+    />
+  );
   const toast = useToast();
 
   async function drillDown() {
@@ -74,7 +101,7 @@ export default function RegionBreadcrumb({
       await api.post(apiPath("/regions/{id}/drill-down", { id: regionId }), {});
       onDrilledDown();
     } catch (err) {
-      toast.error(errorMessage(err, "Couldn't load provinces and states. Try again."));
+      toast.error(errorMessage(err, t("collection.breadcrumb.drillDownFailed")));
     } finally {
       setDrillingDown(false);
     }
@@ -83,16 +110,20 @@ export default function RegionBreadcrumb({
   if (!regionId) {
     if (!worldRegion) return <div className="border-b border-line bg-surface px-page py-2" />;
     return (
-      <div className="border-b border-line bg-surface px-page py-2">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-          <button onClick={() => navigateToRegion(worldRegion.id)} className="hover:underline">
-            Browse by region →
-          </button>
+      <div data-tour="collection-header" className="space-y-2 border-b border-line bg-surface px-page pt-3 pb-4">
+        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+          <h1 className="text-large-title font-bold text-ink">{t("collection.breadcrumb.allSpecies")}</h1>
+          {addMenu}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-callout text-muted">
+          <Button variant="link" onClick={() => navigateToRegion(worldRegion.id)} className="font-medium text-link!">
+            {t("collection.breadcrumb.browseByRegion")}
+          </Button>
           {/* Downloaded countries one click away, instead of World, continent, country. */}
           {downloadedCountries.map((c) => (
-            <button key={c.id} onClick={() => navigateToRegion(c.id)} className="text-ink hover:underline">
+            <Button key={c.id} variant="link" onClick={() => navigateToRegion(c.id)} className="text-link!">
               {c.name}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -101,112 +132,106 @@ export default function RegionBreadcrumb({
 
   const canDrillDown = !!regionMeta?.canDrillDown && !regionMeta.hasChildren;
 
+  // The region's name is the page's title; the path above it leads back out.
+  const current = breadcrumb.at(-1);
+  const stats = !regionKnownHub ? regionStats : hubStats;
+
   return (
-    <div className="border-b border-line bg-surface px-page py-2">
-      <div className="space-y-2">
-        <nav className="flex flex-wrap items-center gap-1 text-sm text-muted">
-          <button onClick={() => navigateToRegion(null)} className="hover:underline">
-            All species
-          </button>
-          {breadcrumb.map((r, i) => (
+    <div data-tour="collection-header" className="border-b border-line bg-surface px-page pt-3 pb-4">
+      <div className="space-y-3">
+        <nav
+          aria-label={t("collection.breadcrumb.navLabel")}
+          className="flex flex-wrap items-center gap-1 text-callout text-muted"
+        >
+          <Button variant="link" onClick={() => navigateToRegion(null)} className="text-link!">
+            {t("collection.breadcrumb.allSpecies")}
+          </Button>
+          {breadcrumb.slice(0, -1).map((r) => (
             <span key={r.id} className="flex items-center gap-1">
-              <span className="text-muted">/</span>
-              {i === breadcrumb.length - 1 ? (
-                <span className="font-medium text-ink">{r.name}</span>
-              ) : (
-                <button onClick={() => navigateToRegion(r.id)} className="hover:underline">
-                  {r.name}
-                </button>
-              )}
+              <span aria-hidden="true">›</span>
+              <Button variant="link" onClick={() => navigateToRegion(r.id)} className="text-link!">
+                {r.name}
+              </Button>
             </span>
           ))}
-          {mapToggle && (
-            <button onClick={mapToggle.onToggle} className="ml-2 text-xs hover:underline">
-              {mapToggle.collapsed ? "▸ Show map" : "▾ Hide map"}
-            </button>
-          )}
         </nav>
-        {regionMeta && regionStats && !regionKnownHub && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <ProgressBar
-              size="sm"
-              determinate
-              value={regionStats.total ? regionStats.collected / regionStats.total : 0}
-              label="Collected in this region"
-              title={foundText(regionStats.collected, regionStats.total)}
-              className="w-40"
-            />
-            <p className="text-xs text-muted">
-              {regionStats.collected} collected · {regionStats.seen} seen · {regionStats.total} total
-            </p>
-            {regionMeta.ebirdRegionCode && showEbirdLink && (
-              <a
-                href={`https://ebird.org/region/${regionMeta.ebirdRegionCode}/illustrated-checklist`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-muted hover:underline"
-              >
-                eBird Illustrated Checklist ↗
-              </a>
+        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+          <h1 className="text-large-title font-bold text-ink">{regionMeta?.name ?? current?.name}</h1>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            {addMenu}
+            {mapToggle && (
+              <Button variant="link" onClick={mapToggle.onToggle} className="text-link!">
+                {mapToggle.collapsed ? t("collection.breadcrumb.showMap") : t("collection.breadcrumb.hideMap")}
+              </Button>
             )}
-            <button
-              type="button"
-              onClick={() => setAddingSpecies(true)}
-              title="Put a species this checklist is missing on it yourself"
-              className="text-xs text-muted hover:underline"
-            >
-              + Add a species
-            </button>
           </div>
-        )}
-        {regionKnownHub && hubStats && (
-          <div className="flex items-center gap-3">
-            <ProgressBar
-              size="sm"
-              determinate
-              value={hubStats.total ? hubStats.collected / hubStats.total : 0}
-              label="Collected in downloaded countries"
-              title={foundText(hubStats.collected, hubStats.total)}
-              className="w-40"
-            />
-            <p className="text-xs text-muted">
-              {hubStats.collected} collected · {hubStats.seen} seen · {hubStats.total} total{" "}
-              <span title="Only counts checklists for countries you've downloaded, not every species in this region.">
-                (downloaded countries only)
+        </div>
+        {stats && (
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <p className="text-title-2 font-semibold text-ink">
+              {formatNumber(stats.collected)}{" "}
+              <span className="text-callout font-normal text-muted">
+                {t("collection.breadcrumb.ofTotal", { total: formatNumber(stats.total) })}
+                {regionKnownHub && (
+                  <span title={t("collection.breadcrumb.hubTitle")}>
+                    {" "}
+                    {t("collection.breadcrumb.inDownloadedCountries")}
+                  </span>
+                )}
               </span>
             </p>
+            <ProgressBar
+              determinate
+              value={stats.total ? stats.collected / stats.total : 0}
+              label={
+                regionKnownHub ? t("collection.breadcrumb.progressHub") : t("collection.breadcrumb.progressRegion")
+              }
+              title={foundText(stats.collected, stats.total)}
+              className="w-56"
+            />
+            <p className="text-callout text-muted" title={t("collection.toolbar.seenTitle")}>
+              {t("collection.breadcrumb.seen", { count: formatNumber(stats.seen) })}
+            </p>
+            {regionMeta && !regionKnownHub && regionMeta.ebirdRegionCode && showEbirdLink && (
+              <div className="ml-auto">
+                <a
+                  href={`https://ebird.org/region/${regionMeta.ebirdRegionCode}/illustrated-checklist`}
+                  // eslint-disable-next-line no-restricted-syntax -- baseline, migrate to openExternal() or a shared link component
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-callout text-link hover:underline"
+                >
+                  {t("collection.breadcrumb.ebirdChecklist")}
+                </a>
+              </div>
+            )}
           </div>
         )}
         {(children.length > 0 || canDrillDown) && (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-muted">Drill in:</span>
-            {children.map((child) => (
-              <button
-                key={child.id}
-                onClick={() => navigateToRegion(child.id)}
-                className="rounded-md border border-line px-3 py-1 text-sm text-ink hover:bg-surface-muted"
-              >
-                {child.name}
-              </button>
-            ))}
-            {canDrillDown && (
-              <button
-                onClick={drillDown}
-                disabled={drillingDown}
-                className="rounded-md border border-line px-3 py-1 text-sm text-muted hover:bg-surface-muted disabled:opacity-50"
-              >
-                {drillingDown ? "Loading provinces/states…" : "Show provinces/states"}
-              </button>
-            )}
-          </div>
+          <AreaPills
+            label={t("collection.breadcrumb.areasIn", { region: regionMeta?.name ?? current?.name })}
+            areas={children}
+            withPhotos={regionsWithPhotos}
+            onPick={navigateToRegion}
+            trailing={
+              canDrillDown && (
+                <Button variant="secondary" size="sm" onClick={drillDown} loading={drillingDown}>
+                  {drillingDown ? t("collection.breadcrumb.drillingDown") : t("collection.breadcrumb.drillDown")}
+                </Button>
+              )
+            }
+          />
         )}
         {availableRegionIds && allChildren.length > 0 && children.length === 0 && (
-          <p className="text-xs text-muted">
-            None of this region's countries have a downloaded pack yet.{" "}
-            <Link to="/offline-packs" state={{ backLabel: "Collection" }} className="underline">
-              Download one in Offline packs
-            </Link>{" "}
-            to see it here.
+          <p className="text-footnote text-muted">
+            <Trans
+              i18nKey="collection.breadcrumb.noCountries"
+              components={{
+                a: (
+                  <Link to={SPECIES_DOWNLOADS_PATH} state={{ backLabel: t("nav.collection") }} className="underline" />
+                ),
+              }}
+            />
           </p>
         )}
       </div>
@@ -218,6 +243,96 @@ export default function RegionBreadcrumb({
         />
       )}
     </div>
+  );
+}
+
+/** Add species: download more animal groups for the countries in view, add one species by hand
+ *  (a single region only), or go and download more countries. */
+function AddSpeciesMenu({
+  countries,
+  onlyDownloaded,
+  namingStyles,
+  onAddByHand,
+  regionId,
+  onTargetsImported,
+}: {
+  countries: Array<{ id: string; name: string }>;
+  onlyDownloaded: boolean;
+  namingStyles: string[];
+  onAddByHand: (() => void) | null;
+  regionId: string | null;
+  onTargetsImported: () => void;
+}) {
+  const { t } = useTranslation();
+  const menu = useDropdownMenu();
+  const [choosingGroups, setChoosingGroups] = useState(false);
+  const [importingTargets, setImportingTargets] = useState(false);
+  const { packs, freeBytes, indexUnavailable, listProgress, sizesPending } = usePackIndex();
+  const connection = useConnection();
+  const countryNames = countries.map((c) => c.name);
+  // What's installed shows at once; the rest of the list fills in when it lands.
+  const groups = packs ? groupsForCountries(packs, countryNames) : [];
+  const listReady = !!packs && !indexUnavailable;
+  // Only facts the user can act on; the item itself never goes dead.
+  const note =
+    countries.length === 0
+      ? t("collection.addGroups.noCountries")
+      : listReady && !groups.some((g) => !g.downloaded)
+        ? t("collection.addGroups.allDownloaded")
+        : null;
+  return (
+    <>
+      <Menu
+        open={menu.openKey === true}
+        onToggle={() => menu.setOpenKey(menu.openKey ? null : true)}
+        menuRef={menu.ref}
+        className="relative shrink-0"
+        trigger={(props) => (
+          <Button variant="link" className="text-link!" {...props}>
+            {t("collection.breadcrumb.addSpecies")}
+          </Button>
+        )}
+      >
+        <MenuPanel className="w-64">
+          {/* No downloaded country here: the item goes where one can be downloaded instead. */}
+          {countries.length === 0 ? (
+            <MenuLink to={SPECIES_DOWNLOADS_PATH} state={{ backLabel: t("nav.collection") }}>
+              {t("collection.addGroups.menuItem")}
+            </MenuLink>
+          ) : (
+            <MenuItem onSelect={() => setChoosingGroups(true)}>{t("collection.addGroups.menuItem")}</MenuItem>
+          )}
+          {note && <MenuNote>{note}</MenuNote>}
+          {onAddByHand && <MenuItem onSelect={onAddByHand}>{t("collection.addGroups.byHand")}</MenuItem>}
+          <MenuItem onSelect={() => setImportingTargets(true)}>{t("targetLists.importAction")}</MenuItem>
+          <MenuSeparator />
+          <MenuLink to={SPECIES_DOWNLOADS_PATH} state={{ backLabel: t("nav.collection") }}>
+            {t("collection.addGroups.moreCountries")}
+          </MenuLink>
+        </MenuPanel>
+      </Menu>
+      {choosingGroups && (
+        <AddGroupsModal
+          countryNames={countryNames}
+          groups={groups}
+          freeBytes={freeBytes}
+          connection={connection}
+          listReady={listReady}
+          listProgress={listProgress}
+          sizesPending={sizesPending}
+          onlyDownloaded={onlyDownloaded}
+          namingStyles={namingStyles}
+          onClose={() => setChoosingGroups(false)}
+        />
+      )}
+      {importingTargets && (
+        <TargetListImportModal
+          regionId={regionId}
+          onClose={() => setImportingTargets(false)}
+          onImported={onTargetsImported}
+        />
+      )}
+    </>
   );
 }
 

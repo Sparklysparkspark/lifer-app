@@ -61,12 +61,12 @@ function renderApp(start: string) {
           <Route path="/" element={null} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/gallery" element={<Gallery />} />
-          <Route path="/trips" element={<Link to="/trips/t1">Big Bend</Link>} />
+          <Route path="/albums" element={<Link to="/trips/t1">Big Bend</Link>} />
           <Route
             path="/trips/:id"
             element={
               <>
-                <PageHeader title="Big Bend" backFallbackTo="/trips" backLabel="Trips" />
+                <PageHeader title="Big Bend" backFallbackTo="/albums?view=trips" backLabel="Albums" />
                 <Photo backLabel="Big Bend" />
               </>
             }
@@ -99,8 +99,8 @@ describe("back navigation", () => {
     await at("/gallery?q=water");
   });
 
-  it("returns from a trip photo's species to the trip, then to Trips", async () => {
-    renderApp("/trips");
+  it("returns from a trip photo's species to the trip, then to Albums", async () => {
+    renderApp("/albums");
     fireEvent.click(screen.getByRole("link", { name: "Big Bend" }));
     await at("/trips/t1");
     openSpecies();
@@ -108,8 +108,8 @@ describe("back navigation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "← Big Bend" }));
     await at("/trips/t1");
-    fireEvent.click(screen.getByRole("button", { name: "← Trips" }));
-    await at("/trips");
+    fireEvent.click(screen.getByRole("button", { name: "← Albums" }));
+    await at("/albums");
     // Nothing extra was stacked: Browser Back from here leaves the app's first page.
     expect(window.history.state.idx).toBe(0);
   });
@@ -136,7 +136,7 @@ describe("back navigation", () => {
 
   it("falls back to the logical parent when the page was opened directly", async () => {
     renderApp("/trips/t1");
-    fireEvent.click(screen.getByRole("button", { name: "← Trips" }));
-    await at("/trips");
+    fireEvent.click(screen.getByRole("button", { name: "← Albums" }));
+    await at("/albums?view=trips");
   });
 });

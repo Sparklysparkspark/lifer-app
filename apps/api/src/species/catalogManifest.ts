@@ -1,4 +1,5 @@
 // The small catalog-manifest.json published next to the catalog seed, describing each asset.
+import { fetchPatient, HttpStatusError, retrying } from "../lib/remoteFetch.js";
 import { CATALOG_MANIFEST_URL, CATALOG_SEED_URL } from "@lifer/core/config.js";
 
 export interface CatalogAsset {
@@ -23,26 +24,31 @@ export interface CatalogManifest {
   idSpeciesTextEmbeddings?: VectorAsset | null;
 }
 
-const MANIFEST_TIMEOUT_MS = 15_000;
+const MANIFEST_TOTAL_MS = 60_000;
 
 export async function fetchCatalogManifest(signal?: AbortSignal): Promise<CatalogManifest> {
-  let res: Response;
+  // Patient with one retry: a weak signal takes longer, it isn't "no update".
+  let got: Awaited<ReturnType<typeof fetchPatient>>;
   try {
-    const timeout = AbortSignal.timeout(MANIFEST_TIMEOUT_MS);
-    res = await fetch(CATALOG_MANIFEST_URL, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+    got = await retrying(
+      async () => {
+        const r = await fetchPatient(CATALOG_MANIFEST_URL, { totalMs: MANIFEST_TOTAL_MS, signal });
+        if (!r.res.ok) throw new HttpStatusError(r.res.status, "the catalog manifest");
+        return r;
+      },
+      { attempts: 2, signal },
+    );
   } catch (err) {
+    if (err instanceof HttpStatusError)
+      throw new Error(`Couldn't check for a catalog update: HTTP ${err.status}`, { cause: err });
     if (err instanceof Error && err.name === "TimeoutError") {
-      throw new Error(
-        "Couldn't check for a catalog update: the request timed out. Check this server's network access.",
-        {
-          cause: err,
-        },
-      );
+      throw new Error("Couldn't check for a catalog update: the connection is too slow right now. Try again later.", {
+        cause: err,
+      });
     }
     throw err;
   }
-  if (!res.ok) throw new Error(`Couldn't check for a catalog update: HTTP ${res.status}`);
-  return (await res.json()) as CatalogManifest;
+  return JSON.parse(got.body.toString("utf8")) as CatalogManifest;
 }
 
 export function resolveCatalogAssetUrl(assetUrl: string): string {

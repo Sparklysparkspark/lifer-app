@@ -1,19 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParamsKeepingState } from "../../hooks/useSearchParamsKeepingState";
 import type { GroupBy, SortBy } from "../../components/GroupedSpeciesGrid";
+import type { ItemFilters } from "./filterItems";
 import { parseEnum } from "../../lib/parseEnum";
 
-const SORT_BY_VALUES: readonly SortBy[] = ["taxonomic", "name", "rarity", "localRarity", "seasonality"];
+const SORT_BY_VALUES: readonly SortBy[] = ["taxonomic", "name", "scientific", "rarity", "localRarity"];
 const GROUP_BY_VALUES: readonly GroupBy[] = ["none", "broad", "group", "tier", "localTier"];
 const STATE_FILTERS = ["all", "collected", "seen", "target", "unseen"] as const;
 export type StateFilter = (typeof STATE_FILTERS)[number];
+// For a yes-or-no trait (introduced, endemic, vagrant): no filter, only those, or none of them.
+const TRAIT_FILTERS = ["any", "only", "hide"] as const;
+export type TraitFilter = (typeof TRAIT_FILTERS)[number];
+// Where the photos of a photographed species were taken, relative to the viewed region.
+const PHOTOS_TAKEN_FILTERS = ["anywhere", "here", "elsewhere"] as const;
+export type PhotosTakenFilter = (typeof PHOTOS_TAKEN_FILTERS)[number];
 export type ParamUpdates = Record<string, string | null>;
 export type UpdateParams = (updates: ParamUpdates, options?: { replace?: boolean }) => void;
 
 // Every filter, sort and group choice lives in the URL so a view survives region changes and
-// back-navigation and stays bookmarkable.
+// back-navigation and stays bookmarkable. Also the trip page's species view, whose back link
+// names where it came from, so changes keep the entry's location state.
 export function useCollectionUrlState() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParamsKeepingState();
 
   // One functional update per change: two setSearchParams calls in the same tick each start
   // from the same snapshot and the second overwrites the first.
@@ -40,6 +48,8 @@ export function useCollectionUrlState() {
   // Set/array and doesn't refetch the checklist.
   const taxonRaw = searchParams.get("taxon") ?? "";
   const taxonFilters = useMemo(() => new Set(taxonRaw.split(",").filter(Boolean)), [taxonRaw]);
+  const tiersRaw = searchParams.get("tiers") ?? "";
+  const tierFilters = useMemo(() => new Set(tiersRaw.split(",").filter(Boolean)), [tiersRaw]);
   const seaZonesRaw = searchParams.get("seaZones") ?? "";
   const seaZoneIds = useMemo(() => seaZonesRaw.split(",").filter(Boolean), [seaZonesRaw]);
 
@@ -59,6 +69,73 @@ export function useCollectionUrlState() {
     prevRegionId.current = regionId;
   }, [regionId, updateParams]);
 
+  const stateFilter = parseEnum(searchParams.get("show"), STATE_FILTERS, "all");
+  // One target list the Targets filter narrows to; none means every target.
+  const targetListId = searchParams.get("targetList");
+  const ghostOnly = searchParams.get("ghostOnly") === "1";
+  const lostOnly = searchParams.get("lostOnly") === "1";
+  const needsBetterOnly = searchParams.get("needsBetter") === "1";
+  const likelyThisMonthOnly = searchParams.get("likelyThisMonth") === "1";
+  // A calendar year the species must have a real capture in; empty means any year.
+  const yearFilter = searchParams.get("year") || "";
+  const introducedFilter = parseEnum(searchParams.get("introduced"), TRAIT_FILTERS, "any");
+  const endemicFilter = parseEnum(searchParams.get("endemic"), TRAIT_FILTERS, "any");
+  const vagrantFilter = parseEnum(searchParams.get("vagrant"), TRAIT_FILTERS, "any");
+  const photosTakenFilter = parseEnum(searchParams.get("photosTaken"), PHOTOS_TAKEN_FILTERS, "anywhere");
+  // filterCollectionItems' input, the same object until one of these changes.
+  const itemFilters = useMemo<ItemFilters>(
+    () => ({
+      stateFilter,
+      introduced: introducedFilter,
+      endemic: endemicFilter,
+      vagrant: vagrantFilter,
+      photosTaken: photosTakenFilter,
+      tiers: tierFilters,
+      ghostOnly,
+      lostOnly,
+      needsBetterOnly,
+      likelyThisMonthOnly,
+      yearFilter,
+      search,
+    }),
+    [
+      stateFilter,
+      introducedFilter,
+      endemicFilter,
+      vagrantFilter,
+      photosTakenFilter,
+      tierFilters,
+      ghostOnly,
+      lostOnly,
+      needsBetterOnly,
+      likelyThisMonthOnly,
+      yearFilter,
+      search,
+    ],
+  );
+  // Every list filter back to "show all"; the region, sort and grouping stay. `also` joins the
+  // same write, since a second write in the same tick would undo this one.
+  const clearFilters = useCallback(
+    (also: ParamUpdates = {}) =>
+      updateParams({
+        show: null,
+        targetList: null,
+        ghostOnly: null,
+        lostOnly: null,
+        needsBetter: null,
+        likelyThisMonth: null,
+        year: null,
+        introduced: null,
+        endemic: null,
+        vagrant: null,
+        photosTaken: null,
+        tiers: null,
+        search: null,
+        ...also,
+      }),
+    [updateParams],
+  );
+
   return {
     regionId,
     taxonRaw,
@@ -73,14 +150,23 @@ export function useCollectionUrlState() {
     collectedFirst: searchParams.get("collectedFirst") !== "0",
     seenFirst: searchParams.get("seenFirst") === "1",
     targetFirst: searchParams.get("targetFirst") === "1",
-    stateFilter: parseEnum(searchParams.get("show"), STATE_FILTERS, "all"),
-    ghostOnly: searchParams.get("ghostOnly") === "1",
-    lostOnly: searchParams.get("lostOnly") === "1",
-    likelyThisMonthOnly: searchParams.get("likelyThisMonth") === "1",
-    // A calendar year the species must have a real capture in; empty means any year.
-    yearFilter: searchParams.get("year") || "",
+    stateFilter,
+    targetListId,
+    ghostOnly,
+    lostOnly,
+    needsBetterOnly,
+    likelyThisMonthOnly,
+    yearFilter,
+    introducedFilter,
+    endemicFilter,
+    vagrantFilter,
+    photosTakenFilter,
+    // Rarity tiers to show (the tier each card shows); empty means every tier.
+    tierFilters,
     search,
     setSearch,
+    itemFilters,
+    clearFilters,
     updateParam,
     updateParams,
   };

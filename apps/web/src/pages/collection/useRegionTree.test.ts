@@ -1,0 +1,62 @@
+// @vitest-environment jsdom
+// The Collection only ever offers regions reachable from a downloaded country: while the pack list
+// loads, when it fails (falling back to the countries the Collection's own data names), and offline.
+import { renderHook } from "@testing-library/react";
+import type { RegionSummary } from "@lifer/shared";
+import { describe, expect, it, vi } from "vitest";
+import type { PackStatusEntry } from "../../lib/packIndex";
+
+const region = (id: string, name: string, parentId: string | null, scoped = true) =>
+  ({ id, name, parentId, hasScopedChecklist: scoped, hasChildren: false }) as RegionSummary;
+const REGIONS = [
+  region("world", "World", null, false),
+  region("na", "North America", "world", false),
+  region("ca", "Canada", "na"),
+  region("us", "United States", "na"),
+  region("mx", "Mexico", "na"),
+  region("mb", "Manitoba", "ca"),
+];
+vi.mock("../../hooks/useRegions", () => ({
+  useRegions: () => ({ regions: REGIONS, error: null, refresh: vi.fn() }),
+}));
+let index: { packs: PackStatusEntry[] | null; error: unknown; indexUnavailable?: boolean };
+vi.mock("../../lib/packIndex", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/packIndex")>()),
+  usePackIndex: () => ({ freeBytes: null, indexUnavailable: false, loading: false, refresh: vi.fn(), ...index }),
+}));
+const { useRegionTree } = await import("./useRegionTree");
+
+const canadaBirds = {
+  id: "ca-aves",
+  type: "region",
+  region: "Canada",
+  taxon: "aves",
+  downloaded: true,
+} as PackStatusEntry;
+const names = (rs: RegionSummary[]) => rs.map((r) => r.name);
+
+describe("useRegionTree only offers downloaded countries", () => {
+  it("offline with only Canada installed: North America lists Canada, World lists North America", () => {
+    index = { packs: [canadaBirds], error: null, indexUnavailable: true };
+    expect(names(renderHook(() => useRegionTree("na")).result.current.children)).toEqual(["Canada"]);
+    const world = renderHook(() => useRegionTree("world")).result.current;
+    expect(names(world.children)).toEqual(["North America"]);
+    expect(names(world.downloadedCountries)).toEqual(["Canada"]);
+  });
+
+  it("offers no area while the pack list is still loading", () => {
+    index = { packs: null, error: null };
+    expect(renderHook(() => useRegionTree("na")).result.current.children).toEqual([]);
+    expect(renderHook(() => useRegionTree("world")).result.current.children).toEqual([]);
+  });
+
+  it("when the pack list fails, uses the countries the Collection's data names instead of all", () => {
+    index = { packs: null, error: new Error("503") };
+    const tree = renderHook(() => useRegionTree("na", ["Canada"])).result.current;
+    expect(names(tree.children)).toEqual(["Canada"]);
+    expect(names(tree.downloadedCountries)).toEqual(["Canada"]);
+    expect([...(tree.availableRegionIds ?? [])]).not.toContain("us");
+    // Nothing known at all: still nothing offered, never every country.
+    expect(renderHook(() => useRegionTree("na")).result.current.children).toEqual([]);
+  });
+});

@@ -4,9 +4,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CollectionItem } from "@lifer/shared";
 
 const get = vi.fn();
-vi.mock("../../api/client", () => ({ api: { get: (...args: unknown[]) => get(...args) } }));
+vi.mock("../../api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api/client")>()),
+  api: { get: (...args: unknown[]) => get(...args) },
+}));
 const uploadJobs = { jobs: [] as Array<{ done: boolean; error?: string; skipped?: boolean }> };
 vi.mock("../../lib/uploadQueue", () => ({ useUploadQueue: () => uploadJobs }));
+const packStatus = {
+  current: null as { lanes: { setup: { processed: number }; photos: { processed: number } } } | null,
+};
+vi.mock("../../hooks/usePackDownloadStatus", () => ({ usePackDownloadStatus: () => packStatus.current }));
 
 const { useCollectionData } = await import("./useCollectionData");
 const { resetAccountCaches } = await import("../../lib/resource");
@@ -45,6 +52,7 @@ function route(answers: Record<string, unknown>) {
 beforeEach(() => {
   get.mockReset();
   uploadJobs.jobs = [];
+  packStatus.current = null;
   resetAccountCaches();
   localStorage.clear();
 });
@@ -98,12 +106,25 @@ describe("useCollectionData", () => {
     expect(result.current.items).toHaveLength(1);
   });
 
-  it("reports a failed load", async () => {
-    get.mockImplementation((path: string) =>
-      path === "/collection" ? Promise.reject(new Error("offline")) : new Promise(() => {}),
-    );
+  it("reports a failed load with what it threw", async () => {
+    const err = new TypeError("Failed to fetch");
+    get.mockImplementation((path: string) => (path === "/collection" ? Promise.reject(err) : new Promise(() => {})));
     const { result } = renderHook(() => useCollectionData(base));
-    await waitFor(() => expect(result.current.loadError).toBe(true));
+    await waitFor(() => expect(result.current.loadError).toBe(err));
+  });
+
+  it("keeps the last loaded list instead of an error when a reload fails", async () => {
+    route({ "/collection": { items: [item("a")] } });
+    const first = renderHook(() => useCollectionData(base));
+    await waitFor(() => expect(first.result.current.items).toHaveLength(1));
+    first.unmount();
+
+    get.mockImplementation(() => Promise.reject(new TypeError("Failed to fetch")));
+    const { result } = renderHook(() => useCollectionData(base));
+    await waitFor(() => expect(get).toHaveBeenCalledWith("/collection"));
+    await act(async () => {});
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.loadError).toBeNull();
   });
 
   it("draws the cached list at once on remount, until an account change clears it", async () => {
@@ -120,6 +141,17 @@ describe("useCollectionData", () => {
     resetAccountCaches();
     const third = renderHook(() => useCollectionData(base));
     expect(third.result.current.items).toBeNull();
+  });
+
+  it("reloads as a background pack lands", async () => {
+    packStatus.current = { lanes: { setup: { processed: 0 }, photos: { processed: 0 } } };
+    route({ "/collection": { items: [] } });
+    const { result, rerender } = renderHook((props: Args) => useCollectionData(props), { initialProps: base });
+    await waitFor(() => expect(result.current.items).toEqual([]));
+    route({ "/collection": { items: [item("a")] } });
+    packStatus.current = { lanes: { setup: { processed: 1 }, photos: { processed: 0 } } };
+    rerender(base);
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
   });
 
   it("patches changed rows and the counts in place", async () => {

@@ -1,10 +1,11 @@
 // Merges a published catalog seed (a gzipped pg_dump of the catalog tables) into an existing
-// install: the Settings catalog update and the Docker first-boot seed.
+// install: the Settings catalog update and every new install's first-boot load (desktop and server).
 //
 // Each COPY block is streamed unparsed into an all-text temp table (so a slightly different
 // schema still loads), then merged into the real table in FK-safe order without overwriting
 // local file-path columns. Everything, including the recorded version, runs in one transaction.
 // Uses only the pg driver because no psql binary can be assumed.
+import { retrying } from "../lib/remoteFetch.js";
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { Transform } from "node:stream";
@@ -24,8 +25,9 @@ import { applySpeciesMerges } from "@lifer/core/species/speciesMerges.js";
 import { resolveSpeciesSplits } from "./speciesSplits.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
 import { log } from "@lifer/core/lib/log.js";
-import { normalizeIucnStatus } from "@lifer/shared";
-import { recordRestoredSeedVersion } from "./restoredSeedVersion.js";
+import { normalizeIucnStatus, type LoadProgress } from "@lifer/shared";
+import { upgradeRegionLocalities } from "../places/gazetteer.js";
+import { ensureSpeciesSearchNames } from "./search.js";
 
 export { fetchCatalogManifest, type CatalogManifest };
 
@@ -76,6 +78,8 @@ const MERGE_TABLES: Array<{ table: string; pkColumns: string[]; excludeFromUpdat
   { table: "species_reference_embeddings", pkColumns: ["species_id"], excludeFromUpdate: [] },
   { table: "species_text_embeddings", pkColumns: ["species_id"], excludeFromUpdate: [] },
   { table: "reference_photo_blocklist", pkColumns: ["photo_url"], excludeFromUpdate: [] },
+  // After regions, whose id remap it takes. The seed carries the whole town list.
+  { table: "gazetteer_places", pkColumns: ["geoname_id"], excludeFromUpdate: [] },
 ];
 const PHOTOS_TABLE = "species_reference_photos";
 // Only present in seeds published before the gallery embeddings moved to their own asset.
@@ -111,12 +115,13 @@ export interface CatalogMergeResult {
 type Progress = Pick<JobContext<CatalogMergeResult>, "update" | "throwIfCancelled">;
 
 /** Streams the gzipped dump into one temp table per catalog table. Returns the column list
- * (unquoted) each table's COPY block carried. */
+ * (unquoted) each table's COPY block carried; `spans` gets each table's share of the file's bytes. */
 async function loadSeedIntoTempTables(
   client: PoolClient,
   seedPath: string,
   progress: Progress,
   onlyTables?: Set<string>,
+  spans?: Map<string, number>,
 ): Promise<Map<string, string[]>> {
   const loaded = new Map<string, string[]>();
   const wanted = (table: string) => LOADED_TABLES.has(table) && (!onlyTables || onlyTables.has(table));
@@ -164,6 +169,7 @@ async function loadSeedIntoTempTables(
       }
       progress.throwIfCancelled();
       progress.update({ currentItem: table, downloadedBytes: readBytes, totalBytes });
+      const start = readBytes;
       await client.query(
         `CREATE TEMP TABLE ${ident(tmpName(table))} (${columns.map((c) => `${ident(c)} text`).join(", ")}) ON COMMIT DROP`,
       );
@@ -173,6 +179,7 @@ async function loadSeedIntoTempTables(
         blockBody(),
       );
       loaded.set(table, columns);
+      spans?.set(table, readBytes - start);
       // A partial load can stop reading as soon as it has everything it asked for.
       if (onlyTables && [...onlyTables].every((t) => loaded.has(t))) break;
     }
@@ -343,6 +350,57 @@ async function diffChecklistFromSeed(
   return { written, removed: removed.rows.length };
 }
 
+// SET LOCAL that falls back silently: replication role needs superuser, lz4 needs a server built with it.
+async function trySetLocal(client: PoolClient, setting: string, value: string): Promise<boolean> {
+  await client.query("SAVEPOINT try_set_local");
+  try {
+    await client.query(`SET LOCAL ${setting} = ${value}`);
+    await client.query("RELEASE SAVEPOINT try_set_local");
+    return true;
+  } catch {
+    await client.query("ROLLBACK TO SAVEPOINT try_set_local");
+    return false;
+  }
+}
+
+async function isEmptyTable(client: PoolClient, table: string): Promise<boolean> {
+  const res = await client.query(`SELECT 1 FROM ${ident(table)} LIMIT 1`);
+  return res.rowCount === 0;
+}
+
+// An empty table (a fresh install) has nothing to merge with, so the seed's rows go straight in:
+// FK checks and row triggers off (the seed is checksum-verified; search names are rebuilt after
+// commit) and indexes built once afterwards instead of row by row. Keys a foreign key points at
+// have to stay.
+async function insertIntoEmptyTable(client: PoolClient, table: string, seedColumns: string[]): Promise<number> {
+  const cols = await sharedColumns(client, table, seedColumns);
+  const t = ident(table);
+  const keys = await client.query<{ name: string; def: string }>(
+    `SELECT c.conname AS name, pg_get_constraintdef(c.oid) AS def FROM pg_constraint c
+      WHERE c.conrelid = $1::regclass AND c.contype IN ('p', 'u')
+        AND NOT EXISTS (SELECT 1 FROM pg_constraint f WHERE f.contype = 'f' AND f.conindid = c.conindid)`,
+    [`public.${table}`],
+  );
+  const indexes = await client.query<{ name: string; def: string }>(
+    `SELECT c.relname AS name, pg_get_indexdef(i.indexrelid) AS def
+       FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+      WHERE i.indrelid = $1::regclass AND NOT i.indisunique AND NOT i.indisexclusion`,
+    [`public.${table}`],
+  );
+  for (const k of keys.rows) await client.query(`ALTER TABLE ${t} DROP CONSTRAINT ${ident(k.name)}`);
+  for (const ix of indexes.rows) await client.query(`DROP INDEX ${ident(ix.name)}`);
+  const replica = await trySetLocal(client, "session_replication_role", "replica");
+  const res = await client.query(
+    `INSERT INTO ${t} (${cols.map((c) => ident(c.name)).join(", ")})
+     SELECT ${cols.map((c) => `${ident(c.name)}::${c.type}`).join(", ")} FROM ${ident(tmpName(table))}`,
+  );
+  if (replica) await client.query("SET LOCAL session_replication_role = origin");
+  for (const k of keys.rows) await client.query(`ALTER TABLE ${t} ADD CONSTRAINT ${ident(k.name)} ${k.def}`);
+  for (const ix of indexes.rows) await client.query(ix.def);
+  await client.query(`ANALYZE ${ident(table)}`);
+  return res.rowCount ?? 0;
+}
+
 // Sea zones are catalog data only and the seed carries the whole table, so a local zone it doesn't
 // list was dropped upstream (the MEOW ecoregions, replaced by IHO sea areas). Runs before the
 // merge: a dropped zone's name can come back under a new id, and names are unique. Its checklist
@@ -492,6 +550,13 @@ async function mergeSelfReferencingTable(
          FROM region_id_remap r WHERE r.seed_id = t.region_id::uuid AND r.seed_id != r.local_id`,
     );
   }
+  if (loadedTables.has("gazetteer_places")) {
+    for (const column of ["country_region_id", "province_region_id"])
+      await client.query(
+        `UPDATE ${ident(tmpName("gazetteer_places"))} t SET ${column} = r.local_id::text
+           FROM region_id_remap r WHERE r.seed_id = t.${column}::uuid AND r.seed_id != r.local_id`,
+      );
+  }
 
   const countRes = await client.query<{ n: string }>(`SELECT count(*) AS n FROM ${ident(tmpName(table))}`);
   return Number(countRes.rows[0].n);
@@ -530,6 +595,24 @@ async function dropStaleMainPhotoCaches(client: PoolClient): Promise<void> {
   );
 }
 
+// Deletes gallery photos a species only had because the catalog once linked it to another
+// species' iNaturalist taxon: the seed no longer lists the photo under this species but does list
+// it under another. Photos from region downloads, which the seed simply doesn't carry, stay.
+async function removeBorrowedGalleryPhotos(client: PoolClient): Promise<{ count: number; files: string[] }> {
+  const res = await client.query<{ display_path: string | null; thumb_path: string | null }>(
+    `DELETE FROM ${PHOTOS_TABLE} p
+      WHERE NOT EXISTS (SELECT 1 FROM ${ident(tmpName(PHOTOS_TABLE))} s
+                         WHERE s.species_id::uuid = p.species_id AND s.photo_url = p.photo_url)
+        AND EXISTS (SELECT 1 FROM ${ident(tmpName(PHOTOS_TABLE))} s
+                     WHERE s.species_id::uuid <> p.species_id AND s.photo_url = p.photo_url)
+      RETURNING p.display_path, p.thumb_path`,
+  );
+  return {
+    count: res.rows.length,
+    files: res.rows.flatMap((r) => [r.display_path, r.thumb_path].filter((f): f is string => !!f)),
+  };
+}
+
 // Deletes gallery photos the catalog blocklists (their vectors go with them via ON DELETE
 // CASCADE). Returns how many, plus their cached files for deleting after commit.
 async function removeBlockedPhotos(client: PoolClient): Promise<{ count: number; files: string[] }> {
@@ -558,6 +641,16 @@ async function mergeLegacyGalleryEmbeddings(client: PoolClient): Promise<number>
   return res.rowCount ?? 0;
 }
 
+// The seed load in progress, for setup screens' time estimates: reading the file is the first
+// half, merging the second, each table weighted by its share of the file.
+let catalogLoad: LoadProgress | null = null;
+export const catalogLoadProgress = (): LoadProgress | null => catalogLoad;
+
+/** A seed download's bytes, timed like the load (which starts its own run once the file is in). */
+export function noteSeedDownload(downloadedBytes: number | null, totalBytes: number | null): void {
+  catalogLoad = downloadedBytes != null && totalBytes ? { processed: downloadedBytes, total: totalBytes } : null;
+}
+
 /** Applies a seed file already on disk in one transaction, recording `version` when known.
  * `onlyTables` merges just those tables and never records a version. */
 export async function applyCatalogSeedFile(
@@ -567,16 +660,36 @@ export async function applyCatalogSeedFile(
   progress: Progress,
   onlyTables?: string[],
 ): Promise<Record<string, number>> {
+  const fileBytes = statSync(seedPath).size;
+  const total2 = 2 * fileBytes;
+  catalogLoad = { processed: 0, total: total2 };
+  const reading: Progress = {
+    throwIfCancelled: () => progress.throwIfCancelled(),
+    update: (u) => {
+      progress.update(u);
+      if (u.downloadedBytes != null) catalogLoad = { processed: Math.min(u.downloadedBytes, fileBytes), total: total2 };
+    },
+  };
+  const spans = new Map<string, number>();
+  let spanDone = 0;
+  let spanTotal = 0;
+  const merging = (table: string) => {
+    catalogLoad = { processed: fileBytes + (spanTotal ? (fileBytes * spanDone) / spanTotal : 0), total: total2 };
+    spanDone += spans.get(table) ?? 0;
+  };
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     await lockReferenceData(client);
+    // Region boundaries are the bulk of the seed's bytes, and lz4 writes them about 3x faster.
+    await trySetLocal(client, "default_toast_compression", "lz4");
     progress.update({ phase: "applying", processed: 0, total: null });
     const loaded = await loadSeedIntoTempTables(
       client,
       seedPath,
-      progress,
+      reading,
       onlyTables ? new Set(onlyTables) : undefined,
+      spans,
     );
 
     // Main photo URLs before the merge, for dropStaleMainPhotoCaches.
@@ -585,16 +698,29 @@ export async function applyCatalogSeedFile(
     }
     const steps = MERGE_TABLES.filter((t) => loaded.has(t.table));
     const total = steps.length + (loaded.has(PHOTOS_TABLE) ? 1 : 0) + (loaded.has(LEGACY_GALLERY_TABLE) ? 1 : 0);
+    for (const table of [...steps.map((t) => t.table), PHOTOS_TABLE, LEGACY_GALLERY_TABLE])
+      if (loaded.has(table)) spanTotal += spans.get(table) ?? 0;
     const merged: Record<string, number> = {};
+    let borrowedFiles: string[] = [];
+    let filledEmpty = false;
     let done = 0;
     progress.update({ phase: "merging", processed: 0, total, downloadedBytes: null, totalBytes: null });
 
     for (const spec of steps) {
       progress.throwIfCancelled();
       progress.update({ currentItem: spec.table, processed: done });
+      merging(spec.table);
       if (spec.table === "sea_zones") merged.sea_zonesRemoved = await pruneSeaZonesFromSeed(client);
       if (spec.table === "species_traits")
         loaded.set(spec.table, await normalizeSeedIucnStatus(client, loaded.get(spec.table)!));
+      if (await isEmptyTable(client, spec.table)) {
+        merged[spec.table] = await insertIntoEmptyTable(client, spec.table, loaded.get(spec.table)!);
+        // The prune above can empty sea_zones on an update; additions it set aside still go back.
+        if (spec.table === "sea_zones") merged.seaZoneAdditionsMoved = await restoreSeaZoneAdditions(client);
+        filledEmpty = true;
+        done++;
+        continue;
+      }
       if (spec.table === "region_species") {
         const replaced = await diffChecklistFromSeed(client, spec, loaded.get(spec.table)!);
         merged[spec.table] = replaced.written;
@@ -604,6 +730,12 @@ export async function applyCatalogSeedFile(
       }
       merged[spec.table] = await mergeGenericTable(client, spec, loaded.get(spec.table)!, new Set(loaded.keys()));
       if (spec.table === "sea_zones") merged.seaZoneAdditionsMoved = await restoreSeaZoneAdditions(client);
+      if (spec.table === "gazetteer_places") {
+        const gone = await client.query(
+          `DELETE FROM gazetteer_places g WHERE NOT EXISTS (SELECT 1 FROM ${ident(tmpName("gazetteer_places"))} s WHERE s.geoname_id::int = g.geoname_id)`,
+        );
+        merged.gazetteer_placesRemoved = gone.rowCount ?? 0;
+      }
       if (spec.table in CHECKLIST_GROUP_COLUMN) {
         merged[`${spec.table}Removed`] = await pruneChecklistsFromSeed(
           client,
@@ -616,12 +748,21 @@ export async function applyCatalogSeedFile(
     if (loaded.has(PHOTOS_TABLE)) {
       progress.throwIfCancelled();
       progress.update({ currentItem: PHOTOS_TABLE, processed: done });
-      merged[PHOTOS_TABLE] = await mergeReferencePhotos(client, loaded.get(PHOTOS_TABLE)!);
+      merging(PHOTOS_TABLE);
+      if (await isEmptyTable(client, PHOTOS_TABLE)) {
+        merged[PHOTOS_TABLE] = await insertIntoEmptyTable(client, PHOTOS_TABLE, loaded.get(PHOTOS_TABLE)!);
+      } else {
+        merged[PHOTOS_TABLE] = await mergeReferencePhotos(client, loaded.get(PHOTOS_TABLE)!);
+        const borrowed = await removeBorrowedGalleryPhotos(client);
+        borrowedFiles = borrowed.files;
+        merged.borrowedPhotosRemoved = borrowed.count;
+      }
       done++;
     }
     if (loaded.has(LEGACY_GALLERY_TABLE)) {
       progress.throwIfCancelled();
       progress.update({ currentItem: LEGACY_GALLERY_TABLE, processed: done });
+      merging(LEGACY_GALLERY_TABLE);
       merged[LEGACY_GALLERY_TABLE] = loaded.has(PHOTOS_TABLE) ? await mergeLegacyGalleryEmbeddings(client) : 0;
       done++;
     }
@@ -642,11 +783,16 @@ export async function applyCatalogSeedFile(
     }
 
     progress.throwIfCancelled();
+    catalogLoad = { processed: total2, total: total2 };
+    // The fast path skipped the statement trigger that tells cached collection views to refresh.
+    if (filledEmpty) await client.query(`SELECT nextval('collection_data_version')`);
     if (version != null && !onlyTables) await setInstallSetting(client, CATALOG_SEED_VERSION_KEY, version);
     await client.query("COMMIT");
     invalidateSuggestionCache();
+    // In the background: search falls back to a plain scan until it's built.
+    if (filledEmpty) void ensureSpeciesSearchNames(true);
     // Only after the rows are gone for good, so a rollback can't leave rows pointing at deleted files.
-    for (const f of blockedFiles) rmSync(f, { force: true });
+    for (const f of [...blockedFiles, ...borrowedFiles]) rmSync(f, { force: true });
     // Sidecars name the species, so a moved capture's are rewritten. Best-effort, in the background.
     void (async () => {
       for (const c of movedCaptures) await syncCaptureXmpSidecarsLogged(c.userId, c.captureId);
@@ -663,12 +809,21 @@ export async function applyCatalogSeedFile(
         log.error({ err }, "Couldn't re-file photos after species splits");
       }
     }
+    // A place's region-only town or area becomes its nearest town once the town list is in.
+    if (loaded.has("gazetteer_places")) {
+      try {
+        merged.placeLocalitiesUpgraded = await upgradeRegionLocalities();
+      } catch (err) {
+        log.error({ err }, "Couldn't name places after their nearest towns");
+      }
+    }
     progress.update({ processed: total, currentItem: null });
     return merged;
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
+    catalogLoad = null;
     client.release();
   }
 }
@@ -681,12 +836,25 @@ async function downloadSeed(
   const { url, sha256 } = catalogSeedAsset(manifest);
   const dest = path.join(CATALOG_DOWNLOAD_DIR, `lifer-catalog-seed-${manifest.version}.sql.gz`);
   ctx.update({ phase: "downloading", downloadedBytes: 0, totalBytes: manifest.seed?.bytes ?? null });
-  await downloadResumable(url, dest, {
-    signal: ctx.signal,
-    expectedSha256: sha256,
-    label: "the catalog update",
-    onProgress: (downloadedBytes, totalBytes) => ctx.update({ downloadedBytes, totalBytes }),
-  });
+  try {
+    // Retried with backoff; each try resumes from the partial file.
+    await retrying(
+      () =>
+        downloadResumable(url, dest, {
+          signal: ctx.signal,
+          expectedSha256: sha256,
+          label: "the catalog update",
+          onProgress: (downloadedBytes, totalBytes) => {
+            ctx.update({ downloadedBytes, totalBytes });
+            noteSeedDownload(downloadedBytes, totalBytes);
+          },
+        }),
+      { signal: ctx.signal },
+    );
+  } catch (err) {
+    noteSeedDownload(null, null);
+    throw err;
+  }
   return dest;
 }
 
@@ -807,20 +975,14 @@ export async function waitForFirstBootCatalog(): Promise<void> {
   }
 }
 
-/** Fills an empty catalog on first boot, preferring the seed baked into the image. Callers
+/** Fills an empty catalog on first boot, preferring the bundled seed (image or desktop app). Callers
  * swallow failures so startup is never blocked. */
 export function seedCatalogIfEmpty(pool: Pool): Promise<{ seeded: boolean; merged?: Record<string, number> }> {
   // Marked running before the first await so nothing asking in between sees "not loading".
   firstBootSeedState = "running";
   const run = (async () => {
-    const res = await pool.query<{ count: string }>(`SELECT count(*) FROM species`);
-    if (Number(res.rows[0].count) > 0) {
-      // A catalog the desktop app restored before the API started: record its version.
-      await recordRestoredSeedVersion(pool).catch((err) =>
-        log.warn({ err }, "[catalog] couldn't record the restored seed's version"),
-      );
-      return { seeded: false };
-    }
+    const res = await pool.query(`SELECT 1 FROM species LIMIT 1`);
+    if (res.rowCount) return { seeded: false };
     return seedEmptyCatalog(pool);
   })().then(
     (result) => {

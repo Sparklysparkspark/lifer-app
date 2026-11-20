@@ -6,10 +6,6 @@ import { tauriInvoke } from "./tauri";
 
 type Phase = "idle" | "starting" | "ready" | "unavailable";
 
-interface MatchingInfo {
-  targets: string[];
-}
-
 const EMBED_TIMEOUT_MS = 30_000;
 const POLL_MS = 2_000;
 // Gives up waiting on a model download that never finishes; the retry below starts over.
@@ -51,7 +47,7 @@ async function start(): Promise<void> {
   try {
     // Errors outside remote mode, or when the shell lacks these commands.
     await invoke("local_inference_status");
-    const info = await api.get<MatchingInfo>("/species/matching-info");
+    const info = await api.get("/species/matching-info");
     if (!info.targets?.length) return setPhase("unavailable");
     let status = (await invoke("local_inference_prepare", { info })) as Status;
     // A first run downloads the models (hundreds of MB); imports go to the server meanwhile.
@@ -105,8 +101,9 @@ export function recordServerMatching(ms: number): void {
   serverMs = average(serverMs, ms);
 }
 
-/** The clientVectors field for /uploads/inspect, as JSON, or null to let the server compute. */
-export async function computeClientVectors(file: Blob): Promise<string | null> {
+/** The clientVectors field for /uploads/inspect, as JSON, or null to let the server compute.
+ *  `raw`: a camera RAW, matched on the preview inside it. */
+export async function computeClientVectors(file: Blob, raw = false): Promise<string | null> {
   const invoke = tauriInvoke();
   if (!invoke) return null;
   if (phase !== "ready") {
@@ -117,7 +114,9 @@ export async function computeClientVectors(file: Blob): Promise<string | null> {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const startedAt = performance.now();
     const vectors = await withTimeout(
-      invoke("local_embed", bytes, { headers: { "x-lifer-targets": targets.join(",") } }),
+      invoke("local_embed", bytes, {
+        headers: { "x-lifer-targets": targets.join(","), ...(raw ? { "x-lifer-raw": "1" } : {}) },
+      }),
       EMBED_TIMEOUT_MS,
     );
     if (!vectors || typeof vectors !== "object") return null;

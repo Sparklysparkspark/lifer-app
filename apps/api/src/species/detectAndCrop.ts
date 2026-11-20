@@ -1,10 +1,12 @@
 // Finds the animal in a photo, for the species card's default framing and the import screen's
 // "doesn't look like wildlife" check. Detection runs in the inference worker, which remembers
 // each photo's result by content hash so one pass serves every use.
+import { pool } from "@lifer/core/db.js";
 import {
   analyzeImage,
   contentHash,
   type CardCrop,
+  type ImageSource,
   type Priority,
   type SubjectPresence,
 } from "@lifer/core/species/inference.js";
@@ -41,4 +43,17 @@ export async function detectSubjectPresence(buffer: Buffer): Promise<SubjectPres
   });
   if (!result.presence) throw new Error("Couldn't run the animal detector on this photo");
   return result.presence;
+}
+
+/** Saves how many animals the detector found, for Gallery search by number of animals. */
+export async function storeSubjectCount(captureId: string, presence: SubjectPresence | null): Promise<void> {
+  if (!presence) return;
+  await pool.query(`UPDATE captures_all SET subject_count = $1 WHERE id = $2`, [presence.count, captureId]);
+}
+
+/** Counts the animals in a capture's photo and saves it. Throws when detection can't run. */
+export async function countCaptureSubjects(captureId: string, image: ImageSource, priority: Priority): Promise<void> {
+  const result = await analyzeImage(image, { targets: [], presence: true, priority });
+  if (!result.presence) throw new Error("Couldn't run the animal detector on this photo");
+  await storeSubjectCount(captureId, result.presence);
 }

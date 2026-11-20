@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
+import { Trans, useTranslation } from "react-i18next";
+import { openExternal } from "../../lib/openExternal";
 import type { SpeciesDetail, SpeciesNotes as Notes } from "./types";
 
 /** A heading inside one of the species page's panel sections. */
-export const SECTION_LABEL = "mb-1 text-sm font-semibold text-ink";
+export const SECTION_LABEL = "mb-1 text-callout font-semibold text-ink";
 
-// Field-guide notes summarised from the species' Wikipedia article; the attribution is on the
-// credits page. A summary paragraph (migration 143) leads when there is one. Otherwise the bullet
+// Field-guide notes summarised from the species' Wikipedia article (CC BY-SA, so every view of
+// that text carries the credit line below). A summary paragraph (migration 143) leads when there is one. Otherwise the bullet
 // notes (migration 140) show, each falling back to the Wikipedia text it replaces:
 // identification_notes stands in for description, habitat_notes for habitat_description.
 
@@ -19,7 +21,7 @@ export function FactRow({
   items: Array<{ text: string; className?: string; title?: string }>;
 }) {
   return (
-    <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-item text-sm leading-relaxed">
+    <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-item text-callout leading-relaxed">
       <p className="text-muted">{label}</p>
       {/* Room around the dots keeps each phrase readable on its own. */}
       <p className="text-ink">
@@ -39,13 +41,42 @@ export function FactRow({
 // Mid-line phrases read as a list, not as sentences; an acronym ("IUCN") keeps its capitals.
 const lowerFirst = (text: string) => (/^[A-Z][a-z]/.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text);
 
+const LICENCE_URL = "https://creativecommons.org/licenses/by-sa/4.0/";
+
+/** The CC BY-SA credit Wikipedia text must carry; the source link is the article when known. */
+export function WikipediaCredit({ url }: { url?: string | null }) {
+  const link = (href: string) => (
+    <a
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        openExternal(href);
+      }}
+      className="hover:text-ink hover:underline"
+    />
+  );
+  return (
+    <p className="text-footnote text-muted">
+      <Trans
+        i18nKey="species.notes.credit"
+        components={{ article: url ? link(url) : <span />, licence: link(LICENCE_URL) }}
+      />
+    </p>
+  );
+}
+
+// Plain-description fallbacks are Wikipedia text only when their credit says so.
+const fromWikipedia = (species: SpeciesDetail["species"]) => /wikipedia/i.test(species.description_credit ?? "");
+
 /** `status` is a FactRow shown first, before the notes. */
 export function SpeciesNotes({ species, status }: { species: SpeciesDetail["species"]; status?: ReactNode }) {
+  const { t } = useTranslation();
   if (hasNotes(species.summary_notes))
     return (
       <div className="space-y-3">
         {status}
-        <p className="text-sm leading-relaxed text-ink">{summaryText(species.summary_notes)}</p>
+        <p className="text-callout leading-relaxed text-ink">{summaryText(species.summary_notes)}</p>
+        <WikipediaCredit url={species.summary_notes.source_url} />
       </div>
     );
   const identification = hasNotes(species.identification_notes) ? species.identification_notes : null;
@@ -56,25 +87,32 @@ export function SpeciesNotes({ species, status }: { species: SpeciesDetail["spec
       <div className="space-y-3">
         {status}
         <NoteSections notes={{ ...identification, sections: [...identification.sections, ...habitat.sections] }} />
+        <WikipediaCredit url={identification.source_url ?? habitat.source_url} />
       </div>
     );
+  // Fallback text is Wikipedia's too when its credit says so; one credit line covers everything shown.
+  const wikipediaText =
+    !!identification || !!habitat || (fromWikipedia(species) && !!(species.description || species.habitat_description));
   return (
     <div className="space-y-3">
       {status}
       {identification ? (
         <NoteSections notes={identification} />
       ) : (
-        species.description && <p className="text-sm text-ink">{species.description}</p>
+        species.description && <p className="text-callout text-ink">{species.description}</p>
       )}
       {habitat ? (
         <NoteSections notes={habitat} />
       ) : (
         species.habitat_description && (
-          <p className="text-sm text-ink">
-            <span className="font-medium text-muted">Habitat: </span>
+          <p className="text-callout text-ink">
+            <span className="font-medium text-muted">{t("species.notes.habitatLabel")} </span>
             {species.habitat_description}
           </p>
         )
+      )}
+      {wikipediaText && (
+        <WikipediaCredit url={identification?.source_url ?? habitat?.source_url ?? species.description_source_url} />
       )}
     </div>
   );
@@ -100,7 +138,7 @@ function NoteSections({ notes }: { notes: Notes }) {
         {notes.sections.map((section) => (
           <div key={section.heading} className="mb-3 break-inside-avoid">
             <p className={SECTION_LABEL}>{section.heading}</p>
-            <ul className="list-disc space-y-0.5 pl-4 text-sm text-ink">
+            <ul className="list-disc space-y-0.5 pl-4 text-callout text-ink">
               {section.bullets.map((bullet) => (
                 <li key={bullet}>{bullet}</li>
               ))}

@@ -12,7 +12,7 @@ vi.hoisted(() => {
 const url = process.env.TEST_DATABASE_URL;
 const USER = "ffffffff-0000-4000-8000-000000000311";
 const REGION = "ffffffff-0000-4000-8000-0000000003b1";
-const SP = Array.from({ length: 4 }, (_, i) => `ffffffff-0000-4000-8000-00000000031${i}`);
+const SP = Array.from({ length: 8 }, (_, i) => `ffffffff-0000-4000-8000-00000000031${i}`);
 
 vi.mock("../auth/session.js", () => {
   const asUser = async (request: { user?: unknown }) => {
@@ -49,6 +49,10 @@ describe.skipIf(!url)("GET /species search", () => {
       ["Zzquuxa secunda", "Zzquux Sparrow Test", [], "ZQST", null],
       ["Zzquuxa tertia", "Zzquux Sparrow Test Two", [], null, null],
       ["Zzquuxa quarta", "Zzquux Sparrow Test Three", [], null, null],
+      ["Zzquuxa quinta", "Zzquux Zzray", [], null, null],
+      ["Zzquuxa sexta", "Zzrayfin Zzquux", [], null, null],
+      ["Zzquuxa septima", "Zzquux Stingzzray", [], null, null],
+      ["Zzquuxa stingzzray", "Stingzzray Zzquux", [], null, null],
     ].map(([sci, common, aliases, aba, ebird], i) => [
       SP[i],
       sci as string,
@@ -90,7 +94,14 @@ describe.skipIf(!url)("GET /species search", () => {
   it("keeps the response shape", async () => {
     const { status, results } = await search("zzquux sparrow");
     expect(status).toBe(200);
-    expect(Object.keys(results[0]).sort()).toEqual(["common_name", "id", "rank", "scientific_name"]);
+    expect(Object.keys(results[0]).sort()).toEqual([
+      "aba_code",
+      "common_name",
+      "ebird_code",
+      "id",
+      "rank",
+      "scientific_name",
+    ]);
   });
 
   it("ranks an exact 4 or 6 letter code first", async () => {
@@ -118,6 +129,26 @@ describe.skipIf(!url)("GET /species search", () => {
   it("finds species by family", async () => {
     if (!hasTable) return;
     expect((await search("zzquuxidae")).results.map((r) => r.id).sort()).toEqual([...SP].sort());
+  });
+
+  it("lists loose fuzzy matches only when no name fits from a word start", async () => {
+    if (!hasTable) return;
+    expect((await search("zzquux sparrow test two")).results.map((r) => r.id)).toEqual([SP[2]]);
+  });
+
+  it("reads a plural as its singular, and a group word as the group", async () => {
+    if (!hasTable) return;
+    expect((await search("zzquux sparrows")).results.map((r) => r.id)).toContain(SP[1]);
+    // The collected species is boosted above the rest of the class.
+    expect((await search("birds")).results[0].id).toBe(SP[2]);
+  });
+
+  it("finds a compound by the end of its last word, below word-start matches", async () => {
+    if (!hasTable) return;
+    // Not mid-name ("ray" never finds Gray Jay) and never by a scientific name.
+    expect((await search("zzray")).results.map((r) => r.id)).toEqual([SP[5], SP[4], SP[6]]);
+    expect((await search("zzrays")).results.map((r) => r.id)).toContain(SP[6]);
+    expect((await search("zray")).results.map((r) => r.id)).toContain(SP[6]);
   });
 
   it("refuses a malformed regionId", async () => {

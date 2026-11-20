@@ -11,8 +11,14 @@ import {
   encodeGalleryEmbeddingRecord,
   encodeGalleryEmbeddingsHeader,
 } from "@lifer/core/species/galleryEmbeddingsFormat.js";
-import { applyCatalogSeedFile, getAppliedCatalogVersion } from "./catalogSeedUpdate.js";
+import {
+  applyCatalogSeedFile,
+  catalogLoadProgress,
+  getAppliedCatalogVersion,
+  noteSeedDownload,
+} from "./catalogSeedUpdate.js";
 import { applyGalleryEmbeddingsFile, ID_GALLERY } from "./galleryEmbeddingsAsset.js";
+import { whenSpeciesSearchReady } from "./search.js";
 
 const url = process.env.TEST_DATABASE_URL;
 const SPECIES = "11111111-1111-4111-8111-111111111111";
@@ -62,9 +68,14 @@ const noProgress = { update: () => {}, throwIfCancelled: () => {} };
 
 describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
   const pool = new pg.Pool({ connectionString: url });
-  afterAll(() => pool.end());
+  afterAll(async () => {
+    await whenSpeciesSearchReady();
+    await pool.end();
+  });
 
   beforeEach(async () => {
+    // A load into an empty table rebuilds search names in the background; let it finish first.
+    await whenSpeciesSearchReady();
     await pool.query(`DELETE FROM species_reference_gallery_embeddings WHERE species_id = $1`, [SPECIES]);
     await pool.query(`DELETE FROM species_reference_photos WHERE species_id = $1`, [SPECIES]);
     await pool.query(`DELETE FROM regions WHERE id IN ($1, $2)`, [CHILD, PARENT]);
@@ -109,6 +120,38 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
     expect(await getAppliedCatalogVersion(pool)).toBe(42);
   });
 
+  it("publishes load progress that only moves forward, and clears it when done", async () => {
+    const seen: number[] = [];
+    const file = seedFile([[SPECIES, "1", "Ardea herodias", "Aves", "\\N", "ignored"]]);
+    await applyCatalogSeedFile(pool, file, 42, {
+      update: () => {
+        const p = catalogLoadProgress();
+        expect(p).not.toBeNull();
+        expect(p!.processed).toBeLessThanOrEqual(p!.total);
+        seen.push(p!.processed / p!.total);
+      },
+      throwIfCancelled: () => {},
+    });
+    expect(seen.length).toBeGreaterThan(2);
+    expect(seen).toEqual([...seen].sort((a, b) => a - b));
+    expect(seen.at(-1)).toBeGreaterThan(0.5);
+    expect(catalogLoadProgress()).toBeNull();
+  });
+
+  it("times a seed download by its bytes, then the load as a run of its own", async () => {
+    noteSeedDownload(50, 200);
+    expect(catalogLoadProgress()).toEqual({ processed: 50, total: 200 });
+    const file = seedFile([[SPECIES, "1", "Ardea herodias", "Aves", "\\N", "ignored"]]);
+    const totals = new Set<number>();
+    await applyCatalogSeedFile(pool, file, 42, {
+      update: () => totals.add(catalogLoadProgress()!.total),
+      throwIfCancelled: () => {},
+    });
+    expect(totals.has(200)).toBe(false);
+    expect(catalogLoadProgress()).toBeNull();
+    noteSeedDownload(null, null);
+  });
+
   it("can merge just the regions first, then the rest, recording the version only at the end", async () => {
     const file = seedFile([[SPECIES, "1", "Ardea herodias", "Aves", "\\N", "x"]]);
     const first = await applyCatalogSeedFile(pool, file, 42, noProgress, ["regions"]);
@@ -124,6 +167,62 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
     const regions = await pool.query(`SELECT count(*)::int AS n FROM regions WHERE id IN ($1, $2)`, [CHILD, PARENT]);
     expect(regions.rows[0].n).toBe(2);
     expect(await getAppliedCatalogVersion(pool)).toBe(42);
+  });
+
+  it("merges the town list onto this install's region ids and drops towns the seed no longer lists", async () => {
+    const LOCAL_COUNTRY = "77777777-7777-4777-8777-777777777777";
+    await pool.query(`DELETE FROM gazetteer_places WHERE geoname_id IN (990001, 990002)`);
+    await pool.query(`DELETE FROM regions WHERE name = 'Zzgazetteer Country'`);
+    await pool.query(`INSERT INTO regions (id, name) VALUES ($1, 'Zzgazetteer Country')`, [LOCAL_COUNTRY]);
+    await pool.query(
+      `INSERT INTO gazetteer_places (geoname_id, name, ascii_name, lat, lon, feature_class, feature_code, country_code)
+       VALUES (990002, 'Gone Town', 'Gone Town', 1, 1, 'P', 'PPL', 'ZZ')`,
+    );
+    const dump = [
+      "COPY public.regions (id, name, parent_id) FROM stdin;",
+      `${PARENT}\tZzgazetteer Country\t\\N`,
+      "\\.",
+      "",
+      "COPY public.gazetteer_places (geoname_id, name, ascii_name, alternate_names, lat, lon, population, feature_class, feature_code, country_code, admin1_code, country_region_id, province_region_id) FROM stdin;",
+      `990001\tSão Town\tSao Town\t\t2\t3\t5000\tP\tPPL\tZZ\t01\t${PARENT}\t\\N`,
+      "\\.",
+      "",
+    ].join("\n");
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-seed-test-")), "seed.sql.gz");
+    writeFileSync(file, gzipSync(dump));
+    // Places near the new town: a region-only locality is upgraded, a typed one stays.
+    const USER = "77777777-7777-4777-8777-0000000000aa";
+    await pool.query(`DELETE FROM users WHERE id = $1`, [USER]);
+    await pool.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'seed-gaz@test', 'x')`, [USER]);
+    await pool.query(
+      `INSERT INTO saved_spots (user_id, name, lat, lon, locality, locality_source) VALUES
+         ($1, 'Region one', 2.01, 3.01, 'Zzgazetteer Country', 'region'),
+         ($1, 'Typed one', 2.01, 3.01, 'Behind the mill', 'user'),
+         ($1, 'Far one', 40, 40, 'Elsewhere', 'region')`,
+      [USER],
+    );
+    try {
+      const merged = await applyCatalogSeedFile(pool, file, null, noProgress);
+      expect(merged.gazetteer_placesRemoved).toBeGreaterThanOrEqual(1);
+      expect(merged.placeLocalitiesUpgraded).toBe(1);
+      const spots = await pool.query(
+        `SELECT name, locality, locality_source FROM saved_spots WHERE user_id = $1 ORDER BY name`,
+        [USER],
+      );
+      expect(spots.rows).toEqual([
+        { name: "Far one", locality: "Elsewhere", locality_source: "region" },
+        { name: "Region one", locality: "São Town, Zzgazetteer Country", locality_source: "gazetteer" },
+        { name: "Typed one", locality: "Behind the mill", locality_source: "user" },
+      ]);
+      const rows = await pool.query(`SELECT geoname_id, country_region_id, search_text FROM gazetteer_places`);
+      expect(rows.rows).toEqual([
+        { geoname_id: 990001, country_region_id: LOCAL_COUNTRY, search_text: "|sao town|sao town||" },
+      ]);
+    } finally {
+      await pool.query(`DELETE FROM users WHERE id = $1`, [USER]);
+      await pool.query(`DELETE FROM gazetteer_places WHERE geoname_id = 990001`);
+      await pool.query(`DELETE FROM regions WHERE id = $1`, [LOCAL_COUNTRY]);
+    }
   });
 
   it("removes blocklisted photos and drops the cached file of a changed main photo", async () => {
@@ -160,6 +259,50 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
       );
     } finally {
       await pool.query(`DELETE FROM reference_photo_blocklist WHERE photo_url = 'https://example.org/map.png'`);
+    }
+  });
+
+  it("drops gallery photos a species borrowed from another, and keeps ones the seed doesn't carry", async () => {
+    const SPLIT = "66666666-6666-4666-8666-666666666666";
+    await pool.query(`DELETE FROM species WHERE id = $1`, [SPLIT]);
+    await pool.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES
+         ($1, 1, 'Passerella iliaca', 'Aves'), ($2, 2, 'Passerella unalaschcensis', 'Aves')`,
+      [SPECIES, SPLIT],
+    );
+    await pool.query(
+      `INSERT INTO species_reference_photos (species_id, photo_url, credit, license, display_path) VALUES
+         ($1, 'https://example.org/fox.jpg', 'c', 'cc-by', NULL),
+         ($1, 'https://example.org/from-a-region-download.jpg', 'c', 'cc-by', NULL)`,
+      [SPLIT],
+    );
+    const dump = [
+      "COPY public.species (id, gbif_key, scientific_name, taxon_class) FROM stdin;",
+      `${SPECIES}	1	Passerella iliaca	Aves`,
+      `${SPLIT}	2	Passerella unalaschcensis	Aves`,
+      "\\.",
+      "",
+      "COPY public.species_reference_photos (id, species_id, photo_url, credit, license, display_path) FROM stdin;",
+      `${SEED_PHOTO}	${SPECIES}	https://example.org/fox.jpg	Someone	cc-by	\\N`,
+      "\\.",
+      "",
+    ].join("\n");
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-seed-test-")), "seed.sql.gz");
+    writeFileSync(file, gzipSync(dump));
+    try {
+      const merged = await applyCatalogSeedFile(pool, file, null, noProgress);
+      expect(merged.borrowedPhotosRemoved).toBe(1);
+      const left = await pool.query<{ species_id: string; photo_url: string }>(
+        `SELECT species_id, photo_url FROM species_reference_photos WHERE species_id = ANY($1) ORDER BY photo_url`,
+        [[SPECIES, SPLIT]],
+      );
+      expect(left.rows).toEqual([
+        { species_id: SPECIES, photo_url: "https://example.org/fox.jpg" },
+        { species_id: SPLIT, photo_url: "https://example.org/from-a-region-download.jpg" },
+      ]);
+    } finally {
+      await pool.query(`DELETE FROM species_reference_photos WHERE species_id = $1`, [SPLIT]);
+      await pool.query(`DELETE FROM species WHERE id = $1`, [SPLIT]);
     }
   });
 
@@ -450,9 +593,10 @@ describe.skipIf(!url)("applyCatalogSeedFile (integration)", () => {
       [REGION, KEPT],
     );
     const dump = [
-      "COPY public.region_species (region_id, species_id, local_tier, is_vagrant, is_invasive, tier_explain) FROM stdin;",
-      `${REGION}	${KEPT}	rare	f	f	\\N`,
-      `${REGION}	${ADDED}	uncommon	t	f	{"from":"seed"}`,
+      // Seasonality is no longer a column here; a seed that still carries it must load.
+      "COPY public.region_species (region_id, species_id, local_tier, seasonality, is_vagrant, is_invasive, tier_explain) FROM stdin;",
+      `${REGION}	${KEPT}	rare	{1,2}	f	f	\\N`,
+      `${REGION}	${ADDED}	uncommon	{3}	t	f	{"from":"seed"}`,
       "\\.",
       "",
     ].join("\n");

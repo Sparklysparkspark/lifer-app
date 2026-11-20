@@ -100,12 +100,6 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-// The species' action menu comes after the photos' menus on the page.
-async function openSpeciesActions() {
-  const menus = await screen.findAllByRole("button", { name: "More options" });
-  fireEvent.click(menus.at(-1)!);
-}
-
 describe("SpeciesDetailPage", () => {
   it("shows the species and says when it has no photos yet", async () => {
     serve(speciesDetail([]));
@@ -130,18 +124,24 @@ describe("SpeciesDetailPage", () => {
     expect(screen.queryByText("Not photographed yet")).toBeNull();
   });
 
-  it("adds the species to targets and reloads it", async () => {
+  it("adds the species to targets from the header, with an Undo, and reloads it", async () => {
     serve(speciesDetail([]));
     patch.mockResolvedValue({});
     renderPage();
-    await openSpeciesActions();
-    fireEvent.click(screen.getByRole("button", { name: "Add to targets" }));
+    await screen.findByRole("heading", { level: 1, name: "Great Blue Heron" });
+    const target = screen.getByRole("button", { name: "Target" });
+    expect(target.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(target);
     await waitFor(() => expect(patch).toHaveBeenCalledWith("/species/sp1/target"));
     await waitFor(() => expect(get.mock.calls.filter((c) => c[0] === "/species/sp1")).toHaveLength(2));
     expect(toast.error).not.toHaveBeenCalled();
+    expect(toast.show).toHaveBeenCalledWith(
+      "Added to your targets",
+      expect.objectContaining({ actions: [expect.objectContaining({ label: "Undo" })] }),
+    );
   });
 
-  it("offers to unmark a species already seen", async () => {
+  it("unmarks a species already seen from its pressed Seen toggle", async () => {
     serve(
       speciesDetail([], {
         state: "seen",
@@ -155,9 +155,42 @@ describe("SpeciesDetailPage", () => {
     );
     del.mockResolvedValue({});
     renderPage();
-    await openSpeciesActions();
-    fireEvent.click(screen.getByRole("button", { name: "Mark as unseen" }));
+    await screen.findByRole("heading", { level: 1, name: "Great Blue Heron" });
+    const seen = screen.getByRole("button", { name: "Seen" });
+    expect(seen.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(seen);
     await waitFor(() => expect(del).toHaveBeenCalledWith("/species/sp1/seen"));
+  });
+
+  it("shows the needs-a-better-photo mark only when set, and clears it with an Undo", async () => {
+    const mark = {
+      state: "collected" as const,
+      is_target: false,
+      cover_photo_id: null,
+      card_crop_x: null,
+      card_crop_y: null,
+      card_crop_size: null,
+      best_quality: null,
+    };
+    serve(speciesDetail([], mark));
+    renderPage();
+    await screen.findByRole("heading", { level: 1, name: "Great Blue Heron" });
+    expect(screen.queryByRole("button", { name: "Needs a better photo" })).toBeNull();
+    cleanup();
+
+    serve(speciesDetail([], { ...mark, needs_better_photo: true }));
+    del.mockResolvedValue({});
+    renderPage();
+    const chip = await screen.findByRole("button", { name: "Needs a better photo" });
+    expect(chip.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(chip);
+    await waitFor(() => expect(del).toHaveBeenCalledWith("/userdata/v1/species/sp1/needs-better-photo"));
+    await waitFor(() =>
+      expect(toast.show).toHaveBeenCalledWith(
+        'Cleared "Needs a better photo"',
+        expect.objectContaining({ actions: [expect.objectContaining({ label: "Undo" })] }),
+      ),
+    );
   });
 
   it("shows the Collection's region when the link carries none", async () => {
@@ -182,5 +215,44 @@ describe("SpeciesDetailPage", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "← Collection" }));
     expect(await screen.findByText("Collection ?region=bc")).toBeTruthy();
+  });
+
+  describe("opened from a trip", () => {
+    // Each photo's caption is its place, named after its capture here.
+    const tiles = () =>
+      screen.queryAllByTestId("photo-tile").map((tile) => tile.textContent?.match(/cap\d/)?.[0]);
+    function renderFromTrip(captures: Partial<SpeciesCapture>[]) {
+      localStorage.setItem("lifer:showPhotoLabels", "true");
+      serve(speciesDetail(captures.map((c, i) => ({ location_label: `cap${i}`, ...c }))));
+      return render(
+        <MemoryRouter initialEntries={[{ pathname: "/species/sp1", search: "?trip=t1", state: { backLabel: "Yukon" } }]}>
+          <Routes>
+            <Route path="/species/:id" element={<SpeciesDetailPage />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    }
+
+    it("shows the trip's photos first in their own section, then the rest", async () => {
+      // Newest first from the server; only the middle one is from the trip.
+      renderFromTrip([{ trip_id: null }, { trip_id: "t1" }, { trip_id: "t2" }]);
+      const trip = await screen.findByRole("button", { name: "From Yukon (1)" });
+      expect(trip.getAttribute("aria-expanded")).toBe("true");
+      expect(screen.getByRole("button", { name: "Other photos (2)" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Open trip" })).toBeTruthy();
+      expect(tiles()).toEqual(["cap1", "cap0", "cap2"]);
+
+      fireEvent.click(trip);
+      expect(trip.getAttribute("aria-expanded")).toBe("false");
+      expect(tiles()).toEqual(["cap0", "cap2"]);
+    });
+
+    it("is one plain grid when the trip has none of this species' photos", async () => {
+      renderFromTrip([{ trip_id: null }, { trip_id: "t2" }]);
+      await screen.findByRole("heading", { level: 1, name: "Great Blue Heron" });
+      expect(screen.queryByRole("button", { name: /^From / })).toBeNull();
+      expect(screen.queryByRole("button", { name: /^Other photos/ })).toBeNull();
+      expect(tiles()).toEqual(["cap0", "cap1"]);
+    });
   });
 });

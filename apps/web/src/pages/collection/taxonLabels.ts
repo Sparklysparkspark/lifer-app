@@ -5,9 +5,9 @@ import { TAXON_CLASS_LABEL, otherTaxaGroupLabel } from "@lifer/shared";
 export type TaxonFilter = string;
 
 export const TAXON_LABEL: Record<string, string> = {
-  all: "All taxa",
+  all: "All species",
   ...TAXON_CLASS_LABEL,
-  "other-taxa": "Other Taxa",
+  "other-taxa": "Other species",
 };
 
 // An Other Taxa iconic group is its lowercased iNat name; otherTaxaGroupLabel needs the real

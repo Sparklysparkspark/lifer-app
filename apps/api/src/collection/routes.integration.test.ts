@@ -93,10 +93,20 @@ describe.skipIf(!url)("collection routes", () => {
     const badSpecies = await cover({ photoId }, "nope");
     expect([badSpecies.statusCode, badSpecies.json()]).toEqual([404, { error: "Species not found" }]);
 
+    const chosen = async () =>
+      (
+        await db.query(`SELECT cover_chosen_photo_id FROM user_species WHERE user_id = $1 AND species_id = $2`, [
+          USER,
+          SPECIES,
+        ])
+      ).rows[0]?.cover_chosen_photo_id ?? null;
     expect((await cover({ photoId })).json()).toEqual({ ok: true });
     expect((await crop()).cover_photo_id).toBe(photoId);
+    // Recorded as the user's own pick, and forgotten when they clear it.
+    expect(await chosen()).toBe(photoId);
     expect((await cover({ photoId: null })).json()).toEqual({ ok: true });
     expect((await crop()).cover_photo_id).toBeNull();
+    expect(await chosen()).toBeNull();
     expect((await cover({ photoId })).statusCode).toBe(200);
   });
 
@@ -129,5 +139,19 @@ describe.skipIf(!url)("collection routes", () => {
     expect(all.statusCode, all.body).toBe(200);
     const mammals = await call("GET", "/api/collection/count?taxon=mammalia");
     expect(mammals.json().collected).toBe(all.json().collected - 1);
+  });
+
+  it("counts collected species by tier, listing every tier", async () => {
+    const res = await call("GET", "/api/collection/stats");
+    expect(res.statusCode, res.body).toBe(200);
+    expect(Object.keys(res.json().byTier).sort()).toEqual([
+      "common",
+      "legendary",
+      "occasional",
+      "rare",
+      "uncommon",
+      "unrated",
+    ]);
+    expect(res.json().byYear).toHaveLength(1);
   });
 });

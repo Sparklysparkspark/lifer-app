@@ -134,11 +134,31 @@ export default function CardCropEditor({
       : null;
 
   return (
-    <Modal open onClose={onClose} size="xl" ariaLabel={t("ui.cropEditor.title")}>
-      <p className="mb-2 text-sm text-muted">{t("ui.cropEditor.instructions")}</p>
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title={t("ui.cropEditor.title")}
+      description={t("ui.cropEditor.instructions")}
+      footerStart={
+        <Button variant="ghost" onClick={resetCrop} disabled={saving}>
+          {t("ui.cropEditor.reset")}
+        </Button>
+      }
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button onClick={save} loading={saving} disabled={!box}>
+            {saving ? t("common.saving") : t("common.save")}
+          </Button>
+        </>
+      }
+    >
       <div className="flex flex-col gap-4 sm:flex-row">
         <div
-          className="relative flex-1 select-none overflow-hidden rounded-md"
+          className="relative flex-1 select-none overflow-hidden rounded-control"
           onPointerMove={handlePointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
@@ -158,8 +178,8 @@ export default function CardCropEditor({
           )}
         </div>
         <div className="w-full shrink-0 sm:w-32">
-          <p className="mb-1 text-xs text-muted">{t("ui.cropEditor.preview")}</p>
-          <div className="relative aspect-square w-full overflow-hidden rounded-md bg-surface-muted sm:w-32">
+          <p className="mb-1 text-footnote text-muted">{t("ui.cropEditor.preview")}</p>
+          <div className="relative aspect-square w-full overflow-hidden rounded-control bg-surface-muted sm:w-32">
             {previewCrop && (
               <img src={photoUrl} alt="" style={cropToImageStyle(previewCrop.x, previewCrop.y, previewCrop.size)} />
             )}
@@ -167,19 +187,6 @@ export default function CardCropEditor({
         </div>
       </div>
       <FormMessage error={error} className="mt-3" />
-      <div className="mt-4 flex justify-between">
-        <Button variant="ghost" size="sm" onClick={resetCrop} disabled={saving}>
-          {t("ui.cropEditor.reset")}
-        </Button>
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={onClose}>
-            {t("common.cancel")}
-          </Button>
-          <Button size="sm" onClick={save} loading={saving} disabled={!box}>
-            {saving ? t("common.saving") : t("common.save")}
-          </Button>
-        </div>
-      </div>
     </Modal>
   );
 }

@@ -1,5 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useReadyMarker } from "../lib/readyMarker";
+import ProgressiveImg from "../components/ProgressiveImg";
+import { useLocation, useParams, useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { api, apiPath, ApiError } from "../api/client";
 import { formatBytes, formatDate } from "../lib/format";
 import UploadDropzone from "../components/UploadDropzone";
@@ -7,7 +10,9 @@ import RawUpload from "../components/RawUpload";
 import { VolumeDestinationPicker } from "../components/VolumeDestinationPicker";
 import { useVolumeDestination } from "../hooks/useVolumeDestination";
 import CardCropEditor from "../components/CardCropEditor";
-import DotMenu from "../components/DotMenu";
+import Menu, { MenuItem, MenuPanel, MenuSection } from "../components/Menu";
+import Button from "../components/Button";
+import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
 import { useGoBack } from "../hooks/useGoBack";
 import Modal from "../components/Modal";
@@ -21,18 +26,18 @@ import SpeciesHero from "./species/SpeciesHero";
 import SpeciesPhotoGrid from "./species/SpeciesPhotoGrid";
 import { SpeciesOverview } from "./species/SpeciesFacts";
 import ChecklistAdditions from "./species/ChecklistAdditions";
-import { useSpeciesName } from "../lib/speciesName";
-import { MENU_ITEM, MENU_ITEM_DANGER, MENU_PANEL, MENU_SEPARATOR } from "../lib/menuClasses";
+import { namePartClass, useSpeciesName, useSpeciesNameParts } from "../lib/speciesName";
+import SpeciesNameText from "../components/SpeciesNameText";
 import { storedLastRegionId } from "./collection/useCollectionData";
-
-const GALLERY_VIEW_KEY = "lifer:galleryView";
 
 function errorText(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback;
 }
 
 export default function SpeciesDetailPage() {
+  const { t } = useTranslation();
   const speciesName = useSpeciesName();
+  const speciesNameParts = useSpeciesNameParts();
   const { id } = useParams<{ id: string }>();
   const goBack = useGoBack();
   const confirm = useConfirm();
@@ -41,8 +46,14 @@ export default function SpeciesDetailPage() {
   // Without ?regionId= (a photo's species link, say), the region the Collection shows.
   const [defaultRegionId] = useState(storedLastRegionId);
   const regionId = searchParams.get("regionId") ?? defaultRegionId;
+  // Opened from a trip's species: its photos get their own section. The name rides on the back
+  // label, which history keeps across a reload.
+  const tripId = searchParams.get("trip");
+  const tripName = (useLocation().state as { backLabel?: string } | null)?.backLabel ?? null;
+  const trip = useMemo(() => (tripId ? { id: tripId, name: tripName } : undefined), [tripId, tripName]);
   const { detail, loadError, load, updateCaptures, encounters, unmatchedRaws, loadUnmatchedRaws, pendingUploadCount } =
     useSpeciesDetail(id, regionId);
+  useReadyMarker(!!detail);
   const [croppingCover, setCroppingCover] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [removingOtherTaxa, setRemovingOtherTaxa] = useState(false);
@@ -52,44 +63,19 @@ export default function SpeciesDetailPage() {
   const { openKey: openRawMenuId, setOpenKey: setOpenRawMenuId, ref: openRawMenuRef } = useDropdownMenu<string>();
   const { openKey: actionsOpen, setOpenKey: setActionsOpen, ref: actionsRef } = useDropdownMenu();
 
-  // Hides tier, rating and camera info for showing the photos off. Remembered across species.
-  const [galleryView, setGalleryView] = useState(() => {
-    try {
-      return localStorage.getItem(GALLERY_VIEW_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
-  function toggleGalleryView() {
-    setGalleryView((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(GALLERY_VIEW_KEY, String(next));
-      } catch {
-        // Storage unavailable: the toggle still works for this visit.
-      }
-      return next;
-    });
-  }
-
   // The router keeps the old scroll offset between species.
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [id]);
 
-  const backFallbackTo = regionId ? `/?region=${regionId}` : "/";
+  const backFallbackTo = tripId ? `/trips/${tripId}` : regionId ? `/?region=${regionId}` : "/";
 
   // The header renders in every state so there's always a way back.
   if (loadError) {
     return (
       <div className="flex-1 bg-canvas">
         <PageHeader backFallbackTo={backFallbackTo} />
-        <div className="p-8 text-muted">
-          Couldn't load this species.{" "}
-          <button onClick={load} className="text-ink underline">
-            Retry
-          </button>
-        </div>
+        <EmptyState title={t("species.detail.loadFailed")} action={{ label: t("common.retry"), onClick: load }} />
       </div>
     );
   }
@@ -102,38 +88,64 @@ export default function SpeciesDetailPage() {
     );
   }
   const { species, userSpecies } = detail;
+  const nameParts = speciesNameParts(species);
 
-  async function mutate(request: () => Promise<unknown>, failure: string) {
+  /** True once it worked; a failure is shown and returns false. */
+  async function mutate(request: () => Promise<unknown>, failure: string): Promise<boolean> {
     try {
       await request();
       load();
+      return true;
     } catch (err) {
       toast.error(errorText(err, failure));
+      return false;
     }
   }
 
   const markSeen = () =>
-    mutate(() => api.patch(apiPath("/species/{id}/seen", { id: id! })), "Couldn't mark this species as seen");
+    mutate(() => api.patch(apiPath("/species/{id}/seen", { id: id! })), t("species.detail.markSeenFailed"));
   const unmarkSeen = () =>
-    mutate(() => api.delete(apiPath("/species/{id}/seen", { id: id! })), "Couldn't update this species");
+    mutate(() => api.delete(apiPath("/species/{id}/seen", { id: id! })), t("species.detail.updateFailed"));
   // Targets are independent of state: a collected species can still be targeted for a better photo.
   const addToTargets = () =>
-    mutate(() => api.patch(apiPath("/species/{id}/target", { id: id! })), "Couldn't add to targets");
+    mutate(() => api.patch(apiPath("/species/{id}/target", { id: id! })), t("species.detail.addTargetFailed"));
   const removeFromTargets = () =>
-    mutate(() => api.delete(apiPath("/species/{id}/target", { id: id! })), "Couldn't remove from targets");
-  const archive = () =>
-    mutate(() => api.post(apiPath("/species/{id}/archive", { id: id! })), "Couldn't archive this species. Try again.");
-  const unarchive = () =>
-    mutate(
-      () => api.delete(apiPath("/species/{id}/archive", { id: id! })),
-      "Couldn't unarchive this species. Try again.",
+    mutate(() => api.delete(apiPath("/species/{id}/target", { id: id! })), t("species.detail.removeTargetFailed"));
+
+  // The header toggles say what changed, with a way back, as the cards' menu does.
+  async function toggleWithUndo(doIt: () => Promise<boolean>, undo: () => Promise<boolean>, message: string) {
+    if (!(await doIt())) return;
+    toast.show(message, { tone: "success", actions: [{ label: t("species.edits.undo"), onClick: () => void undo() }] });
+  }
+  const seen = userSpecies?.state === "seen";
+  const toggleSeen = () =>
+    seen
+      ? toggleWithUndo(unmarkSeen, markSeen, t("species.detail.markedNotSeen"))
+      : toggleWithUndo(markSeen, unmarkSeen, t("species.detail.markedSeen"));
+  const target = !!userSpecies?.is_target;
+  const toggleTarget = () =>
+    target
+      ? toggleWithUndo(removeFromTargets, addToTargets, t("species.detail.removedFromTargets"))
+      : toggleWithUndo(addToTargets, removeFromTargets, t("species.detail.addedToTargets"));
+  // Set by the user's connected apps (userdata.write); Lifer shows it and lets the user clear it.
+  const needsBetter = !!userSpecies?.needs_better_photo;
+  const needsBetterPath = apiPath("/userdata/v1/species/{id}/needs-better-photo", { id: id! });
+  const clearNeedsBetter = () =>
+    toggleWithUndo(
+      () => mutate(() => api.delete(needsBetterPath), t("species.detail.updateFailed")),
+      () => mutate(() => api.put(needsBetterPath), t("species.detail.updateFailed")),
+      t("species.detail.needsBetterCleared"),
     );
+  const archive = () =>
+    mutate(() => api.post(apiPath("/species/{id}/archive", { id: id! })), t("species.detail.archiveFailed"));
+  const unarchive = () =>
+    mutate(() => api.delete(apiPath("/species/{id}/archive", { id: id! })), t("species.detail.unarchiveFailed"));
 
   async function removeOtherTaxa() {
     const ok = await confirm({
-      title: "Remove this species?",
-      message: "You can add it back later by searching iNaturalist.",
-      confirmLabel: "Remove",
+      title: t("species.detail.removeConfirm.title"),
+      message: t("species.detail.removeConfirm.message"),
+      confirmLabel: t("species.detail.removeConfirm.confirm"),
       danger: true,
     });
     if (!ok) return;
@@ -143,7 +155,7 @@ export default function SpeciesDetailPage() {
       // Back where it was opened from; without one, the Collection replaces the now-dead page.
       goBack("/", { replace: true });
     } catch (err) {
-      toast.error(errorText(err, "Couldn't remove this species. Try again."));
+      toast.error(errorText(err, t("species.detail.removeFailed")));
     } finally {
       setRemovingOtherTaxa(false);
     }
@@ -158,65 +170,81 @@ export default function SpeciesDetailPage() {
   return (
     <div className="flex-1 bg-canvas">
       {/* Sticky: the page is long enough that the back link would scroll away. */}
-      <PageHeader backFallbackTo={backFallbackTo} />
+      {/* The species' actions sit in the bar with the back link, at its trailing edge, as a Mac
+          app's toolbar holds a page's actions: the common ones as toggles, the rare ones in More. */}
+      <PageHeader
+        backFallbackTo={backFallbackTo}
+        actions={
+          <div className="flex items-center gap-2">
+            {userSpecies?.state !== "collected" && (
+              <HeaderToggle on={seen} onClick={toggleSeen} title={t("species.detail.seenTitle")}>
+                {t("species.detail.seen")}
+              </HeaderToggle>
+            )}
+            {needsBetter && (
+              <HeaderToggle on onClick={() => void clearNeedsBetter()} title={t("species.detail.needsBetterTitle")}>
+                {t("species.detail.needsBetter")}
+              </HeaderToggle>
+            )}
+            <HeaderToggle on={target} onClick={toggleTarget} title={t("species.detail.targetTitle")}>
+              {t("species.detail.target")}
+            </HeaderToggle>
+            {/* Rare actions, kept out of the way in a menu. */}
+            <Menu
+              open={actionsOpen === true}
+              onToggle={() => setActionsOpen(actionsOpen ? null : true)}
+              menuRef={actionsRef}
+              className="relative shrink-0"
+              trigger="plain"
+            >
+              <MenuPanel className="whitespace-nowrap">
+                <MenuSection>
+                  {userSpecies?.cover_photo_id && (
+                    <MenuItem onSelect={() => setCroppingCover(true)}>{t("species.detail.adjustCardPreview")}</MenuItem>
+                  )}
+                </MenuSection>
+                <MenuSection>
+                  <MenuItem onSelect={() => setAddingToChecklist(true)}>{t("species.detail.addToChecklist")}</MenuItem>
+                </MenuSection>
+                <MenuSection>
+                  {/* Archived species leave the lists but stay reachable here so they can be unarchived. */}
+                  {detail.isArchived ? (
+                    <MenuItem onSelect={() => void unarchive()}>{t("species.detail.countAgain")}</MenuItem>
+                  ) : userSpecies?.state !== "collected" ? (
+                    <MenuItem onSelect={() => void archive()}>{t("species.detail.dontCount")}</MenuItem>
+                  ) : null}
+                </MenuSection>
+                <MenuSection>
+                  {/* The server refuses removal once a photo exists, so it's only offered before then. */}
+                  {species.is_other_taxa && userSpecies?.state !== "collected" && (
+                    <MenuItem onSelect={() => void removeOtherTaxa()} disabled={removingOtherTaxa} danger>
+                      {removingOtherTaxa ? t("species.detail.removing") : t("species.detail.removeSpecies")}
+                    </MenuItem>
+                  )}
+                </MenuSection>
+              </MenuPanel>
+            </Menu>
+          </div>
+        }
+      />
 
       {/* Wide screens: the hero beside the species' cards, then the photos across the full width.
           Narrow: stacked. */}
       <main className="mx-auto w-full max-w-[120rem] space-y-section p-page">
         {/* The species, its photo, then what to know about it beside where and when it's seen, then
             your photos. */}
-        <header className="flex items-start justify-between gap-item">
+        <header>
           <div className="min-w-0">
-            <h1 className="text-3xl font-semibold text-ink">{speciesName(species)}</h1>
-            <p className="mt-1 text-sm text-muted">
-              <span className="italic">{species.scientific_name}</span>
-              {encounters?.firstPhotographedAt && <> · First observed {formatDate(encounters.firstPhotographedAt)}</>}
+            <h1 className={`text-large-title font-semibold text-ink ${namePartClass(nameParts.primary)}`}>
+              {nameParts.primary.text}
+            </h1>
+            <p className="mt-1 text-callout text-muted">
+              <SpeciesNameText parts={nameParts.secondary} />
+              {nameParts.secondary.length > 0 && encounters?.firstPhotographedAt && " · "}
+              {encounters?.firstPhotographedAt &&
+                t("species.detail.firstObserved", { date: formatDate(encounters.firstPhotographedAt) })}
             </p>
           </div>
-          {/* Rare actions, kept out of the way in a menu. */}
-          <DotMenu
-            open={actionsOpen === true}
-            onToggle={() => setActionsOpen(actionsOpen ? null : true)}
-            menuRef={actionsRef}
-            className="relative shrink-0"
-            plain
-          >
-            <div
-              onClick={() => setActionsOpen(null)}
-              className={`absolute right-0 top-full z-10 mt-1 whitespace-nowrap ${MENU_PANEL}`}
-            >
-              {userSpecies?.cover_photo_id && (
-                <MenuItem onClick={() => setCroppingCover(true)}>Adjust card preview</MenuItem>
-              )}
-              {userSpecies?.state !== "collected" &&
-                (userSpecies?.state === "seen" ? (
-                  <MenuItem onClick={unmarkSeen}>Mark as unseen</MenuItem>
-                ) : (
-                  <MenuItem onClick={markSeen}>Mark as seen</MenuItem>
-                ))}
-              {userSpecies?.is_target ? (
-                <MenuItem onClick={removeFromTargets}>Remove from targets</MenuItem>
-              ) : (
-                <MenuItem onClick={addToTargets}>Add to targets</MenuItem>
-              )}
-              {/* Archived species leave checklists but stay reachable here so they can be unarchived. */}
-              {detail.isArchived ? (
-                <MenuItem onClick={unarchive}>Unarchive</MenuItem>
-              ) : userSpecies?.state !== "collected" ? (
-                <MenuItem onClick={archive}>Archive</MenuItem>
-              ) : null}
-              <MenuItem onClick={() => setAddingToChecklist(true)}>Add to another checklist</MenuItem>
-              {/* The server refuses removal once a photo exists, so it's only offered before then. */}
-              {species.is_other_taxa && userSpecies?.state !== "collected" && (
-                <>
-                  <div className={MENU_SEPARATOR} />
-                  <MenuItem onClick={removeOtherTaxa} disabled={removingOtherTaxa} danger>
-                    {removingOtherTaxa ? "Removing…" : "Remove species"}
-                  </MenuItem>
-                </>
-              )}
-            </div>
-          </DotMenu>
         </header>
         <ChecklistAdditions
           speciesId={species.id}
@@ -234,42 +262,35 @@ export default function SpeciesDetailPage() {
           pendingUploadCount={pendingUploadCount}
           load={load}
           updateCaptures={updateCaptures}
-          galleryView={galleryView}
-          onToggleGalleryView={toggleGalleryView}
           onUpload={() => setShowUploadDialog(true)}
+          trip={trip}
         />
         {/* RAWs filed with no matching JPEG: no capture to rate or preview, so Download is the one action. */}
         {unmatchedRaws.length > 0 && (
           <section>
-            <h2 className="mb-2 text-sm font-medium text-ink">RAW gallery</h2>
+            <h2 className="mb-2 text-callout font-medium text-ink">{t("species.detail.rawGallery")}</h2>
             <div className="flex flex-wrap gap-3">
               {unmatchedRaws.map((r) => (
                 <div key={r.id} className="group relative w-32">
-                  <img
-                    src={r.previewUrl}
+                  <ProgressiveImg
+                    thumbSrc={r.previewUrl}
+                    fullSrc={r.previewUrl}
                     alt=""
-                    loading="lazy"
-                    className="aspect-square w-full rounded-md bg-surface-muted object-cover"
+                    className="aspect-square w-full rounded-control object-cover"
                   />
-                  <DotMenu
+                  <Menu
                     open={openRawMenuId === r.id}
                     onToggle={() => setOpenRawMenuId(openRawMenuId === r.id ? null : r.id)}
                     menuRef={openRawMenuRef}
                   >
-                    <div className={`absolute right-0 top-full z-10 mt-1 whitespace-nowrap ${MENU_PANEL}`}>
-                      <button
-                        onClick={() => {
-                          setOpenRawMenuId(null);
-                          downloadFile(r.downloadUrl, r.filename ?? "original.raw");
-                        }}
-                        className={MENU_ITEM}
-                      >
-                        Download
-                      </button>
-                    </div>
-                  </DotMenu>
-                  <p className="mt-1 truncate text-xs text-ink">{r.filename}</p>
-                  <p className="text-xs text-muted">{formatBytes(r.fileSize)}</p>
+                    <MenuPanel className="whitespace-nowrap">
+                      <MenuItem onSelect={() => downloadFile(r.downloadUrl, r.filename ?? "original.raw")}>
+                        {t("species.detail.download")}
+                      </MenuItem>
+                    </MenuPanel>
+                  </Menu>
+                  <p className="mt-1 truncate text-footnote text-ink">{r.filename}</p>
+                  <p className="text-footnote text-muted">{formatBytes(r.fileSize)}</p>
                 </div>
               ))}
             </div>
@@ -277,7 +298,16 @@ export default function SpeciesDetailPage() {
         )}
       </main>
 
-      <Modal open={showUploadDialog} onClose={() => setShowUploadDialog(false)} title="Upload" size="lg">
+      <Modal
+        open={showUploadDialog}
+        onClose={() => setShowUploadDialog(false)}
+        title={t("species.detail.upload")}
+        footer={
+          <Button variant="secondary" onClick={() => setShowUploadDialog(false)}>
+            {t("common.done")}
+          </Button>
+        }
+      >
         <div className="space-y-4">
           <VolumeDestinationPicker {...volumeDestination} />
           <UploadDropzone
@@ -307,20 +337,44 @@ export default function SpeciesDetailPage() {
   );
 }
 
-function MenuItem({
+function CheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      className="h-3.5 w-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path d="M3.5 8.5l3 3 6-7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// A state you turn on and off (Seen, Target): a checkmark and the accent while on.
+function HeaderToggle({
+  on,
   onClick,
-  disabled,
-  danger,
+  title,
   children,
 }: {
+  on: boolean;
   onClick: () => void;
-  disabled?: boolean;
-  danger?: boolean;
+  title: string;
   children: ReactNode;
 }) {
   return (
-    <button onClick={onClick} disabled={disabled} className={danger ? MENU_ITEM_DANGER : MENU_ITEM}>
+    <Button
+      variant="secondary"
+      size="sm"
+      aria-pressed={on}
+      onClick={onClick}
+      tooltip={{ label: title }}
+      className={`gap-1.5 ${on ? "border-accent bg-accent/10 text-ink" : ""}`}
+    >
+      {on && <CheckIcon />}
       {children}
-    </button>
+    </Button>
   );
 }

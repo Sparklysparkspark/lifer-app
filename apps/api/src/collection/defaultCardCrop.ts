@@ -5,7 +5,12 @@ import { readFile } from "node:fs/promises";
 import { pool } from "@lifer/core/db.js";
 import { detectDefaultCardCrop } from "../species/detectAndCrop.js";
 
-export async function ensureDefaultCardCrop(userId: string, speciesId: string): Promise<void> {
+/** `known`: a crop already found for one photo, used when that photo is the cover. */
+export async function ensureDefaultCardCrop(
+  userId: string,
+  speciesId: string,
+  known?: { photoId: string; crop: NonNullable<Awaited<ReturnType<typeof detectDefaultCardCrop>>> },
+): Promise<void> {
   try {
     const res = await pool.query<{ cover_photo_id: string; display_path: string | null }>(
       `SELECT us.cover_photo_id, p.display_path
@@ -15,7 +20,10 @@ export async function ensureDefaultCardCrop(userId: string, speciesId: string): 
     );
     const row = res.rows[0];
     if (!row?.display_path) return;
-    const crop = await detectDefaultCardCrop(await readFile(row.display_path));
+    const crop =
+      known?.photoId === row.cover_photo_id
+        ? known.crop
+        : await detectDefaultCardCrop(await readFile(row.display_path));
     if (!crop) return;
     await pool.query(
       `UPDATE user_species SET card_crop_x = $1, card_crop_y = $2, card_crop_size = $3

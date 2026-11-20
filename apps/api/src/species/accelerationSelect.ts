@@ -209,13 +209,13 @@ async function run(opts: Parameters<typeof selectAcceleration>[0]): Promise<void
       if (!m.gpuPath || existsSync(m.gpuPath)) continue;
       update({
         state: "downloading",
-        message: "Downloading the GPU copy of the species-matching model",
+        message: "Downloading the GPU copy of species recognition",
         progress: { done: 0, total: null },
       });
       await m.downloadGpuCopy((done, total) => update({ progress: { done, total } }));
       if (cancelled()) return;
     }
-    update({ state: "testing", message: "Timing species matching on the CPU", progress: null });
+    update({ state: "testing", message: "Timing species recognition on the CPU", progress: null });
 
     // The CPU as it runs today, and its full-precision answer every GPU result is checked against.
     const cpu = new Map<ModelFamily, ProbeResult>();
@@ -259,7 +259,7 @@ async function run(opts: Parameters<typeof selectAcceleration>[0]): Promise<void
         }
         if (cancelled()) return;
       }
-      update({ state: "testing", message: `Testing species matching on ${backend.label}`, progress: null });
+      update({ state: "testing", message: `Testing species recognition on ${backend.label}`, progress: null });
       // Probes for a downloaded runtime run in its own process (inference.ts).
       setPlan({ ...cpuOnly, runtime });
       const times = new Map<ModelFamily, number>();
@@ -321,7 +321,7 @@ async function run(opts: Parameters<typeof selectAcceleration>[0]): Promise<void
     );
   } catch (err) {
     setPlan(cpuOnly);
-    update({ state: "failed", message: `Couldn't set up GPU matching: ${(err as Error).message}`, progress: null });
+    update({ state: "failed", message: `Couldn't set up GPU recognition: ${(err as Error).message}`, progress: null });
     log(`failed, using the CPU: ${(err as Error).message}`);
   }
 }

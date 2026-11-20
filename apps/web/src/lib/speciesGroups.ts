@@ -11,6 +11,9 @@ const TIER_LABEL_KEYS: Record<string, string> = {
   unrated: "collection.tiers.unrated",
 };
 
+// Rarest first, as tiers read everywhere.
+export const TIER_ORDER = ["legendary", "rare", "uncommon", "occasional", "common", "unrated"];
+
 /** A rarity tier's name in the active language; an unknown tier shows as is. */
 export function tierLabel(tier: string): string {
   const key = TIER_LABEL_KEYS[tier];

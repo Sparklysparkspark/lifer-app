@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { api, apiPath } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
 import Modal from "./Modal";
+import { useToast } from "../hooks/useToast";
 import Button from "./Button";
 import FormMessage from "./FormMessage";
 import { useSpeciesName } from "../lib/speciesName";
@@ -10,6 +12,8 @@ interface SplitOptions {
   captureIds: string[];
   species: Array<{ id: string; scientificName: string; commonName: string | null; photoUrl: string | null }>;
 }
+
+const KEEP = "keep";
 
 // A species you have photos of was split, and location doesn't settle which one they are.
 // Picking one moves the photos there; keeping the old name stops the question for these photos.
@@ -26,6 +30,8 @@ export default function NameChangedModal({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const { t } = useTranslation();
+  const toast = useToast();
   const nameOf = useSpeciesName();
   const [options, setOptions] = useState<SplitOptions | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,11 +42,11 @@ export default function NameChangedModal({
     api
       .get<SplitOptions>(`/species/${speciesId}/split`)
       .then((d) => !cancelled && setOptions(d))
-      .catch((err) => !cancelled && setError(errorMessage(err, "Couldn't load the new species")));
+      .catch((err) => !cancelled && setError(errorMessage(err, t("nameChanged.loadFailed"))));
     return () => {
       cancelled = true;
     };
-  }, [speciesId]);
+  }, [speciesId, t]);
 
   async function choose(body: { speciesId: string } | { keep: true }, key: string) {
     setSaving(key);
@@ -49,8 +55,9 @@ export default function NameChangedModal({
       await api.post(apiPath("/species/{id}/split", { id: speciesId }), body);
       onChanged();
       onClose();
+      toast.success(t("nameChanged.updated"));
     } catch (err) {
-      setError(errorMessage(err, "Couldn't update your photos"));
+      setError(errorMessage(err, t("nameChanged.updateFailed")));
     } finally {
       setSaving(null);
     }
@@ -58,27 +65,46 @@ export default function NameChangedModal({
 
   const count = options?.captureIds.length ?? 0;
   return (
-    <Modal open onClose={onClose} title="Name changed" size="sm">
+    <Modal
+      open
+      onClose={onClose}
+      title={t("nameChanged.title")}
+      footer={
+        options && (
+          <Button
+            variant="secondary"
+            loading={saving === KEEP}
+            disabled={saving !== null}
+            onClick={() => void choose({ keep: true }, KEEP)}
+          >
+            {t("nameChanged.keep", { scientificName })}
+          </Button>
+        )
+      }
+    >
       <FormMessage error={error} />
       {!options ? (
-        !error && <p className="text-sm text-muted">Loading…</p>
+        !error && <p className="text-callout text-muted">{t("common.loading")}</p>
       ) : (
-        <div className="space-y-3 text-sm">
+        <div className="space-y-3 text-callout">
           <p className="text-muted">
-            {speciesName} (<i>{scientificName}</i>) has been split into {options.species.length} species. Which is in
-            your {count === 1 ? "photo" : `${count} photos`}?
+            <Trans
+              i18nKey="nameChanged.splitInto"
+              values={{ name: speciesName, scientificName, count: options.species.length, photos: count }}
+              components={{ i: <i /> }}
+            />
           </p>
           <ul className="space-y-2">
             {options.species.map((s) => (
               <li key={s.id} className="flex items-center gap-3">
                 {s.photoUrl ? (
-                  <img src={s.photoUrl} alt="" className="h-12 w-12 shrink-0 rounded-md object-cover" />
+                  <img src={s.photoUrl} alt="" className="h-12 w-12 shrink-0 rounded-badge object-cover" />
                 ) : (
-                  <div className="h-12 w-12 shrink-0 rounded-md bg-surface-muted" />
+                  <div className="h-12 w-12 shrink-0 rounded-badge bg-surface-muted" />
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-ink">{nameOf(s)}</p>
-                  <p className="truncate text-xs italic text-muted">{s.scientificName}</p>
+                  <p className="truncate text-footnote italic text-muted">{s.scientificName}</p>
                 </div>
                 <Button
                   size="sm"
@@ -86,22 +112,11 @@ export default function NameChangedModal({
                   disabled={saving !== null}
                   onClick={() => void choose({ speciesId: s.id }, s.id)}
                 >
-                  This one
+                  {t("nameChanged.thisOne")}
                 </Button>
               </li>
             ))}
           </ul>
-          <div className="border-t border-line pt-3">
-            <Button
-              variant="secondary"
-              size="sm"
-              loading={saving === "keep"}
-              disabled={saving !== null}
-              onClick={() => void choose({ keep: true }, "keep")}
-            >
-              Keep {scientificName}
-            </Button>
-          </div>
         </div>
       )}
     </Modal>

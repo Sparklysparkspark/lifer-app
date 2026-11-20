@@ -42,13 +42,13 @@ describe("addedMessage", () => {
   const yukon = { kind: "region" as const, name: "Yukon" };
   it("says what happened", () => {
     expect(addedMessage({ ok: true, added: true, alreadyOnChecklist: false }, "Moose", yukon)).toBe(
-      "Added Moose to Yukon's checklist.",
+      "Added Moose to Yukon's species list.",
     );
     expect(addedMessage({ ok: true, added: false, alreadyOnChecklist: false }, "Moose", yukon)).toBe(
-      "You'd already added Moose to Yukon's checklist.",
+      "You'd already added Moose to Yukon's species list.",
     );
     expect(addedMessage({ ok: true, added: true, alreadyOnChecklist: true }, "Moose", yukon)).toBe(
-      "Moose is already on Yukon's checklist.",
+      "Moose is already on Yukon's species list.",
     );
   });
 
@@ -58,7 +58,7 @@ describe("addedMessage", () => {
         kind: "seaZone",
         name: "Gulf of Alaska",
       }),
-    ).toBe("Added Sea Otter to the Gulf of Alaska checklist.");
+    ).toBe("Added Sea Otter to the Gulf of Alaska species list.");
   });
 });
 

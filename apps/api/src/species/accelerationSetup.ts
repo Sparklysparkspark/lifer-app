@@ -11,7 +11,7 @@ import {
 } from "./accelerationSelect.js";
 import { clipModel } from "@lifer/core/species/embeddings.js";
 import { idModel } from "@lifer/core/species/idModel.js";
-import { DETECTOR_MODEL_PATH } from "@lifer/core/species/inference.js";
+import { activeDetectorPath } from "@lifer/core/species/inference.js";
 import type { OnnxImageModel } from "@lifer/core/species/onnxImageModel.js";
 
 const CACHE_FILE = ACCELERATION_CACHE_FILE;
@@ -37,8 +37,8 @@ export function startAccelerationSelection(opts: { force?: boolean } = {}): void
   const models: AcceleratedModel[] = [
     {
       family: "detector",
-      cpuPath: DETECTOR_MODEL_PATH,
-      gpuPath: DETECTOR_MODEL_PATH,
+      cpuPath: activeDetectorPath(),
+      gpuPath: activeDetectorPath(),
       downloadGpuCopy: async () => {},
       dims: [1, 3, 640, 640],
     },

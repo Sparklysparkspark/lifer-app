@@ -1,23 +1,25 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import EmptyState from "../../components/EmptyState";
 import PhotosIcon from "../../components/PhotosIcon";
-import StarRating from "../../components/StarRating";
+import PhotoTileCaption from "../../components/PhotoTileCaption";
+import { usePhotoCaptionPrefs } from "../../hooks/usePhotoCaptionPrefs";
 import Lightbox, { type LightboxSlide } from "../../components/Lightbox";
-import PhotoTile from "../../components/PhotoTile";
+import PhotoGrid, { type PhotoGridTileData } from "../../components/PhotoGrid";
+import PhotoMenu from "../../components/PhotoMenu";
 import AddToAlbumModal from "../../components/AddToAlbumModal";
+import CoordinatesModal from "../../components/CoordinatesModal";
 import SegmentedControl from "../../components/SegmentedControl";
 import SelectModeToggle from "../../components/SelectModeToggle";
-import Select from "../../components/Select";
-import Pill from "../../components/Pill";
-import MasonryGrid from "../../components/MasonryGrid";
 import Button from "../../components/Button";
-import InlineSpinner from "../../components/InlineSpinner";
 import FormMessage from "../../components/FormMessage";
-import { ThumbSizeSlider } from "../../components/PhotoGridControls";
+import { PhotoViewMenu } from "../../components/PhotoGridControls";
 import { usePhotoGridSize } from "../../hooks/usePhotoGridSize";
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { useSelectMode } from "../../hooks/useSelectMode";
-import { useDeploymentMode, useIsTauri } from "../../hooks/useDeploymentMode";
+import { useLatest } from "../../hooks/useLatest";
+import type { SpeciesResult } from "../../components/SpeciesPicker";
 import { shotDataLine } from "../../lib/shotData";
 import { formatDate } from "../../lib/format";
 import { filterBucketFor, fullSizeUrl, type PhotoFilter, type SpeciesCapture, type SpeciesDetail } from "./types";
@@ -33,35 +35,44 @@ import {
   type PhotoSort,
 } from "./photoGridHelpers";
 import { useCaptureEdits } from "./useCaptureEdits";
-import CaptureMenu from "./CaptureMenu";
 import CaptureEditModal, { type CaptureEdit } from "../../components/CaptureEditModal";
 import { CaptureSelectBar, DeleteCapturesDialog } from "./CaptureSelection";
 
+const SPECIES_PHOTO_SORTS: readonly PhotoSort[] = ["newest", "oldest", "rating"];
+
 // Same one-line caption budget GalleryPage uses; wrapped lines are added per item.
 
-type GridItem =
-  { kind: "capture"; c: SpeciesCapture; i: number; line: string | null } | { kind: "placeholder"; key: string };
+const captureKey = (c: SpeciesCapture) => c.id;
+const captureTile = (c: SpeciesCapture): PhotoGridTileData => ({
+  photoId: c.photo_id,
+  alt: "",
+  kind: c.photo_kind,
+  durationSeconds: c.duration_seconds,
+  width: c.width,
+  height: c.height,
+});
 
 export default function SpeciesPhotoGrid({
   detail,
   pendingUploadCount,
   load,
   updateCaptures,
-  galleryView,
-  onToggleGalleryView,
   onUpload,
+  trip,
 }: {
+  /** Opened from a trip: its photos lead in their own section, the rest follow. */
+  trip?: { id: string; name: string | null };
   detail: SpeciesDetail;
   pendingUploadCount: number;
   load: () => void;
   updateCaptures: (ids: Iterable<string>, patch: (c: SpeciesCapture) => Partial<SpeciesCapture>) => void;
-  galleryView: boolean;
-  onToggleGalleryView: () => void;
   onUpload: () => void;
 }) {
+  const { t } = useTranslation();
   const { species, captures, userSpecies } = detail;
   const menu = useDropdownMenu<string>();
   const [thumbSizePx, updateThumbSize] = usePhotoGridSize();
+  const captions = usePhotoCaptionPrefs();
   // Where the grid starts within the section, so the reserved block ends just below the panel.
   // Null until the user picks one: then edited photos when there are any, else everything (a species
   // with only RAWs so far shouldn't open on an empty grid).
@@ -70,17 +81,23 @@ export default function SpeciesPhotoGrid({
   const [photoSort, setPhotoSort] = useState<PhotoSort>("newest");
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [addingToAlbumCaptureId, setAddingToAlbumCaptureId] = useState<string | null>(null);
+  // The coordinates dialog, as on the map.
+  const [placingCaptureId, setPlacingCaptureId] = useState<string | null>(null);
+  const placingCapture = placingCaptureId ? captures.find((c) => c.id === placingCaptureId) : undefined;
   const [editing, setEditing] = useState<{ captureId: string; edit: CaptureEdit } | null>(null);
   const editingCapture = editing && captures.find((c) => c.id === editing.captureId);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
-  // Reveal runs on the API's machine, so it only makes sense for the desktop app's own local API.
-  const isTauri = useIsTauri();
-  const deploymentMode = useDeploymentMode();
-  const canRevealInFinder = isTauri && deploymentMode === "desktop";
 
   const counts = useMemo(() => captureCounts(captures), [captures]);
   const photoFilter = chosenFilter ?? (counts.edited > 0 ? "edited" : "all");
-  const sortedCaptures = useMemo(() => sortCaptures(captures, photoSort), [captures, photoSort]);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const navigate = useNavigate();
+  const inTrip = useCallback((c: SpeciesCapture) => !!trip && c.trip_id === trip.id, [trip]);
+  // Trip photos first, so the grid, range select and the lightbox all follow the on-screen order.
+  const sortedCaptures = useMemo(() => {
+    const sorted = sortCaptures(captures, photoSort);
+    return trip ? [...sorted.filter(inTrip), ...sorted.filter((c) => !inTrip(c))] : sorted;
+  }, [captures, photoSort, trip, inTrip]);
   // The lightbox browses every kind regardless of the grid's filter; the grid shows the filtered subset.
   const photoCaptures = useMemo(() => sortedCaptures.filter((c) => c.photo_id), [sortedCaptures]);
   const slideIndexById = useMemo(() => new Map(photoCaptures.map((c, i) => [c.id, i])), [photoCaptures]);
@@ -88,9 +105,45 @@ export default function SpeciesPhotoGrid({
     () => photoCaptures.filter((c) => matchesFilter(c, photoFilter)),
     [photoCaptures, photoFilter],
   );
+  // Omitted when the trip has none of this species' photos in view: then it's the plain grid.
+  const groups = useMemo(() => {
+    if (!trip) return null;
+    const entries = visibleCaptures.map((item, i) => ({ item, i }));
+    const fromTrip = entries.filter((e) => inTrip(e.item));
+    if (fromTrip.length === 0) return null;
+    const toggle = (key: string) => () =>
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        if (!next.delete(key)) next.add(key);
+        return next;
+      });
+    return [
+      {
+        key: "trip",
+        label: trip.name
+          ? t("species.photoGrid.fromTrip", { trip: trip.name })
+          : t("species.photoGrid.fromThisTrip"),
+        entries: fromTrip,
+        collapsed: collapsed.has("trip"),
+        onToggle: toggle("trip"),
+        action: (
+          <Button variant="link" size="sm" onClick={() => navigate(`/trips/${trip.id}`)} className="shrink-0">
+            {t("species.photoGrid.openTrip")}
+          </Button>
+        ),
+      },
+      {
+        key: "other",
+        label: t("species.photoGrid.otherPhotos"),
+        entries: entries.filter((e) => !inTrip(e.item)),
+        collapsed: collapsed.has("other"),
+        onToggle: toggle("other"),
+      },
+    ].filter((g) => g.entries.length > 0);
+  }, [trip, visibleCaptures, inTrip, collapsed, navigate, t]);
 
   const select = useSelectMode(visibleCaptures, (c) => c.id);
-  const { selectMode, setSelectMode, selectedIds, toggle, dragPreviewIds, dragProps } = select;
+  const { selectMode, setSelectMode, selectedIds } = select;
   const edits = useCaptureEdits({
     speciesId: species.id,
     load,
@@ -99,6 +152,8 @@ export default function SpeciesPhotoGrid({
     closeMenu: () => menu.setOpenKey(null),
   });
   const { tagCapture, rateCapture } = edits;
+  // Changes every render; the ref keeps the slides memoized.
+  const reassignRef = useLatest(edits.reassignSpecies);
 
   const selectedCaptures = captures.filter((c) => selectedIds.has(c.id));
 
@@ -107,25 +162,61 @@ export default function SpeciesPhotoGrid({
       photoCaptures.map((c) => ({
         url: fullSizeUrl(c)!,
         videoUrl: c.photo_kind === "video" ? `/api/photos/${c.photo_id}/video` : null,
+        audioUrl: c.photo_kind === "audio" ? `/api/photos/${c.photo_id}/audio` : null,
+        frameUrl: c.photo_kind === "video" ? `/photos/${c.photo_id}/frame` : null,
         caption: c.taken_at ? formatDate(c.taken_at) : null,
+        rating: c.quality_rating,
+        onRate: (rating: number | null) => void rateCapture(c.id, rating),
+        captureId: c.id,
+        onReassign: (species: SpeciesResult) => void reassignRef.current(c.id, species),
         tags: c.tags,
         onTagsChange: (tags: string[]) => void tagCapture(c.id, tags),
         info: captureInfo(c),
       })),
-    [photoCaptures, tagCapture],
+    [photoCaptures, tagCapture, rateCapture, reassignRef],
   );
 
-  const gridItems = useMemo<GridItem[]>(
-    () => [
-      ...visibleCaptures.map((c, i) => ({ kind: "capture" as const, c, i, line: shotDataLine(c) })),
-      // Placeholder tiles for uploads in flight, right where the new photo will land.
-      ...Array.from({ length: pendingUploadCount }, (_, idx) => ({
-        kind: "placeholder" as const,
-        key: `pending-${idx}`,
-      })),
-    ],
-    [visibleCaptures, pendingUploadCount],
+  // Loading tiles for uploads in flight, right where the new photo will land.
+  const pendingKeys = useMemo(
+    () => Array.from({ length: pendingUploadCount }, (_, i) => String(i)),
+    [pendingUploadCount],
   );
+
+  function renderCaptureMenu(c: SpeciesCapture) {
+    const isCover = userSpecies?.cover_photo_id === c.photo_id;
+    const edit = (edit: CaptureEdit) => () => setEditing({ captureId: c.id, edit });
+    const [editTags, correctId, tagSpecies] = [edit("tags"), edit("reassign"), edit("tagSpecies")];
+    return (
+      <PhotoMenu
+        photo={{
+          captureId: c.id,
+          photoId: c.photo_id!,
+          kind: c.photo_kind,
+          rating: c.quality_rating,
+          originalRef: c.original_ref,
+          originalKind: c.original_kind,
+          originalManaged: c.original_managed,
+          originalAvailable: c.original_available,
+          originalVolumeLabel: c.original_volume_label,
+          hasRaw: c.has_raw_original,
+          inatObservationId: c.inat_observation_id,
+        }}
+        onClose={() => menu.setOpenKey(null)}
+        onRate={(rating) => void rateCapture(c.id, rating)}
+        featured={isCover}
+        onToggleFeatured={() => void edits.setCover(isCover ? null : c.photo_id!)}
+        onAddToAlbum={() => setAddingToAlbumCaptureId(c.id)}
+        onEditTags={editTags}
+        onCorrectId={correctId}
+        onTagSpecies={tagSpecies}
+        location={locationText(c)}
+        onSetLocation={() => setPlacingCaptureId(c.id)}
+        onInatSent={load}
+        onHide={() => void edits.hide([c.id])}
+        onDelete={() => edits.requestDeleteCapture(c.id)}
+      />
+    );
+  }
 
   function closeLightbox() {
     // If you arrowed onto a capture the current filter hides, switch the filter so it's visible.
@@ -141,35 +232,41 @@ export default function SpeciesPhotoGrid({
           {/* For screen readers only: on screen the photos speak for themselves. */}
           <h2 className="sr-only">{photosSectionTitle(photoFilter, counts)}</h2>
           <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-2">
-            {captures.length > 0 && <ThumbSizeSlider value={thumbSizePx} onChange={updateThumbSize} />}
-            <Pill active={galleryView} onClick={onToggleGalleryView}>
-              Gallery view
-            </Pill>
-            {captures.length > 1 && (
-              <Select label="Sort" value={photoSort} onChange={(e) => setPhotoSort(e.target.value as PhotoSort)}>
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
-                <option value="rating">Highest rated first</option>
-              </Select>
-            )}
             {(counts.raw > 0 || counts.video > 0) && (
               <SegmentedControl
                 size="sm"
                 value={photoFilter}
                 onChange={setPhotoFilter}
                 options={[
-                  { value: "all", label: `All (${counts.edited + counts.raw + counts.video})` },
-                  { value: "edited", label: `Edited (${counts.edited})` },
-                  ...(counts.raw > 0 ? [{ value: "raw" as const, label: `RAW (${counts.raw})` }] : []),
-                  ...(counts.video > 0 ? [{ value: "video" as const, label: `Video (${counts.video})` }] : []),
+                  {
+                    value: "all",
+                    label: t("species.photoGrid.filterAll", { count: counts.edited + counts.raw + counts.video }),
+                  },
+                  { value: "edited", label: t("species.photoGrid.filterEdited", { count: counts.edited }) },
+                  ...(counts.raw > 0
+                    ? [{ value: "raw" as const, label: t("species.photoGrid.filterRaw", { count: counts.raw }) }]
+                    : []),
+                  ...(counts.video > 0
+                    ? [{ value: "video" as const, label: t("species.photoGrid.filterVideo", { count: counts.video }) }]
+                    : []),
                 ]}
+              />
+            )}
+            {/* Finding (kind), then viewing (the View menu), then actions, as on every grid. */}
+            {captures.length > 0 && (
+              <PhotoViewMenu
+                sections={captures.length > 1 ? ["sort", "size", "captions"] : ["size", "captions"]}
+                activeCount={photoSort !== "newest" ? 1 : 0}
+                sort={{ value: photoSort, options: SPECIES_PHOTO_SORTS, onChange: setPhotoSort }}
+                size={{ value: thumbSizePx, onChange: updateThumbSize }}
+                captions={captions}
               />
             )}
             {captures.length > 0 && (
               <SelectModeToggle active={selectMode} onEnter={() => setSelectMode(true)} onExit={edits.exitSelectMode} />
             )}
             <Button size="sm" onClick={onUpload}>
-              Upload
+              {t("species.detail.upload")}
             </Button>
           </div>
         </div>
@@ -190,117 +287,60 @@ export default function SpeciesPhotoGrid({
         <div>
           <EmptyState
             icon={<PhotosIcon />}
-            title="Not photographed yet"
-            description="Upload a photo to add this species to your collection."
+            title={t("species.photoGrid.empty.title")}
+            description={t("species.photoGrid.empty.description")}
           />
         </div>
       ) : (
         <div>
-          <MasonryGrid
-            items={gridItems}
+          <PhotoGrid
+            items={visibleCaptures}
+            groups={groups}
+            idFor={captureKey}
+            tileFor={captureTile}
             columnWidth={thumbSizePx}
-            // Gallery view shows only absolutely positioned overlays, which add no height.
-            keyFor={(item) => (item.kind === "placeholder" ? item.key : item.c.id)}
-            // 3:2 stands in for an ordinary landscape photo until the upload reports real dimensions.
-            aspectRatioFor={(item) =>
-              item.kind === "capture" && item.c.width && item.c.height ? item.c.width / item.c.height : 3 / 2
-            }
-            renderItem={(item, aspectRatio) => {
-              if (item.kind === "placeholder") {
-                return (
-                  <div
-                    key={item.key}
-                    style={{ aspectRatio: aspectRatio ?? 3 / 2 }}
-                    className="flex w-full items-center justify-center rounded-md bg-surface-muted"
-                  >
-                    <InlineSpinner size="md" tone="ink" label="Uploading" />
-                  </div>
-                );
-              }
-              const { c, i, line } = item;
-              const menuOpen = menu.openKey === c.id;
+            select={select}
+            menu={menu}
+            pending={{ keys: pendingKeys, label: t("species.photoGrid.uploading") }}
+            onOpen={(i) => setLightboxIndex(slideIndexById.get(visibleCaptures[i].id) ?? 0)}
+            renderMenu={renderCaptureMenu}
+            renderLabel={(c) => {
               const location = locationText(c);
               return (
-                <PhotoTile
-                  key={c.id}
-                  photoId={c.photo_id!}
-                  alt=""
-                  kind={c.photo_kind === "video" ? "video" : "image"}
-                  durationSeconds={c.duration_seconds}
-                  onOpen={() => setLightboxIndex(slideIndexById.get(c.id) ?? 0)}
-                  selectMode={selectMode}
-                  selected={selectedIds.has(c.id) || (dragPreviewIds?.has(c.id) ?? false)}
-                  onToggleSelect={(shiftKey) => toggle(c.id, i, shiftKey)}
-                  onDragSelectStart={() => dragProps.onDragSelectStart(i)}
-                  onDragSelectEnter={() => dragProps.onDragSelectEnter(i)}
-                  aspectRatio={aspectRatio}
-                  menuOpen={menuOpen}
-                  onToggleMenu={() => menu.setOpenKey(menuOpen ? null : c.id)}
-                  menuRef={menu.ref}
-                  menuContent={
-                    menuOpen ? (
-                      <CaptureMenu
-                        capture={c}
-                        isCover={userSpecies?.cover_photo_id === c.photo_id}
-                        canRevealInFinder={canRevealInFinder}
-                        onClose={() => menu.setOpenKey(null)}
-                        onRate={(rating) => void rateCapture(c.id, rating)}
-                        onSetCover={() => void edits.setCover(c.photo_id!)}
-                        onAddToAlbum={() => {
-                          setAddingToAlbumCaptureId(c.id);
-                          menu.setOpenKey(null);
-                        }}
-                        onReveal={() => void edits.revealInFinder(c.original_ref!)}
-                        onCopyPath={() => void edits.copyPath(c.original_ref!)}
-                        onEdit={(edit) => {
-                          setEditing({ captureId: c.id, edit });
-                          menu.setOpenKey(null);
-                        }}
-                        onDelete={() => edits.requestDeleteCapture(c.id)}
-                      />
-                    ) : null
-                  }
-                  label={
-                    <>
-                      {!galleryView &&
-                        userSpecies?.best_quality != null &&
-                        c.quality_rating === userSpecies.best_quality && (
-                          // Beside the select checkbox (left-2, w-4) in select mode, not over it, and never
-                          // in the way of a click.
-                          <span
-                            className={`pointer-events-none absolute top-1.5 rounded-full bg-black/40 px-1.5 py-0.5 text-[9px] text-white ${
-                              selectMode ? "left-7" : "left-1"
-                            }`}
-                          >
-                            Best shot
-                          </span>
-                        )}
-                      {/* The explanation lives in the menu; the tile only gets a dot. */}
-                      {c.original_available === false && (
-                        <span
-                          className="absolute bottom-1.5 left-1.5 h-2.5 w-2.5 rounded-full bg-red-600 shadow"
-                          title={
-                            c.original_volume_label
-                              ? `Original unavailable. Connect "${c.original_volume_label}" to view it`
-                              : "Original unavailable. The file couldn't be found at its saved location"
-                          }
-                        />
-                      )}
-                      {!galleryView && (
-                        <div className="mt-1">
-                          <StarRating rating={c.quality_rating} onRate={(rating) => void rateCapture(c.id, rating)} />
-                        </div>
-                      )}
-                      {/* Date and place share a line, saving one under every photo. */}
-                      {!galleryView && (c.taken_at || location) && (
-                        <p className="mt-0.5 truncate text-[10px] text-muted">
-                          {[c.taken_at && formatDate(c.taken_at), location].filter(Boolean).join(" · ")}
-                        </p>
-                      )}
-                      {!galleryView && line && <p className="text-[9px] text-muted">{line}</p>}
-                    </>
-                  }
-                />
+                <>
+                  {captions.showRatings &&
+                    userSpecies?.best_quality != null &&
+                    c.quality_rating === userSpecies.best_quality && (
+                      // Beside the select checkbox (left-2, w-4) in select mode, not over it, and never
+                      // in the way of a click.
+                      <span
+                        className={`pointer-events-none absolute top-1.5 rounded-full bg-black/40 px-1.5 py-0.5 text-micro text-white ${
+                          selectMode ? "left-7" : "left-1"
+                        }`}
+                      >
+                        {t("species.photoGrid.bestShot")}
+                      </span>
+                    )}
+                  {/* The explanation lives in the menu; the tile only gets a dot. */}
+                  {c.original_available === false && (
+                    <span
+                      className="absolute bottom-1.5 left-1.5 h-2.5 w-2.5 rounded-full bg-red-600 shadow"
+                      title={
+                        c.original_volume_label
+                          ? t("species.photoGrid.unavailableConnect", { volume: c.original_volume_label })
+                          : t("species.photoGrid.unavailableMissing")
+                      }
+                    />
+                  )}
+                  {/* Every photo here is this species, so its label is when and where it was taken. */}
+                  <PhotoTileCaption
+                    {...captions}
+                    label={[c.taken_at && formatDate(c.taken_at), location].filter(Boolean).join(" · ")}
+                    rating={c.quality_rating}
+                    onRate={(rating) => void rateCapture(c.id, rating)}
+                    shotLine={shotDataLine(c)}
+                  />
+                </>
               );
             }}
           />
@@ -321,16 +361,35 @@ export default function SpeciesPhotoGrid({
         <CaptureEditModal
           edit={editing.edit}
           capture={{
+            captureId: editing.captureId,
             tags: editingCapture.tags,
             locationLabel: editingCapture.location_label,
             regionId: editingCapture.region_id,
           }}
           onClose={() => setEditing(null)}
-          onReassign={(speciesId) => void edits.reassignSpecies(editing.captureId, speciesId)}
+          onReassign={(species) => void edits.reassignSpecies(editing.captureId, species)}
           onTagSpecies={(speciesId) => void edits.tagSpecies(editing.captureId, speciesId)}
-          onSaveLocation={(label, regionId) => void edits.setCaptureLocation(editing.captureId, label, regionId)}
           tagOptions={edits.tagOptions}
           onTagsChange={(tags) => void tagCapture(editing.captureId, tags)}
+        />
+      )}
+      {placingCapture && (
+        <CoordinatesModal
+          captureIds={[placingCapture.id]}
+          lat={placingCapture.lat == null ? null : Number(placingCapture.lat)}
+          lon={placingCapture.lon == null ? null : Number(placingCapture.lon)}
+          suggestRegion={!placingCapture.region_id}
+          place={{ label: placingCapture.location_label, regionId: placingCapture.region_id }}
+          onSaved={(point, region) => {
+            updateCaptures([placingCapture.id], () => ({
+              lat: point?.lat ?? null,
+              lon: point?.lon ?? null,
+              ...(region ? { region_id: region.id, region_name: region.name } : {}),
+            }));
+            load();
+          }}
+          onUndone={load}
+          onClose={() => setPlacingCaptureId(null)}
         />
       )}
       {addingToAlbumCaptureId && (

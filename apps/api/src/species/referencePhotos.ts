@@ -12,6 +12,7 @@ import { MEDIA_CACHE_BUST } from "@lifer/core/config.js";
 import { createLimiter } from "@lifer/core/lib/concurrency.js";
 import { sendCachedImage, statFile } from "../lib/cachedFile.js";
 import { log } from "@lifer/core/lib/log.js";
+import { PORTRAITS_FIRST_SQL } from "@lifer/core/species/referencePortrait.js";
 
 // Cache misses are re-downloaded at most 3 at a time, and concurrent misses for the same photo
 // share one download.
@@ -31,7 +32,12 @@ export function queueReferenceDownload(key: string, run: () => Promise<void>): P
 // A reference photo's file can be replaced in place (a re-fetch, a new pack, a catalog update)
 // under the same URL, so it's rechecked after five minutes rather than the user's own photos' hour,
 // still shown at once from the browser's copy while the recheck (a 304 when unchanged) runs.
-async function sendReferenceFile(request: FastifyRequest, reply: FastifyReply, filePath: string, notFound: string) {
+export async function sendReferenceFile(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  filePath: string,
+  notFound: string,
+) {
   const st = await statFile(filePath);
   if (!st) return reply.code(404).send({ error: notFound });
   return sendCachedImage(request, reply, filePath, st, {
@@ -66,7 +72,7 @@ export async function referencePhotoRoutes(fastify: FastifyInstance): Promise<vo
       has_cached_photo: boolean;
     }>(
       `SELECT id, photo_url, credit, display_path IS NOT NULL AS has_cached_photo
-       FROM species_reference_photos WHERE species_id = $1 ORDER BY sort_order`,
+       FROM species_reference_photos p WHERE species_id = $1 ORDER BY ${PORTRAITS_FIRST_SQL("p")}, sort_order`,
       [id],
     );
 

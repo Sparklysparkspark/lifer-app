@@ -125,7 +125,7 @@ async function doUpdate(
   if (!isModelDownloaded()) {
     const unavailable: VectorAssetResult = {
       status: "unavailable",
-      reason: "The species-matching model isn't downloaded",
+      reason: "Species recognition isn't downloaded",
     };
     return { gallery: unavailable, speciesImage: unavailable, speciesText: unavailable };
   }

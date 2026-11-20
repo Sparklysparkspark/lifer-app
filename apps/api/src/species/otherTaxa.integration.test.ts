@@ -4,6 +4,9 @@
 // own checklist additions (never a shared region_species row), so they show marked "Added by you"
 // for that user only. Removing one takes it off that user's lists and deletes the species itself
 // only once nobody else has it. iNaturalist, GBIF and photo enrichment are stubbed: no network.
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -36,9 +39,11 @@ vi.mock("../auth/session.js", () => {
   return { requireAuth: asUser, requireScope: () => asUser };
 });
 
+const enrichSpecies = vi.hoisted(() => vi.fn(async () => ({ gallery: [], referencePhoto: null })));
+
 // Photos and descriptions would be fetched live; the checklist handling is what's tested.
 vi.mock("@lifer/core/species/lazyEnrich.js", () => ({
-  enrichSpecies: async () => ({ gallery: [], referencePhoto: null }),
+  enrichSpecies,
   persistEnrichment: async () => {},
   persistGalleryPromotingMainIfMissing: async () => {},
 }));
@@ -170,6 +175,13 @@ describe.skipIf(!url)("hand imports (Other Taxa)", () => {
     await pool.end();
   });
 
+  it("answers without waiting for the species' photos to download", async () => {
+    enrichSpecies.mockImplementationOnce(() => new Promise(() => {}));
+    const res = await call("POST", "/species/other-taxa", { inatTaxonId: MOTH, regionId: provinceId });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ speciesId: await speciesIdFor(MOTH) });
+  });
+
   it("adds one species to the importing user's checklist only, marked as added by them", async () => {
     const res = await call("POST", "/species/other-taxa", { inatTaxonId: BEETLE, regionId: provinceId });
     expect(res.statusCode).toBe(200);
@@ -236,6 +248,35 @@ describe.skipIf(!url)("hand imports (Other Taxa)", () => {
     expect(await additions(moth)).toEqual([{ user_id: USER, region_id: provinceId }]);
     expect(await catalogRows(beetle)).toBe(0);
     expect(await catalogRows(moth)).toBe(0);
+  });
+
+  it("lists added species by place with their space, and removes a group with its photo files", async () => {
+    await bulkImport(provinceId, [String(BEETLE), String(MOTH)]);
+    const moth = await speciesIdFor(MOTH);
+    const photo = path.join(mkdtempSync(path.join(tmpdir(), "lifer-added-")), "moth.webp");
+    writeFileSync(photo, "x".repeat(1000));
+    await db.query(`UPDATE species SET reference_display_path = $1 WHERE id = $2`, [photo, moth]);
+
+    // The beetle moves up to the country's list (which covers the province), so the province's
+    // group is the moth alone and its removal leaves the beetle.
+    await call("POST", "/species/other-taxa", { inatTaxonId: BEETLE, regionId: countryId });
+    const listed = (await call("GET", "/species/other-taxa/added")).json() as {
+      groups: Array<{ country: string; iconicTaxon: string | null; speciesCount: number; bytes: number }>;
+    };
+    const here = listed.groups.filter((g) => g.country === PROVINCE);
+    expect(here.reduce((n, g) => n + g.speciesCount, 0)).toBe(1);
+    expect(here.reduce((n, g) => n + g.bytes, 0)).toBe(1000);
+
+    for (const g of here) {
+      const res = await call("POST", "/species/other-taxa/added/remove", {
+        country: PROVINCE,
+        iconicTaxon: g.iconicTaxon,
+      });
+      expect(res.statusCode).toBe(200);
+    }
+    expect(await speciesIdFor(MOTH)).toBeUndefined();
+    expect(existsSync(photo)).toBe(false);
+    expect(await additions((await speciesIdFor(BEETLE))!)).toEqual([{ user_id: USER, region_id: countryId }]);
   });
 
   it("removes a species from the remover's lists only, and deletes it once nobody has it", async () => {

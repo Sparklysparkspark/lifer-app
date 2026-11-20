@@ -1,24 +1,30 @@
 import type { RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import SpeciesPicker from "../../components/SpeciesPicker";
-import { TagEditor } from "../../components/Lightbox";
+import TagEditor from "../../components/TagEditor";
 import Modal from "../../components/Modal";
 import Button from "../../components/Button";
-import { pluralize } from "../../lib/pluralize";
+import Checkbox from "../../components/Checkbox";
+import StarRating from "../../components/StarRating";
 import type { CaptureEdits } from "./useCaptureEdits";
 
-// Select mode's bar: correct the ID or add tags for every selected photo, or delete them.
+// Select mode's bar: correct the ID, add tags or rate every selected photo, or hide or delete them.
 export function CaptureSelectBar({ selectedCount, edits }: { selectedCount: number; edits: CaptureEdits }) {
+  const { t } = useTranslation();
   return (
-    <div className="mb-2 flex items-center justify-between gap-3 rounded-md border border-line bg-surface-muted px-3 py-2 text-xs">
-      <span className="shrink-0 text-muted">{selectedCount} selected</span>
+    <div className="mb-2 flex items-center justify-between gap-3 rounded-control border border-line bg-surface-muted px-3 py-2 text-footnote">
+      <span className="shrink-0 text-muted">{t("species.selection.selectedCount", { count: selectedCount })}</span>
       {selectedCount > 0 && (
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="shrink-0 text-muted">Correct ID to:</span>
+          <span className="shrink-0 text-muted">{t("species.selection.correctIdTo")}</span>
           <div className="w-56">
-            <SpeciesPicker placeholder="Type a species…" onSelect={(s) => edits.reassignSelected(s.id)} />
+            <SpeciesPicker
+              placeholder={t("species.selection.typeSpecies")}
+              onSelect={(s) => edits.reassignSelected(s)}
+            />
           </div>
-          {edits.batchReassigning && <span className="shrink-0 text-muted">Reassigning…</span>}
-          <span className="shrink-0 text-muted">Add tag:</span>
+          {edits.batchReassigning && <span className="shrink-0 text-muted">{t("species.selection.reassigning")}</span>}
+          <span className="shrink-0 text-muted">{t("species.selection.addTag")}</span>
           <div className="w-48">
             <TagEditor
               tags={edits.bulkTags}
@@ -29,11 +35,22 @@ export function CaptureSelectBar({ selectedCount, edits }: { selectedCount: numb
           </div>
           {edits.bulkTags.length > 0 && (
             <Button size="sm" className="shrink-0" onClick={edits.exitSelectMode}>
-              Done
+              {t("common.done")}
             </Button>
           )}
+          <span className="shrink-0 text-muted">{t("species.selection.rate")}</span>
+          <StarRating rating={null} onRate={(rating) => void edits.rateSelected(rating)} />
         </div>
       )}
+      <Button
+        variant="secondary"
+        size="sm"
+        className="shrink-0"
+        onClick={() => void edits.hideSelected()}
+        disabled={selectedCount === 0}
+      >
+        {t("species.selection.hide")}
+      </Button>
       <Button
         variant="danger"
         size="sm"
@@ -41,7 +58,7 @@ export function CaptureSelectBar({ selectedCount, edits }: { selectedCount: numb
         onClick={() => edits.deleteDialog.setOpen(true)}
         disabled={selectedCount === 0}
       >
-        Delete selected
+        {t("species.selection.deleteSelected")}
       </Button>
     </div>
   );
@@ -57,45 +74,40 @@ export function DeleteCapturesDialog({
 }: {
   dialog: CaptureEdits["deleteDialog"];
   count: number;
-  noun: string;
+  noun: "file" | "video" | "photo" | "RAW" | "recording";
   selectedHaveRaw: boolean;
   deleteButtonRef: RefObject<HTMLButtonElement | null>;
 }) {
+  const { t } = useTranslation();
   return (
     <Modal
       open={dialog.open}
       onClose={dialog.cancel}
-      title={`Delete ${pluralize(count, noun)}?`}
+      title={t("species.selection.deleteTitle", { count, noun })}
+      size="sm"
       onKeyDown={dialog.onKeyDown}
       initialFocusRef={deleteButtonRef}
       footer={
         <>
-          <Button variant="secondary" size="sm" onClick={dialog.cancel} disabled={dialog.deleting}>
-            Cancel
+          <Button variant="secondary" onClick={dialog.cancel} disabled={dialog.deleting}>
+            {t("common.cancel")}
           </Button>
           <Button
             ref={deleteButtonRef}
             variant="danger"
-            size="sm"
             onClick={() => void dialog.confirm()}
             loading={dialog.deleting}
           >
-            Delete
+            {t("common.delete")}
           </Button>
         </>
       }
     >
-      <p className="text-sm text-muted">Deleted photos stay in Trash for 7 days, where you can restore them.</p>
+      <p className="text-callout text-muted">{t("species.selection.trashMessage", { noun })}</p>
       {selectedHaveRaw && (
-        <label className="mt-3 flex items-center gap-2 text-xs text-ink">
-          <input
-            type="checkbox"
-            checked={dialog.deleteRawToo}
-            onChange={(e) => dialog.setDeleteRawToo(e.target.checked)}
-            className="h-3.5 w-3.5"
-          />
-          Also delete the matching RAW file when this is permanently removed
-        </label>
+        <Checkbox checked={dialog.deleteRawToo} onChange={dialog.setDeleteRawToo} className="mt-3">
+          {t("species.selection.deleteRawToo")}
+        </Checkbox>
       )}
     </Modal>
   );
