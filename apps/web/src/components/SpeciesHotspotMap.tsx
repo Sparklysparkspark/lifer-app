@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Map as MapLibreMap, LngLatBounds, Popup } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { addMapCredits } from "./map/MapCredits";
 import { useTheme } from "../hooks/useTheme";
 import { useMapAvailable } from "../hooks/useMapAvailable";
 import { ensurePmtilesProtocol, pmtilesStyle } from "../lib/pmtiles";
+import { showRegionOutline } from "../lib/mapRegionLayers";
 import { buildInaturalistObservationsUrl } from "../lib/inaturalist";
 import SearchInput from "./SearchInput";
 import Select from "./Select";
@@ -22,10 +25,10 @@ export interface SpeciesHotspot {
 
 type YearFilter = "all" | "last1" | "last3" | "last5";
 const YEAR_FILTER_LABEL: Record<YearFilter, string> = {
-  all: "All years",
-  last1: "Last year only",
-  last3: "Last 3 years",
-  last5: "Last 5 years",
+  all: "hotspotMap.years.all",
+  last1: "hotspotMap.years.last1",
+  last3: "hotspotMap.years.last3",
+  last5: "hotspotMap.years.last5",
 };
 
 // Raw points aren't kept per cluster, so a click zooms in proportion to the cluster's extent
@@ -53,6 +56,7 @@ export default function SpeciesHotspotMap({
   hotspots: SpeciesHotspot[];
   scientificName: string;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [yearFilter, setYearFilter] = useState<YearFilter>("all");
   const [search, setSearch] = useState("");
@@ -110,28 +114,15 @@ export default function SpeciesHotspotMap({
       container: containerRef.current,
       style: pmtilesStyle(theme === "dark" ? "dark" : "light"),
       interactive: true,
-      // Compact attribution, as in RegionMap.
-      attributionControl: { compact: true },
+      // Our own credits line (addMapCredits), as in RegionMap.
+      attributionControl: false,
     });
+    addMapCredits(map);
     mapRef.current = map;
 
     map.on("load", () => {
       const feature = boundaryGeoJson as { type: "Feature"; geometry: { coordinates: unknown } };
-      map.addSource("hotspot-region-boundary", { type: "geojson", data: feature } as Parameters<
-        typeof map.addSource
-      >[1] as never);
-      map.addLayer({
-        id: "hotspot-region-boundary-fill",
-        type: "fill",
-        source: "hotspot-region-boundary",
-        paint: { "fill-color": "#1c1917", "fill-opacity": 0.08 },
-      });
-      map.addLayer({
-        id: "hotspot-region-boundary-line",
-        type: "line",
-        source: "hotspot-region-boundary",
-        paint: { "line-color": "#1c1917", "line-width": 2 },
-      });
+      showRegionOutline(map, feature);
 
       const pointsGeoJson = {
         type: "FeatureCollection" as const,
@@ -208,7 +199,9 @@ export default function SpeciesHotspotMap({
         });
         const recencyLine =
           lastSeenYear != null
-            ? `Last seen ${lastSeenYear}${distinctYears != null && distinctYears > 1 ? ` (seen across ${distinctYears} different years)` : ""}`
+            ? distinctYears != null && distinctYears > 1
+              ? t("hotspotMap.lastSeenAcross", { year: String(lastSeenYear), years: distinctYears })
+              : t("hotspotMap.lastSeen", { year: String(lastSeenYear) })
             : "";
         // The centroid averages a grid cell, so it's framed as an area (plus or minus a radius).
         const areaRadiusKm = Math.max(bboxDiagonalKm / 2, 0.5).toFixed(1);
@@ -216,12 +209,10 @@ export default function SpeciesHotspotMap({
           .setLngLat(f.geometry.coordinates as [number, number])
           .setHTML(
             `<div style="font-size:12px;line-height:1.4">${
-              isReliable ? '<div style="font-weight:600;color:#15803d">Good chance of finding it here</div>' : ""
+              isReliable ? `<div style="font-weight:600;color:#15803d">${t("hotspotMap.goodChance")}</div>` : ""
             }${
-              isSensitive
-                ? '<div style="font-weight:600;color:#b45309">eBird Sensitive Species, exact location withheld</div>'
-                : ""
-            }${Math.round(recordShare * 100)}% of records (${pointCount})${recencyLine ? `<br/>${recencyLine}` : ""}<br/><span style="color:#78716c">~${centroidLat.toFixed(3)}, ${centroidLon.toFixed(3)} (±${areaRadiusKm}km area, not an exact spot)</span></div>`,
+              isSensitive ? `<div style="font-weight:600;color:#b45309">${t("hotspotMap.sensitiveWithheld")}</div>` : ""
+            }${t("hotspotMap.recordShare", { percent: Math.round(recordShare * 100), count: pointCount })}${recencyLine ? `<br/>${recencyLine}` : ""}<br/><span style="color:#78716c">~${centroidLat.toFixed(3)}, ${centroidLon.toFixed(3)} ${t("hotspotMap.areaRadius", { radius: areaRadiusKm })}</span></div>`,
           )
           .addTo(map);
       });
@@ -242,7 +233,7 @@ export default function SpeciesHotspotMap({
       map.remove();
       mapRef.current = null;
     };
-  }, [expanded, boundaryGeoJson, filteredHotspots, mapAvailable, theme]);
+  }, [expanded, boundaryGeoJson, filteredHotspots, mapAvailable, theme, t]);
 
   if (!boundaryGeoJson || hotspots.length === 0 || !mapAvailable) return null;
 
@@ -260,90 +251,91 @@ export default function SpeciesHotspotMap({
   return (
     // Sits inside the species panel, so no frame of its own: a plain row that opens the map.
     <div>
+      {/* raw-control: the whole row is the map's disclosure. */}
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
-        className="flex w-full items-baseline justify-between gap-3 text-left text-sm text-ink"
+        className="flex w-full items-baseline justify-between gap-3 text-left text-callout text-ink"
       >
         <span className="font-medium">
-          Locality map{" "}
+          {t("hotspotMap.title")}{" "}
           <span className="font-normal text-muted">
-            ({hotspots.length} location{hotspots.length === 1 ? "" : "s"}
-            {mostRecentYear != null ? `, last seen ${mostRecentYear}` : ""})
+            {mostRecentYear != null
+              ? t("hotspotMap.locationsLastSeen", { count: hotspots.length, year: String(mostRecentYear) })
+              : t("hotspotMap.locations", { count: hotspots.length })}
           </span>
         </span>
-        <span className="text-xs text-muted hover:text-ink hover:underline">{expanded ? "Hide" : "Show"}</span>
+        <span className="text-footnote text-muted hover:text-ink hover:underline">
+          {expanded ? t("hotspotMap.hide") : t("hotspotMap.show")}
+        </span>
       </button>
       {expanded && (
         <div className="mt-3">
           {hasSensitiveHotspot && (
-            <p className="mb-2 text-xs text-amber-800 dark:text-amber-300">
-              This is an eBird Sensitive Species (or sensitive in this region/season). Its exact location can't be
-              shown, the marked area is deliberately widened to protect it from targeted disturbance, capture, or
-              hunting, matching eBird's own sensitive-species list.
-            </p>
+            <p className="mb-2 text-footnote text-amber-800 dark:text-amber-300">{t("hotspotMap.sensitiveNote")}</p>
           )}
           {bestBet && (
-            <p className="mb-2 text-sm text-ink">
-              <span className="font-medium text-green-700">Good chance of finding it here</span>
-              <span className="text-muted"> (seen across {bestBet.distinctYears} different years)</span>
+            <p className="mb-2 text-callout text-ink">
+              <span className="font-medium text-green-700">{t("hotspotMap.goodChance")}</span>
+              <span className="text-muted"> {t("hotspotMap.seenAcross", { years: bestBet.distinctYears })}</span>
             </p>
           )}
           {inaturalistUrl && (
             <a
               href={inaturalistUrl}
+              // eslint-disable-next-line no-restricted-syntax -- baseline, migrate to openExternal() or a shared link component
               target="_blank"
               rel="noreferrer"
-              className="mb-2 inline-block text-xs text-accent hover:underline"
+              className="mb-2 inline-block text-footnote text-accent hover:underline"
             >
-              See more recent sightings on iNaturalist ↗
+              {t("hotspotMap.moreOnInaturalist")}
             </a>
           )}
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Select
-              aria-label="Sighting years"
+              aria-label={t("hotspotMap.sightingYears")}
               value={yearFilter}
               onChange={(e) => setYearFilter(e.target.value as YearFilter)}
             >
               {(Object.keys(YEAR_FILTER_LABEL) as YearFilter[]).map((f) => (
                 <option key={f} value={f}>
-                  {YEAR_FILTER_LABEL[f]}
+                  {t(YEAR_FILTER_LABEL[f])}
                 </option>
               ))}
             </Select>
             <SearchInput
               value={search}
               onChange={setSearch}
-              placeholder="Search coordinates…"
+              placeholder={t("hotspotMap.searchPlaceholder")}
               className="min-w-0 flex-1"
             />
           </div>
           {filteredHotspots.length === 0 ? (
-            <p className="text-xs text-muted">No locations match this filter.</p>
+            <p className="text-footnote text-muted">{t("hotspotMap.noMatch")}</p>
           ) : (
             <>
-              <div ref={containerRef} className="h-64 w-full rounded-lg border border-line" />
-              <ul className="mt-2 max-h-40 space-y-0.5 overflow-y-auto text-xs">
+              <div ref={containerRef} className="h-64 w-full rounded-panel border border-line" />
+              <ul className="mt-2 max-h-40 space-y-0.5 overflow-y-auto text-footnote">
                 {filteredHotspots.map((h, idx) => (
                   <li key={idx}>
+                    {/* raw-control: a row of the hotspot list. */}
                     <button
                       type="button"
                       onClick={() => flyToHotspot(idx)}
-                      className={`flex w-full items-center justify-between rounded px-2 py-1 text-left hover:bg-surface-muted ${
+                      className={`flex w-full items-center justify-between rounded-control px-2 py-1 text-left hover:bg-surface-muted ${
                         selectedIdx === idx ? "bg-surface-muted" : ""
                       }`}
                     >
                       <span className="text-ink">
                         ~{h.centroidLat.toFixed(3)}, {h.centroidLon.toFixed(3)}{" "}
-                        <span className="text-muted">(±{Math.max(h.bboxDiagonalKm / 2, 0.5).toFixed(1)}km)</span>
+                        <span className="text-muted">
+                          {t("hotspotMap.radius", { radius: Math.max(h.bboxDiagonalKm / 2, 0.5).toFixed(1) })}
+                        </span>
                         {h.isReliable && <span className="ml-1.5 text-green-700">●</span>}
                         {h.isSensitive && (
-                          <span
-                            className="ml-1.5 text-amber-700"
-                            title="eBird Sensitive Species, exact location withheld"
-                          >
-                            ⚠ sensitive
+                          <span className="ml-1.5 text-amber-700" title={t("hotspotMap.sensitiveWithheld")}>
+                            {t("hotspotMap.sensitiveBadge")}
                           </span>
                         )}
                       </span>

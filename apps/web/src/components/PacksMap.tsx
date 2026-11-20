@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Map as MapLibreMap, LngLatBounds, type GeoJSONSource } from "maplibre-gl";
+import { Map as MapLibreMap, LngLatBounds, type GeoJSONSource, type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { addMapCredits } from "./map/MapCredits";
 import { useTheme } from "../hooks/useTheme";
 import { useMapAvailable } from "../hooks/useMapAvailable";
 import { ensurePmtilesProtocol, pmtilesStyle } from "../lib/pmtiles";
+import { token } from "../lib/mapStyle";
 import { useLatest } from "../hooks/useLatest";
-import { useTranslation } from "react-i18next";
 
 export interface CountryBoundary {
   id: string;
@@ -15,6 +16,17 @@ export interface CountryBoundary {
 }
 
 const SOURCE_ID = "packs-countries";
+
+// Before the offline map has downloaded (it does so in the background on a new install), the
+// countries are drawn on a plain background, so picking regions works from the first minute.
+function plainStyle(): StyleSpecification {
+  const canvas = getComputedStyle(document.documentElement).getPropertyValue("--color-surface-muted").trim();
+  return {
+    version: 8,
+    sources: {},
+    layers: [{ id: "background", type: "background", paint: { "background-color": canvas || "#f1e8d4" } }],
+  };
+}
 const FILL_LAYER_ID = "packs-countries-fill";
 const LINE_LAYER_ID = "packs-countries-line";
 
@@ -31,6 +43,9 @@ function extendBoundsFromCoordinates(bounds: LngLatBounds, coords: unknown, maxL
 // clamped just past the Urals (for fitting only, not the drawn outline).
 const RUSSIA_EUROPE_MAX_LNG = 60;
 
+// Where the map starts, and goes back to once nothing is selected or opened.
+const WORLD_VIEW = { center: [10, 30] as [number, number], zoom: 1.2 };
+
 // Every country as one clickable layer; a click toggles it in `selectedIds`. Selection restyles
 // via feature-state instead of rebuilding the ~250-country source per click.
 export default function PacksMap({
@@ -38,6 +53,7 @@ export default function PacksMap({
   selectedIds,
   onToggleCountry,
   focusCountryIds,
+  focusBounds,
   openCountryIds,
   onDeselectAll,
 }: {
@@ -48,12 +64,15 @@ export default function PacksMap({
   onDeselectAll?: () => void;
   // A new array reference triggers a fly-to, so only build one when a fit is wanted.
   focusCountryIds?: string[];
+  /** A set view (west, south, east, north) to show instead of fitting `focusCountryIds`. */
+  focusBounds?: [number, number, number, number];
   // Countries of an open continent group, drawn as an outline so they don't read as selected.
   openCountryIds?: Set<string>;
 }) {
-  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  // Whether the map has moved to a selection, so clearing it returns to the world view.
+  const focusedRef = useRef(false);
   const mapAvailable = useMapAvailable();
   const [loaded, setLoaded] = useState(false);
   const { theme } = useTheme();
@@ -62,18 +81,18 @@ export default function PacksMap({
 
   // One map instance per mount; data and selection are pushed into it, never re-created.
   useEffect(() => {
-    if (!containerRef.current || !mapAvailable) return;
-    ensurePmtilesProtocol();
+    if (!containerRef.current || mapAvailable === null) return;
+    if (mapAvailable) ensurePmtilesProtocol();
 
     const map = new MapLibreMap({
       container: containerRef.current,
-      center: [10, 30],
-      zoom: 1.2,
-      style: pmtilesStyle(theme === "dark" ? "dark" : "light"),
+      ...WORLD_VIEW,
+      style: mapAvailable ? pmtilesStyle(theme === "dark" ? "dark" : "light") : plainStyle(),
       interactive: true,
-      // Compact attribution, as in RegionMap.
-      attributionControl: { compact: true },
+      // Our own credits line (addMapCredits), as in RegionMap.
+      attributionControl: false,
     });
+    addMapCredits(map);
     mapRef.current = map;
 
     map.on("load", () => {
@@ -90,7 +109,12 @@ export default function PacksMap({
         type: "fill",
         source: SOURCE_ID,
         paint: {
-          "fill-color": ["case", ["boolean", ["feature-state", "selected"], false], "#748069", "#1c1917"],
+          "fill-color": [
+            "case",
+            ["boolean", ["feature-state", "selected"], false],
+            token("--color-accent"),
+            token("--color-ink"),
+          ],
           "fill-opacity": [
             "case",
             ["boolean", ["feature-state", "selected"], false],
@@ -106,7 +130,12 @@ export default function PacksMap({
         type: "line",
         source: SOURCE_ID,
         paint: {
-          "line-color": ["case", ["boolean", ["feature-state", "selected"], false], "#4b5540", "#1c1917"],
+          "line-color": [
+            "case",
+            ["boolean", ["feature-state", "selected"], false],
+            token("--color-link"),
+            token("--color-ink"),
+          ],
           "line-width": [
             "case",
             ["boolean", ["feature-state", "selected"], false],
@@ -175,7 +204,25 @@ export default function PacksMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !loaded || !focusCountryIds || focusCountryIds.length === 0) return;
+    if (!map || !loaded) return;
+    // Nothing left to show (the last country deselected): back out to the whole world.
+    if (!focusBounds && (!focusCountryIds || focusCountryIds.length === 0)) {
+      if (focusedRef.current) map.easeTo(WORLD_VIEW);
+      focusedRef.current = false;
+      return;
+    }
+    focusedRef.current = true;
+    if (focusBounds) {
+      map.fitBounds(
+        [
+          [focusBounds[0], focusBounds[1]],
+          [focusBounds[2], focusBounds[3]],
+        ],
+        { padding: 16 },
+      );
+      return;
+    }
+    if (!focusCountryIds || focusCountryIds.length === 0) return;
     const bounds = new LngLatBounds();
     for (const id of focusCountryIds) {
       const country = countries.find((c) => c.id === id);
@@ -185,15 +232,7 @@ export default function PacksMap({
     }
     if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 32, maxZoom: 5 });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- focusCountryIds is only a fly-to trigger
-  }, [focusCountryIds, loaded]);
+  }, [focusCountryIds, focusBounds, loaded]);
 
-  if (mapAvailable === false) {
-    return (
-      <div className="flex h-80 w-full items-center justify-center rounded-lg border border-line bg-surface-muted text-sm text-muted">
-        {t("offlinePacks.map.notDownloaded")}
-      </div>
-    );
-  }
-
-  return <div ref={containerRef} className="h-80 w-full rounded-lg border border-line" />;
+  return <div ref={containerRef} className="h-80 w-full rounded-panel border border-line" />;
 }
