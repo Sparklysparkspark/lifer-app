@@ -105,6 +105,9 @@ describe.skipIf(!url)("finding moved photos", () => {
     process.env.DATABASE_URL = url;
     process.env.DATA_DIR = path.join(dir, "lib");
     process.env.APP_DATA_DIR = path.join(dir, "app");
+    // Server mode, as in CI: the places folder must be an allowed root.
+    process.env.SINGLE_USER_MODE = "0";
+    process.env.LIFER_LIBRARY_ROOTS = path.join(dir, "places");
     mkdirSync(process.env.APP_DATA_DIR, { recursive: true });
     db = new pg.Pool({ connectionString: url });
     await clearRows();

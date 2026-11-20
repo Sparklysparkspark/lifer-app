@@ -30,6 +30,7 @@ docker/docker-compose*.yml
 
 # Tests and fixtures never run in the container.
 **/*.test.ts
+**/*.test.tsx
 **/__fixtures__
 **/fixtures
 apps/api/vitest*.config.*

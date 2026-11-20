@@ -209,7 +209,11 @@ describe("fix-catalog-audit list passes", () => {
     ]);
   });
 
-  it("clears the vagrant flag on a native bat resident next door, not on one far from any resident", async () => {
+  it("clears the vagrant flag on a native bat resident next door, not on one far from any resident", async ({
+    skip,
+  }) => {
+    // This pass needs PostGIS, which only the development database has.
+    if (!(await client.query(`SELECT 1 FROM pg_extension WHERE extname = 'postgis'`)).rowCount) skip();
     await client.query(`UPDATE species SET taxon_order = 'Chiroptera' WHERE id = $1`, [ids["Testfixus batus"]]);
     const square = (lon: number) =>
       JSON.stringify({

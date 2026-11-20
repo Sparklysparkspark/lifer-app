@@ -1731,7 +1731,11 @@ mod tests {
         let d = tmp("caps");
         let exe = exe_in(&d);
         let with = |caps: &str| manifest("com.example.a", &exe).replace("[\"pickers\"]", caps);
-        fs::write(d.join("a.json"), with(r#"["pickers","fromTheFuture","host.preference"]"#)).unwrap();
+        fs::write(
+            d.join("a.json"),
+            with(r#"["pickers","fromTheFuture","host.preference"]"#),
+        )
+        .unwrap();
         let (plugins, skipped) = scan(&d);
         assert!(skipped.is_empty(), "{skipped:?}");
         assert_eq!(plugins[0].capabilities, ["pickers", "host.preference"]);
