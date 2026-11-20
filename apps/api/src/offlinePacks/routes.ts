@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { packIndexRoutes } from "./index.js";
 import { packDownloadRoutes } from "./download.js";
 import { packRemoveRoutes } from "./remove.js";
+import { mapDetailRoutes } from "./mapDetail.js";
 
 export { fetchPackIndex, type PackIndex, type PackIndexEntry } from "./index.js";
 
@@ -11,4 +12,5 @@ export async function offlinePacksRoutes(app: FastifyInstance): Promise<void> {
   await app.register(packIndexRoutes);
   await app.register(packDownloadRoutes);
   await app.register(packRemoveRoutes);
+  await app.register(mapDetailRoutes);
 }

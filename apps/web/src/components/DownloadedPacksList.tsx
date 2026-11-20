@@ -2,19 +2,29 @@ import { useState } from "react";
 import type { PackStatusEntry } from "../lib/packIndex";
 import { TAXON_CLASS_LABEL } from "@lifer/shared";
 import { api, ApiError, type ApiResponse } from "../api/client";
-import { usePackDownloadJob, packProgressDetail, PACK_DOWNLOAD_PHASES } from "../hooks/usePackDownloadStatus";
+import { usePackDownloadJob } from "../hooks/usePackDownloadStatus";
+import PackProgress from "./PackProgress";
 import { formatBytes } from "../lib/format";
 import { errorMessage } from "../lib/errorMessage";
 import { nextPackDownloadFinish } from "../lib/waitForPackDownload";
 import { useTranslation } from "react-i18next";
-import JobProgress from "./JobProgress";
+import { useJobPoll } from "../hooks/useJobPoll";
 import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
 import Pill from "./Pill";
 import Modal from "./Modal";
 import Button from "./Button";
 import FormMessage from "./FormMessage";
-import InlineSpinner from "./InlineSpinner";
-import { PANEL } from "../lib/layout";
+import Panel from "./Panel";
+import Checkbox from "./Checkbox";
+import { useToast } from "../hooks/useToast";
+import type { AddedSpeciesRow } from "./AddedSpeciesList";
+
+type GroupTab = "main" | "seaZones";
+const MAIN_TAB: GroupTab = "main";
+const SEA_ZONES_TAB: GroupTab = "seaZones";
+
+// Prefixed so an added-species group's selection id can't collide with a pack id.
+const addedId = (r: AddedSpeciesRow) => `added:${r.key}`;
 
 export type DeletePreview = ApiResponse<"/offline-packs/offload-preview", "post">;
 
@@ -77,6 +87,7 @@ export default function DownloadedPacksList({
   renderPackExtra,
   renderPackPanel,
   showJobProgress = true,
+  addedRows = [],
 }: {
   packs: PackStatusEntry[];
   onRefresh: () => void;
@@ -86,21 +97,37 @@ export default function DownloadedPacksList({
   renderPackPanel?: (pack: PackStatusEntry) => React.ReactNode;
   /** false when the page already shows its own pack-download progress (Offline Packs). */
   showJobProgress?: boolean;
+  /** Species you added from iNaturalist, shown under their country after its downloaded groups. */
+  addedRows?: AddedSpeciesRow[];
 }) {
   const { t } = useTranslation();
   const downloadedPacks = packs.filter((p) => p.downloaded);
-  const groups = groupPacks(downloadedPacks);
+  const packGroups = groupPacks(downloadedPacks);
+  // A country with only added species still gets its group.
+  const groups = [
+    ...packGroups,
+    ...[...new Set(addedRows.map((r) => r.country))]
+      .filter((c) => !packGroups.some(([name]) => name === c))
+      .map((c): (typeof packGroups)[number] => [c, { main: [], seaZones: [] }]),
+  ].sort(([a], [b]) => a.localeCompare(b));
+  const addedFor = (country: string) => addedRows.filter((r) => r.country === country);
+  const selectableAddedIds = (rows: AddedSpeciesRow[]) => rows.filter((r) => r.removable).map(addedId);
+  const toast = useToast();
   const [upgradingIds, setUpgradingIds] = useState<Set<string>>(new Set());
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  const [groupTab, setGroupTab] = useState<Map<string, "main" | "seaZones">>(new Map());
+  const [groupTab, setGroupTab] = useState<Map<string, GroupTab>>(new Map());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [offloadTargets, setOffloadTargets] = useState<PackStatusEntry[] | null>(null);
+  const [offloadAdded, setOffloadAdded] = useState<AddedSpeciesRow[]>([]);
   const [deletePreview, setDeletePreview] = useState<DeletePreview | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  // Packs whose removal was asked for but whose job the server hasn't reported yet.
+  const [pendingRemovalIds, setPendingRemovalIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
-  useEnterToConfirm(() => void confirmOffload(), !!offloadTargets && !!deletePreview && !deleting);
+  // Added species need no preview: their rows already say what goes.
+  const offloadReady = !!offloadTargets && (offloadTargets.length === 0 || !!deletePreview);
+  useEnterToConfirm(() => void confirmOffload(), offloadReady);
 
   // The server's job, so an update started elsewhere or before mounting still shows here, and
   // any run finishing refreshes the list.
@@ -110,6 +137,15 @@ export default function DownloadedPacksList({
       onRefresh();
     },
   });
+  // Removal is a server job too: the dialog closes at once and rows read "Removing..." until done.
+  const removalJob = useJobPoll<ApiResponse<"/offline-packs/removal-status", "get">>("/offline-packs/removal-status", {
+    onFinish: (status) => {
+      if (status.error) setError(t("offlinePacks.offload.failedKept"));
+      else toast.success(t("offlinePacks.offload.done", { count: status.processed ?? 0 }));
+      onRefresh();
+    },
+  });
+  const removingIds = new Set([...pendingRemovalIds, ...(removalJob.status?.running ? removalJob.status.packIds : [])]);
   const downloadStatus = downloadJob.status;
   const jobPackIds = new Set(downloadStatus?.running ? downloadStatus.packIds : []);
   const updatingIds = jobPackIds;
@@ -154,8 +190,7 @@ export default function DownloadedPacksList({
       const status = await wait.finished;
       if (status.error) throw new Error(status.error);
       if (status.cancelled) throw new Error(t("offlinePacks.downloaded.downloadCancelled"));
-      await api.post("/offline-packs/offload-batch", { packIds: [smallPack.id] });
-      onRefresh();
+      await removalJob.start("/offline-packs/offload-batch", { packIds: [smallPack.id] });
     } catch (err) {
       console.error(err);
       setError(errorMessage(err, t("offlinePacks.downloaded.upgradeFailed")));
@@ -168,10 +203,12 @@ export default function DownloadedPacksList({
     }
   }
 
-  async function openOffloadConfirm(targets: PackStatusEntry[]) {
+  async function openOffloadConfirm(targets: PackStatusEntry[], added: AddedSpeciesRow[] = []) {
     setOffloadTargets(targets);
+    setOffloadAdded(added);
     setDeletePreview(null);
     setDeleteError(null);
+    if (targets.length === 0) return;
     try {
       const preview = await api.post("/offline-packs/offload-preview", {
         packIds: targets.map((p) => p.id),
@@ -184,34 +221,53 @@ export default function DownloadedPacksList({
 
   async function confirmOffload() {
     if (!offloadTargets) return;
-    setDeleting(true);
+    const packIds = offloadTargets.map((p) => p.id);
+    const added = offloadAdded;
+    // The dialog closes at once and the rows read "Removing..." while the work runs.
+    setOffloadTargets(null);
+    setDeletePreview(null);
+    setSelectedIds(new Set());
+    setError(null);
+    setPendingRemovalIds(new Set(packIds));
     try {
-      await api.post("/offline-packs/offload-batch", { packIds: offloadTargets.map((p) => p.id) });
-      setOffloadTargets(null);
-      setDeletePreview(null);
-      setSelectedIds(new Set());
+      if (packIds.length > 0 && !(await removalJob.start("/offline-packs/offload-batch", { packIds })))
+        throw new Error(t("offlinePacks.offload.failed"));
+      // One call per group: the per-group route already keeps species you've photographed.
+      let removed = 0;
+      for (const r of added) removed += await r.removeQuietly();
+      if (added.length > 0) toast.success(t("addedSpecies.removed", { count: removed }));
       onRefresh();
     } catch (err) {
-      setDeleteError(err instanceof ApiError ? err.message : t("offlinePacks.offload.failed"));
+      setError(errorMessage(err, t("offlinePacks.offload.failed")));
     } finally {
-      setDeleting(false);
+      setPendingRemovalIds(new Set());
+      if (added.length > 0) void added[0].reload();
     }
   }
 
-  if (downloadedPacks.length === 0) return null;
+  const selectedPacks = downloadedPacks.filter((p) => selectedIds.has(p.id));
+  const selectedAdded = addedRows.filter((r) => r.removable && selectedIds.has(addedId(r)));
+  const selectedCount = selectedPacks.length + selectedAdded.length;
+  const allSelectableIds = [...downloadedPacks.map((p) => p.id), ...selectableAddedIds(addedRows)];
+  const allSelected = allSelectableIds.every((id) => selectedIds.has(id));
+  const offloadAddedSpecies = offloadAdded.reduce((sum, r) => sum + r.removableCount, 0);
+  const offloadAddedKept = offloadAdded.reduce((sum, r) => sum + r.photographedCount, 0);
+
+  if (downloadedPacks.length === 0 && addedRows.length === 0) return null;
 
   function renderPackRow(p: PackStatusEntry) {
     const fullSibling = p.variant === "small" ? siblingVariantPack(p, packs) : undefined;
     const upgrading = upgradingIds.has(p.id);
+    const removing = removingIds.has(p.id);
     return (
-      <div className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
+      <div className="flex items-center gap-2 text-callout">
+        <Checkbox
           checked={selectedIds.has(p.id)}
           onChange={() => toggleSelection(p.id)}
-          className="h-4 w-4"
+          disabled={removing}
+          aria-labelledby={`downloaded-pack-${p.id}`}
         />
-        <span className="flex-1 text-ink">
+        <span id={`downloaded-pack-${p.id}`} className="flex-1 text-ink">
           {p.type === "seaZone"
             ? p.taxon
               ? t("offlinePacks.downloaded.nameWithTaxon", { name: p.seaZone, taxon: TAXON_CLASS_LABEL[p.taxon] })
@@ -220,16 +276,16 @@ export default function DownloadedPacksList({
               ? TAXON_CLASS_LABEL[p.taxon]
               : t("offlinePacks.allTaxa")}
           {p.variant === "small" && (
-            <span className="ml-2 text-xs text-muted" title={t("offlinePacks.downloaded.smallTitle")}>
+            <span className="ml-2 text-footnote text-muted" title={t("offlinePacks.downloaded.smallTitle")}>
               {t("offlinePacks.downloaded.small")}
             </span>
           )}
           {p.updateAvailable && (
-            <span className="ml-2 text-xs text-accent">{t("offlinePacks.downloaded.updateAvailable")}</span>
+            <span className="ml-2 text-footnote text-accent">{t("offlinePacks.downloaded.updateAvailable")}</span>
           )}
         </span>
         <span
-          className="text-xs text-muted"
+          className="text-footnote text-muted"
           title={
             p.photoBytes != null && p.checklistBytes != null
               ? t("offlinePacks.downloaded.sizeBreakdown", {
@@ -242,112 +298,98 @@ export default function DownloadedPacksList({
           {formatBytes(p.sizeBytes)}
         </span>
         {fullSibling && !fullSibling.downloaded && (
-          <button
-            type="button"
-            disabled={upgrading}
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={upgrading}
             onClick={() => upgradeToFull(p, fullSibling)}
-            title={t("offlinePacks.downloaded.getFullTitle")}
-            className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs text-ink hover:bg-surface-muted disabled:opacity-50"
+            tooltip={{ label: t("offlinePacks.downloaded.getFullTitle") }}
           >
-            {upgrading && <InlineSpinner size="xs" tone="ink" />}
             {upgrading
               ? t("offlinePacks.downloaded.gettingFull")
               : t("offlinePacks.downloaded.getFull", { size: formatBytes(fullSibling.sizeBytes) })}
-          </button>
+          </Button>
         )}
         {p.updateAvailable && (
-          <button
-            type="button"
-            disabled={updatingIds.has(p.id)}
-            onClick={() => updatePacks([p.id])}
-            className="flex items-center gap-1.5 rounded-md border border-accent px-2 py-1 text-xs font-medium text-accent hover:bg-surface-muted disabled:opacity-50"
-          >
-            {updatingIds.has(p.id) && <InlineSpinner size="xs" />}
+          <Button variant="secondary" size="sm" loading={updatingIds.has(p.id)} onClick={() => updatePacks([p.id])}>
             {updatingIds.has(p.id) ? t("offlinePacks.downloaded.updating") : t("offlinePacks.downloaded.update")}
-          </button>
+          </Button>
         )}
         {renderPackExtra?.(p)}
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          size="sm"
+          loading={removing}
           onClick={() => openOffloadConfirm([p, ...orphanedSeaZoneDependents(downloadedPacks, [p])])}
-          className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
         >
-          {t("offlinePacks.offload.button")}
-        </button>
+          {removing ? t("offlinePacks.offload.offloading") : t("offlinePacks.offload.button")}
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className={PANEL}>
+    <Panel>
       <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-ink">{t("offlinePacks.downloaded.title")}</p>
+        <p className="text-callout font-semibold text-ink">{t("offlinePacks.downloaded.title")}</p>
         <div className="flex gap-2">
           {groups.length > 0 && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() =>
                 setExpandedGroups(
                   expandedGroups.size === groups.length ? new Set() : new Set(groups.map(([name]) => name)),
                 )
               }
-              className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
             >
               {expandedGroups.size === groups.length
                 ? t("offlinePacks.downloaded.collapseAll")
                 : t("offlinePacks.downloaded.expandAll")}
-            </button>
+            </Button>
           )}
-          {downloadedPacks.length > 1 && (
-            <button
-              type="button"
-              onClick={() =>
-                setSelectedIds(
-                  downloadedPacks.every((p) => selectedIds.has(p.id))
-                    ? new Set()
-                    : new Set(downloadedPacks.map((p) => p.id)),
-                )
-              }
-              className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
+          {allSelectableIds.length > 1 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setSelectedIds(allSelected ? new Set() : new Set(allSelectableIds))}
             >
-              {downloadedPacks.every((p) => selectedIds.has(p.id))
-                ? t("offlinePacks.downloaded.deselectAll")
-                : t("offlinePacks.downloaded.selectAll")}
-            </button>
+              {allSelected ? t("offlinePacks.downloaded.deselectAll") : t("offlinePacks.downloaded.selectAll")}
+            </Button>
           )}
           {downloadedPacks.some((p) => p.updateAvailable) && (
-            <button
-              type="button"
-              disabled={bulkUpdating}
+            <Button
+              size="sm"
+              loading={bulkUpdating}
               onClick={() => updatePacks(downloadedPacks.filter((p) => p.updateAvailable).map((p) => p.id))}
-              className="flex items-center gap-1.5 rounded-md bg-accent px-2 py-1 text-xs font-medium text-accent-fg disabled:opacity-50"
             >
-              {bulkUpdating && <InlineSpinner size="xs" tone="onAccent" />}
               {bulkUpdating ? t("offlinePacks.downloaded.updating") : t("offlinePacks.downloaded.updateAll")}
-            </button>
+            </Button>
           )}
-          {selectedIds.size > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                const targets = downloadedPacks.filter((p) => selectedIds.has(p.id));
-                openOffloadConfirm([...targets, ...orphanedSeaZoneDependents(downloadedPacks, targets)]);
-              }}
-              className="rounded-md border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
+          {selectedCount > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() =>
+                openOffloadConfirm(
+                  [...selectedPacks, ...orphanedSeaZoneDependents(downloadedPacks, selectedPacks)],
+                  selectedAdded,
+                )
+              }
             >
-              {t("offlinePacks.offload.selected", { count: selectedIds.size })}
-            </button>
+              {t("offlinePacks.offload.selected", { count: selectedCount })}
+            </Button>
           )}
         </div>
       </div>
       <FormMessage error={error ?? downloadJob.actionError} className="mt-2" />
       {showJobProgress && downloadStatus?.running && (
         <div className="mt-3">
-          <JobProgress
+          <PackProgress
             status={downloadStatus}
-            phases={PACK_DOWNLOAD_PHASES}
-            detail={packProgressDetail(downloadStatus)}
-            onCancel={() => void downloadJob.cancel("/offline-packs/download/cancel")}
+            onCancel={(downloadsOnly) =>
+              void downloadJob.cancel("/offline-packs/download/cancel", downloadsOnly ? { downloadsOnly } : undefined)
+            }
             cancelling={downloadJob.cancelling}
           />
         </div>
@@ -355,16 +397,27 @@ export default function DownloadedPacksList({
       <div className="mt-2 divide-y divide-line">
         {groups.map(([groupName, { main, seaZones }]) => {
           const allPacks = [...main, ...seaZones];
-          const groupIds = allPacks.map((p) => p.id);
-          const groupSelected = groupIds.every((id) => selectedIds.has(id));
-          const groupBytes = allPacks.reduce((sum, p) => sum + p.sizeBytes, 0);
+          const added = addedFor(groupName);
+          const groupIds = [...allPacks.map((p) => p.id), ...selectableAddedIds(added)];
+          const groupSelected = groupIds.length > 0 && groupIds.every((id) => selectedIds.has(id));
+          const groupBytes =
+            allPacks.reduce((sum, p) => sum + p.sizeBytes, 0) + added.reduce((sum, r) => sum + r.bytes, 0);
           const collapsed = !expandedGroups.has(groupName);
-          const hasBothTabs = main.length > 0 && seaZones.length > 0;
-          const activeTab = groupTab.get(groupName) ?? (main.length > 0 ? "main" : "seaZones");
-          const activePacks = activeTab === "seaZones" ? seaZones : main;
+          // Added species sit with the country's own downloads.
+          const mainCount = main.length + added.length;
+          const hasBothTabs = mainCount > 0 && seaZones.length > 0;
+          const activeTab = groupTab.get(groupName) ?? (mainCount > 0 ? MAIN_TAB : SEA_ZONES_TAB);
+          const activePacks = activeTab === SEA_ZONES_TAB ? seaZones : main;
+          const activeIds = [
+            ...activePacks.map((p) => p.id),
+            ...(activeTab === MAIN_TAB ? selectableAddedIds(added) : []),
+          ];
           // A standalone sea zone pack would be a group of one with its own name: show it flat.
           const isTrivialSelfGroup =
-            allPacks.length === 1 && allPacks[0].type === "seaZone" && allPacks[0].seaZone === groupName;
+            added.length === 0 &&
+            allPacks.length === 1 &&
+            allPacks[0].type === "seaZone" &&
+            allPacks[0].seaZone === groupName;
           if (isTrivialSelfGroup) {
             const p = allPacks[0];
             return (
@@ -376,10 +429,12 @@ export default function DownloadedPacksList({
           }
           return (
             <div key={groupName} className="py-2">
-              <div className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+              <div className="flex items-center gap-2 text-callout">
+                <Checkbox
                   checked={groupSelected}
+                  indeterminate={!groupSelected && groupIds.some((id) => selectedIds.has(id))}
+                  disabled={groupIds.length === 0}
+                  aria-label={t("offlinePacks.downloaded.selectCountry", { country: groupName })}
                   onChange={() =>
                     setSelectedIds((prev) => {
                       const next = new Set(prev);
@@ -390,20 +445,21 @@ export default function DownloadedPacksList({
                       return next;
                     })
                   }
-                  className="h-4 w-4"
                 />
+                {/* raw-control: the group's whole header row is its disclosure. */}
                 <button
                   type="button"
+                  aria-expanded={!collapsed}
                   onClick={() => toggleGroupCollapsed(groupName)}
-                  className="flex flex-1 items-center justify-between text-left text-ink"
+                  className="flex flex-1 items-center justify-between rounded-control text-left text-ink transition-colors hover:bg-surface-muted"
                 >
                   <span>
                     {groupName}{" "}
-                    <span className="text-xs text-muted">
-                      {t("offlinePacks.downloaded.groupPackCount", { count: allPacks.length })}
+                    <span className="text-footnote text-muted">
+                      {t("offlinePacks.downloaded.groupPackCount", { count: allPacks.length + added.length })}
                     </span>
                   </span>
-                  <span className="text-xs text-muted">
+                  <span className="text-footnote text-muted">
                     {formatBytes(groupBytes)} {collapsed ? "▸" : "▾"}
                   </span>
                 </button>
@@ -412,28 +468,28 @@ export default function DownloadedPacksList({
                 <div className="mt-1.5 ml-6 flex gap-1">
                   <Pill
                     size="sm"
-                    active={activeTab === "main"}
-                    onClick={() => setGroupTab(new Map(groupTab).set(groupName, "main"))}
+                    active={activeTab === MAIN_TAB}
+                    onClick={() => setGroupTab(new Map(groupTab).set(groupName, MAIN_TAB))}
                   >
-                    {t("offlinePacks.downloaded.packsTab", { count: main.length })}
+                    {t("offlinePacks.downloaded.packsTab", { count: mainCount })}
                   </Pill>
                   <Pill
                     size="sm"
-                    active={activeTab === "seaZones"}
-                    onClick={() => setGroupTab(new Map(groupTab).set(groupName, "seaZones"))}
+                    active={activeTab === SEA_ZONES_TAB}
+                    onClick={() => setGroupTab(new Map(groupTab).set(groupName, SEA_ZONES_TAB))}
                   >
                     {t("offlinePacks.downloaded.seaZonesTab", { count: seaZones.length })}
                   </Pill>
                 </div>
               )}
-              {!collapsed && activePacks.length > 1 && (
+              {!collapsed && activeIds.length > 1 && (
                 <div className="mt-1.5 ml-6">
-                  <button
-                    type="button"
+                  <Button
+                    variant="link"
+                    size="sm"
                     onClick={() =>
                       setSelectedIds((prev) => {
                         const next = new Set(prev);
-                        const activeIds = activePacks.map((p) => p.id);
                         const allActiveSelected = activeIds.every((id) => next.has(id));
                         for (const id of activeIds) {
                           if (allActiveSelected) next.delete(id);
@@ -442,12 +498,11 @@ export default function DownloadedPacksList({
                         return next;
                       })
                     }
-                    className="text-xs text-muted hover:underline"
                   >
-                    {activePacks.every((p) => selectedIds.has(p.id))
+                    {activeIds.every((id) => selectedIds.has(id))
                       ? t("offlinePacks.downloaded.deselectAll")
                       : t("offlinePacks.downloaded.selectAll")}
-                  </button>
+                  </Button>
                 </div>
               )}
               {!collapsed && (
@@ -458,6 +513,20 @@ export default function DownloadedPacksList({
                       {renderPackPanel?.(p)}
                     </li>
                   ))}
+                  {activeTab === "main" &&
+                    added.map((r) => (
+                      <li key={r.key} className="py-1.5">
+                        {r.row(
+                          <Checkbox
+                            checked={r.removable && selectedIds.has(addedId(r))}
+                            disabled={!r.removable}
+                            title={r.removable ? undefined : t("addedSpecies.allPhotographed")}
+                            onChange={() => toggleSelection(addedId(r))}
+                            aria-label={r.label}
+                          />,
+                        )}
+                      </li>
+                    ))}
                 </ul>
               )}
             </div>
@@ -468,31 +537,37 @@ export default function DownloadedPacksList({
       <Modal
         open={!!offloadTargets}
         onClose={() => setOffloadTargets(null)}
-        size="sm"
         title={
-          offloadTargets?.length === 1
-            ? offloadTargets[0].taxon
-              ? t("offlinePacks.offload.titleOneWithTaxon", {
-                  name: offloadTargets[0].region ?? offloadTargets[0].seaZone,
-                  taxon: TAXON_CLASS_LABEL[offloadTargets[0].taxon],
-                })
-              : t("offlinePacks.offload.titleOne", { name: offloadTargets[0].region ?? offloadTargets[0].seaZone })
-            : t("offlinePacks.offload.titleMany", { count: offloadTargets?.length ?? 0 })
+          offloadAdded.length > 0
+            ? t("offlinePacks.offload.titleManyItems", {
+                count: (offloadTargets?.length ?? 0) + offloadAdded.length,
+              })
+            : offloadTargets?.length === 1
+              ? offloadTargets[0].taxon
+                ? t("offlinePacks.offload.titleOneWithTaxon", {
+                    name: offloadTargets[0].region ?? offloadTargets[0].seaZone,
+                    taxon: TAXON_CLASS_LABEL[offloadTargets[0].taxon],
+                  })
+                : t("offlinePacks.offload.titleOne", { name: offloadTargets[0].region ?? offloadTargets[0].seaZone })
+              : t("offlinePacks.offload.titleMany", { count: offloadTargets?.length ?? 0 })
         }
         footer={
           <>
-            <Button variant="secondary" size="sm" onClick={() => setOffloadTargets(null)}>
+            <Button variant="secondary" onClick={() => setOffloadTargets(null)}>
               {t("common.cancel")}
             </Button>
-            <Button variant="danger" size="sm" onClick={confirmOffload} disabled={!deletePreview} loading={deleting}>
-              {deleting ? t("offlinePacks.offload.offloading") : t("offlinePacks.offload.button")}
+            <Button variant="danger" onClick={confirmOffload} disabled={!offloadReady}>
+              {t("offlinePacks.offload.button")}
             </Button>
           </>
         }
       >
-        {!deletePreview && !deleteError && <p className="text-sm text-muted">{t("offlinePacks.offload.checking")}</p>}
+        <p className="mb-2 text-body text-ink">{t("offlinePacks.offload.ownPhotosSafe")}</p>
+        {!offloadReady && !deleteError && (
+          <p className="text-callout text-muted">{t("offlinePacks.offload.checking")}</p>
+        )}
         {deletePreview && (
-          <div className="space-y-2 text-sm text-muted">
+          <div className="space-y-2 text-callout text-muted">
             <p>
               {deletePreview.isEstimate
                 ? t("offlinePacks.offload.estimate", { size: formatBytes(deletePreview.bytesToFree) })
@@ -509,11 +584,21 @@ export default function DownloadedPacksList({
                 {t("offlinePacks.offload.checklistsAffected", { count: deletePreview.checklistRegionsAffectedCount })}
               </p>
             )}
-            <p className="text-xs text-muted">{t("offlinePacks.offload.ownPhotosSafe")}</p>
+          </div>
+        )}
+        {offloadAdded.length > 0 && (
+          <div className={`space-y-2 text-callout text-muted${deletePreview ? " mt-2" : ""}`}>
+            <p>
+              {t("offlinePacks.offload.addedSpecies", {
+                count: offloadAddedSpecies,
+                size: formatBytes(offloadAdded.reduce((sum, r) => sum + r.bytes, 0)),
+              })}
+            </p>
+            {offloadAddedKept > 0 && <p>{t("addedSpecies.removeConfirm.stays", { count: offloadAddedKept })}</p>}
           </div>
         )}
         <FormMessage error={deleteError} className="mt-3" />
       </Modal>
-    </div>
+    </Panel>
   );
 }

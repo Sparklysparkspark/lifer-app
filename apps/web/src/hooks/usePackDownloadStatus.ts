@@ -17,49 +17,6 @@ import { useLatest } from "./useLatest";
 
 export type { PackDownloadStatus } from "../lib/packDownloadStore";
 
-// "downloading", "applying", then "photos" per pack; bytes are per pack, processed/total count packs.
-// Labels are getters, so they're translated when shown, in the language active then.
-export const PACK_DOWNLOAD_PHASES = {
-  downloading: {
-    get label() {
-      return i18n.t("offlinePacks.phases.downloading");
-    },
-    progress: "bytes" as const,
-    showItem: true,
-  },
-  applying: {
-    get label() {
-      return i18n.t("offlinePacks.phases.applying");
-    },
-    progress: "none" as const,
-    showItem: true,
-  },
-  // The pack's photos this install doesn't have yet, from the shared photo store.
-  photos: {
-    get label() {
-      return i18n.t("offlinePacks.phases.photos");
-    },
-    progress: "bytes" as const,
-    showItem: true,
-  },
-  // A brand-new server still loading its species catalog; the pack is downloaded and waits.
-  preparing: {
-    get label() {
-      return i18n.t("offlinePacks.phases.preparing");
-    },
-    progress: "none" as const,
-    showItem: false,
-  },
-  // A newer species catalog is installed before the packs, so none of their species is left out.
-  updating_catalog: {
-    get label() {
-      return i18n.t("offlinePacks.phases.updatingCatalog");
-    },
-    progress: "none" as const,
-    showItem: false,
-  },
-};
-
 export interface PackDownloadOptions {
   // Fires once when a run seen running stops (success, error or cancel).
   onFinish?: (status: PackDownloadStatus) => void;
@@ -77,7 +34,9 @@ function usePackDownloadState(onFinish?: (status: PackDownloadStatus) => void) {
 
 // The job's real state lives server-side (offlinePacks/routes.ts), so every screen reflects an
 // in-flight download no matter where it was started. All callers share one poller.
-export function usePackDownloadJob(options: PackDownloadOptions = {}): JobPoll<PackDownloadStatus> {
+export function usePackDownloadJob(
+  options: PackDownloadOptions = {},
+): JobPoll<PackDownloadStatus> & { cancel: (cancelUrl: string, body?: { downloadsOnly?: boolean }) => Promise<void> } {
   const { status, loadError } = usePackDownloadState(options.onFinish);
   const [actionError, setActionError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -112,10 +71,10 @@ export function usePackDownloadJob(options: PackDownloadOptions = {}): JobPoll<P
     return true;
   }, []);
 
-  const cancel = useCallback(async (cancelUrl: string) => {
+  const cancel = useCallback(async (cancelUrl: string, body?: { downloadsOnly?: boolean }) => {
     setCancelling(true);
     try {
-      await api.post(cancelUrl, {});
+      await api.post(cancelUrl, body ?? {});
       await refreshPackDownload();
     } catch (err) {
       console.error(err);
@@ -142,12 +101,4 @@ export function usePackDownloadJob(options: PackDownloadOptions = {}): JobPoll<P
 
 export function usePackDownloadStatus(options: PackDownloadOptions = {}): PackDownloadStatus | null {
   return usePackDownloadState(options.onFinish).status;
-}
-
-export function packProgressDetail(status: PackDownloadStatus | null): string | null {
-  if (!status?.running || status.total == null || status.total <= 1) return null;
-  return i18n.t("offlinePacks.download.packProgress", {
-    current: Math.min((status.processed ?? 0) + 1, status.total),
-    total: status.total,
-  });
 }

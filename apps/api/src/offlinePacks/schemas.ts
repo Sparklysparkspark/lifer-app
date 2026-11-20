@@ -86,6 +86,7 @@ const ManifestSpeciesSchema = Type.Object({
   embeddingModelVersion: Type.Optional(Type.String()),
   // Checklist membership. A sea-zone pack only has recordCount.
   localFrequency: Type.Optional(Nullable(Type.Number())),
+  // Packs built before months were derived from weeklyFrequency still carry it; it is ignored.
   seasonality: Type.Optional(Nullable(Type.Array(Type.Number()))),
   localTier: Type.Optional(Nullable(Type.String())),
   isVagrant: Type.Optional(Type.Boolean()),

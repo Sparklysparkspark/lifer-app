@@ -7,11 +7,11 @@ import { isWithin } from "@lifer/core/lib/pathContainment.js";
 // Pack, shard and photo store urls come from the fetched index JSON, so a tampered index could aim
 // this server's fetch at an internal service. They must share the index's origin.
 export function assertTrustedPackUrl(url: string): void {
-  if (!PACK_INDEX_URL) throw new Error("No pack index is configured for this instance yet");
+  if (!PACK_INDEX_URL) throw new Error("No region download index is configured for this instance yet");
   const packOrigin = new URL(url).origin;
   const indexOrigin = new URL(PACK_INDEX_URL).origin;
   if (packOrigin !== indexOrigin) {
-    throw new Error(`Refusing to fetch a pack from an untrusted origin: ${packOrigin}`);
+    throw new Error(`Refusing to fetch a region download from an untrusted origin: ${packOrigin}`);
   }
 }
 

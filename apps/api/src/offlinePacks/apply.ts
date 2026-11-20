@@ -1,4 +1,5 @@
-// Applies a downloaded pack archive in one transaction. A species' photo and description are
+// Applies a downloaded pack archive in two transactions: the checklist (applyPack), then its
+// hotspots (applyPackHotspots). A species' photo and description are
 // written only once, whichever pack (or live lookup) gets there first; a sea zone shared by
 // several countries is downloaded once (see download.ts's dependency queue).
 import { HUMAN_SCIENTIFIC_NAME } from "@lifer/core/species/neverListed.js";
@@ -9,6 +10,11 @@ import path from "node:path";
 import * as tar from "tar";
 import type { PoolClient } from "pg";
 import { descendantIdsSql } from "@lifer/core/regions/regionTree.js";
+import { RAW_CACHE_DIR } from "@lifer/core/config.js";
+import { fetchProvincesForCountry } from "@lifer/core/regions/regionBoundary.js";
+import { log } from "@lifer/core/lib/log.js";
+import { createProvinces } from "../regions/provinces.js";
+import { copyInto } from "../lib/pgCopy.js";
 import { isSafePackEntry, resolveWithinDir } from "./packPaths.js";
 import { PHOTO_DIRS } from "./photoStore.js";
 import { PackManifestSchema, parseRemoteJson, type ManifestSpecies, type PackManifest } from "./schemas.js";
@@ -390,26 +396,24 @@ async function writeRegionChecklist(
   for (const batch of chunkRows(checklistRows, BULK_BATCH_SIZE)) {
     const values: unknown[] = [];
     const rows = batch.map(({ speciesId, sp }, i) => {
-      const base = i * 9;
+      const base = i * 8;
       values.push(
         regionId,
         speciesId,
         sp.localFrequency ?? null,
-        sp.seasonality ?? null,
         sp.localTier ?? null,
         sp.isVagrant ?? false,
         sp.weeklyFrequency ?? null,
         sp.tierReason ?? null,
         sp.tierExplain != null ? JSON.stringify(sp.tierExplain) : null,
       );
-      return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}::jsonb)`;
+      return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}::jsonb)`;
     });
     await db.query(
-      `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, local_tier, is_vagrant, weekly_frequency, tier_reason, tier_explain)
+      `INSERT INTO region_species (region_id, species_id, local_frequency, local_tier, is_vagrant, weekly_frequency, tier_reason, tier_explain)
        VALUES ${rows.join(", ")}
        ON CONFLICT (region_id, species_id) DO UPDATE SET
          local_frequency = EXCLUDED.local_frequency,
-         seasonality = EXCLUDED.seasonality,
          local_tier = EXCLUDED.local_tier,
          is_vagrant = EXCLUDED.is_vagrant,
          weekly_frequency = EXCLUDED.weekly_frequency,
@@ -419,45 +423,99 @@ async function writeRegionChecklist(
     );
   }
 
-  // Gap-finder hotspot clusters (province level only): delete then reinsert, batched across
-  // every species in the region at once.
-  const speciesWithHotspots = checklistRows.filter(({ sp }) => sp.hotspots && sp.hotspots.length > 0);
-  if (speciesWithHotspots.length > 0) {
-    for (const idBatch of chunkRows(
-      speciesWithHotspots.map((r) => r.speciesId),
-      BULK_BATCH_SIZE,
-    )) {
-      await db.query(`DELETE FROM region_species_hotspots WHERE region_id = $1 AND species_id = ANY($2)`, [
-        regionId,
-        idBatch,
-      ]);
-    }
-    const hotspotRows = speciesWithHotspots.flatMap(({ speciesId, sp }) => sp.hotspots!.map((h) => ({ speciesId, h })));
-    for (const hotspotBatch of chunkRows(hotspotRows, BULK_BATCH_SIZE)) {
-      const values: unknown[] = [];
-      const rowPlaceholders = hotspotBatch.map(({ speciesId, h }, idx) => {
-        const base = idx * 8;
-        values.push(
-          regionId,
-          speciesId,
-          h.centroidLat,
-          h.centroidLon,
-          h.pointCount,
-          h.bboxDiagonalKm,
-          h.lastSeenYear,
-          h.distinctYears,
-        );
-        return `($${base + 1}::uuid, $${base + 2}::uuid, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`;
-      });
-      await db.query(
-        `INSERT INTO region_species_hotspots
-           (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years)
-         VALUES ${rowPlaceholders.join(", ")}`,
-        values,
-      );
+  return checklistRows.length;
+}
+
+type Hotspot = NonNullable<ManifestSpecies["hotspots"]>[number];
+
+/** One region's gap-finder hotspots from a pack, written after its checklist (applyPackHotspots). */
+export interface RegionHotspots {
+  regionId: string;
+  species: Array<{ speciesId: string; hotspots: Hotspot[] }>;
+}
+
+// Above this many rows, and more than the table already holds, the secondary indexes are
+// dropped and built after the load instead of updated row by row.
+const HOTSPOT_INDEX_REBUILD_ROWS = 100_000;
+
+/** Replaces the hotspots of the species a pack lists, run in its own transaction after the
+ *  checklist commits. Hotspots are almost all of a pack's rows and only feed "where to find it",
+ *  so they load by COPY with FK checks off; ids are re-checked here under the reference data lock. */
+export async function applyPackHotspots(db: PoolClient, regions: RegionHotspots[]): Promise<number> {
+  if (regions.length === 0) return 0;
+  const idSet = async (table: "regions" | "species", ids: string[]) =>
+    new Set(
+      (await db.query<{ id: string }>(`SELECT id FROM ${table} WHERE id = ANY($1::uuid[])`, [ids])).rows.map(
+        (r) => r.id,
+      ),
+    );
+  const liveRegions = await idSet(
+    "regions",
+    regions.map((r) => r.regionId),
+  );
+  const liveSpecies = await idSet(
+    "species",
+    regions.flatMap((r) => r.species.map((s) => s.speciesId)),
+  );
+  const pairs = regions
+    .filter((r) => liveRegions.has(r.regionId))
+    .flatMap((r) => r.species.filter((s) => liveSpecies.has(s.speciesId)).map((s) => ({ regionId: r.regionId, ...s })));
+  if (pairs.length === 0) return 0;
+
+  await db.query(
+    `DELETE FROM region_species_hotspots h USING unnest($1::uuid[], $2::uuid[]) AS d(region_id, species_id)
+     WHERE h.region_id = d.region_id AND h.species_id = d.species_id`,
+    [pairs.map((p) => p.regionId), pairs.map((p) => p.speciesId)],
+  );
+
+  // Turning FK checks off needs superuser (or a grant); without it the COPY just checks them.
+  await db.query(`SAVEPOINT fk_off`);
+  try {
+    await db.query(`SET LOCAL session_replication_role = replica`);
+    await db.query(`RELEASE SAVEPOINT fk_off`);
+  } catch {
+    await db.query(`ROLLBACK TO SAVEPOINT fk_off`);
+  }
+
+  const rows = pairs.reduce((n, p) => n + p.hotspots.length, 0);
+  const existing = Number(
+    (
+      await db.query<{ n: number }>(
+        `SELECT GREATEST(reltuples, 0) AS n FROM pg_class WHERE oid = 'region_species_hotspots'::regclass`,
+      )
+    ).rows[0].n,
+  );
+  const rebuild =
+    rows >= HOTSPOT_INDEX_REBUILD_ROWS && rows > existing
+      ? (
+          await db.query<{ indexname: string; indexdef: string }>(
+            `SELECT i.indexname, i.indexdef FROM pg_indexes i
+             JOIN pg_index x ON x.indexrelid = format('%I.%I', i.schemaname, i.indexname)::regclass
+             WHERE i.schemaname = current_schema() AND i.tablename = 'region_species_hotspots' AND NOT x.indisprimary`,
+          )
+        ).rows
+      : [];
+  for (const { indexname } of rebuild) await db.query(`DROP INDEX "${indexname}"`);
+
+  const field = (v: number | null) => (v == null ? "\\N" : String(v));
+  async function* lines() {
+    for (const p of pairs) {
+      let out = "";
+      for (const h of p.hotspots) {
+        out += `${p.regionId}\t${p.speciesId}\t${h.centroidLat}\t${h.centroidLon}\t${h.pointCount}\t${h.bboxDiagonalKm}\t${field(h.lastSeenYear)}\t${field(h.distinctYears)}\n`;
+      }
+      yield out;
     }
   }
-  return checklistRows.length;
+  await copyInto(
+    db,
+    `COPY region_species_hotspots
+       (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km, last_seen_year, distinct_years)
+     FROM STDIN`,
+    lines(),
+  );
+  for (const { indexdef } of rebuild) await db.query(indexdef);
+  return rows;
 }
 
 async function writeSeaZoneChecklist(
@@ -487,6 +545,7 @@ interface ChecklistResult {
   skipped: number;
   skippedNames: string[];
   touched: Touched[];
+  hotspots: RegionHotspots[];
 }
 
 // Applies one region's or sea zone's species list: enrichment (photo, habitat text) and checklist
@@ -517,11 +576,17 @@ async function applyChecklist(
     taxon,
     plan.checklistRows.map((r) => r.speciesId),
   );
+  // Gap-finder hotspots (province level only) are written later, by applyPackHotspots.
+  const withHotspots = plan.checklistRows
+    .filter(({ sp }) => (sp.hotspots?.length ?? 0) > 0)
+    .map(({ speciesId, sp }) => ({ speciesId, hotspots: sp.hotspots! }));
   return {
     applied: plan.checklistRows.length,
     skipped: plan.skippedNames.length,
     skippedNames: plan.skippedNames,
     touched: plan.touched,
+    hotspots:
+      "regionId" in target && withHotspots.length > 0 ? [{ regionId: target.regionId, species: withHotspots }] : [],
   };
 }
 
@@ -593,9 +658,57 @@ async function applyChildRegion(
   return childRegionId;
 }
 
+type Provinces = Awaited<ReturnType<typeof fetchProvincesForCountry>>;
+
+/** The provinces a country's pack needs from Natural Earth (one whose pack bundles none), or null.
+ *  A failed boundary download leaves the "Show provinces/states" button to retry later. */
+async function provincesForManifest(
+  db: Pick<PoolClient, "query">,
+  manifest: PackManifest,
+  regionId: string | null,
+): Promise<Provinces | null> {
+  if (!regionId || manifest.children) return null;
+  const country = await db.query<{ code: string }>(
+    `SELECT r.external_codes[1] AS code FROM regions r LEFT JOIN regions p ON p.id = r.parent_id
+     WHERE r.id = $1 AND NOT r.has_children AND r.home_country_id IS NULL
+       AND r.external_codes[1] IS NOT NULL AND COALESCE(array_length(p.external_codes, 1), 0) = 0`,
+    [regionId],
+  );
+  const code = country.rows[0]?.code;
+  if (!code) return null;
+  return fetchProvincesForCountry(code, RAW_CACHE_DIR).catch((err: unknown) => {
+    log.warn(`[packs] couldn't load provinces for ${manifest.region}: ${String(err)}`);
+    return null;
+  });
+}
+
+/** What applyPack would fetch from the network for this pack, fetched up front so the caller's
+ *  transaction never waits on it. Reads only the archive's manifest. */
+export async function prefetchPackProvinces(
+  db: Pick<PoolClient, "query">,
+  archivePath: string,
+): Promise<Provinces | null> {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "lifer-pack-manifest-"));
+  try {
+    await tar.extract({ file: archivePath, cwd: dir, filter: (p) => p.replace(/^\.\//, "") === "manifest.json" });
+    const manifest = parseRemoteJson(
+      PackManifestSchema,
+      JSON.parse(readFileSync(path.join(dir, "manifest.json"), "utf-8")),
+      "region download's manifest",
+    );
+    if (manifest.type !== "region" || !manifest.region) return null;
+    const res = await db.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [manifest.region]);
+    return provincesForManifest(db, manifest, res.rows[0]?.id ?? null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 export async function applyPack(
   db: PoolClient,
   archivePath: string,
+  /** provinces: from prefetchPackProvinces, so no network call happens inside the transaction. */
+  opts: { provinces?: Provinces | null } = {},
 ): Promise<{
   speciesCount: number;
   skipped: number;
@@ -605,6 +718,8 @@ export async function applyPack(
   touched: Touched[];
   allChildRegionIds: string[];
   territoryChildRegionIds: string[];
+  /** Not written yet: the caller passes them to applyPackHotspots once this transaction commits. */
+  hotspots: RegionHotspots[];
 }> {
   const extractDir = mkdtempSync(path.join(os.tmpdir(), "lifer-pack-"));
   try {
@@ -612,7 +727,7 @@ export async function applyPack(
     const manifest = parseRemoteJson(
       PackManifestSchema,
       JSON.parse(readFileSync(path.join(extractDir, "manifest.json"), "utf-8")),
-      "pack's manifest",
+      "region download's manifest",
     );
 
     for (const dir of Object.values(PHOTO_DIRS)) mkdirSync(dir, { recursive: true });
@@ -629,12 +744,17 @@ export async function applyPack(
       seaZoneId = res.rows[0]?.id ?? null;
     }
 
-    const total: ChecklistResult = { applied: 0, skipped: 0, skippedNames: [], touched: [] };
+    // Passed in by a caller that fetched them before opening its transaction; looked up here otherwise.
+    const provinces =
+      opts.provinces !== undefined ? opts.provinces : await provincesForManifest(db, manifest, regionId);
+
+    const total: ChecklistResult = { applied: 0, skipped: 0, skippedNames: [], touched: [], hotspots: [] };
     const add = (result: ChecklistResult) => {
       total.applied += result.applied;
       total.skipped += result.skipped;
       total.skippedNames.push(...result.skippedNames);
       total.touched.push(...result.touched);
+      total.hotspots.push(...result.hotspots);
     };
     if (regionId) add(await applyChecklist(db, manifest.species, { regionId }, dirs, manifest.taxon));
     else if (seaZoneId) add(await applyChecklist(db, manifest.species, { seaZoneId }, dirs, manifest.taxon));
@@ -652,6 +772,8 @@ export async function applyPack(
       await db.query(`UPDATE regions SET has_children = true WHERE id = $1`, [regionId]);
     }
 
+    if (regionId && provinces) await createProvinces(db, regionId, provinces);
+
     // The checklist is downloaded data now, so no live computation is needed.
     if (regionId) {
       await db.query(`UPDATE regions SET occurrence_computed_at = now() WHERE id = $1`, [regionId]);
@@ -667,6 +789,7 @@ export async function applyPack(
       touched: total.touched,
       allChildRegionIds,
       territoryChildRegionIds,
+      hotspots: total.hotspots,
     };
   } finally {
     rmSync(extractDir, { recursive: true, force: true });

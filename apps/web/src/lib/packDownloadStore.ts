@@ -1,12 +1,9 @@
-import type { JobStatus } from "@lifer/shared";
+import type { PackDownloadStatus } from "@lifer/shared";
 import { api, ApiError } from "../api/client";
 import { errorMessage } from "./errorMessage";
 import i18n from "../i18n";
 
-export type PackDownloadStatus = JobStatus<{ packsApplied: number }> & {
-  packIds: string[];
-  currentPack: string | null;
-};
+export type { PackDownloadStatus };
 
 export interface PackDownloadState {
   status: PackDownloadStatus | null;
@@ -74,7 +71,7 @@ async function poll(): Promise<PackDownloadStatus | null> {
   clearTimer();
   inflight = (async () => {
     try {
-      const next = await api.get<PackDownloadStatus>(STATUS_URL);
+      const next: PackDownloadStatus = await api.get(STATUS_URL);
       const finished = wasRunning && !next.running;
       wasRunning = next.running;
       setState({ status: next, loadError: null });

@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import type { RegionSummary, TaxonClass } from "@lifer/shared";
-import type { PackStatusEntry } from "../../lib/packIndex";
+import { downloadBytes, type DownloadVariant, type PackStatusEntry } from "../../lib/packIndex";
 import { groupInto } from "../../lib/groupInto";
 import { availableTaxaByRegion, continentIdForCountry, groupRegions, searchCountries } from "../../lib/regionGrouping";
 
-export type DownloadVariant = "full" | "small";
+export type { DownloadVariant } from "../../lib/packIndex";
 export type Coverage = "full" | "partial" | "none";
 
 function toggled<T>(set: Set<T>, value: T, on = !set.has(value)): Set<T> {
@@ -27,6 +27,23 @@ function toggledAll<T>(set: Set<T>, values: T[]): Set<T> {
 
 // Offline packs' picker: countries (by map, continent pill or search), one taxon selection applied
 // across all of them, and the variant. Pack ids are only resolved at download time (download-batch).
+/** West, south, east, north. East past 180 carries on across the date line. */
+type ContinentView = [number, number, number, number];
+const CONTINENT_VIEWS: Array<[RegExp, ContinentView]> = [
+  [/^Africa/, [-20, -36, 53, 38]],
+  [/^Antarctica/, [-180, -80, 180, -60]],
+  [/^Asia/, [26, -11, 146, 56]],
+  // Iceland to the Urals: most of Russia is left off the edge.
+  [/^Europe/, [-25, 34, 45, 71]],
+  // Alaska to Greenland, which is listed here.
+  [/^North America/, [-168, 7, -20, 76]],
+  [/^Central America/, [-93, 7, -59, 24]],
+  [/^South America/, [-82, -56, -34, 13]],
+  [/^Oceania/, [110, -48, 190, 2]],
+  [/^Seven seas/, [-180, -60, 180, 72]],
+];
+const continentView = (name: string) => CONTINENT_VIEWS.find(([re]) => re.test(name))?.[1];
+
 export function useOfflinePackSelection(regions: RegionSummary[] | null, packs: PackStatusEntry[] | null) {
   const [selectedCountryIds, setSelectedCountryIds] = useState<Set<string>>(new Set());
   // Only continents opened by their own pill widen the map. A map click also opens the group
@@ -68,6 +85,22 @@ export function useOfflinePackSelection(regions: RegionSummary[] | null, packs: 
     if (selectedCountryIds.size > 0) return [...selectedCountryIds];
     return openCountryIds.size > 0 ? [...openCountryIds] : undefined;
   }, [openCountryIds, selectedCountryIds]);
+
+  // An opened continent shows a set view: fitting its countries takes in all of Russia for
+  // Europe, the whole globe for Oceania (it straddles the date line), and nothing at all for
+  // Antarctica.
+  const focusBounds = useMemo(() => {
+    if (selectedCountryIds.size > 0 || mapWidenedContinentIds.size === 0) return undefined;
+    const views = continents.filter((c) => mapWidenedContinentIds.has(c.id)).map((c) => continentView(c.name));
+    if (views.some((v) => !v)) return undefined;
+    const vs = views as ContinentView[];
+    return [
+      Math.min(...vs.map((v) => v[0])),
+      Math.min(...vs.map((v) => v[1])),
+      Math.max(...vs.map((v) => v[2])),
+      Math.max(...vs.map((v) => v[3])),
+    ] as ContinentView;
+  }, [continents, mapWidenedContinentIds, selectedCountryIds]);
 
   const searchResults = useMemo(
     () => searchCountries(regions ?? [], continents, searchTerm),
@@ -165,9 +198,10 @@ export function useOfflinePackSelection(regions: RegionSummary[] | null, packs: 
     [selectedCountryIds, countryById],
   );
 
+  const packsById = useMemo(() => new Map((packs ?? []).map((p) => [p.id, p])), [packs]);
   const selectionSizeBytes = useMemo(
-    () => selectionBytes(packsByRegion, selectedCountryNames, selectedTaxa),
-    [packsByRegion, selectedCountryNames, selectedTaxa],
+    () => selectionBytes(packsByRegion, selectedCountryNames, selectedTaxa, packsById),
+    [packsByRegion, selectedCountryNames, selectedTaxa, packsById],
   );
   // The same size for the other variant, previewed next to the toggle.
   const otherVariantSizeBytes = useMemo(
@@ -176,11 +210,13 @@ export function useOfflinePackSelection(regions: RegionSummary[] | null, packs: 
         packsByRegionFor(packs ?? [], downloadVariant === "full" ? "small" : "full"),
         selectedCountryNames,
         selectedTaxa,
+        packsById,
       ),
-    [packs, downloadVariant, selectedCountryNames, selectedTaxa],
+    [packs, downloadVariant, selectedCountryNames, selectedTaxa, packsById],
   );
 
   return {
+    focusBounds,
     ...grouping,
     selectedCountryIds,
     setSelectedCountryIds,
@@ -233,19 +269,18 @@ export function coverageOf(entries: PackStatusEntry[]): Coverage {
 }
 
 // What downloading the selection would fetch: packs not yet installed (or stale), limited to the
-// chosen taxa when there are any.
+// chosen taxa, with the sea zones they pull in; no chosen taxa means nothing.
 export function selectionBytes(
   packsByRegion: Map<string, PackStatusEntry[]>,
   countryNames: string[],
   taxa: Set<TaxonClass>,
+  packsById: Map<string, PackStatusEntry> = new Map(),
 ): number {
-  let total = 0;
-  for (const name of countryNames) {
-    for (const p of packsByRegion.get(name) ?? []) {
-      if (taxa.size > 0 && p.taxon && !taxa.has(p.taxon)) continue;
-      if (p.downloaded && !p.updateAvailable) continue;
-      total += p.sizeBytes;
-    }
-  }
-  return total;
+  if (taxa.size === 0) return 0;
+  const chosen = countryNames.flatMap((name) =>
+    (packsByRegion.get(name) ?? []).filter(
+      (p) => !(p.taxon && !taxa.has(p.taxon)) && !(p.downloaded && !p.updateAvailable),
+    ),
+  );
+  return downloadBytes(chosen, packsById);
 }

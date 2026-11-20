@@ -145,6 +145,61 @@ describe.skipIf(!url)("removing a pack", () => {
     await db.query(`DROP FUNCTION zz_fail_pack_removal()`);
   });
 
+  it("removes in the background and leaves a failed pack whole", async () => {
+    const batch = () =>
+      app.inject({
+        method: "POST",
+        url: "/api/offline-packs/offload-batch",
+        cookies: { [cookieName]: TOKEN },
+        payload: { packIds: [PACK] },
+      });
+    const settle = async () => {
+      for (;;) {
+        const st = (
+          await app.inject({
+            method: "GET",
+            url: "/api/offline-packs/removal-status",
+            cookies: { [cookieName]: TOKEN },
+          })
+        ).json();
+        if (!st.running) return st;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    };
+    await db.query(`CREATE FUNCTION zz_fail_pack_removal() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'simulated failure'; END $$`);
+    await db.query(`CREATE TRIGGER zz_fail_pack_removal BEFORE DELETE ON downloaded_packs
+      FOR EACH ROW WHEN (OLD.pack_id = '${PACK}') EXECUTE FUNCTION zz_fail_pack_removal()`);
+    const started = await batch();
+    expect([started.statusCode, started.json()]).toEqual([200, { started: true, packIds: [PACK] }]);
+    const failed = await settle();
+    expect(failed.error).toBeTruthy();
+    expect(failed.packIds).toEqual([]);
+    expect((await db.query(`SELECT 1 FROM downloaded_packs WHERE pack_id = $1`, [PACK])).rowCount).toBe(1);
+    await db.query(`DROP TRIGGER zz_fail_pack_removal ON downloaded_packs`);
+    await db.query(`DROP FUNCTION zz_fail_pack_removal()`);
+
+    await batch();
+    const done = await settle();
+    expect(done.error).toBeNull();
+    expect(done.result.deletedSpeciesFiles).toBe(1);
+    expect((await db.query(`SELECT 1 FROM downloaded_packs WHERE pack_id = $1`, [PACK])).rowCount).toBe(0);
+    // Put it back for the next test.
+    await db.query(`INSERT INTO downloaded_packs (pack_id, species_count) VALUES ($1, 1)`, [PACK]);
+    await db.query(`INSERT INTO pack_species (pack_id, species_id) VALUES ($1, $2)`, [PACK, SPECIES]);
+    await db.query(`UPDATE species SET reference_display_path = $1, reference_thumb_path = $2 WHERE id = $3`, [
+      files.display,
+      files.thumb,
+      SPECIES,
+    ]);
+    await db.query(`UPDATE species_reference_photos SET display_path = $1, thumb_path = $2 WHERE species_id = $3`, [
+      files.galleryDisplay,
+      files.galleryThumb,
+      SPECIES,
+    ]);
+    for (const f of Object.values(files)) writeFileSync(f, "webp");
+  });
+
   it("deletes the files after the removal commits, but never one another row still uses", async () => {
     await db.query(`UPDATE species SET reference_display_path = $1 WHERE id = $2`, [files.display, SPECIES]);
     // A species in no pack still pointing at the gallery's display file, as a reinstall would.

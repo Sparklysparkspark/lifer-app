@@ -93,9 +93,15 @@ describe.skipIf(!url)("offline pack routes validation", () => {
     expect((await post("/api/offline-packs/offload-preview", { packIds: [] })).statusCode).toBe(400);
     expect((await post("/api/offline-packs/offload-batch", {})).statusCode).toBe(400);
     expect((await post("/api/offline-packs/download/cancel", {})).json()).toEqual({ cancelled: false });
+    expect((await get("/api/offline-packs/download/status")).json()).toMatchObject({
+      running: false,
+      result: null,
+      packIds: [],
+      currentPack: null,
+    });
 
     const missing = await get("/api/offline-packs/zz-no-such-pack/provinces");
-    expect([missing.statusCode, missing.json()]).toEqual([404, { error: "No downloaded pack found with that id" }]);
+    expect([missing.statusCode, missing.json()]).toEqual([404, { error: "No downloaded region found with that id" }]);
     expect((await post("/api/offline-packs/offload-preview", { packIds: ["x".repeat(201)] })).statusCode).toBe(400);
   });
 
@@ -107,6 +113,6 @@ describe.skipIf(!url)("offline pack routes validation", () => {
     expect((await offload({ regionIds: [] })).statusCode).toBe(400);
     expect((await offload({ regionIds: [REGION], more: true })).statusCode).toBe(400);
     const valid = await offload({ regionIds: [REGION] });
-    expect([valid.statusCode, valid.json()]).toEqual([404, { error: "No downloaded pack found with that id" }]);
+    expect([valid.statusCode, valid.json()]).toEqual([404, { error: "No downloaded region found with that id" }]);
   });
 });

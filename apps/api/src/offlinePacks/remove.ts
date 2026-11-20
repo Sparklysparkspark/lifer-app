@@ -1,15 +1,18 @@
 // Removing packs: the impact preview, deleting whole packs, and offloading single provinces.
-import { existsSync, rmSync, statSync } from "node:fs";
+import { rmSync } from "node:fs";
+import { stat } from "node:fs/promises";
+import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { descendantIdsSql } from "@lifer/core/regions/regionTree.js";
 import type { FastifyInstance } from "fastify";
-import { Type } from "typebox";
+import { Type, type Static } from "typebox";
 import { subdivisionLabelFor } from "@lifer/shared";
 import { pool, withTransaction } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
 import { invalidateSuggestionCache } from "@lifer/core/species/embeddings.js";
 import { log } from "@lifer/core/lib/log.js";
 import { Uuid, replies, withSchemas } from "../lib/schema.js";
-import { DeleteImpact, PackDeleted, PackProvinces } from "./responses.js";
+import { createJob, type JobContext } from "../lib/job.js";
+import { DeleteImpact, PackDeleted, PackProvinces, RemovalStarted, RemovalStatus } from "./responses.js";
 import { invalidatePackSizes } from "./index.js";
 import { isPackDownloadRunning, PackId } from "./download.js";
 
@@ -23,6 +26,14 @@ interface DeleteImpact {
   // bytesToFree is the archive's size rather than a per-species tally, so the UI says "about".
   isEstimate: boolean;
 }
+
+// Every reference photo file (main and gallery) of the species in $1.
+const SPECIES_FILES_SQL = `
+  SELECT p FROM species s, unnest(ARRAY[s.reference_display_path, s.reference_thumb_path]) AS p
+  WHERE s.id = ANY($1) AND p IS NOT NULL
+  UNION ALL
+  SELECT p FROM species_reference_photos g, unnest(ARRAY[g.display_path, g.thumb_path]) AS p
+  WHERE g.species_id = ANY($1) AND p IS NOT NULL`;
 
 // Shared by the preview and the real delete. A country pack owns its provinces' checklist rows.
 // A pack with no pack_species rows only loses its downloaded_packs row.
@@ -70,44 +81,26 @@ async function computeDeleteImpact(packId: string): Promise<DeleteImpact | null>
     }
   }
 
-  const speciesRes = await pool.query<{ species_id: string; provided_enrichment: boolean }>(
-    `SELECT species_id, provided_enrichment FROM pack_species WHERE pack_id = $1`,
+  // Removed unless another pack or the user's collection still needs it.
+  const speciesRes = await pool.query<{ species_id: string; kept: boolean }>(
+    `SELECT ps.species_id,
+            EXISTS (SELECT 1 FROM pack_species o WHERE o.species_id = ps.species_id AND o.pack_id != $1)
+            OR EXISTS (SELECT 1 FROM user_species u WHERE u.species_id = ps.species_id) AS kept
+     FROM pack_species ps WHERE ps.pack_id = $1`,
     [packId],
   );
-
-  const speciesToRemove: string[] = [];
-  let speciesKeptCount = 0;
-  let bytesToFree = 0;
-  for (const row of speciesRes.rows) {
-    // Removed unless another pack or the user's collection still needs it.
-    const otherPackRes = await pool.query(
-      `SELECT 1 FROM pack_species WHERE species_id = $1 AND pack_id != $2 LIMIT 1`,
-      [row.species_id, packId],
-    );
-    const userHasItRes = await pool.query(`SELECT 1 FROM user_species WHERE species_id = $1 LIMIT 1`, [row.species_id]);
-    if ((otherPackRes.rowCount ?? 0) > 0 || (userHasItRes.rowCount ?? 0) > 0) {
-      speciesKeptCount++;
-      continue;
-    }
-    const fileRes = await pool.query<{ reference_display_path: string | null; reference_thumb_path: string | null }>(
-      `SELECT reference_display_path, reference_thumb_path FROM species WHERE id = $1`,
-      [row.species_id],
-    );
-    const paths = fileRes.rows[0];
-    // Gallery photos go too: packs install them from the photo store along with the main one.
-    const galleryRes = await pool.query<{ display_path: string | null; thumb_path: string | null }>(
-      `SELECT display_path, thumb_path FROM species_reference_photos WHERE species_id = $1`,
-      [row.species_id],
-    );
-    for (const p of [
-      paths?.reference_display_path,
-      paths?.reference_thumb_path,
-      ...galleryRes.rows.flatMap((g) => [g.display_path, g.thumb_path]),
-    ]) {
-      if (p && existsSync(p)) bytesToFree += statSync(p).size;
-    }
-    speciesToRemove.push(row.species_id);
-  }
+  const speciesToRemove = speciesRes.rows.filter((r) => !r.kept).map((r) => r.species_id);
+  const speciesKeptCount = speciesRes.rows.length - speciesToRemove.length;
+  // Gallery photos go too: packs install them from the photo store along with the main one.
+  const files =
+    speciesToRemove.length > 0 ? (await pool.query<{ p: string }>(SPECIES_FILES_SQL, [speciesToRemove])).rows : [];
+  const sizes = await mapWithConcurrency(files, 16, ({ p }) =>
+    stat(p).then(
+      (st) => st.size,
+      () => 0,
+    ),
+  );
+  const bytesToFree = sizes.reduce((sum, n) => sum + n, 0);
 
   // No pack_species rows: report the archive's size rather than a misleading 0.
   if (speciesRes.rows.length === 0 && packBytes > 0) {
@@ -137,7 +130,7 @@ async function deletePack(
   packId: string,
 ): Promise<{ deletedSpeciesFiles: number; keptSpeciesCount: number; regions: string[] }> {
   const impact = await computeDeleteImpact(packId);
-  if (!impact) throw Object.assign(new Error(`No downloaded pack found with id "${packId}"`), { statusCode: 404 });
+  if (!impact) throw Object.assign(new Error(`No downloaded region found with id "${packId}"`), { statusCode: 404 });
 
   // Files are only collected inside the transaction and deleted after it commits: deleting them
   // first would leave a rolled-back removal's rows pointing at files that are gone.
@@ -170,24 +163,14 @@ async function deletePack(
         }
       }
 
-      for (const speciesId of impact.speciesToRemove) {
-        const fileRes = await client.query<{
-          reference_display_path: string | null;
-          reference_thumb_path: string | null;
-        }>(`SELECT reference_display_path, reference_thumb_path FROM species WHERE id = $1`, [speciesId]);
-        const paths = fileRes.rows[0];
-        for (const p of [paths?.reference_display_path, paths?.reference_thumb_path]) if (p) filesToDelete.add(p);
-        // The gallery's files too; its rows stay (they come from the catalog), without paths.
-        const galleryRes = await client.query<{ display_path: string | null; thumb_path: string | null }>(
-          `SELECT display_path, thumb_path FROM species_reference_photos WHERE species_id = $1`,
-          [speciesId],
-        );
-        for (const g of galleryRes.rows) {
-          for (const p of [g.display_path, g.thumb_path]) if (p) filesToDelete.add(p);
-        }
+      const removed = impact.speciesToRemove;
+      if (removed.length > 0) {
+        const fileRes = await client.query<{ p: string }>(SPECIES_FILES_SQL, [removed]);
+        for (const { p } of fileRes.rows) filesToDelete.add(p);
+        // The gallery's rows stay (they come from the catalog), without paths.
         await client.query(
-          `UPDATE species_reference_photos SET display_path = NULL, thumb_path = NULL WHERE species_id = $1`,
-          [speciesId],
+          `UPDATE species_reference_photos SET display_path = NULL, thumb_path = NULL WHERE species_id = ANY($1)`,
+          [removed],
         );
         // reference_photo goes with credit/license (reference_photo_requires_credit). A photo
         // withheld from packs is fetched again as soon as a pack lists the species again
@@ -197,8 +180,8 @@ async function deletePack(
            reference_display_path = NULL, reference_thumb_path = NULL, habitat_description = NULL,
            reference_credit = NULL, reference_license = NULL, reference_photo = NULL, enriched_at = NULL,
            photo_checked_at = NULL
-         WHERE id = $1`,
-          [speciesId],
+         WHERE id = ANY($1)`,
+          [removed],
         );
       }
 
@@ -221,7 +204,7 @@ async function deletePack(
 /** Deletes the reference photo files a committed removal let go of, best effort. A file some row
  *  points at again (another species sharing it, or a pack installed since the commit) is kept. A
  *  delete that fails only leaves an unreferenced file behind, which is logged. */
-async function deleteUnreferencedFiles(paths: string[]): Promise<void> {
+export async function deleteUnreferencedFiles(paths: string[]): Promise<void> {
   if (paths.length === 0) return;
   let stillUsed: Set<string>;
   try {
@@ -259,7 +242,7 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
     { preValidation: requireAuth, schema: { params: PackParams, response: replies(DeleteImpact) } },
     async (request, reply) => {
       const impact = await computeDeleteImpact(request.params.packId);
-      if (!impact) return reply.code(404).send({ error: "No downloaded pack found with that id" });
+      if (!impact) return reply.code(404).send({ error: "No downloaded region found with that id" });
       return {
         checklistRegionsAffectedCount: impact.checklistRegionsAffected.length,
         speciesToRemoveCount: impact.speciesToRemove.length,
@@ -275,7 +258,7 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
     { preValidation: requireAuth, schema: { params: PackParams, response: replies(PackDeleted) } },
     async (request, reply) => {
       if (isPackDownloadRunning())
-        return reply.code(409).send({ error: "Wait for the pack download to finish, then try again" });
+        return reply.code(409).send({ error: "Wait for the region download to finish, then try again" });
 
       try {
         return await deletePack(request.params.packId);
@@ -298,7 +281,7 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
         `SELECT region, applied_province_region_ids FROM downloaded_packs WHERE pack_id = $1`,
         [request.params.packId],
       );
-      if (packRes.rows.length === 0) return reply.code(404).send({ error: "No downloaded pack found with that id" });
+      if (packRes.rows.length === 0) return reply.code(404).send({ error: "No downloaded region found with that id" });
       const { region, applied_province_region_ids: appliedIds } = packRes.rows[0];
       if (!region) return { provinces: [], subdivisionLabel: "Provinces" };
       const regionRes = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [region]);
@@ -333,7 +316,7 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
     },
     async (request, reply) => {
       if (isPackDownloadRunning()) {
-        return reply.code(409).send({ error: "Wait for the pack download to finish, then try again" });
+        return reply.code(409).send({ error: "Wait for the region download to finish, then try again" });
       }
 
       const { packId } = request.params;
@@ -341,12 +324,12 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
         `SELECT region, applied_province_region_ids FROM downloaded_packs WHERE pack_id = $1`,
         [packId],
       );
-      if (packRes.rows.length === 0) return reply.code(404).send({ error: "No downloaded pack found with that id" });
+      if (packRes.rows.length === 0) return reply.code(404).send({ error: "No downloaded region found with that id" });
       const { region, applied_province_region_ids: appliedIds } = packRes.rows[0];
-      if (!region) return reply.code(400).send({ error: "This pack has no provinces" });
+      if (!region) return reply.code(400).send({ error: "This downloaded region has no provinces" });
       const regionRes = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [region]);
       const regionId = regionRes.rows[0]?.id;
-      if (!regionId) return reply.code(400).send({ error: "This pack's region no longer exists" });
+      if (!regionId) return reply.code(400).send({ error: "This download's region no longer exists" });
 
       const allChildrenRes = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE parent_id = $1`, [
         regionId,
@@ -354,7 +337,8 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
       const allChildIds = allChildrenRes.rows.map((r) => r.id);
       // Only this pack's own provinces, so no other region's checklist can be cleared through it.
       const toOffload = request.body.regionIds.filter((id) => allChildIds.includes(id));
-      if (toOffload.length === 0) return reply.code(400).send({ error: "None of those provinces belong to this pack" });
+      if (toOffload.length === 0)
+        return reply.code(400).send({ error: "None of those provinces belong to this region" });
       const currentlyApplied = appliedIds ?? allChildIds;
 
       const remaining = currentlyApplied.filter((id) => !toOffload.includes(id));
@@ -410,24 +394,50 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
     },
   );
 
+  // Starts (or joins) the removal job and answers at once; each pack is removed whole in its own
+  // transaction, so a failure leaves that pack and every queued one intact. GET .../removal-status
+  // lists the packs still pending so the UI can show "Removing...".
   app.post(
     "/offline-packs/offload-batch",
-    { preValidation: requireAuth, schema: { body: PackIdsBody, response: replies(PackDeleted) } },
+    { preValidation: requireAuth, schema: { body: PackIdsBody, response: replies(RemovalStarted) } },
     async (request, reply) => {
       if (isPackDownloadRunning())
-        return reply.code(409).send({ error: "Wait for the pack download to finish, then try again" });
-
-      const { packIds } = request.body;
-      let deletedSpeciesFiles = 0;
-      let keptSpeciesCount = 0;
-      const regions: string[] = [];
-      for (const packId of packIds) {
-        const result = await deletePack(packId);
-        deletedSpeciesFiles += result.deletedSpeciesFiles;
-        keptSpeciesCount += result.keptSpeciesCount;
-        regions.push(...result.regions);
-      }
-      return { deletedSpeciesFiles, keptSpeciesCount, regions };
+        return reply.code(409).send({ error: "Wait for the region download to finish, then try again" });
+      for (const id of request.body.packIds) if (!removalQueue.includes(id)) removalQueue.push(id);
+      removalJob.status.packIds = [...removalQueue];
+      removalJob.start(runRemoval, { packIds: [...removalQueue] });
+      return { started: true, packIds: [...removalQueue] };
     },
   );
+
+  app.get(
+    "/offline-packs/removal-status",
+    { preValidation: requireAuth, schema: { response: replies(RemovalStatus) } },
+    async () => removalJob.status,
+  );
+}
+
+type PackDeletedResult = Static<typeof PackDeleted>;
+const removalQueue: string[] = [];
+const removalJob = createJob<PackDeletedResult, { packIds: string[] }>("pack-removal", { packIds: [] });
+
+async function runRemoval(ctx: JobContext<PackDeletedResult, { packIds: string[] }>): Promise<PackDeletedResult> {
+  const total = { deletedSpeciesFiles: 0, keptSpeciesCount: 0, regions: [] as string[] };
+  let done = 0;
+  try {
+    for (let id = removalQueue[0]; id; id = removalQueue[0]) {
+      ctx.update({ phase: "removing", processed: done, total: done + removalQueue.length, packIds: [...removalQueue] });
+      const result = await deletePack(id);
+      removalQueue.shift();
+      done++;
+      total.deletedSpeciesFiles += result.deletedSpeciesFiles;
+      total.keptSpeciesCount += result.keptSpeciesCount;
+      total.regions.push(...result.regions);
+    }
+  } finally {
+    // A failed pack and the ones behind it are untouched: drop them so the job can run again.
+    removalQueue.length = 0;
+    ctx.update({ packIds: [] });
+  }
+  return total;
 }

@@ -1,7 +1,9 @@
 // Pack photos come from the shared photo store (packages/data-pipeline/src/pipeline/photoStore.ts),
 // not the pack: an install fetches by byte range only the photos it doesn't have yet.
+import { fetchPatient, retrying } from "../lib/remoteFetch.js";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { downloadResumable } from "@lifer/core/lib/resumableDownload.js";
 import path from "node:path";
 import { promisify } from "node:util";
 import { gunzip } from "node:zlib";
@@ -30,10 +32,22 @@ export async function fetchPhotoStoreIndex(
   (opts.assertUrl ?? assertTrustedPackUrl)(indexUrl);
   if (inFlight?.url === indexUrl) return inFlight.promise;
   const promise = (async () => {
-    const res = await fetch(indexUrl, { signal: AbortSignal.timeout(120_000) });
-    if (!res.ok) throw new Error(`Couldn't fetch the pack photo index (${res.status})`);
-    const text = (await gunzipAsync(Buffer.from(await res.arrayBuffer()))).toString("utf8");
-    const index = parseRemoteJson(PhotoStoreIndexSchema, JSON.parse(text), "pack photo index");
+    // Tens of MB: downloaded to a file that resumes across attempts (Range), ended only by
+    // silence, never by total time, which a weak signal needs.
+    const file = path.join(APP_DATA_DIR, "photo-store-index.json.gz");
+    mkdirSync(APP_DATA_DIR, { recursive: true });
+    rmSync(file, { force: true });
+    await retrying(
+      () => downloadResumable(indexUrl, file, { stallTimeoutMs: 30_000, label: "the reference photo index" }),
+      { attempts: 3 },
+    );
+    let index: PhotoStoreIndex;
+    try {
+      const text = (await gunzipAsync(readFileSync(file))).toString("utf8");
+      index = parseRemoteJson(PhotoStoreIndexSchema, JSON.parse(text), "reference photo index");
+    } finally {
+      rmSync(file, { force: true });
+    }
     cached = { url: indexUrl, at: Date.now(), index };
     return index;
   })().finally(() => {
@@ -205,17 +219,18 @@ export async function downloadPhotos(
       let body: Buffer | null = null;
       for (let attempt = 0; attempt < 4 && !body; attempt++) {
         try {
-          const timeout = AbortSignal.timeout(120_000);
-          const res = await fetch(url, {
+          // Ended by 30 s of silence rather than a fixed total, which a slow link can outlast.
+          const got = await fetchPatient(url, {
             headers: { Range: `bytes=${range.start}-${range.end - 1}` },
-            signal: opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout,
+            signal: opts.signal,
+            // A 200 would be the whole shard.
+            readBody: (r) => r.status === 206,
           });
+          const res = got.res;
           if (res.status === 206) {
-            body = Buffer.from(await res.arrayBuffer());
+            body = got.body;
             continue;
           }
-          // Not read, so release the connection (a 200 would be the whole shard).
-          await res.body?.cancel().catch(() => {});
           if (res.status === 429 || res.status >= 500) await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
           else throw new Error(`Photo download returned ${res.status}`);
         } catch (err) {

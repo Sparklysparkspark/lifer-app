@@ -18,9 +18,17 @@ vi.hoisted(() => {
   /* eslint-enable @typescript-eslint/no-require-imports */
 });
 
+// Natural Earth's provinces for a country whose pack bundles none; empty unless a test sets them.
+const fetchProvinces = vi.hoisted(() => vi.fn(async (_iso3: string, _cacheDir?: string): Promise<unknown[]> => []));
+vi.mock("@lifer/core/regions/regionBoundary.js", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  fetchProvincesForCountry: fetchProvinces,
+}));
+
 const url = process.env.TEST_DATABASE_URL;
 const COUNTRY = "Zzpackland";
 const PROVINCE = "Zzpack North";
+const PROVINCE_SOUTH = "Zzpack South";
 const KEPT = "99999999-9999-4999-8999-999999999901";
 const DROPPED = "99999999-9999-4999-8999-999999999902";
 const MAMMAL = "99999999-9999-4999-8999-999999999903";
@@ -53,14 +61,14 @@ describe.skipIf(!url)("applyPack checklist replacement", () => {
   const db = new pg.Pool({ connectionString: url });
   afterAll(async () => {
     await db.query(`DELETE FROM users WHERE id = $1`, [IMPORTER]);
-    await db.query(`DELETE FROM regions WHERE name IN ($1, $2)`, [COUNTRY, PROVINCE]);
+    await db.query(`DELETE FROM regions WHERE name IN ($1, $2, $3)`, [COUNTRY, PROVINCE, PROVINCE_SOUTH]);
     await db.query(`DELETE FROM species WHERE id = ANY($1)`, [ALL]);
     await db.end();
   });
 
   let countryId: string;
   beforeEach(async () => {
-    await db.query(`DELETE FROM regions WHERE name IN ($1, $2)`, [COUNTRY, PROVINCE]);
+    await db.query(`DELETE FROM regions WHERE name IN ($1, $2, $3)`, [COUNTRY, PROVINCE, PROVINCE_SOUTH]);
     await db.query(`DELETE FROM species WHERE id = ANY($1)`, [ALL]);
     await db.query(
       `INSERT INTO species (id, gbif_key, scientific_name, taxon_class, is_other_taxa) VALUES
@@ -102,13 +110,19 @@ describe.skipIf(!url)("applyPack checklist replacement", () => {
       ),
     ).toBe(2);
 
-  async function apply(manifest: object, files?: Record<string, string>) {
-    const { applyPack } = await import("./apply.js");
+  // Both steps, each in its own transaction, as the download job runs them.
+  async function apply(manifest: object, files?: Record<string, string>, opts = { hotspots: true }) {
+    const { applyPack, applyPackHotspots } = await import("./apply.js");
     const client = await db.connect();
     try {
       await client.query("BEGIN");
       const result = await applyPack(client, await packFile(manifest, files));
       await client.query("COMMIT");
+      if (opts.hotspots) {
+        await client.query("BEGIN");
+        await applyPackHotspots(client, result.hotspots);
+        await client.query("COMMIT");
+      }
       return result;
     } finally {
       client.release();
@@ -160,6 +174,47 @@ describe.skipIf(!url)("applyPack checklist replacement", () => {
   it("a pack from before the taxon field only adds", async () => {
     await apply({ type: "region", region: COUNTRY, species: [species("Zzpacka newcomer")] });
     expect(await checklist(COUNTRY)).toEqual(["Zzpacka dropped", "Zzpacka kept", "Zzpacka mammal", "Zzpacka newcomer"]);
+  });
+
+  it("fetches a pack's provinces before the transaction, and applying with them doesn't fetch again", async () => {
+    const { applyPack, prefetchPackProvinces } = await import("./apply.js");
+    const file = await packFile({ type: "region", region: COUNTRY, species: [species("Zzpacka kept")] });
+    fetchProvinces.mockClear();
+    expect(await prefetchPackProvinces(db, file)).toEqual([]);
+    expect(fetchProvinces.mock.calls).toEqual([["ZZP", expect.any(String)]]);
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      await applyPack(client, file, { provinces: null });
+      await client.query("ROLLBACK");
+    } finally {
+      client.release();
+    }
+    expect(fetchProvinces.mock.calls).toHaveLength(1);
+  });
+
+  it("creates a country's provinces from Natural Earth when its pack bundles none, once", async () => {
+    const province = (name: string) => ({
+      name,
+      iso3166_2: null,
+      feature: { type: "Feature", properties: {}, geometry: null },
+      isOverseasTerritory: false,
+      type: "Province",
+    });
+    fetchProvinces.mockResolvedValue([province(PROVINCE), province(PROVINCE_SOUTH)]);
+    try {
+      await apply({ type: "region", region: COUNTRY, species: [species("Zzpacka kept")] });
+      await apply({ type: "region", region: COUNTRY, species: [species("Zzpacka kept")] });
+    } finally {
+      fetchProvinces.mockResolvedValue([]);
+    }
+    expect(fetchProvinces.mock.calls.at(-1)).toEqual(["ZZP", expect.any(String)]);
+    // The second apply finds the country already has provinces and leaves them alone.
+    expect(fetchProvinces.mock.calls.filter(([code]) => code === "ZZP")).toHaveLength(1);
+    const children = await db.query(`SELECT name FROM regions WHERE parent_id = $1 ORDER BY name`, [countryId]);
+    expect(children.rows.map((r) => r.name)).toEqual([PROVINCE, PROVINCE_SOUTH]);
+    const country = await db.query(`SELECT has_children FROM regions WHERE id = $1`, [countryId]);
+    expect(country.rows[0].has_children).toBe(true);
   });
 
   it("skips a gallery photo whose sortOrder isn't a number, so its file can't land outside the gallery folder", async () => {
@@ -257,13 +312,19 @@ describe.skipIf(!url)("applyPack enrichment and extras", () => {
     await db.query(`INSERT INTO reference_photo_blocklist (photo_url, reason) VALUES ($1, 'a map')`, [BLOCKED_URL]);
   });
 
-  async function apply(manifest: object, files?: Record<string, string>) {
-    const { applyPack } = await import("./apply.js");
+  // Both steps, each in its own transaction, as the download job runs them.
+  async function apply(manifest: object, files?: Record<string, string>, opts = { hotspots: true }) {
+    const { applyPack, applyPackHotspots } = await import("./apply.js");
     const client = await db.connect();
     try {
       await client.query("BEGIN");
       const result = await applyPack(client, await packFile(manifest, files));
       await client.query("COMMIT");
+      if (opts.hotspots) {
+        await client.query("BEGIN");
+        await applyPackHotspots(client, result.hotspots);
+        await client.query("COMMIT");
+      }
       return result;
     } catch (err) {
       await client.query("ROLLBACK");
@@ -298,7 +359,6 @@ describe.skipIf(!url)("applyPack enrichment and extras", () => {
             displayFile: "d1.webp",
             thumbFile: "t1.webp",
             localFrequency: 0.25,
-            seasonality: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
             localTier: "rare",
             isVagrant: true,
             weeklyFrequency: [5, 2],
@@ -380,7 +440,7 @@ describe.skipIf(!url)("applyPack enrichment and extras", () => {
     expect((await speciesRow(DONE)).gallery_backfilled_at.toISOString()).toBe("2020-01-01T00:00:00.000Z");
 
     const rows = await db.query(
-      `SELECT species_id, local_frequency::float AS local_frequency, seasonality, local_tier, is_vagrant,
+      `SELECT species_id, local_frequency::float AS local_frequency, local_tier, is_vagrant,
               weekly_frequency, tier_reason, tier_explain
        FROM region_species WHERE region_id = $1 ORDER BY species_id`,
       [countryId],
@@ -389,7 +449,6 @@ describe.skipIf(!url)("applyPack enrichment and extras", () => {
       {
         species_id: NEW,
         local_frequency: 0.25,
-        seasonality: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
         local_tier: "rare",
         is_vagrant: true,
         weekly_frequency: [5, 2],
@@ -399,7 +458,6 @@ describe.skipIf(!url)("applyPack enrichment and extras", () => {
       {
         species_id: DONE,
         local_frequency: 10,
-        seasonality: null,
         local_tier: null,
         is_vagrant: false,
         weekly_frequency: null,
@@ -409,7 +467,6 @@ describe.skipIf(!url)("applyPack enrichment and extras", () => {
       {
         species_id: STALE,
         local_frequency: 10,
-        seasonality: null,
         local_tier: null,
         is_vagrant: false,
         weekly_frequency: null,
@@ -419,7 +476,6 @@ describe.skipIf(!url)("applyPack enrichment and extras", () => {
       {
         species_id: DROP,
         local_frequency: 10,
-        seasonality: null,
         local_tier: null,
         is_vagrant: false,
         weekly_frequency: null,
@@ -453,15 +509,13 @@ describe.skipIf(!url)("applyPack enrichment and extras", () => {
     await apply({
       type: "region",
       region: ENRICH_COUNTRY,
-      species: [{ ...species("Zzenrich novus"), localFrequency: 50, localTier: "common", seasonality: [3] }],
+      species: [{ ...species("Zzenrich novus"), localFrequency: 50, localTier: "common" }],
     });
     const rows = await db.query(
-      `SELECT local_frequency::float AS f, local_tier, is_vagrant, seasonality, tier_explain FROM region_species WHERE region_id = $1`,
+      `SELECT local_frequency::float AS f, local_tier, is_vagrant, tier_explain FROM region_species WHERE region_id = $1`,
       [countryId],
     );
-    expect(rows.rows).toEqual([
-      { f: 50, local_tier: "common", is_vagrant: false, seasonality: [3], tier_explain: null },
-    ]);
+    expect(rows.rows).toEqual([{ f: 50, local_tier: "common", is_vagrant: false, tier_explain: null }]);
   });
 
   it("installs gallery photos with their credit, skips blocklisted ones and files outside the pack, and keeps embeddings", async () => {
@@ -694,6 +748,68 @@ describe.skipIf(!url)("applyPack enrichment and extras", () => {
     expect((await spots(otherCountryId)).map((s) => s.centroid_lat)).toEqual([1, 2]);
     const checklist = await db.query(`SELECT species_id FROM region_species WHERE region_id = $1`, [countryId]);
     expect(checklist.rows).toEqual([{ species_id: NEW }]);
+  });
+
+  it("commits the checklist before the hotspots, and skips hotspots of a species gone meanwhile", async () => {
+    const hotspot = {
+      centroidLat: 50,
+      centroidLon: 10,
+      pointCount: 2,
+      bboxDiagonalKm: 1,
+      lastSeenYear: null,
+      distinctYears: null,
+    };
+    await db.query(
+      `INSERT INTO region_species_hotspots (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km)
+       VALUES ($1, $2, 1, 1, 1, 1)`,
+      [countryId, NEW],
+    );
+    const result = await apply(
+      {
+        type: "region",
+        region: ENRICH_COUNTRY,
+        taxon: "aves",
+        species: [
+          { ...species("Zzenrich novus"), hotspots: [hotspot] },
+          { ...species("Zzenrich doneus"), hotspots: [hotspot] },
+        ],
+      },
+      undefined,
+      { hotspots: false },
+    );
+    const lats = async () =>
+      (
+        await db.query(
+          `SELECT species_id, centroid_lat FROM region_species_hotspots WHERE region_id = $1 ORDER BY species_id`,
+          [countryId],
+        )
+      ).rows;
+    // A quit here leaves a working checklist with the old hotspots.
+    expect(await lats()).toEqual([{ species_id: NEW, centroid_lat: 1 }]);
+    const checklist = await db.query(`SELECT count(*)::int AS n FROM region_species WHERE region_id = $1`, [countryId]);
+    expect(checklist.rows[0].n).toBe(2);
+
+    const { applyPackHotspots } = await import("./apply.js");
+    // FK checks are off for the load, so an id no longer in the catalog must be left out first.
+    const goneId = "00000000-0000-4000-8000-00000000dead";
+    const [regionHotspots] = result.hotspots;
+    const withGone = [
+      { ...regionHotspots, species: [...regionHotspots.species, { speciesId: goneId, hotspots: [hotspot] }] },
+    ];
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+      expect(await applyPackHotspots(client, withGone)).toBe(2);
+      await client.query("COMMIT");
+    } finally {
+      client.release();
+    }
+    expect(await lats()).toEqual(
+      [
+        { species_id: NEW, centroid_lat: 50 },
+        { species_id: DONE, centroid_lat: 50 },
+      ].sort((a, b) => a.species_id.localeCompare(b.species_id)),
+    );
   });
 
   it("applies a sea zone pack to that zone's checklist, replacing it for the pack's taxon", async () => {
