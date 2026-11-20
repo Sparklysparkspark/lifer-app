@@ -5,6 +5,9 @@ set -e
 # The Natural Earth province cache lives under /app/data, a symlink into the app-data volume.
 mkdir -p "${APP_DATA_DIR:-/app-data}/pipeline-cache" 2>/dev/null || true
 
+DATABASE_URL="$(node /app/docker/db-password.mjs)"
+export DATABASE_URL
+
 cd /app/packages/data-pipeline
 node dist/migrate.js
 

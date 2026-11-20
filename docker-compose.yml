@@ -2,7 +2,8 @@ services:
   postgres:
     # Plain Postgres: Lifer only needs pgcrypto, pg_trgm and unaccent, which it ships with. Pin the
     # major version: a new major can't open an older one's data without a dump and restore.
-    image: postgres:18-alpine
+    # Pinned by digest like the Dockerfile; Dependabot bumps the tag and digest together.
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     restart: unless-stopped
     # Time to finish writing on shutdown, instead of Docker's 10 seconds, after which it's killed.
     stop_grace_period: 1m
@@ -11,8 +12,8 @@ services:
     shm_size: 256mb
     environment:
       POSTGRES_USER: lifer
-      # Set DB_PASSWORD in .env before the first start: Postgres only reads it when it creates the
-      # database. Letters and numbers only, since it also goes into DATABASE_URL below.
+      # Only the first start uses this default: Lifer then moves the database onto a generated
+      # password kept in its app-data volume (docker/db-password.mjs). Nothing to set.
       POSTGRES_PASSWORD: ${DB_PASSWORD:-lifer}
       POSTGRES_DB: lifer
     # No host port: only Lifer talks to the database, over the compose network.

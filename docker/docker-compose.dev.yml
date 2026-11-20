@@ -10,7 +10,7 @@ services:
     # two data pipeline scripts use for distances between region outlines (remove-escapes.ts,
     # compute-local-tiers.ts). The app itself never needs it, so docker-compose.yml stays plain
     # Postgres. imresamu/postgis is the PostGIS Docker maintainer's multi-arch build (native on ARM).
-    image: imresamu/postgis:18-3.6-alpine
+    image: imresamu/postgis:18-3.6-alpine@sha256:620d7ad3767c9fe4ae3f420718359f9bfa9e2d5f8afcea4e5c12963d4bd96614
     ports:
       - "127.0.0.1:5432:5432"
 

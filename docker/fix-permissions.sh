@@ -4,9 +4,8 @@
 # Usage: lifer-fix-permissions <library dir> <app-data dir>
 #
 # App data is Lifer's own, so everything in it is handed over. The photo library is the user's:
-# only its top folder is changed, plus, once, entries still owned by root from images before
-# 0.9.0 (which ran as root). Files owned by anyone else (SMB, Syncthing, another app) are never
-# touched, and later starts don't walk the library at all.
+# only its top folder is changed, plus, once, entries owned by root. Files owned by anyone else
+# (SMB, Syncthing, another app) are never touched, and later starts don't walk the library at all.
 set -eu
 
 PUID="${PUID:-568}"

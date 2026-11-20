@@ -22,6 +22,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The release tags: the em-dash check skips migrations that shipped in one.
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
@@ -31,6 +34,16 @@ jobs:
       - run: npm run check:migrations
       # en.json: valid ICU, every key used, every used key defined (docs: contributing/translating).
       - run: npm run check:i18n
+      # Pages use the shared controls, not raw <button>/<input>/<select>/<textarea>.
+      - run: npm run check:raw-controls
+      # Corners and text sizes come from the theme tokens, not raw Tailwind sizes.
+      - run: npm run check:design-tokens
+      # en.json copy rules (Q-03). The script lands with that package.
+      - run: npm run check:copy
+      # Unit tests for the check scripts themselves (scripts/*.test.mjs).
+      - run: npm run test:scripts
+      # Phone app: no raw colours or touchables outside the house components, en.json keys.
+      - run: npm run check:mobile
       - run: npm run lint
       - run: npm run format:check
       - run: npm run typecheck
@@ -43,7 +56,8 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:18-alpine
+        # Pinned by digest like docker-compose.yml.
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
         env:
           POSTGRES_USER: lifer
           POSTGRES_PASSWORD: lifer
@@ -64,12 +78,13 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npm test
+      # The web app's tests; core, API and pipeline run once below, under coverage.
+      - run: npm test -w web
       - name: Apply migrations
         run: npm run migrate
       # *.integration.test.ts files skip themselves unless TEST_DATABASE_URL is set. This runs the
-      # core, API and pipeline tests again with it set, integration tests included, under coverage.
-      # The numbers are reported only; no threshold fails the build yet.
+      # core, API and pipeline tests with it set, unit and integration tests together, under
+      # coverage. The numbers are reported only; no threshold fails the build yet.
       - name: Integration tests with coverage
         run: npm run test:coverage
         env:
@@ -120,7 +135,8 @@ jobs:
     # A database just for this job: the tests wipe it (its name must contain "e2e").
     services:
       postgres:
-        image: postgres:18-alpine
+        # Pinned by digest like docker-compose.yml.
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
         env:
           POSTGRES_USER: lifer
           POSTGRES_PASSWORD: lifer
@@ -155,10 +171,203 @@ jobs:
             test-results/
           retention-days: 14
 
+  e2e-os:
+    # Windows- and macOS-only failures (paths, process handling) otherwise first show at release.
+    # Pull requests run a smoke subset; main runs everything. Linux runs the full suite above.
+    name: End-to-end tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      E2E_DATABASE_URL: postgres://lifer:lifer@localhost:5432/lifer_e2e
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # No service containers off Linux, so the runner's own Postgres, the same major as above.
+      - uses: ikalnytskyi/action-setup-postgres@c4dda34aae1c821e3a771b68b73b13af3198a7ee # v8
+        with:
+          username: lifer
+          password: lifer
+          database: lifer_e2e
+          postgres-version: "18"
+      - run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Smoke subset (pull requests)
+        if: github.event_name == 'pull_request'
+        run: npm run test:e2e -- first-run.spec.ts navigation.spec.ts
+      - name: Full suite
+        if: github.event_name != 'pull_request'
+        run: npm run test:e2e
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-${{ matrix.os }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+  perf:
+    # The speed budgets (e2e/extreme/performance.spec.ts) on each OS, recording this run's numbers.
+    # The maintainer merges each OS's entry from the perf-baseline artifacts into
+    # e2e/perf-baseline.json. Advisory: shared runners are noisy, so it never blocks a change.
+    name: Performance baseline (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    continue-on-error: true
+    env:
+      E2E_DATABASE_URL: postgres://lifer:lifer@localhost:5432/lifer_e2e
+      PERF_RECORD: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # The runner's own Postgres on every OS, the same major as the e2e jobs.
+      - uses: ikalnytskyi/action-setup-postgres@c4dda34aae1c821e3a771b68b73b13af3198a7ee # v8
+        with:
+          username: lifer
+          password: lifer
+          database: lifer_e2e
+          postgres-version: "18"
+      - run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - run: npm run build -w web
+      - run: npm run build -w api
+      - name: Measure
+        run: npx playwright test --project=extreme --no-deps e2e/extreme/performance.spec.ts
+      - name: Upload the baseline
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: perf-baseline-${{ matrix.os }}
+          path: e2e/perf-baseline.json
+          retention-days: 30
+
+  e2e-behaviour:
+    # The realistic-library behavioural checks (e2e/visual/behaviour.spec.ts) in Chromium and
+    # WebKit. Screenshots stay local: the baselines are made on macOS and Linux renders differently.
+    name: End-to-end behavioural checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Advisory, so its failures never block a pull request. Remove this line once the job has
+    # passed on 10 pushes to main in a row; it then gates like the others.
+    # Promotion date: 2027-01-15. Past it, the first step warns until this line is removed.
+    continue-on-error: true
+    services:
+      postgres:
+        # Pinned by digest like docker-compose.yml.
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_USER: lifer
+          POSTGRES_PASSWORD: lifer
+          POSTGRES_DB: lifer_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      E2E_DATABASE_URL: postgres://lifer:lifer@localhost:5432/lifer_e2e
+      E2E_BEHAVIOUR_ONLY: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium and WebKit
+        run: npx playwright install --with-deps chromium webkit
+      - name: Promotion date check
+        run: |
+          if [ "$(date -u +%F)" \> "2027-01-15" ]; then echo "::warning::e2e-behaviour is past its promotion date, make it gating"; fi
+      - run: npm run e2e:visual
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-behaviour
+          path: |
+            playwright-report/visual/
+            test-results/
+          retention-days: 14
+
+  # The published catalog seed must keep loading into a database with every migration applied,
+  # the way a new install fills its catalog (catalogSeedLoad.integration.test.ts).
+  catalog-seed-load:
+    name: Catalog seed loads on a fresh database
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_USER: lifer
+          POSTGRES_PASSWORD: lifer
+          POSTGRES_DB: lifer
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://lifer:lifer@localhost:5432/lifer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Apply migrations
+        run: npm run migrate
+      - name: Fetch the published seed
+        run: node apps/api/scripts/fetch-catalog-seed.js
+      - name: Load it
+        run: npx vitest run catalogSeedLoad
+        working-directory: apps/api
+        env:
+          CATALOG_SEED_LOAD: "1"
+          TEST_DATABASE_URL: postgres://lifer:lifer@localhost:5432/lifer
+
   docker:
     name: Docker image
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The built image is started against this, as docker-compose.yml does.
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_USER: lifer
+          POSTGRES_PASSWORD: lifer
+          POSTGRES_DB: lifer
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -168,8 +377,31 @@ jobs:
           context: .
           platforms: linux/amd64
           push: false
+          load: true
+          tags: lifer-app:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # Named volumes like the compose file's, so the image's folder owners and modes apply. The
+      # first start runs every migration, hence the long wait.
+      - name: Start the image and wait for /health
+        run: |
+          docker run -d --name lifer --network host \
+            -e DATABASE_URL=postgres://lifer:lifer@127.0.0.1:5432/lifer \
+            -v lifer-data:/data -v lifer-app-data:/app-data lifer-app:ci
+          for _ in $(seq 120); do
+            curl -fsS http://127.0.0.1:4000/health && exit 0
+            sleep 2
+          done
+          exit 1
+      - name: Check it runs as uid 568 and can write its folders
+        run: |
+          test "$(docker exec lifer id -u)" = 568
+          docker exec lifer touch /data/.ci-write-check
+          owners="$(docker exec lifer stat -c %u /data/.ci-write-check /app-data/secrets/db-password | sort -u)"
+          test "$owners" = 568
+      - name: Container log
+        if: ${{ !cancelled() }}
+        run: docker logs lifer
 
   desktop:
     name: Desktop (Rust)
@@ -205,16 +437,88 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --lib --locked
-      # offline_cache.rs's ignored integration test: a real API (run from source, hence npm ci)
-      # on a throwaway cluster made with the runner's preinstalled PostgreSQL.
+
+  desktop-check:
+    # Windows- and macOS-only code (process handling, file syncing, Wi-Fi) would otherwise first
+    # compile at release time. The ubuntu job above lints and tests; this only compiles.
+    name: Desktop (Rust, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/desktop/src-tauri
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Same pinned commit and named toolchain as the desktop job.
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - name: Stage placeholder resources
+        run: |
+          for dir in api web node_modules catalog-seed postgres postgres-previous; do
+            mkdir -p "resources-staging/$dir" && touch "resources-staging/$dir/.placeholder"
+          done
+          ext=""
+          if [ "$RUNNER_OS" = Windows ]; then ext=".exe"; fi
+          mkdir -p binaries && touch "binaries/node-$(rustc -vV | sed -n 's/^host: //p')$ext"
+      - run: cargo check --all-targets --locked
+
+  full-disk:
+    # Downloads and copies on a disk that's really full: a 4 MB tmpfs
+    # (packages/core/src/lib/fullDisk.test.ts).
+    name: Full disk
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-        working-directory: .
-      - name: Offline cache integration test
+      - name: Mount a tiny disk
         run: |
-          PG_BIN="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
-          export PG_BIN
-          tests/offline-cache-integration.sh
+          sudo mkdir -p /mnt/full && sudo mount -t tmpfs -o size=4m tmpfs /mnt/full
+          sudo chown "$USER" /mnt/full
+      - run: npx vitest run src/lib/fullDisk.test.ts
+        working-directory: packages/core
+        env:
+          LIFER_FULL_DISK_DIR: /mnt/full
+
+  recognition-smoke:
+    # The inference runtime's native binding loads and runs a model on each OS (CPU only).
+    name: Recognition smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run src/species/recognitionSmoke.test.ts
+        working-directory: packages/core
+
+  linux-packaging:
+    # The Flatpak's launcher and store listing; the bundle itself builds in release.yml.
+    name: Linux packaging metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y desktop-file-utils appstream
+      - run: desktop-file-validate packaging/flatpak/app.lifer.desktop.desktop
+      - run: appstreamcli validate --no-net --explain packaging/flatpak/app.lifer.desktop.metainfo.xml

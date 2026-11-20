@@ -45,6 +45,13 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "$GITHUB_REF_NAME" \
               --notes-file "$RUNNER_TEMP/notes.md" --generate-notes $PRERELEASE
           fi
+      # The free Lightroom Classic plugin: a folder Lightroom loads, zipped as is.
+      - name: Attach the Lightroom Classic plugin
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          (cd integrations/lightroom-classic && zip -r "$RUNNER_TEMP/Lifer-Lightroom-Classic-plugin.zip" lifer.lrplugin -x 'lifer.lrplugin/tests/*')
+          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/Lifer-Lightroom-Classic-plugin.zip" --clobber
 
   # The embedded database's upgrade from the previous PostgreSQL major, end to end, on Apple
   # Silicon. Every install's only database goes through it, so a release waits for it.
@@ -148,17 +155,33 @@ jobs:
         uses: ./.github/actions/macos-natives
         with:
           mac-arch: ${{ matrix.mac-arch }}
-      # Signs the macOS app with a stable self-signed "Lifer" identity (see resign-macos.js) so
-      # macOS folder permissions and the updater's code requirement survive across versions.
-      # Skipped (ad-hoc signing) when the secret isn't set.
+      # Signs the macOS app with a stable identity (see resign-macos.js) so macOS folder permissions
+      # and the updater's code requirement survive across versions. With the Developer ID secrets
+      # the app is also notarized and stapled, so it opens without a Gatekeeper warning; without
+      # them, Lifer's self-signed identity; with neither, ad-hoc. Half a Developer ID setup fails
+      # here rather than quietly shipping an unnotarized release.
       - name: Import macOS signing certificate
         if: startsWith(matrix.os, 'macos')
         env:
           MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_PASSWORD }}
+          APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER: ${{ vars.APPLE_NOTARY_ISSUER }}
         shell: bash
         run: |
-          if [ -z "$MACOS_CERT_P12_BASE64" ]; then
+          if [ -n "$APPLE_DEVELOPER_ID_P12_BASE64" ]; then
+            for name in APPLE_DEVELOPER_ID_PASSWORD APPLE_NOTARY_KEY_P8_BASE64 APPLE_NOTARY_KEY_ID APPLE_NOTARY_ISSUER; do
+              if [ -z "${!name}" ]; then
+                echo "::error::Developer ID signing is partly configured: $name is missing. See docs/docs/contributing/releasing.md."
+                exit 1
+              fi
+            done
+            MACOS_CERT_P12_BASE64="$APPLE_DEVELOPER_ID_P12_BASE64"
+            MACOS_CERT_PASSWORD="$APPLE_DEVELOPER_ID_PASSWORD"
+          elif [ -z "$MACOS_CERT_P12_BASE64" ]; then
             echo "MACOS_CERT_P12_BASE64 not set, falling back to ad-hoc signing"
             exit 0
           fi
@@ -172,8 +195,24 @@ jobs:
           rm "$RUNNER_TEMP/lifer.p12"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
-          # codesign signs with this identity by name even though the system doesn't trust it.
-          echo "MACOS_SIGNING_IDENTITY=Lifer" >> "$GITHUB_ENV"
+          if [ -z "$APPLE_DEVELOPER_ID_P12_BASE64" ]; then
+            # codesign signs with this identity by name even though the system doesn't trust it.
+            echo "MACOS_SIGNING_IDENTITY=Lifer" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -n1)"
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::APPLE_DEVELOPER_ID_P12_BASE64 holds no Developer ID Application certificate."
+            exit 1
+          fi
+          echo "$APPLE_NOTARY_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          {
+            echo "MACOS_SIGNING_IDENTITY=$IDENTITY"
+            echo "MACOS_NOTARIZE=1"
+            echo "MACOS_NOTARY_KEY_PATH=$RUNNER_TEMP/notary.p8"
+            echo "MACOS_NOTARY_KEY_ID=$APPLE_NOTARY_KEY_ID"
+            echo "MACOS_NOTARY_ISSUER=$APPLE_NOTARY_ISSUER"
+          } >> "$GITHUB_ENV"
       # Windows Authenticode signing through SignPath Foundation (free for open source projects;
       # see docs/docs/contributing/releasing.md). Inert until the maintainer sets the
       # SIGNPATH_API_TOKEN secret and the SIGNPATH_ORGANIZATION_ID variable: until then the
@@ -339,12 +378,50 @@ jobs:
           esac
           gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
 
+  # A Flatpak of the Linux .deb the desktop job just uploaded (packaging/flatpak), attached as
+  # Lifer-linux-x64.flatpak. Flathub builds its own from the same manifest; a failure here doesn't
+  # hold up the release.
+  flatpak:
+    needs: [create-release, desktop]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: packaging/flatpak
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      - name: Use this release's deb
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" --pattern '*_amd64.deb' --output lifer.deb
+          git clone --depth 1 https://github.com/flathub/shared-modules.git
+          yq -i '(.modules[] | select(.name == "lifer") | .sources[0]) = {"type": "file", "path": "lifer.deb"}' app.lifer.desktop.yml
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s|<!-- Add a <releases> entry per version when submitting. -->|<releases><release version=\"$VERSION\" date=\"$(date -u +%F)\"/></releases>|" app.lifer.desktop.metainfo.xml
+      - name: Build the Flatpak
+        run: |
+          flatpak-builder --user --install-deps-from=flathub --disable-rofiles-fuse --force-clean --repo=repo build app.lifer.desktop.yml
+          flatpak build-bundle repo Lifer-linux-x64.flatpak app.lifer.desktop --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+      - name: Attach it to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" Lifer-linux-x64.flatpak --clobber
+
   # Combines every platform's partial manifest into the release's latest.json (a matrix job only
   # sees its own platform's output). Runs even when a platform leg failed (one broken OS must not break updates for the others);
   # merge-update-manifests.js warns about missing platforms instead of failing. Publishing the
   # draft happens only here, after latest.json is attached.
   merge-update-manifest:
-    needs: [create-release, pg-upgrade, desktop]
+    # After flatpak too, so SHA256SUMS lists its bundle; its result isn't checked.
+    needs: [create-release, pg-upgrade, desktop, flatpak]
     # A failed upgrade test skips every desktop leg, so never publish without it.
     if: ${{ !cancelled() && needs.create-release.result == 'success' && needs.pg-upgrade.result == 'success' }}
     runs-on: ubuntu-latest
@@ -379,7 +456,8 @@ jobs:
           esac
 
   docker-image:
-    needs: ci
+    # After create-release, whose tag check must pass before anything is published.
+    needs: [ci, create-release]
     runs-on: ubuntu-latest
     # The arm64 image builds under emulation.
     timeout-minutes: 90
@@ -406,9 +484,9 @@ jobs:
       - name: Strip v prefix from tag
         id: version
         run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-      # Tags for v1.2.3: 1.2.3, 1.2, v1.2.3 (the older style), and for a stable release "release"
-      # (what docker-compose.yml pulls by default) plus "latest" (kept for installs from before
-      # 0.9.1). A prerelease (v1.0.0-rc.1) only gets its exact version tags.
+      # Tags for v1.2.3: 1.2.3, 1.2, and for a stable release "release" (what docker-compose.yml
+      # pulls by default) plus "latest" (Docker's usual default).
+      # A prerelease (v1.0.0-rc.1) only gets its exact version tags.
       - name: Image tags
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -418,7 +496,6 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern=v{{version}}
             type=raw,value=release,enable=${{ !contains(github.ref_name, '-') }}
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
       - name: Build and push

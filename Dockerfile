@@ -64,6 +64,8 @@ COPY --from=build /app/catalog-seed catalog-seed
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/lifer-entrypoint
 COPY --chmod=755 docker/lifer-admin.sh /usr/local/bin/lifer-admin
 COPY --chmod=755 docker/fix-permissions.sh /usr/local/bin/lifer-fix-permissions
+# Under /app so its `pg` import resolves from /app/node_modules.
+COPY docker/db-password.mjs /app/docker/db-password.mjs
 # data-pipeline caches province boundaries under /app/data; point that at the app-data volume.
 # Docker copies these dirs' owner and mode onto an empty named volume at every mount, so they're
 # open to any uid; the permissions service (or TrueNAS's) sets the owner of real content.

@@ -59,3 +59,14 @@ updates:
     ignore:
       - dependency-name: node
         update-types: ["version-update:semver-major"]
+
+  # The compose files' Postgres images, by digest. A new major can't open an older one's data.
+  - package-ecosystem: docker-compose
+    directories: ["/", "/docker"]
+    schedule:
+      interval: monthly
+    ignore:
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+      - dependency-name: imresamu/postgis
+        update-types: ["version-update:semver-major"]
