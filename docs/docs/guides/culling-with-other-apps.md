@@ -77,13 +77,13 @@ When you [scan a trip's folder](./trips.md), Lifer reads every new photo's marks
 
 Each rejected row says what will happen to it. When the import finishes, Lifer reports how many photos it skipped or hid.
 
-### Bulk import {#bulk-import}
+### Import photos page {#bulk-import}
 
-The **Bulk import** page reads the marks inside each file you add, and offers the same **Rejected photos** choice when it finds any. A browser only sends the files you pick, not the `.xmp` sidecars next to them, so marks that live only in a sidecar (common for RAWs) aren't seen here. For those, use a [trip](#trips), which reads sidecars.
+The **Import photos** page reads the marks inside each file you add, and offers the same **Rejected photos** choice when it finds any. A browser only sends the files you pick, not the `.xmp` sidecars next to them, so marks that live only in a sidecar (common for RAWs) aren't seen here. For those, use a [trip](#trips), which reads sidecars.
 
 ### Other ways in
 
-Importing an existing library from the **Reimport** panel in **Settings > Library** reads the marks in each photo, its `.xmp` sidecar and its RAW, and offers the same choice under **Rejected photos**: **Skip them**, **Import them hidden** (the default here, since a reimport recovers photos you already imported) or **Import them anyway**. See [Reimport library](../settings.md#reimport). The [API](../api/overview.md) reads them too, and its `cullMarks` field chooses what happens.
+Importing an existing library from the **Import a library** panel in **Settings > Library** reads the marks in each photo, its `.xmp` sidecar and its RAW, and offers the same choice under **Rejected photos**: **Skip them** (the default for a folder of photos), **Import them hidden** (the default for a Lifer library or a rescan of yours, since that recovers photos you already imported) or **Import them anyway**. See [Import a library](../settings.md#reimport). The [API](../api/overview.md) reads them too, and its `cullMarks` field chooses what happens.
 
 ## RAW and JPEG pairs {#pairs}
 
@@ -97,7 +97,7 @@ Lifer's star rating is separate. When Lifer writes its species tags into the cop
 
 ## Hidden photos {#hidden}
 
-To see photos imported hidden, open the **Gallery**, click **Filters** and tick **Hidden**. (It only appears when you have hidden photos.) From there:
+Photos imported hidden, and photos you hid yourself with **Hide photo** in a photo's menu, are listed together. To see them, open the **Gallery**, click **Filters** and tick **Hidden**. (It only appears when you have hidden photos.) From there:
 
 - **Unhide one:** open its **⋯** menu and choose **Unhide**.
 - **Unhide several:** click **Select**, tick them, then **Unhide selected**.
@@ -120,4 +120,4 @@ No. Lifer never deletes, moves or changes a file because of a culling mark. Skip
 Not at import: only rejections change what's imported. Labels and picks are kept with the photo so you don't lose them.
 
 **My rejected photos were imported anyway.**
-Check that your app wrote the reject to the file: for Lightroom, save the metadata ([see above](#lightroom)); for a RAW in Bulk import, use a trip instead, since the browser doesn't send sidecars. Then check the **Rejected photos** choice was **Skip them**.
+Check that your app wrote the reject to the file: for Lightroom, save the metadata ([see above](#lightroom)); for a RAW on the Import photos page, use a trip instead, since the browser doesn't send sidecars. Then check the **Rejected photos** choice was **Skip them**.

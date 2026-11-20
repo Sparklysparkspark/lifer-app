@@ -1,339 +1,229 @@
 # Tech Debt Audit: Lifer
 
-Generated: 2026-10-08, against `71dbfa9` (release 0.10.2). First run.
+Generated: 2026-10-20, against `c06573d` plus the uncommitted working tree (release 0.11.0). Second run. First run: 2026-10-08 (F01-F84, full text in git history of this file).
 
-## Status after fixes (2026-10-08)
-
-All findings F01-F84 are RESOLVED (uncommitted working tree), plus S3 mode removal, the move of
-pipeline-only modules out of `packages/core`, OpenAPI-generated web API types, and removal of the
-last percentile/quota tier code (seed builders, `computeRegionOccurrences`). Verified on a fresh
-database: typecheck, lint, Prettier, em-dash/i18n/migration/API-type checks, 1,445 unit and 400
-integration tests (baseline 1,304 and 380), 18/18 Playwright end-to-end, `cargo fmt`/clippy/24 Rust
-tests, no import cycles, and every GET route requested against a copy of the maintainer database
-with no server errors.
-
-Partial or deliberately left:
-
-- F31/F54: 31 web call sites still untyped; session-only routes without response schemas are
-  listed in the generated `apps/web/src/api/openapi.gen.json` (no `200` schema).
-- F33: the offline-cache integration test runs in CI but stays in `src/` (moving it would expose
-  about 12 private items).
-- F44: logging eBird region labels that never match is not done.
-- F53: imports still don't go through `enqueueUploads` (judged too risky on that path).
-- Desktop typed errors (`Result<_, String>` in `pg_upgrade`/`embedded_db`) and serving
-  `boundary_geojson` separately were skipped.
-- `original_ref`/`raw_ref` (the owner's own file paths) stay in species and gallery responses:
-  one account per server, and Reveal in Finder / Copy path need them.
-
-Data: endemic stage applied (292 species), grayscale vector recompute not needed (0 of 143,272
-reference/gallery photos are 1-channel). The 2,886 local tiers no tiers stage had written (copies
-of Egypt's governorates nested under the retired vernacular groupings, and Antarctica) were
-cleared to match the current logic, and the gate now fails on any such row (`untraced_tier`).
-Akrotiri, a British base area on Cyprus, is folded into Cyprus like Dhekelia (migration 137).
-Desktop update rights now cover plain-http servers on the local network and Tailscale.
+Method: six read-only auditors, one per module (API ingest, API domain, core and shared, data-pipeline, web, desktop and CI and docs), each re-checked every prior finding against the working tree and hunted for new debt. I ran the repo-wide tools myself and spot-checked the top claims (N01, N02, N05, F77) against the code. No tests, builds or cargo were run by the auditors; findings come from reading code.
 
 ## Executive summary
 
-- **1 Critical, 16 High, 49 Medium, 18 Low** across 84 findings (F81-F84 added after maintainer answers). Baseline hygiene is unusually good: `tsc` clean in every workspace, ESLint clean, `npm audit` 0 vulnerabilities, default `clippy` clean, 5 `any` in 140k lines, every GitHub Action SHA-pinned, Docker non-root. The debt is not in the types; it's in duplicated logic that has drifted, and in tests that exist but never run.
-- **Critical (F01):** `build-catalog-seed.ts` NULLs every reference-photo path in the live maintainer DB, keeps the only backup in process memory, and restores it row by row in `finally`. A kill or crash mid-dump loses the paths. The crash-safe pattern already exists 10 lines above it for `tier_explain`.
-- **Files land in the wrong folder (F02):** RAW and video imports build the species folder path without the user's naming styles or the iNat iconic taxon, so for any Other Taxa species (insects, plants, fungi) the `RAW/` folder lands under a different taxon folder than its JPEG. That breaks the README's core layout promise; Reorganize then moves them again.
-- **Two copies of CLIP preprocessing (F03):** the pipeline's `embeddings.ts` has its own preprocessing with no grayscale handling. A 1-channel reference photo reads past the buffer and yields a NaN/garbage vector that ships in the catalog and is compared against users' photos.
-- **Tier philosophy violated in two live code paths (F08, F09):** a percentile-quota fallback in `apply-rarity-phase4.ts` (reachable via `npm run compute-elusiveness`, and marine invertebrates now exist to hit it) and a percentile-rank local tier written by `compute-provinces-bulk.ts`.
-- **Tests that never run (F04, F05, F33):** 25 Rust tests, including `pg_upgrade` crash recovery for the user's only database, are never run by CI; the end-to-end upgrade test is manual-only and not part of release.
-- **Pipeline publish safety (F07, F10, F11, F12):** publish doesn't require the gate; the scheduled job bypasses `refresh` and becomes a no-op after one sweep; tier computation silently skips countries; the GPU ID-model filename the exporter writes isn't the one the app downloads.
-- **Owner lockout (F06):** 50 failed logins for the owner's email from any IPs lock the owner out for 15 minutes, repeatable indefinitely. The comment above the check claims the opposite.
-- **Web app is effectively untested where it matters (F14):** no DOM test environment, so 34k lines of React have zero hook/component tests; the import-undo path silently creates duplicates on a failed delete (F13).
-- **Largest debt concentration:** `apps/api/src/uploads/*` (5 hand-written `INSERT INTO captures`, a 530-line `importPhoto`, 3 ways to build a library path) and the HTTP-client sprawl across `packages/core` and the pipeline (2 functions both named `fetchWithRetry`, 4+ independent iNat rate limiters, 6 User-Agent strings).
+- **The first audit held up.** Of 84 prior findings, 68 are RESOLVED, 16 are PARTIAL and none are still fully open. Nothing resolved was found to have regressed. Details in "Prior findings: status".
+- **Baseline hygiene is still strong.** `tsc` clean in all four workspaces, `npm audit` 0 vulnerabilities, em-dash, migration, i18n and generated-API-type checks all pass, 3 `as any`/`@ts-ignore` in the whole repo (plus generated files), every GitHub Action SHA-pinned, every CI job has a timeout.
+- **The new debt is concentrated in the desktop-to-server sync feature** (`apps/api/src/sync/*`, `apps/desktop/src-tauri/src/sync.rs`, `server_link.rs`), which did not exist at the first audit. Its push path overwrites newer server data unconditionally (N01), the mirror pull can discard unpushed local edits (N07), deletions never propagate (N09), and the change cursor can permanently skip rows written by long transactions (N08). The plan doc's status banner admits tombstones and last-write-wins were not built, but the plan body still reads as the design.
+- **Publishing the catalog can still ship stale or ungated data.** `catalog-seed.yml` publishes from the live DB with no gate (N02), and the gate checks data shape, never freshness, so `--stages=packs,gate,publish` ships whatever the earlier stages last produced (N03). Publish uploads packs before it knows the seed builds (N18).
+- **The maintainer DB has no working backup path.** `refresh` runs many `--apply` deletes and merges with no snapshot first, and the only backup script is Docker-only and can silently truncate (N04). The prior Critical (F01) is fixed; this is the next-largest data-loss exposure.
+- **A runtime path in the shipped API assumes a repo checkout.** `fetchProvincesForCountry` downloads ~40 MB of Natural Earth data into `<repo>/data/raw` found by walking up from the source file, with a bare `fetch` and no timeout (N05). On a bundled server or desktop install that is the wrong place.
+- **Test debt moved, not vanished.** The web now has jsdom tests for hooks and the import flow (F14 resolved), but five of the most-churned pages still have none (N25); sync push and conflict handling have no tests (N13); vector caches are untested (N24); pack builders are only thinly tested (F15).
+- **Cycles changed.** The two old import cycles are gone; three new ones exist (N27).
+- **Doc and rule drift is small but real:** legacy-version wording in Docker and release docs against the no-legacy rule (N44), a sync plan body that contradicts the shipped design (N14), and the i18n lint allowlist at 77 files (N26).
+
+Counts: 50 new findings (N01-N50): 0 Critical, 5 High, 24 Medium, 21 Low. Prior findings: 68 resolved, 16 partial, 0 open.
 
 ## Architectural mental model
 
-Lifer is one Fastify API process (`apps/api`) that serves the JSON API, the built React SPA (`apps/web`) and offline map tiles, backed by plain Postgres. The same build runs in two deployments: a Docker server (one account, login, share links, API keys) and a Tauri desktop shell (`apps/desktop`) that embeds Postgres, runs migrations, then launches the API as a Node sidecar with a launch token instead of a login. Species identification runs in-process: `packages/core/src/species/inference.ts` queues work to a worker thread (or, when a downloaded GPU runtime is active, a forked child process) running CLIP ViT-L/14, BioCLIP 2 and YOLOv8n on onnxruntime. The user's photo library is a real species folder tree on disk; Lifer writes species and ratings into the files (and `.lifer` recovery files) so the library survives without the DB.
+Unchanged in shape from the first audit: one Fastify API process (`apps/api`) serving JSON, the built React SPA (`apps/web`) and offline map tiles over plain Postgres, shipped as a Docker server (one account, login, share links, API keys) and as a Tauri desktop shell (`apps/desktop`) that embeds Postgres and launches the API as a sidecar. Species ID runs in-process on onnxruntime (worker thread, or a child process when a GPU runtime is active). `packages/data-pipeline` is the maintainer toolchain (one `refresh` orchestrator plus ~55 scripts) that publishes a catalog seed, region packs and a photo store as GitHub release assets; installs download and verify. `packages/core` is shared by API and pipeline; `packages/shared` is API and web types.
 
-Species data is not computed on installs. `packages/data-pipeline` is a maintainer toolchain (one `refresh` orchestrator plus ~50 standalone scripts) that runs against a maintainer Postgres, then publishes a catalog seed, region packs, a photo store, a basemap and models as GitHub prerelease assets with checksums. Installs download and verify. `packages/core` is the shared library for the API and pipeline; `packages/shared` is types for API and web.
+What changed since 2026-10-08, and what the architecture docs should now say:
 
-**Where reality differs from the docs:** the API's config lives in `packages/core/src/config.ts`, not `apps/api/src/config.ts` (architecture.md:53). Inference is not only a worker thread; there is a child-process mode for GPU runtimes that architecture.md and ADR 0008 don't mention. `packages/core` is less "shared" than described: about half its modules (`regions/inatChecklist`, `buildRegionSpecies`, `gbif/*`, `computeRarityPhase1`) are pipeline-only, and one of them writes into `packages/data-pipeline/data/`. `packages/shared` contains Node-only `Buffer` code that the web app must never import.
+- **Desktop-to-server sync.** A desktop can link to a Docker server with a sync-scoped API key. `serverLink.ts` and `server_link.rs` hold the link and key; a periodic loop (`sync.rs`) pushes local captures (`pushServer.ts`) and pulls a mirror of server captures (`mirror.ts`, `changes.ts`, keyset cursor on `(updated_at, id)` stamped by a trigger). Last write wins by design on paper; in code, push always wins and pull always wins on rows it touches, depending on which runs last (N01, N06, N07).
+- **Big structural fixes landed.** `embeddings.ts` and `lazyEnrich.ts` in core are now thin barrels over `vectorCache`, `userIndex`, `suggest`, `nearDuplicate`, `inatClient`, `enrich`, `persistReference`. `importPhoto` is split into four phases and all capture and original inserts go through `uploads/captureRows.ts`. `lib.rs` is split into `security`, `commands`, `menu`, `server_watch`. The seed build dumps a scratch schema instead of mutating source tables. The web has one cached-resource primitive (`lib/resource.ts`), one pack-index store and typed API calls from a generated OpenAPI schema.
+- **Where reality still differs from the code layout:** `packages/core` still contains pipeline build-time code that the API happens to call (`rawCache.ts`, `regions/regionBoundary.ts`, `regions/nearbyZones.ts`, N05, N41), and the sync plan under `docs/plans` describes a larger system than the one built.
 
-## Findings
+## Prior findings: status
 
-Severity is calibrated to this project: Lifer servers have exactly one account by design (security-model.md:10), so missing `user_id` filters are latent, not cross-user leaks.
+Verified by reading the working tree. "Residual" notes only what is left.
+
+| IDs | Status | Notes |
+|-----|--------|-------|
+| F01 F02 F03 F04 F05 F06 F07 F08 F09 F10 F11 F12 F13 F14 F16 F17 F18 F19 F20 F21 F22 F24 F25 F26 F27 F28 F29 F30 F32 F34 F35 F36 F37 F38 F39 F40 F41 F42 F43 F45 F46 F47 F48 F49 F50 F51 F56 F58 F59 F60 F61 F64 F65 F66 F67 F68 F69 F70 F71 F73 F74 F78 F79 F81 F82 F83 F84 | RESOLVED | F11 has a small residual: only countries that already had tiered rows count as skipped (compute-local-tiers.ts:1044). F23 is resolved for `mode=link` and `skipDuplicates` (uploads/uploadModes.integration.test.ts:221); an "Other Taxa JPEG + RAW + video land in one folder" test was not found. F35 and F36 are resolved inside core; raw `fetch` remains at core/src/lib/resumableDownload.ts:92 and core/src/rawCache.ts:20 (N41). F61 residual: a missing `EBIRD_API_KEY` silently returns null (N21). F65 was fixed differently (known-visitor exemption, shares/routes.ts:278). |
+| F15 | PARTIAL | Added photoStore, catalogPublish and seed-export tests. `pipeline/packs.ts` (274 lines) has no test file; `build-region-pack.ts` (659 lines) has 3 integration tests; `build-pack-index.ts` none. |
+| F31 | PARTIAL | apiRoutes.test.ts:70-78 now fails on a scoped route with no 2xx schema. Session-only routes and `sync/routes.ts:102-104` (`Type.Unknown()` items) are still loose; 9 untyped `api.get<T>(` calls remain in web (UpdatesBanner.tsx:68). |
+| F33 | PARTIAL | CI runs the offline-cache integration test (ci.yml:239-247) but it is still `#[ignore]` inside `src/` (offline_cache.rs:1033). Kept as decided. |
+| F44 | PARTIAL | Table tests exist (core/src/species/sensitiveSpecies.test.ts:16, :48). Logging never-matching eBird region labels is still not done. |
+| F52 | PARTIAL | OfflinePacksPage is 615 lines, down from 995; selection hook and ProvinceManager extracted. |
+| F53 | PARTIAL | Commit and undo are pure in `lib/importCommit.ts` with a test. PhotoImportRows.tsx is still 740 lines with its own pipeline, outside `enqueueUploads` (known, decided). |
+| F54 | PARTIAL | Client typed from OpenAPI; `lib/resource.ts:90` still defaults `select` to `raw as unknown as T`; 9 `api.get<T>` calls left. |
+| F55 | PARTIAL | `i18next/no-literal-string` is now `warn` (eslint.config.mjs:163) but 77 files are on the unmigrated allowlist (N26). |
+| F57 | PARTIAL | `fsutil.rs` (write_atomic, rename_durable, fsync_dir) now serves pg_upgrade, store and offline_cache. A fourth writer remains: `write_secret_file` (embedded_db.rs:145-170, N40). |
+| F62 | PARTIAL | refresh-inat-counts.ts:44-52 now exits 1 above `--max-failed`. apply-introduced-flags.ts:67-69 still only logs failed places (N21). |
+| F63 | PARTIAL | Publish uploads only manifest-listed files (catalogPublish.ts:62-90). `DATABASE_URL` still falls back to `lifer:lifer@localhost` (N19). |
+| F72 | PARTIAL | tripIndex writes batched, reimport walk async, settings browse async. Sync fs remains on request paths (N36). |
+| F75 | PARTIAL | `ignore(reason)` helper used 49 times. 4 bare `.catch(() => {})` remain in web, each best-effort (N48). |
+| F76 | PARTIAL | `exhaustive-deps` suppressions grew from 7 to 12; 3 have no reason (MasonryGrid.tsx:71, :136, GroupedSpeciesGrid.tsx:359). Lightbox has none now. |
+| F77 | PARTIAL | `res.ok` checked and a deadline added (UpdatesBanner.tsx:24, localInference.ts:58), but the effect is still keyed on `onPacksPage` (UpdatesBanner.tsx:106, :120). |
+| F80 | PARTIAL | architecture.md:53 and ADR 0001 fixed. Legacy-version text remains (N44). |
+
+## Findings (NEW this run)
+
+Severity is calibrated to this project: Lifer servers have exactly one account by design (security-model.md:10), so a missing `user_id` filter is Low at most. Rows are ranked by severity within each group.
 
 | ID | Category | File:Line | Severity | Effort | Description | Recommendation |
 |----|----------|-----------|----------|--------|-------------|----------------|
-| F01 | Data integrity | packages/data-pipeline/src/scripts/build-catalog-seed.ts:290 | Critical | S | Copies all path columns into an in-memory array, then commits `UPDATE ... SET path = NULL` on the live `species`/`species_reference_photos`. Restore is one UPDATE per row in `finally` (:415). A kill, OOM or crash during the dump loses every reference-photo path. `tier_explain` (:285) already uses a DB backup table that the next run restores. | Immediately: back up path columns into a `seed_path_backup` table like `tier_explain`, restore with one `UPDATE ... FROM`. Properly: dump from a scratch schema and never mutate source tables (Top 5 #1). |
-| F02 | Correctness | apps/api/src/uploads/raw.ts:84 | High | M | Species folder paths are assembled by hand at ~10 sites. `raw.ts` (84, 184, 295) omits `inatIconicTaxon` and `namingStyles`; `video.ts:237` hard-codes `namingStyles: []`; `common.ts:152` omits both; `trips/import.ts:186` queries `users` directly. `organizedPath.ts:12` uses those fields to pick the taxon folder, so Other Taxa RAWs/videos land in a different tree than their JPEG. | One `speciesFolder(userId, speciesId, base, opts)` in `managedFolders.ts` built on `speciesFolderParts` + `getUserFileSettings`; all callers use it (Top 5 #2). |
-| F03 | Correctness / Duplication | packages/data-pipeline/src/embeddings.ts:57 | High | S | Standalone copy of core's CLIP preprocessing. It always indexes `data[i*3+c]`, with no `toRgb` (core: inferenceWorker.ts:295), so grayscale sources produce NaN/garbage catalog vectors. Also skips the pixel limit and model checksum. Its stated reason (avoid sharp/onnxruntime deps) is false: the file imports both. | Delete it; call core's `computeEmbedding` with a full-precision placement override. Recompute only reference vectors from 1-channel sources (Top 5 #3). |
-| F04 | Test debt | .github/workflows/ci.yml:204 | High | S | Desktop CI job runs only `cargo fmt` and `clippy`. 25 Rust tests (9 in `pg_upgrade.rs`, incl. the bundled-major agreement check desktop-app.md:99 relies on) never run automatically. | Add `- run: cargo test --lib --locked` after clippy. |
-| F05 | Test debt | .github/workflows/desktop-build.yml:99 | High | M | The 17-to-18 `pg_upgrade` end-to-end test (with crash recovery) runs only via manual `workflow_dispatch` with an opt-in box; `release.yml` never runs it, yet every release ships `postgres-previous`. | Make `desktop-build.yml` callable and run the pg-upgrade job (arm64 at least) from `release.yml`, and on PRs touching `pg_upgrade.rs`/`embedded_db.rs`/`stage-postgres.js`. |
-| F06 | Security | apps/api/src/auth/routes.ts:96 | High | S | Per-email cap (50 failures / 15 min) applies regardless of IP, and success clears only the email+IP key (:114). Anyone who knows the owner's email can lock them out indefinitely. Comment at :91 says the opposite. | Exempt a signed "known device" cookie from the per-email cap and clear `emailKey` on success (sketch in Top 5 #5). |
-| F07 | Publish safety | packages/data-pipeline/src/scripts/refresh.ts:419 | High | S | `publish` checks only that `packs` ran, not that `gate` passed. `--stages=packs,publish --publish` ships ungated. Stages run in user-typed order (:371). | Require a `done` gate row with `ok=true` for this runId; sort requested stages by `STAGES` order. |
-| F08 | Tier philosophy | packages/data-pipeline/src/build/apply-rarity-phase4.ts:218 | High | S | "Fallback for any other taxon (none seeded today): the percentile-quota system." Marine invertebrates are now seeded, and `npm run compute-elusiveness` (package.json:27) still rewrites `species_rarity.tier`. | Decided: the scores are dead (nothing reads `elusiveness_score`/`composite`/`range_score`/`abundance_score`; compute-global-tiers.ts:86 says they "no longer decide anything"). Delete the quota branch and every `species_rarity` write in apply-rarity-phase4, keeping only the endemic computation (see F81). |
-| F09 | Tier philosophy | packages/data-pipeline/src/scripts/compute-provinces-bulk.ts:1071 | High | M | Builds a local tier from within-province percentile ranks of record count and spread (:1070-1071) and writes `region_species.local_tier` (:1231). `compute-local-tiers` overwrites it only for countries with partitions, so rank-based tiers survive elsewhere (see F11). | Decided: fix, but keep the shipped packs close to what they are. Replace each percentile-rank sub-score with a fixed absolute scale (e.g. log record count against constant breakpoints), calibrate the breakpoints so a dry run reproduces today's local tiers for most species, and review the diff before writing. Stop writing `local_tier` here if compute-local-tiers covers every country after F11. |
-| F10 | Pipeline / single command | packages/data-pipeline/ops/scheduled-refresh.sh:63 | High | S | Scheduled job calls `refresh-all-provinces` directly, not `refresh`, with no `--reset-checkpoint`: after one full sweep every later run does nothing. No tiers or gate stage follows. | Decided: refresh stays manual. Delete `ops/scheduled-refresh.sh` and its timer so nobody runs the broken wrapper. |
-| F11 | Silent stale data | packages/data-pipeline/src/scripts/compute-local-tiers.ts:906 | High | S | A country with no province partitions is skipped with a log line and exit 0; its rows keep prior (possibly F09 rank-based) tiers and the refresh proceeds to packs. | Record skipped countries and fail the gate unless `--allow-skip`. |
-| F12 | Model publishing | packages/data-pipeline/python/export_id_model.py:72 | High | S | Exporter deletes `bioclip-2-v1-fp32.onnx` and emits `-fp16.onnx`; the app downloads `-fp32.onnx` (packages/core/src/config.ts:184). SCRIPTS.md documents the trap instead of fixing it. | Decided: fp32 is correct. `ID_MODEL_GPU_URL`, `ID_MODEL_GPU_BYTES` (1.2 GB, an fp32 size) and `ID_MODEL_GPU_CHECKSUM` all describe the published fp32 file, and config.ts:181 says GPUs run full precision. Make the exporter keep `-fp32.onnx` (stop deleting it) and drop the fp16 output; fix SCRIPTS.md:237. |
-| F13 | Data integrity | apps/web/src/components/PhotoImportRows.tsx:477 | High | S | `undoLastBatch` swallows a failed `DELETE /captures/:id`, then resets the row to `ready` anyway. The capture stays on the server; re-importing duplicates it. | Collect failures, leave those rows `done`, toast "undo partly failed". |
-| F14 | Test debt | apps/web/vite.config.ts:33 | High | M | No DOM test environment (no jsdom, no Testing Library). All 38 web test files cover pure helpers; none cover `useCollectionData.ts` (306 lines of cache/race logic), `useGalleryListing.ts`, the import commit/undo flow, or the five most-churned pages. | Approved: add jsdom + @testing-library/react as web devDeps; start with `useCollectionData`, `useGalleryListing`, import commit/undo. |
-| F15 | Test debt | packages/data-pipeline/src/build/build-region-pack.ts:363 | High | M | Builders of shipped artifacts are nearly untested: build-region-pack ~5% lines, `pipeline/packs.ts` ~10%, `photoStore.ts` and `build-catalog-seed.ts` (12 commits / 6 mo) have none. | Integration tests from a fixture DB: assert pack manifest; run the seed builder and assert source rows unchanged (catches F01). |
-| F16 | Correctness / Duplication | apps/api/src/uploads/photo.ts:569 | High | S | Fingerprint RAW claim runs `UPDATE originals SET capture_id = $1 WHERE id = $2` without `AND capture_id IS NULL`, unlike the filename path at :536. Two concurrent uploads can both claim one RAW; the second silently steals it. | Add `AND capture_id IS NULL`; set `claimedRaw` only when `rowCount === 1`. |
-| F17 | Architecture | apps/api/src/uploads/photo.ts:457 | Medium | M | `INSERT INTO captures` hand-written 5 times (photo.ts:457, raw.ts:325, video.ts:261, trips/import.ts:77, library/reimport.ts:270) with different column lists; `INSERT INTO originals` 9 times. `originals.user_id` set by only 3 of 9 (photo.ts:497). | `insertCapture(client, CaptureInsert)` / `insertOriginal(client, OriginalInsert)` with named fields. Decided: `insertOriginal` always sets `user_id`; a migration backfills it from `captures_all.user_id`, after which ownership checks can drop the `COALESCE`. |
-| F18 | Architecture | apps/api/src/uploads/photo.ts:117 | Medium | L | `importPhoto` is ~530 lines: three source modes, RAW hand-off, duplicate check, cull marks, EXIF, file moves, transaction, sidecar, vector queue. `uploads/*` had ~60 commits in 6 months. | Split into `resolveSource`, `prepareFiles`, `insertCaptureTx`, `afterCommit` (after F17). |
-| F19 | Consistency | apps/api/src/library/reimport.ts:301 | Medium | M | Reimport and trip import (trips/import.ts:106) run `generateDerivatives` inside the open transaction (holding a pool connection during sharp decode) and leave WebP files behind on ROLLBACK. `uploads/*` does the opposite. | Generate derivatives before BEGIN; `removeFiles(derivativeFiles(photoId))` in the catch, as photo.ts:440 does. |
-| F20 | Error handling | apps/api/src/uploads/xmpSidecarSync.ts:92 | Medium | S | Per-file `writeCaptureMetadata(...).catch(() => {})` means the "Logged" wrapper (:97, "so sidecars don't drift silently") never sees failures. raw.ts:397 adds another silent catch. | Log with captureId/ref inside the per-file catch. |
-| F21 | Consistency | apps/api/src/captures/routes.ts:36 | Medium | S | `resyncSpeciesMetadata` is a second metadata writer (JPEG only, own species query) that always runs right before `syncCaptureXmpSidecarsLogged` on the same file: two exiftool rewrites per change, contradicting imports-and-metadata.md. | Delete it; rely on `syncCaptureXmpSidecars`. |
-| F22 | Performance | apps/api/src/storageVolumes/resolve.ts:97 | Medium | S | Every `resolveOriginalPath` on a drive-tagged original calls `listMountedVolumes()` uncached (one `diskutil info` per `/Volumes` entry on macOS). captures/trash.ts:94 does this per row for up to 500 rows; species/detail.ts:250 per capture. | Single-flight cache for ~2-5 s; batch the volume lookup. |
-| F23 | Test debt | apps/api/src/uploads/photo.ts:245 | Medium | M | No tests for `mode=link`, `mode=s3` or `skipDuplicates=1` (which desktop-to-server migration relies on), nor for F02 or F16. | Integration tests for each mode, skipDuplicates, and "JPEG/RAW/video for an Other Taxa species land in one folder". |
-| F24 | Data integrity | apps/api/src/inaturalist/routes.ts:298 | Medium | M | Create observation, upload photos, write link rows: no idempotency. A failed photo upload returns 502 with captures still unsubmitted; retry creates a duplicate iNat observation. Also `rows[0]` taxon (:279) files mixed-species captureIds under one species. | Persist `inat_observation_id` as pending right after create; reject mixed species and dedupe ids. |
-| F25 | Error handling / Data loss | apps/api/src/albums/albumIndex.ts:24 | Medium | S | A corrupt `albums.json` parses as `{}` and the next write replaces it, erasing the album recovery copy ADR 0006 relies on. | Distinguish ENOENT from parse error; move a bad file to `albums.json.corrupt` and log. |
-| F26 | Error handling | apps/api/src/settings/routes.ts:395 | Medium | S | Reorganize-originals `catch {}` only increments `failed`; resync errors at :405 dropped. "3 failed" is undiagnosable. | Log `{ err, ref }` at warn; keep last error in job status. |
-| F27 | Architecture | apps/api/src/settings/routes.ts:281 | Medium | M | The 130-line `runReorganize` file-move engine (rename/copy/rollback/DB) lives in the top-churn routes file (20 commits); its test covers only input validation. | Move to `uploads/reorganizeOriginals.ts`; unit-test rollback paths. |
-| F28 | Architecture / Perf | apps/api/src/stats/routes.ts:144 | Medium | M | GET /stats is one ~300-line handler with 11 queries; it loads every capture row (:196, no LIMIT) into JS to bucket EXIF. | Per-widget functions; bucket focal/aperture/ISO in SQL (`width_bucket`). |
-| F29 | Architecture | apps/api/src/regions/routes.ts:65 | Medium | M | 570-line plugin. Shared SQL fragments hard-code positional params (`TAXON_PACK_DOWNLOADED_SQL` assumes `$7`, `CAPTURED_IN_TREE_SQL` assumes `$1`, :79): reordering params breaks queries silently. | Fragments take placeholders as arguments, as `userAddedInTreeSql("$1")` already does; split by route group. |
-| F30 | Architecture | apps/api/src/offlinePacks/apply.ts:136 | Medium | M | `applyChecklist` is a 390-line function: diff, copy, enrichment, gallery upserts, embeddings, checklist writes. | Split into phase functions sharing `db`, each returning counts. |
-| F31 | Contract | apps/api/src/stats/insights.ts:18 | Medium | M | ~50 of ~150 routes in scope have response schemas (stats 0/7, offlinePacks 1/13), incl. API-key-reachable routes with `schema: {}`. OpenAPI is empty for them and responses aren't allowlist-serialized. | Add response schemas, `requireScope` routes first; make apiRoutes.test.ts fail on a scoped route without a 200 schema. |
-| F32 | Type / Trust boundary | apps/api/src/offlinePacks/index.ts:62 | Medium | S | Remote JSON cast unchecked: `as PackIndex`, `as PhotoStoreIndex` (photoStore.ts:31), `as PackManifest` (apply.ts:540). Download trust checks depend on these fields. | TypeBox schemas + `Value.Parse` at the boundary (TypeBox already ships). |
-| F33 | Test debt | apps/desktop/src-tauri/src/offline_cache.rs:1046 | Medium | M | Offline-cache integration test is `#[ignore]` and `tests/offline-cache-integration.sh` is not in any workflow; ~270 lines of it live in `src/`. | Run it in the e2e job (has Postgres); move it to `src-tauri/tests/`. |
-| F34 | Performance | apps/api/src/offlinePacks/index.ts:163 | Medium | S | GET /offline-packs/index can block on a 120 s photo-store fetch, then `gunzipSync` + `JSON.parse` on the event loop. | Async gunzip; return sizes as pending when cold; warm in background. |
-| F35 | Consistency | packages/core/src/species/lazyEnrich.ts:190 | Medium | M | Two exported functions named `fetchWithRetry` with different timeouts, retries and caches (this one and lib/fetchWithRetry.ts:59); a copied `fetchWithHardTimeout` (regions/inatChecklist.ts:23); raw-fetch retries in ~10 pipeline scripts; api's lib/download.ts:31 duplicates core's `downloadResumable`. | One `httpClient({cacheTable, pacing, userAgent, timeoutMs, maxRetries})` in core/lib; rename the iNat one `inatFetch`; fold api's downloader into `downloadResumable`. |
-| F36 | Consistency | packages/core/src/regions/inatChecklist.ts:48 | Medium | S | At least 4 independent iNat pacers with module-level clocks (this file, lazyEnrich.ts:144 `paceHost`, data-pipeline inatApi.ts:5, flag-nonnative-obscure-taxa.ts:52) plus copied 60 s sleeps. Two in one process can exceed iNat's ~1 req/s together. | One shared per-host pacer inside F35's client. |
-| F37 | Layering | packages/core/src/regions/inatChecklist.ts:59 | Medium | S | Core hard-codes and writes to `packages/data-pipeline/data/...` (also :254, :400), a hidden dependency on the pipeline package against architecture.md's "core depends on neither". Comment at :13 describes the wrong location. | Take the cache dir from config (`PIPELINE_CACHE_DIR`) or a parameter. |
-| F38 | Error handling | packages/core/src/species/lazyEnrich.ts:694 | Medium | M | Four near-identical vector-store functions (:694/:730/:781/:810) end in bare `catch {}`. Missing model, unreadable file, DB error and timeout all look the same; a broken model shows up only as an empty backfill. | Merge into one `tryStoreVector(...)`; `log.warn` anything other than model-not-downloaded. |
-| F39 | Error handling | packages/core/src/species/embeddings.ts:1222 | Medium | S | BioCLIP failure (including DB errors in `rankSpeciesByEmbeddings`) falls back to CLIP silently; users get worse suggestions with no trace. | Warn with the error; fall back only on inference errors. |
-| F40 | Test debt | packages/core/src/species/inference.ts:213 | Medium | M | 4 tests, none for the riskiest paths: `onWorkerGone` (crash before/after ready, GPU child to thread after 3 crashes), `timedOut`, `replaceAfterJob`, `stopInference`. | Inject `startWorker`; test crash, timeout, plan change, requeue with a fake handle. |
-| F41 | Type / Trust boundary | packages/core/src/species/lazyEnrich.ts:264 | Medium | M | iNat/GBIF JSON cast with `as {...}` at ~20 core sites and 25 pipeline sites (e.g. data-pipeline/src/inatApi.ts:18). Response caches never expire (`fetched_at` never read), so one odd payload replays forever. | Small guards for the 4-5 shapes actually read (taxa, taxon_changes, GBIF facets/search/match). |
-| F42 | Layering | packages/shared/src/speciesVectorFormat.ts:23 | Medium | S | `@lifer/shared` is for API + web, but this and `galleryEmbeddingsFormat.ts` are Node-only (`Buffer`); one web import breaks the browser build. Their tests live in apps/api. | Move both to `packages/core/src/species/` with their tests. |
-| F43 | Architecture | packages/core/src/species/embeddings.ts:496 | Medium | L | 1248 lines, 49 functions: vector memo, capture LRU, user/species index caches with eviction, ranking, near-duplicate search, store, warm-up. lazyEnrich.ts (834) mixes HTTP client, parsing, persistence and embeddings. | Split into `vectorCache`, `userIndex`, `suggest`, `nearDuplicate`; lazyEnrich into `inatClient`, `enrich`, `persistReference`. |
-| F44 | Test debt / Privacy | packages/core/src/species/sensitiveSpecies.ts:2028 | Medium | S | `sensitiveRegionMatches` and `weekInSeason` (:2019) decide which coordinates get coarsened to 20 km, via free-text region-label matching. No tests. | Table tests incl. year-wrapping seasons; log eBird labels that never match a region. |
-| F45 | Doc drift | docs/docs/contributing/architecture.md:89 | Medium | S | Doc and ADR 0008 say models run in a worker thread; `inference.ts:118` forks a child process whenever a GPU runtime is active, with its own crash fallback. | Document the child-process mode and why (LD_LIBRARY_PATH needs a new process). |
-| F46 | Duplication / Type drift | apps/web/src/pages/collection/useRegionTree.ts:29 | Medium | M | `GET /offline-packs/index` fetched at 7 sites with 4 hand-written shapes that disagree on `taxon` and nullable `region`; no shared cache, so lists refresh independently after a download. | One `usePackIndex()` store + one `PackIndexEntry` type in @lifer/shared + `refreshPackIndex()` on download finish. |
-| F47 | Duplication | apps/web/src/hooks/useRegions.ts:11 | Medium | M | The same hand-rolled cached store (module state, listener set, pending promise, `useSyncExternalStore`) in 5 places (useRegions, useSettings:33, useNavCounts:5, CommandPalette:56, useCollectionData:22). ADR 0012 names this as its known cost. | A ~30-line `createCachedResource<T>(path)` (Top 5 #4); still no library. |
-| F48 | Race | apps/web/src/pages/trip/useTripData.ts:17 | Medium | S | `fetchTrip` (and `fetchAlbum`, album/useAlbumDetail.ts:17; GalleryPage.tsx:47) has no cancel guard and doesn't clear old data on id change: trip A's late response can render under trip B's URL. | `useApiResource(path)` with AbortController and reset on id change. |
-| F49 | Bug | apps/web/src/pages/OnboardingPage.tsx:72 | Medium | S | Hand-rolled map-download poll keyed on `[mapStatus]` with `.catch(() => {})`: one failed request stops polling and onboarding stays on "downloading". `MapStatus` defined twice (also settings/phases.ts:24). | `useJobPoll<MapStatus>("/settings/map/status")` as OfflineDataSettings.tsx:236 does. |
-| F50 | Consistency | apps/web/src/components/SpeciesCard.tsx:90 | Medium | M | `lib/speciesName.ts:3` says every common-name display goes through it, but `commonName ?? scientificName` is inlined at ~34 sites; only 7 files use `useSpeciesName`. Localised names won't reach those screens. | Replace with `useSpeciesName()`; `no-restricted-syntax` lint rule for new copies. |
-| F51 | Duplication | apps/web/src/pages/OfflinePacksPage.tsx:145 | Medium | M | `availableTaxaByRegion` copied into OnboardingPage.tsx:189; `countriesByContinent` drifted (Onboarding has no Central America bucket, OfflinePacksPage hard-codes one at :27-50), so the two pickers group countries differently. | Shared tested `lib/regionGrouping.ts`. |
-| F52 | Architecture | apps/web/src/pages/OfflinePacksPage.tsx:76 | Medium | L | 995-line component: 21 `useState`, ~12 `useMemo`, selection, search, province manager, download start/cancel, domain constants. 14 commits / 6 mo. | Extract `useOfflinePackSelection`, `regionGrouping`, `ProvinceManager`. |
-| F53 | Architecture | apps/web/src/components/PhotoImportRows.tsx:73 | Medium | L | 717 lines on the critical import path, running its own upload pipeline beside `lib/uploadQueue.ts`. Untested. | Move commit/undo into pure `lib/importCommit.ts`; consider routing through `enqueueUploads`. |
-| F54 | Type debt | apps/web/src/api/client.ts:43 | Medium | L | `api.get<T>` is an unchecked `as T`; ~240 hand-written response types in web while the API already has TypeBox schemas for the same routes. Nothing catches drift. | Export `Static<typeof Schema>` types via @lifer/shared (or generate from OpenAPI). |
-| F55 | i18n | eslint.config.mjs:73 | Medium | L | `i18next/no-literal-string` is off; 32 of the 40 largest .tsx files have no i18n; new literals keep landing (useStatsDownloads.ts:20). | Enable as `warn` with an ignore-list of unmigrated files; shrink it over time. |
-| F56 | Lifecycle | apps/desktop/src-tauri/src/api.rs:376 | Medium | S | `run_migrations` returns `Ok(())` if the event channel closes without `Terminated`, has no timeout, and drops the child handle (:352): a hung migration blocks startup forever and is orphaned on quit. | Treat missing `Terminated` as Err; `tokio::time::timeout`; keep and kill the child in `stop_api_async`. |
-| F57 | Durability | apps/desktop/src-tauri/src/pg_upgrade.rs:115 | Medium | S | `write_marker` and `swap()` renames (:647, :651) never fsync the parent dir (store.rs:81 does). Power loss can persist marker phase and folder renames out of order. Three divergent atomic-write helpers exist (store.rs:69, offline_cache.rs:175, here). | One `fsutil::write_atomic` + `fsync_dir` used everywhere. |
-| F58 | Security | apps/desktop/src-tauri/src/lib.rs:81 | Medium | S | Plain-http remote servers get the full `REMOTE_PERMISSIONS` (fs write, updater install, process restart; :39-55). A LAN MITM on an http server could inject script calling them (updates are signature-checked, which limits it). | Omit updater/process grants for non-TLS origins, or warn in the picker for non-private http. |
-| F59 | Architecture | apps/desktop/src-tauri/src/lib.rs:383 | Medium | M | `choose_setup` is 213 lines with two near-identical remote branches (:462-471, :516-523) and 20 literal result constructions despite `setup_error()` (:306). lib.rs (1201) also mixes ACL logic, 20+ commands, menu, watcher and bootstrap. | `connect_remote()` helper; split into `security.rs`, `commands.rs`, `menu.rs`, `server_watch.rs`. |
-| F60 | Legacy | docker-compose.yml:6 | Medium | M | ~140 lines of 0.9.x Postgres 16-to-18 volume migration run on every `compose up`, and every new install pulls the third-party `imresamu/postgis:16-3.4-alpine` (:182). Also `LIFER_SKIP_DB_UPGRADE` in .env.example:9-12. | Approved: delete the `db-upgrade*` services, the script anchor, the postgis image and `LIFER_SKIP_DB_UPGRADE`; trim the matching section of upgrading.md. |
-| F61 | Swallowed error | packages/data-pipeline/src/scripts/compute-provinces-bulk.ts:455 | Medium | S | eBird network errors and non-OK responses (:449) return null and are cached for the run as "no rescue": province membership depends on network luck. | Only 404 means "no list"; network/5xx fails the country for the retry pass. |
-| F62 | Swallowed error | packages/data-pipeline/src/scripts/refresh-inat-counts.ts:36 | Medium | S | Exits 0 with failed places; apply-introduced-flags.ts:76 silently falls back. The refresh proceeds to tiers with missing counts. | Non-zero exit above a threshold, or surface failures to the gate. |
-| F63 | Publish hygiene | packages/data-pipeline/src/scripts/refresh.ts:446 | Medium | S | Uploads every `*.sql.gz`/`*.bin.gz` in `catalog-seed/`, including stale files the manifest doesn't list; DATABASE_URL falls back to hard-coded `lifer:lifer` (:443). | Upload only manifest-listed files; fail when DATABASE_URL is unset. |
-| F64 | Dead code | packages/data-pipeline/src/build/vernacular-regions-data.ts:1 | Medium | S | WITHDRAWN for this file: it defines the vernacular groupings (country > group > province), the intended browse structure, now applied by the vernacular sync step. Original claim: 982 lines nothing imports (its consumer was removed). Also `gbif-bulk-ab-test.ts` (one-off experiment citing a deleted file, still in SCRIPTS.md:179) and `compute-all-regions.ts` whose CLI is superseded (only `drillDownAllCountries` is used). | Delete; move `drillDownAllCountries` into a lib module. |
-| F65 | Security | apps/api/src/shares/routes.ts:269 | Low | S | Same pattern as F06 on share links: 50 wrong passwords from any IPs lock every visitor out of that link for 15 min. | Growing delay instead of hard 429. |
-| F66 | Security | apps/api/src/auth/routes.ts:17 | Low | S | `NonEmpty` has no `maxLength`; unauthenticated login/register/unlock can send multi-MB passwords into argon2. Global limiter keys raw `request.ip` (lib/rateLimit.ts:8), not the IPv6 /64 grouping login uses. | `maxLength: 1024`; `keyGenerator: (r) => ipRateLimitKey(r.ip)`. |
-| F67 | Security | apps/api/src/offlinePacks/index.ts:117 | Low | S | `index.photoStore.indexUrl` fetched without `assertTrustedPackUrl`, unlike pack and shard URLs (download.ts:154, :267). Needs a tampered index from an admin-set URL. | Assert inside `fetchPhotoStoreIndex`. |
-| F68 | Dead code | apps/api/src/photoSources/local.ts:5 | Low | S | `PhotoSource` abstraction unused: `LocalPhotoSource` and `S3PhotoSource`/`s3Configured` (s3.ts:13, :51) never instantiated. `apps/api/src/uploads/rawExtensions.ts:3` also unused, yet imports-and-metadata.md and web's lib/rawExtensions.ts:1 still point at it. | Delete the classes and interface, keeping `fetchS3Object`/`signedS3Url` (S3 mode itself is a documented API feature, environment-variables.md:119). Delete the API RAW list; point docs at packages/core/src/uploads/formats.ts. |
-| F69 | Dead code | packages/core/src/species/inference.ts:455 | Low | S | Unreferenced exports (tests included): `inferenceQueueDepth`, `computeSuggestionEmbedding` (embeddings.ts:290), `computeIdSuggestionEmbedding` (:296), `fetchINaturalistWikipediaSummary` (lazyEnrich.ts:354), `filterSentences`, `boostElusivenessForDistribution`, `readCachedJson`. Web: `resetServerInfoCache` (useDeploymentMode.ts:40), `formatDate.ts` shim. | Delete, or wire `inferenceQueueDepth` into /health. |
-| F70 | Consistency | apps/api/src/species/embeddingBackfill.ts:22 | Low | M | Three hand-rolled job state objects (:22, :83, :140) next to `lib/job.ts createJob` used by 11 files. offlinePacks/download.ts:86 polls a legacy `catalogUpdateJob.running` alias every 1 s instead of `catalogUpdate.settled()`. | Move onto `createJob`; delete the alias and dead `_userId` param (catalogSeedUpdate.ts:741). |
-| F71 | Consistency | apps/api/src/inaturalist/client.ts:7 | Low | S | Six User-Agent strings ("lifer-app/0.1", "Lifer/0.7", "lifer-data-pipeline/0.1"...), stale and often without contact info, which iNat/Wikimedia ask for. | One `LIFER_USER_AGENT` from APP_VERSION inside F35's client. |
-| F72 | Performance | apps/api/src/settings/routes.ts:467 | Low | S | Sync fs on request/job paths: `readdirSync` here; `listManagedFiles` walk (library/reimport.ts:54) and trips/scan.ts:34; per-photo full rewrite of `.lifer/index.json` (trips/tripIndex.ts:43, O(n²)). On a slow NAS this trips the event-loop watchdog. | `fs.promises` / `opendir`; batch trip index writes. |
-| F73 | Correctness | apps/api/src/originals/routes.ts:24 | Low | S | Ownership query joins the `captures` view (excludes trash) while /photos/:id/original uses `captures_all`; a trashed capture's original 404s here only. Related: reimport hash lookup (library/reimport.ts:188, :377) has no user filter (latent; one account per server). | Use `captures_all`; scope the hash lookup. |
-| F74 | Error handling | apps/api/src/trips/import.ts:229 | Low | S | `managed = true` update for a copied RAW swallowed; failure leaves it unmanaged forever. Model failure in inspect also silent (uploads/inspect.ts:254, trips/jobs.ts:450). | Do it in the import transaction; log fallbacks once. |
-| F75 | Swallowed errors | apps/web/src/pages/gallery/useGalleryFacets.ts:14 | Low | M | ~40 bare `.catch(() => {})` in web (e.g. Lightbox.tsx:439 download fails with no feedback, GalleryPage.tsx:52, SpeciesPicker.tsx:68). | `ignore(reason)` helper that logs; toast on user-initiated actions like Download. |
-| F76 | Hooks | apps/web/src/components/Lightbox.tsx:337 | Low | S | 7 `exhaustive-deps` suppressions with no reason; Lightbox's keyboard handler can hold stale `toggleFullscreen`/`video`. `useLatest` exists for this. | `useLatest` or a `-- reason` on each. |
-| F77 | Network | apps/web/src/components/UpdatesBanner.tsx:69 | Low | S | Effect keyed on `onPacksPage` re-calls unauthenticated `api.github.com` (60 req/h/IP) on every visit to /offline-packs; `r.ok` never checked. `localInference.ts:56` polls forever with no deadline. | Split effects; check `r.ok`; add a deadline/AbortSignal to the poll. |
-| F78 | Pipeline security | packages/data-pipeline/src/fetch/wikipediaArticles.ts:347 | Low | S | Second `sparqlString` without `\n`/`\r` escaping (fetch-wikidata.ts:36 has it). | Import the one escaper. |
-| F79 | CI / Supply chain | .github/workflows/release.yml:48 | Low | M | release.yml, catalog-seed.yml, docs.yml have no `timeout-minutes`; macOS FFmpeg/Postgres build steps copied 3x (release.yml:150, desktop-build.yml:53, :135); `node:22-slim` pinned by tag only (Dockerfile:3) though actions are SHA-pinned. | Job timeouts; composite `.github/actions/macos-natives`; digest-pin the base image. |
-| F80 | Doc drift | docs/docs/contributing/architecture.md:53 | Low | S | Says API config is in `src/config.ts` (it's `packages/core/src/config.ts`; its tests sit in `apps/api/src/config.*.test.ts`). Also: ADR 0011:9/:40 stale status; ADR 0001:48 says macOS 15 (requirements.md:14 says 14); DATA_SOURCES.md:52, :67 cite moved files; testing.md omits `cargo test`; desktop-app.md:66-69 legacy-version text. | Fix paths/status lines; move config tests to core; drop legacy text. |
-| F81 | Data freshness | packages/data-pipeline/src/build/apply-rarity-phase4.ts:240 | High | M | NEW. `species_traits.endemic_country_iso3` (endemic badges, trip endemic counts, species detail) has exactly one writer: this file, reached only through `npm run compute-elusiveness`, which is not part of `refresh`. Endemic data is frozen at its last manual run, species added since have none, and refreshing it also rewrites tiers through the F08 quota path. | Move the endemic computation into its own refresh stage that writes only `endemic_country_iso3`; then delete compute-elusiveness's score and tier writes. |
-| F82 | Resilience | packages/core/src/species/inference.ts:150 | Medium | S | NEW. `runtimeCrashes` resets only on a plan change, so three GPU child crashes spread over weeks move matching to the CPU until restart (confirmed unintended). | Count crashes in a sliding window (e.g. 3 within 10 minutes), or reset after a period of healthy jobs. |
-| F83 | Doc drift | packages/core/src/regions/compute/occurrences.ts:73 | Low | S | NEW. Says introduced flags come from compute-elusiveness.ts; `species_nonnative_countries` is now rewritten by apply-introduced-flags.ts from iNaturalist (also compute-provinces-bulk.ts:664). compute-elusiveness.ts:249 cites a `reapply-elusiveness-from-cache.ts` that doesn't exist. | Point the comments at apply-introduced-flags.ts; drop the dead reference. |
-| F84 | Data freshness | packages/core/src/species/lazyEnrich.ts:190 | Low | S | NEW. The iNat response cache is meant for pipeline builds, but the API's lazy enrichment (species/detail.ts, otherTaxa.ts, referencePhotos.ts, withheldPhotos.ts) reads it on installs too, with no expiry, so an install never sees iNaturalist taxon changes for species it enriched once. | Give the API path a max age (e.g. 90 days, as inatChecklist.ts:40 already does), or bypass the cache outside the pipeline. |
-
-Not separately listed but noted: `madge` finds 2 import cycles (`core/species/clientVectors.ts <-> embeddings.ts`, `data-pipeline/src/pipeline/packs.ts <-> packStore.ts`), both small; `apps/desktop/package.json:20` lists six `@tauri-apps/*` deps nothing in `apps/desktop` imports; `.gitignore:17` ignores `data/` subfolders one by one.
+| N01 | Sync correctness | apps/api/src/sync/pushServer.ts:61-84 | High | M | NEW. `applyPushedCaptures` UPDATEs every metadata column plus `hidden_at` and `deleted_at` with `WHERE id AND user_id` only. No `updated_at` or base-version comparison, and the push body (sync/routes.ts:36-58) carries no timestamp. A stale desktop copy of a fingerprint-matched photo reverts a server edit and un-trashes a server-trashed capture. Contradicts the plan's last-write-wins rule (docs/plans/desktop-server-sync.md:121). Found independently by two auditors. | Send the version the desktop last mirrored; apply only if the server row has not changed since, otherwise return a `conflict` outcome and let the pull win. Never resurrect `deleted_at` from a push without an explicit un-trash flag (Top 5 #1). |
+| N02 | Publish safety | .github/workflows/catalog-seed.yml:33-47 | High | S | NEW. Manual workflow builds the seed from the remote DB (`CATALOG_SOURCE_DATABASE_URL`) and uploads to `catalog-latest` with no `runGate`, no check that a refresh finished, and no lock against a refresh running at the same time. Bypasses the gate that refresh.ts:414 enforces. | Run the gate before the upload step and fail the job on any failure, or delete the workflow and publish only through `refresh --publish` (Top 5 #2). |
+| N03 | Ships stale | packages/data-pipeline/src/pipeline/gate.ts:216-240, refresh.ts:459-531 | High | M | NEW. The gate checks data shape, not freshness. `--stages=packs,gate,publish` (the form SCRIPTS.md:107 recommends) ships tiers, catalog and checklists that earlier stages last wrote in some older run. Publish only needs a gate row from this run. | The gate verifies that catalog, regions, endemic, tiers and vectors have a `done` row newer than the latest source change, or publish refuses unless skipped stages are named in an explicit `--accept-stale=` list. |
+| N04 | Data loss / backup | packages/data-pipeline/src/scripts/refresh.ts:232-293, :351-394; scripts/backup.ts:25-43 | High | M | NEW. `refresh` runs `reconcile --apply`, `merge-duplicate-species --apply`, `remove-escapes --apply`, checklist rebuilds and non-native DELETEs against the maintainer DB with no snapshot first. The only backup script is Docker-only (`docker exec lifer-app-postgres-1`) while the maintainer DB is the desktop embedded Postgres; it resolves on child `exit` not `close` and uses buffered `execFile` (1 GB cap), so a large DB gives a truncated dump and logs "done". | Take a `pg_dump -Fc` (via `resolvePgDump`) at refresh start, skipped on `--resume`; stream with `spawn` to a file and wait for `close`; have `doctor` warn when the last snapshot is old (Top 5 #3). |
+| N05 | Layering / runtime | packages/core/src/rawCache.ts:7-8, :20; packages/core/src/regions/regionBoundary.ts:30, :42; apps/api/src/regions/routes.ts:194; apps/api/src/offlinePacks/apply.ts:617 | High | M | NEW, verified. The API's province drill-down and pack apply call `fetchProvincesForCountry`, which downloads ~40 MB Natural Earth GeoJSON into `RAW_DIR` = `<repo>/data/raw`, computed from `import.meta.url` three levels up, using a bare `fetch` (no timeout, User-Agent or size cap), then holds it in memory. In a bundled server or desktop install that directory is not `DATA_DIR`. This is the F37 pattern (core writing into a repo-relative data dir) surviving in a different file. | Take the cache dir from config (`DATA_DIR`) and fetch through `lib/http.ts` or `downloadResumable`; better, seed province lists as data and keep Natural Earth pipeline-only (Top 5 #4). |
+| N06 | Sync correctness | apps/api/src/sync/mirror.ts:118-120, :127-152 | Medium | M | NEW. A server-side trash of a capture the desktop imported itself (origin `local` with a `remote_id`) is ignored: `removeMirrored` deletes only `origin='mirror'` rows and the upsert does not carry `deleted_at`. The next local edit pushes `deletedAt: null` and brings the photo back on the server. | Apply the server's `deletedAt` to local-origin rows (trash locally), or have push refuse to un-trash. |
+| N07 | Sync correctness | apps/api/src/sync/mirror.ts:152; sync/push.ts:272-275 | Medium | S | NEW. The mirror upsert sets `pushed_at = now()` even on local-origin rows with unpushed edits (`updated_at > pushed_at`), so the server copy silently overwrites them whenever the push failed or partly failed before the pull. | In `ON CONFLICT`, skip local-origin rows whose `updated_at > pushed_at`. |
+| N08 | Sync correctness | apps/api/src/sync/changes.ts:55-62; migrations/107_captures_updated_at.sql | Medium | M | NEW. The keyset cursor is `(updated_at, id)` and the trigger stamps `now()`, which is transaction START time. A long import or reimport transaction that commits after a pull moved the cursor past its timestamp is skipped by the mirror permanently. | Re-read a lag window (cursor minus ~2 min, upserts are idempotent), or stamp `clock_timestamp()`. |
+| N09 | Sync data integrity | apps/api/src/sync/changes.ts:55; apps/api/src/captures/trash.ts:175; sync/push.ts:262-290 | Medium | M | NEW. Hard deletes (trash purge, `DELETE FROM captures_all`) leave no tombstone, so a desktop that was offline across the purge keeps a ghost mirror row forever. Deletions of species marks, albums, trips and album membership never sync either (push only upserts), so removed items return on the next push or pull. | A small purge-tombstone table returned from `/sync/changes`, or re-pull the mirror when the cursor is older than a retention window. State the remaining limits in the user docs. |
+| N10 | Error handling / sync | apps/api/src/sync/push.ts:269-272, :294 | Medium | S | NEW. A failed capture upload is `.catch(() => null)` with only `totals.failed++`, never logged, and the job still ends successful. The user sees "pushed" while photos are stuck. | Log `{ err, captureId }` and warn or fail the job status when `failed > 0`. |
+| N11 | Type / trust boundary | apps/api/src/sync/mirror.ts:340, :359; sync/push.ts:130, :364 | Medium | S | NEW. JSON from the linked server is cast unchecked (`as { items: CaptureChange[] }`, `as { outcomes ... }`). Only `photo.id` is UUID-checked (mirror.ts:56); `item.id`, fingerprint and `regionId` flow into SQL and file paths. | TypeBox schemas with `parseRemoteJson` (offlinePacks/schemas.ts:151 exists), shared with the `/sync/changes` response types. |
+| N12 | Security | apps/api/src/sync/serverLink.ts:30-41; apps/desktop/src-tauri/src/server_link.rs:120-125 | Medium | S | NEW. The sync key is sent to the first URL whose unauthenticated `/health` reports the saved instance id. That id is public, so it does not authenticate the server; on a plain-http LAN anyone who can answer at that address receives a key that can push and revoke. Redirects are refused (serverLink.ts:49), which is good. | A per-link secret the server proves knowledge of, or refuse links over plain http outside private ranges; at minimum document the trust model. |
+| N13 | Test debt | apps/api/src/sync/push.ts:197-290, pushServer.ts, serverLink.ts, changes.ts | Medium | M | NEW. No test for the push job's `run()` (retry pass, trashed-never-pushed, batch boundaries), the stale-overwrite and un-trash conflict (N01), cursor-hold behavior, or serverLink fallback across multiple URLs. Only happy paths are covered. | Integration tests: push of a server-trashed capture, a local edit during pull, a failed upload, a two-URL link. Write the N01 test first. |
+| N14 | Doc drift | docs/plans/desktop-server-sync.md:12-60, :121, :133; docs/docs/state-and-sync.md:136, :138 | Medium | S | NEW. The plan's banner lists the deviations, but the Phase 4/5 body still describes tombstones, an API key stored in the local DB, `server_links` with cursors, `capture_migrations`, `POST /auth/desktop-link`, entity-batch push and last-write-wins by `updated_at`, none of which was built as written. state-and-sync.md:136 says an unreachable server falls back to the mirror; :138 says `offline.html` if an offline cache exists (server_watch.rs:145, :187 still prefers the cache). | Rewrite the body to match what was built or move unbuilt parts into a labelled "not built" section; state the fallback precedence once. |
+| N15 | Error handling | apps/api/src/albums/routes.ts:328, :348; apps/api/src/library/reimport.ts:381; apps/api/src/trips/import.ts:142 | Medium | S | NEW. `syncAlbumIndexForCaptures(...).catch(() => {})`, `recoverAlbumMembership(...).catch(() => {})` and `recordTripIndexEntry(...).catch(() => {})` drop errors with no log. These write the on-disk recovery copies that ADR 0006 relies on. | Log a warn with the ids, as xmpSidecarSync.ts:92 does; a shared `logged(promise, msg)` helper covers all four. |
+| N16 | Architecture | apps/api/src/gallery/photoSearch.ts:434-841; gallery/routes.ts:501-856 | Medium | L | NEW. `parseSearchQuery` is a ~400-line function in a 1167-line file (9 commits in 6 months) with a second large `rankSearch`; the gallery routes plugin is a 355-line function. | Split `parseSearchQuery` by token class (scene, place, species, tag), move `rankSearch` to its own module; the existing 404 lines of tests are the safety net. |
+| N17 | Performance | apps/api/src/offlinePacks/remove.ts:81-103, :173-200 | Medium | S | NEW. Pack impact preview runs 4 queries plus sync `existsSync`/`statSync` per species (thousands for a big pack) on the request path; the delete loop runs 4-5 queries per species inside the transaction. | Batch with `species_id = ANY($1)` plus `GROUP BY`; stat files async or in bulk. |
+| N18 | Publish ordering | packages/data-pipeline/src/scripts/refresh.ts:507-526 | Medium | S | NEW. Publish uploads the photo store and packs, then builds the seed. If the seed build fails (pg_dump missing, size cap, `GALLERY_MODEL_VERSION` mismatch), packs are live but the seed is old. | Build and verify the seed first; upload only once everything has built. |
+| N19 | DB targeting | packages/data-pipeline/src/scripts/refresh.ts:53, :444; packages/core/src/config.ts:22 | Medium | S | NEW. Every script falls back to `lifer:lifer@localhost:5432` when `DATABASE_URL` is unset, which is a different DB from the desktop embedded one. Only `replace-sea-zones` prints which database it hit. | `refresh` prints host and db at start and refuses `--publish` when `DATABASE_URL` is not set explicitly. |
+| N20 | Single-command rule | packages/data-pipeline/src/scripts/refresh.ts:335-341; SCRIPTS.md:84-110, :356-360 | Medium | M | NEW. Not one command: the vectors stage needs a hand-built `.venv` and fails late (after CLIP vectors); sea-zone replacement is a 4-step manual chain; `apply-photo-licenses` after hand edits needs a manual rerun of vectors. | Venv check in `doctor` and refresh preflight; a `--replace-sea-zones` flag on the regions stage; run the license policy at the start of vectors. |
+| N21 | Silent success | packages/data-pipeline/src/scripts/compute-provinces-bulk.ts:420; apply-introduced-flags.ts:67-69 | Medium | S | NEW. A missing `EBIRD_API_KEY` returns null with no log, so two runs with different envs produce different province checklists (the dependence F61 removed for network errors). `apply-introduced-flags` logs failed places and falls back to the country list with no threshold. | Warn loudly once when the key is unset and record it in the run notes; share refresh-inat-counts' `--max-failed` logic. |
+| N22 | CI gap | .github/workflows/ci.yml:219-248 | Medium | S | NEW. The desktop job runs only on ubuntu. Windows- and macOS-only Rust (`taskkill`, `cfg(not(unix))` paths in pg_upgrade.rs:702 and fsutil.rs:60, wifi SSID) first compiles at release time. The API already has `build-windows` for this reason (ci.yml:102). | `cargo check --locked` matrix on `windows-latest` and `macos-14`. |
+| N23 | CI gap | .github/workflows/ci.yml:160-187 | Medium | S | NEW. The docker job only builds the image; it never starts a container, checks `/health`, or checks the non-root uid 568 data permissions, the likeliest runtime breaks. | `docker run` the built image against a postgres service (`load: true`) and curl `/health`. |
+| N24 | Test debt | packages/core/src/species/userIndex.ts, vectorCache.ts, nearDuplicate.ts | Medium | M | NEW. No test names these. LRU and byte-budget eviction (vectorCache.ts:30-70, userIndex.ts:14-25) and TTL plus in-flight-promise invalidation (userIndex.ts:95-125) are covered only indirectly, if at all. | Tests for eviction order and budget, rejection eviction and `invalidateUserVectors`. |
+| N25 | Test debt | apps/web/src/pages/OfflinePacksPage.tsx, TripDetailPage.tsx, BulkImportPage.tsx, OnboardingPage.tsx, CollectionsPage.tsx | Medium | M | NEW. High-churn pages with no test file (15, 12 and 12 commits in 6 months for the first three). Only SettingsPage, CollectionPage, GalleryPage and SpeciesDetailPage have page tests. | Smoke tests with the existing jsdom setup, starting with OfflinePacksPage and `useOfflinePackSelection`. |
+| N26 | i18n | apps/web/eslint.config.mjs:13, :163 | Medium | L | NEW. 77 files are exempt from `no-literal-string`, including user-facing ones (CommandPalette, CaptureEditModal, AddToAlbumModal), and the rule is only `warn`. `check-i18n.mjs` checks keys already used, so it cannot catch new literals. | Migrate by user-facing weight, then make the rule an error; shrink the list each release. |
+| N27 | Architecture | apps/api/src/lib/collectionState.ts <-> species/otherTaxa.ts; apps/web/src/components/AddOtherTaxaModal.tsx <-> SpeciesPicker.tsx; Lightbox.tsx <-> CaptureEditModal.tsx | Medium | S | NEW (`madge`, this run). Three import cycles; the two from the first audit are gone. | Break each by moving the shared type or helper into its own module. |
+| N28 | Supply chain | apps/api/scripts/fetch-catalog-seed.js:58 | Medium | S | NEW. The checksum is verified only when the manifest has `seed.sha256` (`manifest.seed?.sha256 &&`), and it falls back to `LEGACY_SEED_URL` with no checksum at all. | Fail the build when no sha256 is present; drop the legacy URL (the no-legacy rule). |
+| N29 | Sync lifecycle | apps/desktop/src-tauri/src/sync.rs:96-139, :104-125, :75-82 | Medium | S | NEW. `push_then_pull` polls at most 1000 x 3 s then falls through to `/pull` even if the push is still running, and a failed status read abandons the pull. The 30-minute loop never restarts the local API after a sidecar crash (only an `eprintln`), and a running push to an unlinked server continues until `linked()` is next checked. | Return Err on poll timeout and keep the pull independent of status-read errors; call `start_api` or emit a "sync paused" event when down; check `linked()` between phases. |
+| N30 | Process lifecycle | apps/desktop/src-tauri/src/pg_upgrade.rs:216, :318, :364, :534 | Low | M | NEW. `pg_upgrade`, `pg_dump` and `pg_restore` children run via `.output()` or `wait_with_output` with no timeout or stall detection; a hung child freezes the startup splash (recovery only helps next launch). | Overall deadline plus a "still working" progress signal, or let the splash offer Cancel. |
+| N31 | Input validation | apps/api/src/sync/routes.ts:36-58 | Low | S | NEW. `PushedCaptureBody` has no bounds on lat/lon, no `maxLength` on strings, no `maxItems` on tags. | Numeric ranges and caps matching the import routes. |
+| N32 | Duplication | apps/api/src/sync/changes.ts:47-92 vs sync/push.ts:57-81 vs mirror.ts | Low | M | NEW. The capture column list and row mapper are hand-copied in 4 places (listChanges, unpushedCaptures, applyChanges INSERT, applyPushedCaptures UPDATE); the user_species mapper 3 times. | One column-list constant and one mapper in changes.ts, type-checked against `PushedCapture`. |
+| N33 | Security hygiene | apps/api/src/sync/routes.ts:117-124; DESKTOP_LINK_SCOPES | Low | S | NEW. A "sync"-scoped key can edit, hide and trash any capture and revoke keys, as broad as `photos.write`, which `DESKTOP_LINK_SCOPES` also grants, so "sync" is not a narrower scope. | Document that sync implies photo writes, or drop `photos.write` from the link scopes if `/sync/push` is the only write path. |
+| N34 | Performance | apps/api/src/sync/mirror.ts:52-98; sync/pushServer.ts:38-130 | Low | S | NEW. Mirror fetches derivatives one at a time with sync `mkdirSync`/`writeFileSync`/`existsSync` (up to 200 per page); push runs 2-3 queries per capture and 2 per `user_species` row (20,000 rows) in one transaction. | `fs.promises` with concurrency 4-8; batch lookups with `unnest`/`ANY` and multi-row upserts. |
+| N35 | Error handling | apps/api/src/uploads/raw.ts:282; apps/api/src/trips/jobs.ts:30-35; apps/api/src/settings/routes.ts:374 | Low | S | NEW. A RAW preview failure (`generateDerivatives(...).catch(() => null)`) is indistinguishable from the stub-TIFF case; the "logged once per run" flag in trips/jobs.ts is module-level and never reset, so it logs once per process; the browse-directory error echoes the raw fs message with absolute paths. | `log.warn` once with the filename; reset the flag per job; return a generic message and log details. |
+| N36 | Performance | apps/api/src/trips/routes.ts:26-28, :64; library/routes.ts:460, :549; uploads/photo.ts:389, :425; uploads/exif.ts:177-179, :511; settings/storageMove.ts:78, :176 | Low | S | NEW (F72 remainder). Sync `existsSync`/`statSync`/`mkdirSync`/`readdirSync` on request paths; NAS libraries are a stated use case and `eventLoopWatchdog.ts` exists because of this. | `fs.promises`; start with the folder-picker routes that take user-supplied NAS paths. |
+| N37 | Dead code | apps/api/src/uploads/cullMarks.ts:153; exports unused outside their file: `hideCaptures` (captures/hidden.ts:23), `findNewFiles`, `findUnimportedFiles`, `matchAgainstKnownOriginals` (trips/scan.ts:87, :149, :232), `fileWallClock` (managedFolders.ts:68), `isIgnoredLibraryFile` (reimport.ts:88), `describeValidationErrors` (lib/schema.ts:171) | Low | S | NEW. `isCullLabel` has no references at all; the rest are unnecessary `export`s. Core has more: `holdHost` (lib/http.ts:70), `decodeVector` (clientVectors.ts), `photoKindFor` (uploads/formats.ts) used only by tests. | Delete `isCullLabel`; drop `export` when next touching each file. |
+| N38 | Architecture | apps/api/src: uploads/photo.ts:729, trips/routes.ts:599, library/routes.ts:597, lib/collectionState.ts:585, uploads/exif.ts:551, uploads/raw.ts:539, trips/jobs.ts:530, photos/routes.ts:520, albums/routes.ts:514 | Low | M | NEW. Nine API files over 500 lines. Not urgent now that `importPhoto` is split. `raw.ts` still mirrors `photo.ts` (claim, folder, derivatives, transaction) with its own copy. | Split on touch only; fold raw.ts's capture-creating path onto the photo.ts phase functions if `importPhoto` grows. |
+| N39 | Type debt | apps/api/src/uploads/exif.ts:63, :138, :146, :156, :515; apps/api/src/lib/outboundGuard.ts:76 | Low | S | NEW. Five `as unknown as Record<string, unknown>` casts on exiftool output, read only through accessors. | One `asTagRecord()` helper. Low value. |
+| N40 | Durability | apps/desktop/src-tauri/src/embedded_db.rs:145-170 | Low | S | NEW (F57 remainder). `write_secret_file` is a fourth atomic writer for the DB password, `server-link.json` and pending revokes, with no parent-dir fsync and a fixed `.tmp` name (concurrent writers race). | Add a mode parameter to `fsutil::write_atomic` and use it here. |
+| N41 | Layering / consistency | packages/core/src/rawCache.ts, regions/regionBoundary.ts, regions/nearbyZones.ts; lib/resumableDownload.ts:92; scattered `process.env` in lib/http.ts:13, imageLimits.ts:10, log.ts:11, licensePolicy.ts:17, userIndex.ts:14 | Low | M | NEW. These three modules are pipeline build-time code (about 20 pipeline importers of `rawCache`) still living in core; `resumableDownload` uses raw `fetch` beside `lib/http.ts`; six env reads outside config.ts with ad hoc `Number(x) \|\| default`. | Move `RAW_DIR`, `BUILD_DIR`, `fetchCached` to data-pipeline and keep only what the API calls (see N05); document why resumableDownload is separate; move env reads into config.ts or document them as dev knobs. |
+| N42 | Silent fallback | packages/core/src/species/suggest.ts:629-631; userIndex.ts:95-146 | Low | S | NEW. `warmSuggestions` swallows errors with `.catch(() => {})`, so a broken model or DB never shows in warm-up; the "cache a promise, evict on rejection" pattern is hand-copied four times (user index, species set, region catalog, pack species). | `log.debug({ err })`; one `memoPromise(ttl)` helper. |
+| N43 | Web hygiene | apps/web/src/lib/resource.ts:90; components/UpdatesBanner.tsx:68 (+8 more `api.get<T>`); MasonryGrid.tsx:71, :136; GroupedSpeciesGrid.tsx:359; LibraryReimportSection.tsx:186; useGalleryListing.ts:132 | Low | S | NEW. Unchecked default `select`, 9 hand-typed responses beside the generated schema, 3 `exhaustive-deps` suppressions without reasons, and silent catches that should at least use `ignore()`. | Make `select` required or restrict to `createCachedRoute`; use the typed route form; add reasons; `ignore("...")`. |
+| N44 | Legacy rule | docker/fix-permissions.sh:8; .github/workflows/release.yml:411-412; docs/docs/contributing/releasing.md:44 | Low | S | NEW. Wording about 0.9.0 (root-run), "installs from before 0.9.1" and "older install instructions"; the `latest` and `vX.Y.Z` tags exist only for legacy installs. No one runs old versions. | Drop the wording; consider dropping the legacy tags. |
+| N45 | Docker | docker-compose.yml:3-5, :15, :21; docker/docker-compose.dev.yml:13; ci.yml:46, :123, :168 | Low | S | NEW. `postgres:18-alpine` is tag-pinned while the Dockerfile is digest-pinned; dev compose uses third-party `imresamu/postgis:18` though production says plain Postgres suffices. Default `DB_PASSWORD` is `lifer` and `.env.example:6-7` asks the user to set one, one of the few setup steps against zero-config. | Pin the digest or drop the dev postgis image; generate and persist a password in the entrypoint, as the desktop does. |
+| N46 | CI | .github/workflows/ci.yml:143-147, :63-70 | Low | S | NEW. `e2e-behaviour` has `continue-on-error`, so it never gates a PR and its failures are invisible; `npm test` then `test:coverage` runs all unit tests twice. | Set a promotion date for the advisory job; run unit tests once under coverage. |
+| N47 | Capability breadth | apps/desktop/src-tauri/capabilities/default.json:14-22 | Low | S | NEW. Local pages (127.0.0.1:4310) get `fs:allow-write-file`, `fs:allow-write-text-file`, `updater:allow-install` and `process:allow-restart` unconditionally. The fs scope is only what the save dialog adds, so the risk is any unsanitised user-controlled HTML in the served UI. | Verify nothing user-controlled renders as HTML; drop `process:allow-restart` for the local origin if bundled pages do not use it. |
+| N48 | Invariant script | scripts/check-em-dashes.mjs:11-27, :29 | Low | S | NEW. `SCAN_PATHS` omits `docs/plans`, `docs/src` and `docusaurus.config.ts`; `migrations` is excluded wholesale, including unreleased 148-151; it uses `git ls-files`, so untracked new files (sync.rs, server_link.rs, docs/plans) are unscanned until `git add`. All clean today. | Scan `docs` whole; exclude only migrations at or below the last released number; use `git ls-files -co --exclude-standard`. |
+| N49 | Pipeline hygiene | packages/data-pipeline/src/pipeline/photoStore.ts:55, pipeline/packs.ts:73, build/build-pack-index.ts:114, pipeline/photoWithheldBackfill.ts:35, pipeline/iucnBackfill.ts:85; pipeline/catalogSeedExport.ts:73-93 | Low | S | NEW. Published indexes and cached iNat/IUCN JSON are cast, not guarded (the pack index drives what publish deletes); three separate release-asset fetches and only packs.ts retries (a blip aborts a multi-hour packs stage); the fixed `seed_export` scratch schema name means two concurrent builds (workflow plus refresh) destroy each other. | `lib/jsonGuards.ts` for `PackIndex` and `PhotoStoreIndex`; `httpFetch` with retries in all three; run-unique schema suffix or an advisory lock. |
+| N50 | Sprawl / dead schema | packages/data-pipeline/src/scripts (~20 unreferenced), build/build-seed-*.ts (14 files, 14 package.json aliases), compute-global-tiers.ts:84-90, src/migrate.ts:38-60 | Low | M | NEW. About 20 scripts appear only in SCRIPTS.md (unreferenced, not verified stale), including `flag-nonnative-obscure-taxa.ts`, whose `DELETE FROM region_species` runs with no transaction (:246); ten `build-seed-*` files are 17-25 line wrappers; `species_rarity` still requires dead `range_score`/`abundance_score`/`composite` and writes 0; migrations are tracked by filename only (no checksum), so an edit to an applied migration silently never runs. | Triage unreferenced scripts and wrap the DELETE in a transaction; one `build-seed --group=<name>` registry; a migration making the dead columns nullable; store a sha256 in `schema_migrations` and warn on mismatch. |
 
 ## Top 5: if you fix nothing else, fix these
 
-### 1. F01: Stop mutating the source DB in the seed build
+### 1. N01 + N06 + N07: give sync one conflict rule
 
-Quick, safe step (same pattern the file already uses for `tier_explain`):
-
-```ts
-// build-catalog-seed.ts, replacing the in-memory `backups` loop at :290
-for (const [table, columns] of Object.entries(PATH_COLUMNS)) {
-  const bak = `seed_path_backup_${table}`;
-  if ((await pool.query(`SELECT to_regclass($1) AS t`, [bak])).rows[0].t) {
-    await restorePaths(table, columns, bak);          // a previous run crashed: restore first
-  }
-  await pool.query(`CREATE TABLE ${bak} AS SELECT id, ${columns.join(", ")} FROM ${table}`);
-  await pool.query(`UPDATE ${table} SET ${columns.map((c) => `${c} = NULL`).join(", ")}`);
-}
-// finally: one set-based restore per table, then DROP the backup table
-async function restorePaths(table: string, columns: string[], bak: string) {
-  await pool.query(`UPDATE ${table} t SET ${columns.map((c) => `${c} = b.${c}`).join(", ")}
-                    FROM ${bak} b WHERE b.id = t.id`);
-  await pool.query(`DROP TABLE ${bak}`);
-}
-```
-
-Proper fix afterwards: `CREATE TABLE seed_export.<t> AS SELECT <cols with path cols as NULL> FROM public.<t> WHERE <not other taxa>`, `pg_dump` that schema, rewrite `COPY seed_export.` to `COPY public.` in the stream, `DROP SCHEMA` in `finally`. Source tables are never touched, and the SCRIPTS.md "Danger" paragraph goes away. Add the F15 test asserting source row counts and path counts are unchanged after a build.
-
-### 2. F02: One function builds every species folder path
-
-```ts
-// uploads/managedFolders.ts
-export async function speciesFolder(
-  userId: string, speciesId: string, base: string,
-  o: { subfolder: Subfolder; takenAt: Date | null; wallClock?: string | null;
-       locationLabel?: string | null; allowLocation?: boolean },
-  settings?: UserFileSettings,
-): Promise<string> {
-  const s = settings ?? (await getUserFileSettings(userId));
-  return originalsFolder(base, {
-    ...(await speciesFolderParts(userId, speciesId, s.namingStyles)),
-    organizeByYear: s.organizeByYear,
-    organizeByLocation: (o.allowLocation ?? true) && s.organizeByLocation,
-    locationLabel: o.locationLabel ?? null,
-    takenAt: o.takenAt, takenAtWallClock: o.wallClock ?? null, subfolder: o.subfolder,
-  });
-}
-```
-
-Replace the hand-built options at photo.ts:385/417, raw.ts:84/184/295, video.ts:230, common.ts:152 (`allowLocation: false`), trips/import.ts:192 (drops its direct `users` query). Then make `originalsFolder` non-exported outside this module so new call sites can't reintroduce drift. Test: JPEG + RAW + video for an Other Taxa species with a non-default naming style all land under one `<Taxon>/<Species>`. Existing misfiled RAWs are fixed by the next Reorganize, which already uses the correct options.
-
-### 3. F03: One CLIP preprocessing implementation
+Today push always wins (N01), pull sometimes silently discards local edits (N07) and ignores server trashes on local-origin rows (N06). Pick the plan's rule (server version decides) and enforce it on both sides. Sketch:
 
 ```diff
- // packages/data-pipeline/src/scripts/backfill-reference-embeddings.ts
--import { computeEmbedding, EMBEDDING_MODEL_VERSION } from "../embeddings.js";
-+import { EMBEDDING_MODEL_VERSION } from "@lifer/core/config.js";
-+import { computeEmbedding, clipModel } from "@lifer/core/species/embeddings.js";
-+await clipModel.download();   // checksum-verified
-+setPlan({ device: null, runtime: null,
-+  placements: { clip: { backend: "cpu", modelPath: CLIP_GPU_MODEL_PATH, providers: ["cpu"], force: true } } });
-```
-
-`placementFor` (core/species/acceleration.ts:43) needs a `force` flag so an explicit CPU placement can use the full-precision path. Delete `packages/data-pipeline/src/embeddings.ts`; point build-catalog-seed.ts:38 at core's `EMBEDDING_MODEL_VERSION`. Add a parity test (grayscale + RGB fixture through both entry points). Then a dry run lists reference photos whose source has 1 channel and recomputes only those vectors, no full rerun.
-
-### 4. F13/F46/F47/F48: A shared cached-resource primitive for the web app
-
-No new library (ADR 0012 holds):
-
-```ts
-// lib/resource.ts
-const resetters = new Set<() => void>();
-export const resetAccountCaches = () => resetters.forEach((r) => r());
-
-export function createCachedResource<T>(path: string) {
-  let state: { data: T | null; error: unknown } = { data: null, error: null };
-  let pending: Promise<T> | null = null;
-  const listeners = new Set<() => void>();
-  const emit = (s: typeof state) => { state = s; listeners.forEach((l) => l()); };
-  const refresh = () => (pending ??= api.get<T>(path)
-    .then((d) => (emit({ data: d, error: null }), d))
-    .catch((e) => { emit({ ...state, error: e }); throw e; })
-    .finally(() => { pending = null; }));
-  resetters.add(() => { pending = null; emit({ data: null, error: null }); });
-  const subscribe = (l: () => void) => (listeners.add(l), () => listeners.delete(l));
-  return {
-    refresh,
-    use() {
-      const s = useSyncExternalStore(subscribe, () => state);
-      useEffect(() => { if (!state.data) void refresh().catch(() => {}); }, []);
-      return { ...s, loading: !s.data && !s.error, refresh };
-    },
-  };
-}
-```
-
-Order: move `useRegions`/`useSettings` onto it (no behaviour change); replace the 7 pack-index fetches with `packIndex.use()` + `packIndex.refresh()` on download finish; call `resetAccountCaches()` from AuthProvider; add a sibling `useApiResource(path | null)` that aborts on id change for trip/album detail (fixes F48). Pair with F14 (jsdom + Testing Library) so this primitive is the first thing tested. Fix F13 in the same PR: collect failed deletes in `undoLastBatch` and keep those rows `done`.
-
-### 5. F04/F05 + F06: Run the tests you already wrote, and close the lockout
-
-```diff
- # .github/workflows/ci.yml (desktop job)
-       - run: cargo clippy --all-targets --locked -- -D warnings
-+      - run: cargo test --lib --locked
-```
-
-```yaml
-# .github/workflows/release.yml
-  pg-upgrade:
-    needs: ci
-    uses: ./.github/workflows/desktop-build.yml   # add `on: workflow_call` with the same inputs
-    with: { arch: arm64, pg_upgrade_test: true }
-# desktop job: needs: [ci, pg-upgrade]
-```
-
-Login lockout (auth/routes.ts:96):
-
-```diff
--if (isRateLimited(rateLimitKey) || isRateLimited(emailKey, LOGIN_PER_EMAIL_MAX)) {
-+const knownDevice = hasUnlock(request.cookies[KNOWN_DEVICE_COOKIE], normalizedEmail);
-+if (isRateLimited(rateLimitKey) || (!knownDevice && isRateLimited(emailKey, LOGIN_PER_EMAIL_MAX))) {
+ // sync/pushServer.ts: the desktop sends the server updated_at it last mirrored (null if never)
+-       WHERE id = $1 AND user_id = $2`,
++       WHERE id = $1 AND user_id = $2 AND updated_at <= $21`,
  ...
- clearAttempts(rateLimitKey);
-+clearAttempts(emailKey);
-+reply.setCookie(KNOWN_DEVICE_COOKIE, addUnlock(request.cookies[KNOWN_DEVICE_COOKIE], normalizedEmail).value,
-+  { httpOnly: true, sameSite: "lax", secure: cookieSecureFor(request), maxAge: 365 * 86400 });
+-    outcomes.push({ id: item.id, status: "updated", ... });
++    outcomes.push(rowCount === 1 ? { id: item.id, status: "updated", ... } : { id: item.id, status: "conflict" });
 ```
 
-The signing key must survive restarts (inject a persisted key into `unlockCookie.ts` instead of its process-local one). Per-email+IP limiting still applies to known devices. Add a test: "owner logs in after 50 foreign failures".
+```diff
+ // sync/mirror.ts upsert: never overwrite a local-origin row with unpushed edits
+-  ON CONFLICT (id) DO UPDATE SET ..., pushed_at = now()
++  ON CONFLICT (id) DO UPDATE SET ..., pushed_at = now()
++  WHERE captures_all.origin = 'mirror' OR captures_all.updated_at <= captures_all.pushed_at
+```
+
+Apply the server's `deleted_at` to local-origin rows on pull (N06). For fingerprint-matched photos that were never mirrored there is no base version: treat as `conflict` and let the next pull win. Write the N13 tests first: push of a server-trashed capture, local edit during pull, failed upload.
+
+### 2. N02 + N03 + N18: one gated, fresh, ordered publish path
+
+- Add a gate step to `catalog-seed.yml` before the upload step that fails the job on any failing check, or delete the workflow and publish only through `refresh --publish`.
+- In `pipeline/gate.ts`, require a `done` row for catalog, regions, endemic, tiers and vectors newer than the latest source change; `--stages=packs,gate,publish` then refuses unless the skipped stages are named in `--accept-stale=`.
+- In `refresh.ts:507-526` build and verify the seed before uploading anything.
+
+### 3. N04: snapshot the maintainer DB before `refresh` mutates it
+
+```ts
+// refresh.ts, before stage 1, skipped on --resume
+const pgDump = await resolvePgDump();
+const out = path.join(BACKUP_DIR, `maintainer-${runId}.dump`);
+await run(pgDump, ["-Fc", "--file", out, DATABASE_URL]);   // writes a file, no buffered stdout
+```
+
+Rewrite `scripts/backup.ts` the same way (no `docker exec`, `spawn`, resolve on `close`), and have `doctor` warn when the newest dump is older than a chosen number of days. Open question first: is the maintainer DB the desktop embedded Postgres or the compose one? (See Open questions.)
+
+### 4. N05: stop the API depending on a repo checkout
+
+Short fix: have `rawCache.ts` take its directory from config (`DATA_DIR/cache/raw`) and fetch through `lib/http.ts` (timeout, User-Agent, retries). Better fix: ship province lists as seeded data so the API never downloads Natural Earth at request time, then move `rawCache`, `regionBoundary` and `nearbyZones` into data-pipeline (N41). Test: call the province route with `DATA_DIR` set to an empty temp dir and no repo `data/`.
+
+### 5. N08 + N09: make the mirror cursor and deletions trustworthy
+
+Cursor: change `changes.ts:55-62` to read from `cursor - 2 minutes` (the upserts are idempotent) or change the trigger to `clock_timestamp()`. Deletions: add a small `capture_tombstones (id, user_id, deleted_at)` written by `captures/trash.ts:175` and returned from `/sync/changes`; mirror deletes the matching rows. Until species, album and trip deletions sync, say so in `state-and-sync.md` so the limit is documented rather than discovered.
 
 ## Quick wins
 
 Low effort, Medium+ severity:
 
-- [ ] F01: back up path columns to a DB table, set-based restore
-- [ ] F03: delete the pipeline preprocessing copy, use core's
-- [ ] F04: add `cargo test --lib --locked` to CI
-- [ ] F06: known-device exemption + clear `emailKey` on success
-- [ ] F07: publish requires a passing gate; canonical stage order
-- [ ] F08: delete the percentile-quota branch in apply-rarity-phase4
-- [ ] F10: point scheduled-refresh.sh at `refresh`, or delete `ops/`
-- [ ] F11: compute-local-tiers fails on skipped countries
-- [ ] F12: align the BioCLIP GPU artifact filename
-- [ ] F13: don't reset rows whose undo delete failed
-- [ ] F16: `AND capture_id IS NULL` on the fingerprint RAW claim
-- [ ] F20, F26, F38, F39: log inside the swallowed catches
-- [ ] F21: delete `resyncSpeciesMetadata`
-- [ ] F22: cache `listMountedVolumes` for a few seconds
-- [ ] F25: move a corrupt `albums.json` aside instead of overwriting
-- [ ] F32: `Value.Parse` on pack index/manifest
-- [ ] F34: async gunzip off the request path
-- [ ] F37: core takes the pipeline cache dir from config
-- [ ] F42: move Node-only vector formats out of @lifer/shared
-- [ ] F44: table tests for sensitive-species coarsening
-- [ ] F45: document the inference child-process mode
-- [ ] F48, F49: cancel guard on trip/album fetch; onboarding poll via `useJobPoll`
-- [ ] F56, F57: migration timeout + kill; fsync parent dir after renames
-- [ ] F58: no updater/process grants for http servers
-- [ ] F61, F62, F63: pipeline stops treating failures as success; upload only manifest files
-- [x] F64: delete `gbif-bulk-ab-test.ts`, `compute-all-regions.ts` (`vernacular-regions-data.ts` stays, see F64)
+- [ ] N02: add the gate step to `catalog-seed.yml` (or delete the workflow)
+- [ ] N07: skip local-origin rows with unpushed edits in the mirror upsert
+- [ ] N10: log failed uploads in sync push and surface `failed > 0`
+- [ ] N11: `parseRemoteJson` on `/sync/changes` and push responses
+- [ ] N12: document or tighten the sync-key trust model on plain http
+- [ ] N14: rewrite the sync plan body to match what was built
+- [ ] N15: log inside the album and trip index `.catch(() => {})` calls
+- [ ] N17: batch the pack removal queries
+- [ ] N18: build the seed before uploading packs
+- [ ] N19: refresh prints the target DB and refuses `--publish` without an explicit `DATABASE_URL`
+- [ ] N21: warn once when `EBIRD_API_KEY` is unset; failure threshold in apply-introduced-flags
+- [ ] N22: `cargo check` matrix on Windows and macOS
+- [ ] N23: run the built Docker image and curl `/health`
+- [ ] N27: break the three import cycles
+- [ ] N28: fail the build when the seed manifest has no sha256
+- [ ] N29: poll timeout returns Err; `linked()` check between sync phases
+- [ ] F77: split the UpdatesBanner effect off `onPacksPage`
+- [ ] F76: add reasons to the 3 bare `exhaustive-deps` suppressions
 
 ## Things that look bad but are actually fine
 
-- **149 em dashes in the repo.** All are in released migrations (`packages/data-pipeline/migrations/*.sql`). `scripts/check-em-dashes.mjs:29` skips migrations on purpose because released migrations are immutable history. Zero elsewhere in apps, docs, CI or Docker. (One real gap: its `EXCLUDED_DIRS` also contains `build`, so `packages/data-pipeline/src/build/**` is never scanned; it's clean today.)
-- **Knip reports 60 unused files and 14 unused deps.** Mostly false positives with no knip config: ~45 are pipeline scripts run via `tsx` CLI, desktop JS is loaded from HTML, and `onnxruntime-node`/`@huggingface/transformers`/`pino` are imported by core but must also be in `apps/api` so the esbuild bundle and desktop sidecar resolve them. The genuinely dead items are in F64, F68, F69.
-- **Missing `user_id` filters on some queries** (reimport hash lookup, global reorganize/catalog jobs guarded only by `requireAuth`, shared library allowlist). A server has exactly one account by design (security-model.md:10, register refuses a second). They're latent and noted in F73, not leaks.
-- **Template-string SQL** in catalogSeedUpdate.ts `mergeGenericTable`, stats/routes.ts, embeddings.ts:548 (`FROM ${table}`), build-region-pack.ts:368. Every interpolated identifier goes through `ident()` or is a closed union/enum checked against constants; user values are always `$n` parameters.
-- **`sensitiveSpecies.ts` at 2037 lines.** ~1950 lines of a typed `Map` literal plus 3 small functions. TypeScript validates the scope/season shapes for free; converting to JSON would lose that without adding a validator. Only the logic needs tests (F44).
-- **The worker and inference modules reading `process.env` directly** instead of config.ts. Deliberate: the desktop inference sidecar reuses the worker without loading config.ts (which loads dotenv and resolves DATA_DIR). The `LIFER_MAX_IMAGE_PIXELS` copy in inferenceWorker.ts:30 is the one exception worth folding back.
-- **Undocumented-looking env vars** (`LIFER_ALLOW_NONCOMMERCIAL_PHOTOS`, `LIFER_INAT_OFFLINE`, `LIFER_INAT_CACHE_MAX_AGE_DAYS`). Maintainer-only knobs, documented in rebuilding-data.md, SCRIPTS.md and ADR 0010, not the install docs, which is correct.
-- **~70 `.catch(() => {})` in the API.** The majority are `ROLLBACK.catch` or `rm(...).catch` on paths that already rethrow the original error, which is the right pattern. Only the specific ones in F20, F26, F74 hide real failures.
-- **`backfill-descriptions` calling Wikipedia directly** despite the "prefer iNat's wikipedia_summary" rule. iNat's copy is truncated for this use; it goes through `PoliteClient` + `RateLimitBreaker` and only refetches changed revisions.
-- **Destructive migrations** (125 DELETE, 129 DROP COLUMN, 131 DROP TABLE). Each moves data before dropping and has a dedicated integration test. Migration number gaps (078/079/083) never existed and the runner only rejects duplicates.
-- **API keys hashed with plain SHA-256.** Correct for 256-bit random tokens; argon2 would only add per-request latency.
-- **Large lists without a virtualization library.** `content-visibility: auto`, cursor paging with IntersectionObserver, and memoized cards cover it.
-- **62 `let _ =` in Rust.** Best-effort cleanup on already-failed paths or in tests; `pg_upgrade` keeps the old cluster until `/health` answers. Process lifecycle generally is solid (parent-pid watchdogs, `LIFER_PG_CTL`, pid-reuse guard).
+- **`apps/web/src/api/schema.gen.ts` at 19k lines and the binary `yolov8n.onnx`.** Generated and binary; they top any line-count ranking. Hand-written large files are the ones in N16 and N38.
+- **`Type.Unknown()` for sync route items (sync/routes.ts:67-72).** Pass-through responses of internal shapes, commented as such. The real gap is the unchecked client-side read (N11), not the server schema.
+- **Hand-written `INSERT INTO captures_all` in sync/mirror.ts:127.** A mirror row has no originals, a different origin and takes the server's id, so the uploads-side `insertCapture` helper would not fit.
+- **Sync key stored in plaintext in `server-link.json`.** Written 0600 and fsynced next to the DB password, revoked on unlink with retried pending-revokes, read fresh so sign-out takes effect, and redirects are refused on both the Rust (server_link.rs:111) and Node (serverLink.ts:49) sides.
+- **Plain-http LAN servers getting updater and restart grants (security.rs:84-110).** Documented, signature-checked and a maintainer decision from 2026-10-08.
+- **`tauri.conf.json` and `Cargo.toml` showing 0.11.0 while releasing.md only bumps package.json.** `release.yml:131-137` rewrites `tauri.conf.json` from the tag, so shipped builds do not drift.
+- **Compose `permissions` service running as root (user 0:0, `network_mode: none`).** The only way to chown the volumes; the api container runs as 568:568.
+- **Floating `latest`/`release` image tags in compose (docker-compose.yml:46-49).** Intentional and pinnable with `LIFER_VERSION`.
+- **Production `unwrap`/`expect` in Rust.** Four `expect`s with stated reasons (lib.rs:55, :283, local_credential.rs:13, menu.rs:25); the other ~150 hits are test modules.
+- **`Promise.race` plus `AbortSignal.timeout` plus a manual timer in core/src/lib/http.ts:130-146.** A deliberate hard timeout for a silent connection, with the timer cleared in `finally`.
+- **Module-level Maps in vectorCache, userIndex, suggest.** They look like unbounded caches but have byte or float budgets, TTLs, idle-free hooks and eviction on rejection (the gap is tests, N24).
+- **`embeddings.ts` and `lazyEnrich.ts` as re-export barrels.** Intentional so existing import paths keep working.
+- **Template-string SQL in catalogSeedExport.ts:96-123 and build-catalog-seed.ts:80-100.** Identifiers go through `ident()` or fixed constants; values are `$n` parameters. `seedSchemaToPublic` tracks COPY state and never edits COPY bodies.
+- **`catch {}` on reading the previous manifest (catalogPublish.ts:70-76).** The failure mode is "delete nothing old", the safe direction.
+- **`packs`, `gate` and `publish` always rerun (`resume=false`).** `packs` is needed in memory downstream and a stale gate row must not satisfy publish.
+- **`compute-local-tiers` removing region_species rows.** The intended data-correction step inside the tiers stage, gated by `--apply`.
+- **~30 `.catch(() => {})` in `uploads/*`.** Rollback and cleanup on paths that rethrow or are already failing (photo.ts:77, :112, :698; raw.ts:115, :208, :275, :437; reorganizeOriginals.ts:40-49). Carried over from run 1; only N15 and N35 hide real failures.
+- **`readAlbumIndex` using sync fs (albumIndex.ts:24).** Runs in a serialized per-folder queue, not a request path.
+- **Trip and reimport job state held in module-level objects.** Single-account, in-memory by design, with TTL pruning.
+- **`auth/session.ts:144` swallowing the `api_keys.last_used_at` update.** Telemetry only, commented as fire-and-forget.
+- **The en dash in `core/src/species/descriptionText.test.ts:211`.** Test data for Wikipedia text, not user copy. No em dashes exist outside released migrations.
+- **Carried over from run 1:** the 149 em dashes inside released migrations, knip false positives, missing `user_id` filters on a one-account server, `sensitiveSpecies.ts` at ~2,000 lines (a typed data Map), plain SHA-256 for API keys, no list virtualization library, `let _ =` in Rust cleanup paths.
 
-## Maintainer decisions (2026-10-08)
+## Open questions for the maintainer
 
-Answers to the first run's open questions, folded into the findings above.
+1. **Sync conflict rule.** Should a server-side trash beat a later desktop edit, or should the desktop edit win (un-trash)? The code currently picks the desktop; the plan says last write wins by `updated_at`. Should the mirror pull skip local-origin rows with unpushed edits, or is "the server always wins on pull" intended?
+2. **Purge tombstones.** Is a ghost mirror row after an offline purge acceptable for this release (re-link or clear the mirror fixes it), or do you want tombstones before shipping sync?
+3. **Sync scope.** Is "sync" meant to be narrower than `photos.write`? `DESKTOP_LINK_SCOPES` grants both and `/sync/push` can already edit and trash captures.
+4. **Sync key trust on plain http.** Is the public instance id enough on a LAN, or do you want a per-link secret?
+5. **Which database is the maintainer DB?** The desktop embedded Postgres or the compose one? `scripts/backup.ts` and the docs assume Docker; if embedded, there is currently no working backup of the precious DB.
+6. **`catalog-seed.yml`.** Is it meant to be an independent publish path (it needs a reachable remote DB), or is `refresh --publish` the only real route? If the latter, delete the workflow.
+7. **`--stages=packs,gate,publish` without upstream stages** (the sea-zone case): intended, or should publish require fresh upstream stages?
+8. **The ~20 unreferenced pipeline scripts** (flag-nonnative-obscure-taxa, detect-*, verify-vagrant-*, report-vagrant-ebird, backfill-aba-codes, ...): still wanted, or may they be pruned?
+9. **`fetchProvincesForCountry` at request time:** is it meant to work on installed desktop and server builds? If so, where should the Natural Earth cache live (N05)?
+10. **Offline cache (`offline_cache.rs`, ~1,100 lines):** still wanted now that the mirror fallback exists, or should it be removed as the plan says? It is the largest remaining duplicate path.
+11. **F44:** should logging of never-matching eBird region labels be done, or dropped from the plan?
+12. **`I18N_UNMIGRATED_FILES` (77 files):** a list to empty before 1.0, or a permanent allowlist?
+13. **`raw.ts` capture path:** keep its own copy, or fold onto the `photo.ts` phase functions?
 
-1. **Tier sub-scores (F09):** quota or percentile-rank logic is not allowed at any level, inputs included. Fix it, but calibrate so current packs change as little as possible.
-2. **Elusiveness scores (F08, F81):** investigated. Nothing reads `elusiveness_score`, `composite`, `range_score` or `abundance_score`. The same step is the only writer of `endemic_country_iso3`, which the app does use, so that piece has to move into `refresh` before the rest is deleted.
-3. **Scheduled refresh (F10):** stays manual. Delete the broken `ops/` wrapper.
-4. **BioCLIP GPU file (F12):** fp32 is correct; fix the exporter.
-5. **Response caches:** meant for pipeline builds. The API also reads the iNat cache on installs (F84).
-6. **0.9.x Docker migration (F60):** the only user has migrated; delete it.
-7. **`packages/core` scope:** checked against the built server (`apps/api/dist/index.js.map`): the 9 pipeline-only core files (~2,300 lines: `gbif/*`, `regions/buildRegionSpecies`, `regions/inatChecklist`, `regions/compute/occurrences`, `regions/compute/seaZones`, `lib/fetchWithRetry`, `species/computeRarityPhase1`, `uploads/testImages`) are already tree-shaken out, so nothing extra ships. `rawCache`, `descriptionText` and `licensePolicy` are used by the server and stay. Moving the 9 into `packages/data-pipeline` is clarity only; do it when touching them.
-8. **API keys on desktop:** intended. Keys are for home-made integrations against a server; the desktop has none.
-9. **S3 mode:** a documented API-only feature (`LIFER_S3_*`, environment-variables.md:119): an integration can register a photo whose original lives in an S3 or MinIO bucket instead of on disk. The web app never uses it. F68 deletes only the dead classes, not the feature. Superseded: S3 mode has since been removed (its `@aws-sdk/*` deps, ~11 MB per install, and the `mode=s3` path bypassed the species folder tree; mounting NAS/MinIO storage as a library root covers the need).
-10. **`originals.user_id` (F17):** always set it and backfill.
-11. **GPU crash counter (F82):** unintended; now a finding.
-12. **Web test deps (F14):** approved.
+## Audit limits
+
+- No tests, builds or `cargo` were run by the auditors (no `timeout` binary on this Mac, and cargo would write to `target/`); typecheck, `npm audit`, `madge` and the four invariant scripts were run by me.
+- Not verified: whether `PacksMap`/`RegionMap` are lazy at every importer; the ~87 `as X` casts in web (unreviewed); the middle of release.yml (signing steps); DATA_SOURCES.md paths; README claims; e2e spec contents; the Python script internals beyond DB and DELETE greps; `species/catalogSeedUpdate.ts` internals, `gallery/routes.ts` SQL correctness, `collection/*`.
+- A resolved finding means the fix is present in the working tree; most of this tree is still uncommitted.

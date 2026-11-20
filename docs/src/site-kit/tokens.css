@@ -1,0 +1,79 @@
+/* The app's design tokens (apps/web/src/theme.css), kept in step by tokens.test.ts, plus the site's
+   display type and a mapping onto Docusaurus's --ifm-* variables. */
+
+:root {
+  --color-canvas: #f6eedc;
+  --color-surface: #fbf7ee;
+  --color-surface-muted: #f1e8d4;
+  --color-line: #e6dcc6;
+  --color-ink: #242c34;
+  --color-muted: #5f6b6f;
+  --color-accent: #68745e;
+  --color-accent-fg: #ffffff;
+  --color-control: #ffffff;
+  --color-control-line: #d2c5a7;
+  --color-link: #4e5a45;
+
+  --spacing-page: 1.5rem;
+  --spacing-section: 1.5rem;
+  --spacing-item: 1rem;
+  --spacing-panel: 1.25rem;
+
+  --radius-panel: 0.75rem;
+  --radius-control: 0.375rem;
+  --radius-badge: 0.25rem;
+
+  --text-large-title: 1.75rem;
+  --text-title-1: 1.5rem;
+  --text-title-2: 1.25rem;
+  --text-title-3: 1.0625rem;
+  --text-headline: 0.9375rem;
+  --text-body: 0.9375rem;
+  --text-callout: 0.875rem;
+  --text-subheadline: 0.8125rem;
+  --text-footnote: 0.75rem;
+  --text-caption: 0.6875rem;
+
+  /* Marketing headings, on top of the app's scale. */
+  --text-display: clamp(2rem, 5vw, 3.25rem);
+  --text-display-2: clamp(1.5rem, 3.5vw, 2.25rem);
+  --section-gap: clamp(2.5rem, 7vw, 5rem);
+
+  /* Docusaurus mapping. */
+  --ifm-color-primary: var(--color-link);
+  --ifm-color-primary-dark: var(--color-link);
+  --ifm-color-primary-darker: var(--color-link);
+  --ifm-color-primary-darkest: var(--color-link);
+  --ifm-color-primary-light: var(--color-link);
+  --ifm-color-primary-lighter: var(--color-link);
+  --ifm-color-primary-lightest: var(--color-link);
+  --ifm-menu-color-background-active: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  --ifm-background-color: var(--color-surface);
+  --ifm-background-surface-color: var(--color-control);
+  --ifm-font-color-base: var(--color-ink);
+  --ifm-color-emphasis-600: var(--color-muted);
+  --ifm-toc-border-color: var(--color-line);
+  --ifm-hr-border-color: var(--color-line);
+  --ifm-navbar-background-color: var(--color-surface);
+  --ifm-footer-background-color: var(--color-ink);
+  --ifm-global-radius: var(--radius-control);
+  --ifm-code-font-size: 92%;
+  --lifer-sidebar-background: var(--color-canvas);
+  --docusaurus-highlighted-code-line-bg: color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+[data-theme="dark"] {
+  --color-canvas: #141516;
+  --color-surface: #1c1e1f;
+  --color-surface-muted: #25282a;
+  --color-line: #34383b;
+  --color-ink: #eceae5;
+  --color-muted: #a9aca9;
+  --color-accent: #68745e;
+  --color-accent-fg: #ffffff;
+  --color-control: #2a2d2f;
+  --color-control-line: #4a4f52;
+  --color-link: #b3c0a5;
+
+  --ifm-footer-background-color: var(--color-canvas);
+}

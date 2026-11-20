@@ -7,21 +7,21 @@ description: Common questions about Lifer.
 
 ## Does Lifer upload my photos anywhere?
 
-No. There's no Lifer cloud service. Your photos stay on your computer, your drives, or your own server. Species suggestions run on your own device. Lifer only goes online to download packs, models, the map, catalog updates and app updates, to load extra reference photos (with Small packs) and to look things up on iNaturalist when you use those features.
+No. There's no Lifer cloud service. Your photos stay on your computer, your drives, or your own server. Species suggestions run on your own device. Lifer only goes online to download regions, models, the map, catalog updates and app updates, to load extra reference photos (with Small downloads) and to look things up on iNaturalist when you use those features.
 
 ## Is this a sightings log?
 
-No. A species is **collected** only when you've attached your own photo of it. You can **Mark as seen** species you've spotted but not photographed, to tell them apart from ones you've never met, and [import your eBird sightings](./guides/ebird-import.md) to do that in bulk. But the life list in Lifer is a photographic life list.
+No. A species is **photographed** only when you've attached your own photo of it. You can **Mark as seen** species you've spotted but not photographed, to tell them apart from ones you've never met, and [import your eBird sightings](./guides/ebird-import.md) to do that in bulk. But the life list in Lifer is a photographic life list.
 
-## What do the rarity tiers mean? Is "Legendary" endangered?
+## What do the rarity levels mean? Is "Legendary" endangered? {#what-do-the-rarity-tiers-mean-is-legendary-endangered}
 
-No. Tiers (Common, Occasional, Uncommon, Rare, Legendary) are about **how hard a species is to find and photograph** in a place: Common is seen anywhere, anytime; Occasional in the right habitat; Uncommon needs a dedicated search; Rare needs travel and patience; Legendary is once in a lifetime. A species' IUCN conservation status is shown separately. Where there's too little data, it shows **Unrated** (or **Not enough data here** on a region's checklist). Marine invertebrates and species added from iNaturalist aren't rated yet. See [Rarity tiers](./guides/collection-and-checklists.md#rarity-tiers).
+No. Rarity levels (Common, Occasional, Uncommon, Rare, Legendary) are about **how hard a species is to find and photograph** in a place: Common is seen anywhere, anytime; Occasional in the right habitat; Uncommon needs a dedicated search; Rare needs travel and patience; Legendary is once in a lifetime. A species' IUCN conservation status is shown separately. Where there's too little data, it shows **Unrated** (or **Not enough data here** on a region's checklist). Marine invertebrates and species added from iNaturalist aren't rated yet. See [Rarity tiers](./guides/collection-and-checklists.md#rarity-tiers).
 
 ## Which animals are covered?
 
-Offline packs have full regional checklists and reference photos for:
+Downloaded regions have full regional checklists and reference photos for:
 
-- Birds, mammals and fish. The Fish packs also carry sharks, rays and marine mammals.
+- Birds, mammals and fish. The Fish download also carries sharks, rays and marine mammals.
 - Reptiles, turtles and amphibians.
 - Marine invertebrates: corals, jellies and anemones, echinoderms, nudibranchs, shells and marine mollusks, cephalopods, and crustaceans.
 
@@ -49,7 +49,7 @@ Only for the desktop app, and only if you want Lifer to save photos to it or kee
 
 ## Does it work offline?
 
-Yes. Once you've downloaded packs, and optionally the models and the map, everything works without internet.
+Yes. Once you've downloaded regions, and optionally the models and the map, everything works without internet.
 
 ## Can more than one person use a server?
 
@@ -59,9 +59,9 @@ A server has one account. Anyone you give the login to sees the same library. To
 
 Share links need a server, because they need an address other people can reach. [Connect the desktop app to a server](./install/connect-desktop-to-server.md) to use them.
 
-## How do I undo hiding or archiving a species?
+## How do I undo hiding a species or not counting it?
 
-Open **Settings > Library** and choose **Hidden species** or **Archived species**. See [Undoing hide and archive](./guides/collection-and-checklists.md#undoing-hide-and-archive).
+Open **Settings > Library** and choose **Hidden species** or **Archived species**. See [Undoing hiding and archiving](./guides/collection-and-checklists.md#undoing-hide-and-archive).
 
 ## Can I script Lifer or connect it to Home Assistant?
 
@@ -81,8 +81,8 @@ Photos in JPEG, PNG, WebP, TIFF and HEIC, RAW files from all the major camera br
 
 ## How much disk space does Lifer need?
 
-Besides your photos: packs vary by country and whether you choose Full or Small (sizes are shown before downloading), the species-matching models are about 680 MB, and the offline map about 550 MB. A server with an NVIDIA GPU also downloads about 2.7 GB for [GPU acceleration](./install/hardware-acceleration.md#nvidia-downloads).
+Besides your photos: downloaded regions vary by country and whether you choose Full or Small (sizes are shown before downloading), the species recognition models are about 680 MB, and the offline map about 640 MB. A server with an NVIDIA GPU also downloads about 2.7 GB for [GPU acceleration](./install/hardware-acceleration.md#nvidia-downloads).
 
 ## Does Lifer use my graphics card?
 
-Yes, when it helps. Lifer tests your GPU once and moves species matching onto it if it gives the same results as the CPU and is faster. On a Mac or Windows there's nothing to do. On a Docker or TrueNAS server, pass the GPU into the container. See [GPU acceleration](./install/hardware-acceleration.md).
+Yes, when it helps. Lifer tests your GPU once and moves species recognition onto it if it gives the same results as the CPU and is faster. On a Mac or Windows there's nothing to do. On a Docker or TrueNAS server, pass the GPU into the container. See [GPU acceleration](./install/hardware-acceleration.md).

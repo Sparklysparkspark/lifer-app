@@ -20,32 +20,32 @@ If Lifer isn't in the list, try the action again so macOS asks. Or move your lib
 
 ## Model download failures {#model-download}
 
-**You see:** "Download failed" in **Settings > Offline data > Species-matching model**, or during setup.
+**You see:** "Download failed" in **Settings > Offline data > Species recognition**, or during setup.
 
 The models (about 680 MB together) come from Hugging Face and the Lifer GitHub releases.
 
 1. Check your internet connection, then click the download button again.
 2. Make sure there's at least 1 GB of free space on the disk that holds Lifer's app data. On a server, that's the `lifer-app-data` Docker volume.
 3. On a server, make sure the container can reach `huggingface.co` and `github.com`. Firewalls, DNS filters and some proxies block them.
-4. If it says "Waiting for another download to finish", another download (a pack, the map, or a catalog update) is running. It starts when that one finishes.
+4. If it says "Waiting for another download to finish", another download (a region, the map, or a catalog update) is running. It starts when that one finishes.
 
 If "Species reference vectors couldn't be fully downloaded" appears, the model is installed but the species examples it compares against aren't complete. Lifer tries again each time it starts.
 
 ## Species suggestions unavailable {#suggestions-unavailable}
 
-**You see:** no suggestion cards on the Import page, or **Suggest species while importing** is grayed out.
+**You see:** no suggestion cards on the Import page, or **Suggest species while importing photos** is grayed out.
 
-- **The model isn't downloaded.** Download it from **Settings > Offline data > Species-matching model**. Then turn on **Suggest species while importing** in **Settings > Species and import**.
-- **No region is chosen.** On the **Bulk import** page, pick a **Region for species suggestions**. Suggestions come from the species in that region.
-- **The region's pack isn't downloaded.** Download it from [Offline packs](./guides/offline-packs-and-map.md).
-- **"Species matching took too long on this photo"** means one photo timed out. Lifer restarts species matching on its own, so carry on.
-- **"Stopped: species matching is stuck on an earlier photo"** means several photos in a row timed out. Quit and reopen the desktop app, or run `docker compose restart api` on a server.
+- **The model isn't downloaded.** Download it from **Settings > Offline data > Species recognition**. Then turn on **Suggest species while importing photos** in **Settings > Species and import**.
+- **No region is chosen.** On the **Import photos** page, pick a **Region for species suggestions**. Suggestions come from the species in that region.
+- **The region isn't downloaded.** Download it from [Settings > Species and import > Species downloads](./guides/offline-packs-and-map.md).
+- **"Species recognition took too long on this photo"** means one photo timed out. Lifer restarts species recognition on its own, so carry on.
+- **"Stopped: species recognition is stuck on an earlier photo"** means several photos in a row timed out. Quit and reopen the desktop app, or run `docker compose restart api` on a server.
 
-Suggestions only appear on the **Bulk import** page and in trips and albums, not on a species page's Upload, since the species is already known there.
+Suggestions only appear on the **Import photos** page and in trips and albums, not on a species page's Upload, since the species is already known there.
 
-The status line in **Species-matching model** tells you which model suggestions use. "The general model, which is less accurate" means only part of the download finished. Click **Download the identification model (~370 MB)** to finish it.
+The status line in **Species recognition** tells you which model suggestions use. "The general model, which is less accurate" means only part of the download finished. Click **Download the identification model (~370 MB)** to finish it.
 
-If matching is slow on a server with a graphics card, see [GPU acceleration](./install/hardware-acceleration.md#troubleshooting).
+If species recognition is slow on a server with a graphics card, see [GPU acceleration](./install/hardware-acceleration.md#troubleshooting).
 
 ## Drive not connected {#drive-not-connected}
 
@@ -59,14 +59,14 @@ If the drive is plugged in but Lifer still says it isn't:
 - Check **Settings > Storage > External drives** to see whether it shows **Connected**.
 - On a server, check that the folder is still mounted and listed in `LIFER_LIBRARY_ROOTS`. **Settings > Storage > Extra library folders** shows **Not found** if it isn't.
 
-"The file couldn't be found at its saved location" means the file was moved or deleted outside Lifer. Put it back, or run [Reimport library](./settings.md#reimport) to relink moved files.
+"The file couldn't be found at its saved location" means the file was moved or deleted outside Lifer. Put it back, or run [Rescan this library](./settings.md#reimport) to relink moved files.
 
 ## "Lifer can't save photos right now"
 
 Your library folder (or Lifer's app data folder) is missing, usually because it was moved, renamed or deleted, or the drive it's on was unplugged.
 
-- **Desktop app:** move it back, or choose its new location in **Settings > Storage**, then restart Lifer.
-- **Docker:** update `LIFER_STORAGE_DIR` to the folder's new location and run `docker compose up -d`.
+- **Desktop app:** move it back and click **Check again** on the banner, or click **Choose new location** and pick where it is now. Lifer restarts itself on the new folder.
+- **Docker:** move it back and click **Check again**, or update `LIFER_STORAGE_DIR` to the folder's new location and run `docker compose up -d`.
 
 ## Resetting a forgotten password {#forgot-password}
 
@@ -112,11 +112,11 @@ docker compose logs -f api
 
 On a NAS, open the Lifer container's logs in its interface. Lines worth knowing:
 
-| Log line | Meaning |
-|---|---|
-| "Catalog auto-seed failed" | The species catalog didn't load. See above. |
+| Log line                                       | Meaning                                                                                             |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| "Catalog auto-seed failed"                     | The species catalog didn't load. See above.                                                         |
 | "[watchdog] Lifer has been unresponsive for …" | The server was stuck. It restarts itself after `LIFER_FREEZE_RESTART_SECONDS`. Please report these. |
-| "[library] …" | The library folder, or an extra library folder, went missing or came back |
+| "[library] …"                                  | The library folder, or an extra library folder, went missing or came back                           |
 
 **Desktop app:** the app doesn't write a log file. If it crashes, the "Lifer stopped unexpectedly" dialog shows the last messages. To see everything as it happens on a Mac, open Terminal and run:
 
@@ -126,4 +126,4 @@ On a NAS, open the Lifer container's logs in its interface. Lines worth knowing:
 
 ## Still stuck?
 
-Ask in [Discussions](https://github.com/Sparklysparkspark/lifer-app/discussions), or [report a bug](https://github.com/Sparklysparkspark/lifer-app/issues/new/choose). [Getting help](./support.md) lists what to include: your Lifer version (**Settings > General > App updates** in the desktop app, or `/version` on your server's address, like `http://192.168.1.50:4000/version`), whether you use the desktop app or Docker, and any log lines.
+Ask in [Discussions](https://github.com/Sparklysparkspark/lifer-app/discussions), or [report a bug](https://github.com/Sparklysparkspark/lifer-app/issues/new/choose). [Feedback and support](./support.md) lists what to include: your Lifer version (**Settings > General > App updates** in the desktop app, or `/version` on your server's address, like `http://192.168.1.50:4000/version`), whether you use the desktop app or Docker, and any log lines.

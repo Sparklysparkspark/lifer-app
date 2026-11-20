@@ -5,7 +5,7 @@ description: The open datasets, photos and models Lifer is built on, and how to 
 
 # Data sources and credits
 
-Lifer stands on the work of scientists, naturalists and photographers who share their data openly. This page credits the sources behind the species catalog, checklists, maps and species matching, and the license each comes under.
+Lifer stands on the work of scientists, naturalists and photographers who share their data openly. This page credits the sources behind the species catalog, checklists, maps and species recognition, and the license each comes under.
 
 The maintainer's reference, with where each source is used in the code, is [DATA_SOURCES.md](https://github.com/Sparklysparkspark/lifer-app/blob/main/packages/data-pipeline/DATA_SOURCES.md). Bundled software is listed in [THIRD_PARTY_NOTICES.md](https://github.com/Sparklysparkspark/lifer-app/blob/main/THIRD_PARTY_NOTICES.md).
 
@@ -24,7 +24,7 @@ The maintainer's reference, with where each source is used in the code, is [DATA
 - **[eBird](https://ebird.org/)**, Cornell Lab of Ornithology: bird checklists by region.
 - **[FishBase](https://www.fishbase.se/)**: used to check which fish are vagrants in a country. Froese, R. and D. Pauly (eds.), FishBase.
 - **[IUCN Red List of Threatened Species](https://www.iucnredlist.org/)**: conservation status. IUCN 2026. The IUCN Red List of Threatened Species. Version 2026-1. Accessed through [GBIF.org](https://doi.org/10.15468/0qnb58), CC BY 4.0. Lifer ships only each species' Red List category; see iucnredlist.org for the full assessments. Some statuses come from Wikidata (CC0).
-- **[Wikipedia pageviews](https://pageviews.wmcloud.org/)**: how well known each species is, one input to rarity tiers.
+- **[Wikipedia pageviews](https://pageviews.wmcloud.org/)**: how well known each species is, one input to rarity.
 
 ## Species traits
 
@@ -36,19 +36,36 @@ The maintainer's reference, with where each source is used in the code, is [DATA
 
 ## Descriptions and photos
 
-- **[Wikipedia](https://www.wikipedia.org/)**: species descriptions, habitat and range, and the field-guide notes on each species page, which are condensed from the species' article. CC BY-SA 4.0.
+- **[Wikipedia](https://www.wikipedia.org/)**: species descriptions, habitat and range, and the field-guide notes on each species page, which are condensed from the species' article. CC BY-SA 4.0: the shortened and AI-rewritten summaries are adaptations of the articles, shared under the same licence, and each species page credits "Wikipedia contributors" with links to the article and the licence.
 - **[Wikidata](https://www.wikidata.org/)**: links between species, photos and articles. CC0.
-- **Reference photos** come from **[iNaturalist](https://www.inaturalist.org/)** and **[Wikimedia Commons](https://commons.wikimedia.org/)**. Every photo belongs to its photographer, under the license they chose. The photographer's credit is shown with each photo in Lifer. Offline packs only include photos whose license allows sharing them: CC0, public domain, and every Creative Commons license (including the no-derivatives ones: Lifer only resizes photos). The NC ones may only be shared non-commercially, as Lifer does. For species whose photos can't be shared that way, your own Lifer downloads one from iNaturalist for your personal viewing, as opening it on iNaturalist would, with its credit and license; it's never redistributed. See [Photos packs can't include](./settings.md#withheld-photos).
+- **Reference photos** come from **[iNaturalist](https://www.inaturalist.org/)** and **[Wikimedia Commons](https://commons.wikimedia.org/)**. Every photo belongs to its photographer, under the license they chose. The photographer's credit is shown with each photo in Lifer. Region downloads only include photos whose license allows sharing them: CC0, public domain, and every Creative Commons license (including the no-derivatives ones: Lifer only resizes photos). The NC ones may only be shared non-commercially, as Lifer does. For species whose photos can't be shared that way, your own Lifer downloads one from iNaturalist for your personal viewing, as opening it on iNaturalist would, with its credit and license; it's never redistributed. See [Photos packs can't include](./settings.md#withheld-photos).
 
 ## Maps and regions
 
 - **[Natural Earth](https://www.naturalearthdata.com/)**: country and province boundaries. Public domain.
-- **IHO Sea Areas**: the sea zones used for fish and marine packs. Flanders Marine Institute (2018). IHO Sea Areas, version 3. Available online at [https://www.marineregions.org/](https://www.marineregions.org/), [doi:10.14284/323](https://doi.org/10.14284/323). CC BY 4.0. Lifer simplifies each area's outline and leaves out the oceans; see [Marine Regions](https://www.marineregions.org/) for the current version.
-- **[WoRMS](https://www.marinespecies.org/)**: which fish and marine mammals live in the sea, in brackish water or only in fresh water, used to keep sea zone checklists to sea species. WoRMS Editorial Board (2026). World Register of Marine Species. Available from [https://www.marinespecies.org](https://www.marinespecies.org), [doi:10.14284/170](https://doi.org/10.14284/170). CC BY 4.0.
-- **The intersect of the Exclusive Economic Zones and IHO sea areas**: each country's part of an ocean, the sea zones for coasts on open ocean. Flanders Marine Institute (2024). The intersect of the Exclusive Economic Zones and IHO sea areas, version 5. Available online at [https://www.marineregions.org/](https://www.marineregions.org/), [doi:10.14284/699](https://doi.org/10.14284/699). CC BY 4.0. Lifer uses only the oceans' national parts, with simplified outlines.
+- **[GeoNames](https://www.geonames.org/)**: the offline town list, for finding towns on the map and naming a place's town. Place names from GeoNames, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Lifer keeps towns of about 1,000 people or more, with a few other names each.
+- **IHO Sea Areas**: the ocean areas used for fish and marine region downloads. Flanders Marine Institute (2018). IHO Sea Areas, version 3. Available online at [https://www.marineregions.org/](https://www.marineregions.org/), [doi:10.14284/323](https://doi.org/10.14284/323). CC BY 4.0. Lifer simplifies each area's outline and leaves out the oceans; see [Marine Regions](https://www.marineregions.org/) for the current version.
+- **[WoRMS](https://www.marinespecies.org/)**: which fish and marine mammals live in the sea, in brackish water or only in fresh water, used to keep ocean area checklists to sea species. WoRMS Editorial Board (2026). World Register of Marine Species. Available from [https://www.marinespecies.org](https://www.marinespecies.org), [doi:10.14284/170](https://doi.org/10.14284/170). CC BY 4.0.
+- **The intersect of the Exclusive Economic Zones and IHO sea areas**: each country's part of an ocean, the ocean areas for coasts on open ocean. Flanders Marine Institute (2024). The intersect of the Exclusive Economic Zones and IHO sea areas, version 5. Available online at [https://www.marineregions.org/](https://www.marineregions.org/), [doi:10.14284/699](https://doi.org/10.14284/699). CC BY 4.0. Lifer uses only the oceans' national parts, with simplified outlines.
 - **The offline map** is a [Protomaps](https://protomaps.com/) basemap built from [OpenStreetMap](https://www.openstreetmap.org/copyright) data. © OpenStreetMap contributors, available under the Open Database License.
+- **Online map detail** (when zoomed in and online, unless turned off) comes from [OpenFreeMap](https://openfreemap.org/), whose tiles use the [OpenMapTiles](https://openmaptiles.org/) schema built from [OpenStreetMap](https://www.openstreetmap.org/copyright) data: "OpenFreeMap © OpenMapTiles Data from OpenStreetMap". OSM data under the Open Database License. OpenFreeMap is free and run on donations.
+- **Online place search and place names** come from [Photon](https://photon.komoot.io) by komoot, built on [OpenStreetMap](https://www.openstreetmap.org/copyright) data (© OpenStreetMap contributors, Open Database License), credited under the results.
+- **Satellite imagery** (only when picked) is [EOxCloudless](https://cloudless.eox.at) by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2025), used non-commercially under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). A satellite tile address you add yourself is under that provider's own terms.
+- **Map labels** use [Noto Sans](https://notofonts.github.io/) glyphs from [Protomaps basemaps-assets](https://github.com/protomaps/basemaps-assets). © 2022 The Noto Project Authors, under the SIL Open Font License 1.1.
+- **Shaded relief and 3D terrain** on the offline map come from the [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) composite (originally by Mapzen, hosted on Amazon Web Services Open Data), which Lifer resamples into its own archive and shows only as shading and terrain. Its required attribution, from its [attribution list](https://github.com/tilezen/joerd/blob/master/docs/attribution.md):
+  - ArcticDEM terrain data DEM(s) were created from DigitalGlobe, Inc., imagery and funded under National Science Foundation awards 1043681, 1559691, and 1542736.
+  - Australia terrain data © Commonwealth of Australia (Geoscience Australia) 2017.
+  - Austria terrain data © offene Daten Österreichs – Digitales Geländemodell (DGM) Österreich.
+  - Canada terrain data contains information licensed under the Open Government Licence – Canada.
+  - Europe terrain data produced using Copernicus data and information funded by the European Union - EU-DEM layers.
+  - Global ETOPO1 terrain data U.S. National Oceanic and Atmospheric Administration.
+  - Mexico terrain data source: INEGI, Continental relief, 2016.
+  - New Zealand terrain data Copyright 2011 Crown copyright (c) Land Information New Zealand and the New Zealand Government (All rights reserved).
+  - Norway terrain data © Kartverket.
+  - United Kingdom terrain data © Environment Agency copyright and/or database right 2015. All rights reserved.
+  - United States 3DEP (formerly NED) and global GMTED2010 and SRTM terrain data courtesy of the U.S. Geological Survey.
 
-## Species matching models
+## Species recognition models {#species-matching-models}
 
 - **[BioCLIP 2](https://huggingface.co/imageomics/bioclip-2)**, by the Imageomics Institute: species identification. MIT license. Gu, J. et al. (2025), BioCLIP 2: Emergent Properties from Scaling Hierarchical Contrastive Learning, [doi:10.57967/hf/5765](https://doi.org/10.57967/hf/5765).
 - **[CLIP ViT-L/14](https://github.com/openai/CLIP)**, by OpenAI, in the ONNX conversion by [Xenova](https://huggingface.co/Xenova/clip-vit-large-patch14): Gallery search and duplicate detection. MIT license. Radford, A. et al. (2021), Learning Transferable Visual Models From Natural Language Supervision.

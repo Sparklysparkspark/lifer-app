@@ -11,12 +11,12 @@ The desktop app is the simplest way to run Lifer. It manages its own database in
 
 Get the installer for your computer from the [latest release](https://github.com/Sparklysparkspark/lifer-app/releases/latest):
 
-| Computer | File |
-|---|---|
-| Mac with Apple Silicon (M1 or newer) | `Lifer-macos-arm64.zip` |
-| Mac with an Intel processor | `Lifer-macos-x64.zip` |
-| Windows | `Lifer_<version>_x64-setup.exe` |
-| Linux | `Lifer_<version>_amd64.AppImage` (runs directly) or `Lifer_<version>_amd64.deb` (Debian and Ubuntu) |
+| Computer                             | File                                                                                                |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| Mac with Apple Silicon (M1 or newer) | `Lifer-macos-arm64.zip`                                                                             |
+| Mac with an Intel processor          | `Lifer-macos-x64.zip`                                                                               |
+| Windows                              | `Lifer_<version>_x64-setup.exe`                                                                     |
+| Linux                                | `Lifer_<version>_amd64.AppImage` (runs directly) or `Lifer_<version>_amd64.deb` (Debian and Ubuntu) |
 
 Not sure which Mac you have? Open the Apple menu > **About This Mac**. **Chip** (Apple M1, M2 and so on) means Apple Silicon; **Processor** (Intel) means Intel. Both need macOS 14 (Sonoma) or later.
 
@@ -67,14 +67,32 @@ Click **Allow**. If you clicked **Don't Allow** by mistake, Lifer shows a messag
 - **AppImage:** make the file executable (`chmod +x Lifer_*.AppImage`) and run it.
 - **.deb:** install it with `sudo apt install ./Lifer_*_amd64.deb`, then open Lifer from your applications menu.
 
+## The app window {#window}
+
+In the desktop app, the main areas (Collection, Gallery, Map, Albums and Stats) are in a sidebar, with iNaturalist and companion apps below a divider and Settings at its foot. Trips are on the Albums page; region downloads are in **Settings > Species and import > Species downloads**. The toolbar along the top holds search and **Import photos**. The button at the toolbar's left end hides and shows the sidebar, and Lifer remembers your choice. In a narrow window, the sidebar becomes a bar across the top.
+
+Keyboard shortcuts, also in the menus:
+
+| Shortcut               | Does                                                          |
+| ---------------------- | ------------------------------------------------------------- |
+| Command-1 to Command-5 | Collection, Gallery, Map, Albums, Stats                       |
+| Command-I              | Import photos                                                 |
+| Command-F or Command-K | Search                                                        |
+| Command-comma          | Settings                                                      |
+| Control-Command-S      | Show or hide the sidebar (Control-Alt-S on Windows and Linux) |
+
+On Windows and Linux, use Ctrl instead of Command.
+
 ## First launch
 
-Lifer opens a **Set up Lifer** window with two choices:
+Lifer opens with **Welcome to Lifer**. Click **Get started**, then choose where your library lives:
 
-- **Pick Local Storage Folder:** choose a folder for your photo library. Lifer runs entirely on this computer. Use this if you're not sure.
-- **Connect to a Server:** use a Lifer server you already run. See [Connect the desktop app to a server](./connect-desktop-to-server.md).
+- **On this Mac:** choose a folder for your photo library. Lifer runs entirely on this computer. Use this if you're not sure.
+- **On my Lifer server:** use a Lifer server you already run. See [Connect the desktop app to a server](./connect-desktop-to-server.md).
 
-After you pick a folder, Lifer shows "Setting up your library… this can take a minute the first time." The first launch doesn't need an internet connection: the database engine (PostgreSQL) and the species catalog both come with the app. Then continue with [Getting started](../getting-started.md).
+Each step has a **Back** button.
+
+After you pick a folder, Lifer sets up your library and loads its species catalog. This takes under a minute and only happens the first time. The first launch doesn't need an internet connection: the database engine (PostgreSQL) and the species catalog both come with the app. Then continue with [Getting started](../getting-started.md).
 
 The folder you pick **is** your library: Lifer creates `Birds`, `Mammals`, `Fish` and other folders directly inside it. Pick an empty folder, or one Lifer used before. You can move it later from [Settings > Storage](../settings.md#storage-location).
 
@@ -82,17 +100,17 @@ To change this choice later, use the **Change Server / Library…** item in the 
 
 ## Where your data lives
 
-| What | Where |
-|---|---|
-| Your photos | The library folder you chose, plus any [external drives](../settings.md#external-drives) you registered. If you never chose one, it's `data/` inside the app data folder below. |
-| Lifer's database, thumbnails and downloads (offline map, catalog, offline packs) | macOS: `~/Library/Application Support/app.lifer.desktop/`<br />Windows: `%APPDATA%\app.lifer.desktop\`<br />Linux: `~/.local/share/app.lifer.desktop/` |
-| The species-matching models and GPU runtime | macOS: `~/Library/Caches/app.lifer.desktop/`<br />Windows: `%LOCALAPPDATA%\app.lifer.desktop\`<br />Linux: `~/.cache/app.lifer.desktop/`<br />A cache: if it's cleared (by macOS's storage settings, say), Lifer downloads them again. |
-| The database itself | `app-data/postgres-data/` inside that folder |
-| The database engine (PostgreSQL) | Inside the app itself. |
-| The chosen library folder and a few local settings | `~/.lifer/settings.json` in your home folder |
-| The server you connected to, if any | `desktop-config.json` in the app data folder |
-| Collected and seen status, for recovery | `.lifer/collection-state.json` inside your library folder |
-| Albums and trips, for recovery | Album membership in `.lifer/albums.json` beside the photos and album details in `.lifer/album-details.json` in your library folder; each trip in `.lifer/trip.json` in the folder its photos are in |
+| What                                                                                  | Where                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Your photos                                                                           | The library folder you chose, plus any [external drives](../settings.md#external-drives) you registered. If you never chose one, it's `data/` inside the app data folder below.                                                        |
+| Lifer's database, thumbnails and downloads (offline map, catalog, downloaded regions) | macOS: `~/Library/Application Support/app.lifer.desktop/`<br />Windows: `%APPDATA%\app.lifer.desktop\`<br />Linux: `~/.local/share/app.lifer.desktop/`                                                                                 |
+| The species recognition models and GPU runtime                                        | macOS: `~/Library/Caches/app.lifer.desktop/`<br />Windows: `%LOCALAPPDATA%\app.lifer.desktop\`<br />Linux: `~/.cache/app.lifer.desktop/`<br />A cache: if it's cleared (by macOS's storage settings, say), Lifer downloads them again. |
+| The database itself                                                                   | `app-data/postgres-data/` inside that folder                                                                                                                                                                                           |
+| The database engine (PostgreSQL)                                                      | Inside the app itself.                                                                                                                                                                                                                 |
+| The chosen library folder and a few local settings                                    | `~/.lifer/settings.json` in your home folder                                                                                                                                                                                           |
+| The server you connected to, if any                                                   | `desktop-config.json` in the app data folder                                                                                                                                                                                           |
+| Photographed and seen status, for recovery                                            | `.lifer/collection-state.json` inside your library folder                                                                                                                                                                              |
+| Albums and trips, for recovery                                                        | Album membership in `.lifer/albums.json` beside the photos and album details in `.lifer/album-details.json` in your library folder; each trip in `.lifer/trip.json` in the folder its photos are in                                    |
 
 Your library folder is the part that matters most. See [Backup and restore](./backup-restore.md) for what to back up.
 

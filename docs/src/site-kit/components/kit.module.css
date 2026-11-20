@@ -1,0 +1,63 @@
+.hero { display: grid; gap: var(--spacing-section); padding: var(--section-gap) var(--spacing-page); max-width: 72rem; margin: 0 auto; }
+.heroText { max-width: 40rem; min-width: 0; }
+.heroText h1 { font-size: var(--text-display); line-height: 1.1; margin: 0 0 var(--spacing-item); overflow-wrap: anywhere; }
+.lede { font-size: var(--text-title-2); color: var(--color-muted); margin: 0 0 var(--spacing-section); }
+.actions { display: flex; flex-wrap: wrap; gap: var(--spacing-item); }
+@media (min-width: 997px) { .hero { grid-template-columns: 1fr 1.3fr; align-items: center; } }
+
+.section { padding: var(--section-gap) var(--spacing-page); }
+.sectionMuted { background: var(--color-canvas); }
+.sectionInner { max-width: 72rem; margin: 0 auto; }
+.section h2 { font-size: var(--text-display-2); line-height: 1.2; margin: 0 0 var(--spacing-item); overflow-wrap: anywhere; }
+.intro { color: var(--color-muted); max-width: 40rem; margin: 0 0 var(--spacing-section); }
+
+.feature { display: grid; gap: var(--spacing-section); align-items: center; padding: var(--spacing-section) 0; }
+.feature h3 { font-size: var(--text-title-1); margin: 0 0 var(--spacing-item); overflow-wrap: anywhere; }
+.feature p { margin: 0; color: var(--color-muted); }
+.featureText { min-width: 0; }
+@media (min-width: 997px) {
+  .feature { grid-template-columns: 1fr 1.3fr; }
+  .featureReverse .featureText { order: 2; }
+}
+
+.frame { margin: 0; min-width: 0; }
+.frame img { display: block; width: 100%; height: auto; border-radius: var(--radius-panel); border: 1px solid var(--color-line); }
+.frame figcaption { color: var(--color-muted); font-size: var(--text-subheadline); margin-top: 0.5rem; }
+.onlyDark { display: none !important; }
+:global([data-theme="dark"]) .onlyLight { display: none !important; }
+:global([data-theme="dark"]) .onlyDark { display: block !important; }
+
+.button {
+  display: inline-flex; align-items: center; justify-content: center; text-align: center;
+  min-height: 2.75rem; padding: 0.5rem 1.25rem; border-radius: var(--radius-control);
+  border: 1px solid var(--color-control-line); font-size: var(--text-body); font-weight: 600;
+  text-decoration: none; overflow-wrap: anywhere; max-width: 100%;
+}
+.button:focus-visible { outline: 3px solid var(--color-link); outline-offset: 2px; }
+.primary { background: var(--color-accent); color: var(--color-accent-fg); border-color: var(--color-accent); }
+.primary:hover { color: var(--color-accent-fg); text-decoration: none; filter: brightness(0.92); }
+.secondary { background: var(--color-control); color: var(--color-ink); }
+.secondary:hover { color: var(--color-ink); text-decoration: none; border-color: var(--color-accent); }
+
+.grid { display: grid; gap: var(--spacing-item); grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
+.card {
+  display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; padding: var(--spacing-panel);
+  background: var(--color-control); border: 1px solid var(--color-line); border-radius: var(--radius-panel); order: 0;
+}
+.card h3 { font-size: var(--text-title-3); margin: 0; overflow-wrap: anywhere; }
+.card p { margin: 0; color: var(--color-muted); font-size: var(--text-callout); overflow-wrap: anywhere; }
+.cardActions { display: flex; flex-direction: column; gap: 0.5rem; margin-top: auto; padding-top: 0.5rem; }
+.partnerLogo { height: 2rem; width: auto; max-width: 100%; align-self: flex-start; }
+
+.picker { display: grid; gap: var(--spacing-item); grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
+.picker > .card { order: 0; }
+:global(:root[data-detected="mac"]) .card[data-platform="mac"],
+:global(:root[data-detected="windows"]) .card[data-platform="windows"],
+:global(:root[data-detected="linux"]) .card[data-platform="linux"] { order: -1; border-color: var(--color-accent); }
+
+.callout {
+  padding: var(--spacing-panel); border-radius: var(--radius-panel); background: var(--color-surface-muted);
+  border: 1px solid var(--color-line); border-left: 4px solid var(--color-accent); color: var(--color-ink);
+}
+.callout > :first-child { margin-top: 0; }
+.callout > :last-child { margin-bottom: 0; }

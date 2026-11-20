@@ -1,6 +1,6 @@
 ---
 title: GPU acceleration
-description: How Lifer uses a graphics card to speed up species matching, and how to give a Docker or TrueNAS server access to one.
+description: How Lifer uses a graphics card to speed up species recognition, and how to give a Docker or TrueNAS server access to one.
 ---
 
 # GPU acceleration
@@ -9,13 +9,13 @@ Lifer can use a graphics card (GPU) to match species faster. It's automatic: the
 
 ## How it works {#how-it-works}
 
-Once the [species-matching model](../settings.md#species-model) is downloaded, Lifer runs a one-time hardware test when it starts:
+Once [species recognition](../settings.md#species-model) is downloaded, Lifer runs a one-time hardware test when it starts:
 
 1. It looks for every GPU it can use.
 2. It checks that each one gives the same answers as the CPU. A GPU that doesn't is never used.
-3. It times them, and moves species matching to the fastest GPU if it's at least 15% faster than the CPU. Otherwise matching stays on the CPU.
+3. It times them, and moves species recognition to the fastest GPU if it's at least 15% faster than the CPU. Otherwise it stays on the CPU.
 
-Lifer remembers the result. It only tests again if the hardware, the graphics driver or the matching models change, or if you ask it to.
+Lifer remembers the result. It only tests again if the hardware, the graphics driver or the species recognition models change, or if you ask it to.
 
 The speed-up can be large: even an older graphics card can match species several times faster than the CPU.
 
@@ -43,7 +43,7 @@ The Lifer image doesn't include NVIDIA's software, so it stays small for everyon
 - NVIDIA's CUDA libraries, matched to your driver, about 1.5 GB.
 - A full-precision copy of the species identification model, about 1.2 GB.
 
-That's about 2.7 GB in total. Until it finishes, matching runs on the CPU as usual. Mac, Windows, Intel and AMD don't need any extra downloads.
+That's about 2.7 GB in total. Until it finishes, species recognition runs on the CPU as usual. Mac, Windows, Intel and AMD don't need any extra downloads.
 
 ## Give a Docker container the GPU {#docker}
 
@@ -104,22 +104,22 @@ Lifer isn't in the TrueNAS app catalog yet, so on TrueNAS you run it as a Custom
          - "107"
    ```
 
-## Check where matching runs {#check}
+## Check where species recognition runs {#check}
 
-**Settings > Offline data > Species-matching model** shows whether species matching runs on the CPU or a GPU, and which one.
+**Settings > Offline data > Species recognition** shows whether species recognition runs on the CPU or a GPU, and which one.
 
-Click **Test again** in **Settings > Offline data > Hardware** to run the test again, for example after you add a GPU, pass one into the container, or update the graphics driver.
+Click **Test again** in **Settings > Offline data > Recognition speed** to run the test again, for example after you add a GPU, pass one into the container, or update the graphics driver.
 
 ## Turn it off {#turn-off}
 
-You shouldn't need to. For troubleshooting, set the `LIFER_GPU` environment variable to `off` and restart Lifer. Matching then always runs on the CPU. With Docker, set `LIFER_GPU=off` in `.env` and run `docker compose up -d`. On a TrueNAS Custom App, change the `LIFER_GPU` line in the app's YAML to `LIFER_GPU: "off"`.
+You shouldn't need to. For troubleshooting, set the `LIFER_GPU` environment variable to `off` and restart Lifer. Species recognition then always runs on the CPU. With Docker, set `LIFER_GPU=off` in `.env` and run `docker compose up -d`. On a TrueNAS Custom App, change the `LIFER_GPU` line in the app's YAML to `LIFER_GPU: "off"`.
 
 ## Troubleshooting {#troubleshooting}
 
 Whatever happens with the GPU, Lifer keeps working on the CPU, so these only cost speed.
 
-- **Matching stays on the CPU on a server with a GPU.** The GPU probably isn't passed into the container. Follow [Docker](#docker) or [TrueNAS](#truenas), then click **Test again**. For NVIDIA, `docker compose exec api nvidia-smi` should list your card.
+- **Species recognition stays on the CPU on a server with a GPU.** The GPU probably isn't passed into the container. Follow [Docker](#docker) or [TrueNAS](#truenas), then click **Test again**. For NVIDIA, `docker compose exec api nvidia-smi` should list your card.
 - **NVIDIA driver too old.** Lifer needs NVIDIA driver 525 or newer. `nvidia-smi` on the server shows the version. Update the driver, restart Lifer, and click **Test again**.
 - **Intel or AMD GPU isn't used.** Check that `/dev/dri` is passed in and the `render` group number is right. Some older or very new GPUs may not work yet. Please [let us know](https://github.com/Sparklysparkspark/lifer-app/issues) which GPU you have.
 - **A GPU is found but not used.** Either it gave slightly different answers than the CPU, or it wasn't at least 15% faster. That's on purpose: Lifer only uses a GPU when it's both correct and clearly faster.
-- **The NVIDIA download failed.** Lifer keeps matching on the CPU. Check the server can reach the internet and has about 3 GB free for app data, then click **Test again**.
+- **The NVIDIA download failed.** Lifer keeps species recognition on the CPU. Check the server can reach the internet and has about 3 GB free for app data, then click **Test again**.

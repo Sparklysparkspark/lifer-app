@@ -17,6 +17,8 @@ imports, mirror your library into another tool, or back up your originals.
 
 The desktop app doesn't offer API keys; this is for server (Docker) installs. See [Install with Docker](../install/docker.md) if you don't have a server yet.
 
+Building a separate app that shows its own page inside the Lifer desktop app? See [Build a companion app](./plugins.md).
+
 ## Authentication
 
 Create a key under **Settings > Account > API keys** (the **Manage API keys** button), choosing only the permissions (scopes) it needs. The key
@@ -42,16 +44,23 @@ extra header.
 | `photos.write` | Importing photos (`POST /uploads`, [resumable uploads](#large-files)) and editing them: species, extra species, rating, tags, capture time, location |
 | `collection.read` | The life list and its summary counts, and the species you added to checklists yourself |
 | `collection.write` | Adding species to region checklists yourself, and removing them again |
-| `gallery.read` | The gallery listing and content search |
+| `gallery.read` | The gallery listing, content search, similar-photo groups and the map |
 | `species.read` | Species search and details, reference photos |
 | `stats.read` | Statistics, including the life list as CSV |
 | `trips.read` | Trips and their photos |
-| `album.read` / `album.write` | Reading and managing albums |
+| `album.read` / `album.write` | Reading and managing albums, smart albums and their rules, smart album suggestions and pinned Gallery filters |
 | `share.read` / `share.write` | Reading, creating and revoking album share links |
+| `userdata.read` | Your own data for companion apps: the species you photographed, marked seen or made targets (`GET /userdata/v1/species`), and display images of your own photos. Never catalog data |
+| `imports.write` | Importing new photos from a companion app |
+| `opendata.read` | The species lists of the regions you installed (`/opendata/v1/regions`), and reference vectors whose photos are CC0 or CC BY, with attribution |
 
 ## Conventions
 
-- **Base path:** everything is under `/api`, e.g. `http://lifer.local:4000/api/captures`.
+- **Base path:** `/api/v1`, e.g. `http://lifer.local:4000/api/v1/captures`. The same routes answer under
+  `/api`, which this guide uses to keep paths short.
+- **Sensitive species** (eBird's list where the photo was taken, the IUCN Red List, and your own
+  Sensitive species page) come to a key by region only, as on a share link: `lat`, `lon` and
+  `locationLabel` are `null`, and maps leave those photos out of their points.
 - **JSON** in and out, except file downloads, `POST /uploads` and `POST /uploads/inspect` (multipart), and [resumable uploads](#large-files).
 - **Errors** are `{ "error": "message", "code": "reason" }` with a 4xx/5xx status. `error` is written for a person; `code` is only there on some errors, as a stable reason your script can check. A 5xx says only `Internal server error`, with the details in the server log.
 - **Input is checked** against each route's schema (the same one `/api/openapi.json` shows), after the key and before the route does anything. A query parameter, path parameter or JSON body that doesn't match (a wrong type, a missing or unknown field, a number out of range, a malformed id) gets `400` with `"code": "invalid_request"` and an `error` naming the field, like `Invalid body: rating must be <= 5`. Some routes answer `404` for a malformed id instead, the same as for an unknown id. An empty query parameter (`?regionId=`) counts as not given.
@@ -133,9 +142,9 @@ region returns `404`.
 
 ### Checklist additions (collection.read, collection.write)
 
-Put a species on a country's, province's or sea zone's checklist yourself, for example a species you
+Put a species on a country's, province's or ocean area's checklist yourself, for example a species you
 imported by hand that you also found in another province. Your additions are kept apart from the
-catalog's own checklists, so catalog updates and offline packs never remove them, and removing one
+catalog's own checklists, so catalog updates and downloaded regions never remove them, and removing one
 never removes anything the catalog lists. Species imported by hand from iNaturalist are stored the
 same way, as the importing user's additions.
 
@@ -144,11 +153,11 @@ same way, as the importing user's additions.
 | `PUT /api/regions/{regionId}/checklist-additions/{speciesId}` | Adds it (collection.write). No body. Safe to repeat: a second call answers `200` with `"added": false` |
 | `DELETE /api/regions/{regionId}/checklist-additions/{speciesId}` | Removes your addition (collection.write). `404` with `"code": "not_added"` if you hadn't added it there |
 | `GET /api/regions/{id}/checklist-additions` | The species you added to this region (collection.read) |
-| `GET /api/sea-zones` | Every sea zone, with its ID and name (collection.read) |
-| `PUT /api/sea-zones/{seaZoneId}/checklist-additions/{speciesId}` | Adds it to a sea zone's checklist (collection.write). No body. Safe to repeat |
+| `GET /api/sea-zones` | Every ocean area, with its ID and name (collection.read) |
+| `PUT /api/sea-zones/{seaZoneId}/checklist-additions/{speciesId}` | Adds it to an ocean area's checklist (collection.write). No body. Safe to repeat |
 | `DELETE /api/sea-zones/{seaZoneId}/checklist-additions/{speciesId}` | Removes your addition (collection.write). `404` with `"code": "not_added"` if you hadn't added it there |
-| `GET /api/sea-zones/{id}/checklist-additions` | The species you added to this sea zone (collection.read) |
-| `GET /api/species/{id}/checklist-additions` | The regions (`items`) and sea zones (`seaZones`) you added this species to (collection.read) |
+| `GET /api/sea-zones/{id}/checklist-additions` | The species you added to this ocean area (collection.read) |
+| `GET /api/species/{id}/checklist-additions` | The regions (`items`) and ocean areas (`seaZones`) you added this species to (collection.read) |
 
 ```json
 { "ok": true, "added": true, "alreadyOnChecklist": false }
@@ -160,6 +169,45 @@ continents have no checklist of their own, so adding to one answers `400` with
 zone has no page of its own: its additions show on a coastal region's checklist when that zone is
 selected as nearby water. Each entry in `seaZones` carries a `nearRegionId`, a region that offers
 the zone, or `null`.
+
+### `GET /api/userdata/v1/species` (userdata.read): your species, for companion apps
+
+One row per species you photographed, marked seen or made a target, ordered by when it last changed,
+including marks you removed. Only your own data: no regions, checklists, tiers, seasonality, common
+names, descriptions or reference photos. Match species by `scientificName`.
+
+| Query | Meaning |
+|---|---|
+| `since` | Only changes after this time (an `updatedAt` from an earlier call) |
+| `cursor` | The previous page's `nextCursor` |
+| `limit` | Page size, 1-500 (default 100). Larger values are capped at 500 |
+
+```json
+{
+  "items": [
+    {
+      "speciesId": "…",
+      "scientificName": "Bombycilla garrulus",
+      "state": "photographed",
+      "isTarget": false,
+      "firstCollected": "2026-09-20",
+      "lastPhotographed": "2026-10-02T15:04:00.000Z",
+      "photoCount": 14,
+      "bestRating": 5,
+      "coverPhotoId": "…",
+      "updatedAt": "2026-10-02T15:10:11.123456Z",
+      "deletedAt": null
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+`state` is `photographed`, `seen`, or `null` for a species that is only a target. A row with
+`state: null` and `isTarget: false` is no longer marked. A row with `deletedAt` set was removed:
+drop it. Use the same syncing pattern as the photo feed. The cover image is
+`GET /api/userdata/v1/photos/{photoId}/display` (WebP), which serves only your own photos that are
+not hidden or in the trash.
 
 ### Image files (photos.read)
 
@@ -229,6 +277,8 @@ Uploads belong to the key's user. A finished upload waits 2 hours for its import
 | `410` | The upload expired or was already imported. Send the file again |
 | `413` | The file is over the server's `MAX_UPLOAD_BYTES` (no limit unless the server sets one), or a proxy refused a piece as too large: send smaller pieces |
 
+`GET /api/captures/{id}/suggestions` (photos.read) lists the other species a photo most likely shows, ranked like an import's `suggestions` from the vector stored for it, best first and without its current species. It's empty when the photo has no stored vector yet or species matching isn't set up.
+
 ### Editing photos (photos.write)
 
 | Request | Body |
@@ -246,15 +296,49 @@ file, so Lightroom and digiKam see them too.
 
 ### `GET /api/gallery` (gallery.read): browsing with filters
 
-The same filtered list the Gallery page shows. Filters include `taxa`, `regionId`, `dateFrom`,
-`dateTo`, `tag`, `tripId`, `albumId`, `onlyTopRated=1`, `onlyVideo=1`, `hidden=1` (only the photos
-imported hidden because a culling app rejected them) and `sort` (`newest`, `oldest`, `ratingHigh`,
-`ratingLow`). Each item has `cullVerdict` and `cullLabel`, what a culling app marked it at import.
+The same filtered list the Gallery page shows. A filter that takes several values repeats its
+parameter (`regionId=a&regionId=b`): a photo matches any one of them, and different filters combine
+with AND, so `regionId=a&regionId=b&ratingMin=3&ratingMax=5` is "region a or b, and 3 to 5 stars".
+`tag`, `place`, `tripId`, `albumId` and `tier` repeat the same way. Other filters are `taxa`,
+`dateFrom`, `dateTo`, `bbox`, `action` and `framing` (shot type), `ratingMin` and `ratingMax`,
+`unrated=1`, `animalsMin` and `animalsMax`, `onlyFeatured=1`, `missingDate=1`, `onlyVideo=1`,
+`excludeVideo=1`, `onlyHasRaw=1`, `excludeHasRaw=1`, `includeRaw=0`, `onlyRaw=1`, `hidden=1` (only the
+photos imported hidden because a culling app rejected them) and `similarTo` (one photo and its
+near-identical ones). `sort` is `newest`, `oldest`, `ratingHigh` or `ratingLow`.
+`GET /api/gallery/search` takes the same filters with a text query, `GET /api/gallery/similar` lists
+the similar-photo groups and `GET /api/gallery/map` clusters the matching photos by place. Each item has `cullVerdict` and `cullLabel`, what a culling app marked it at import.
 
-Without `limit`, it returns every matching photo at once as `{ "items": [...] }`. With `limit`
-(1-500), it returns one page plus `nextCursor` (`null` on the last page), and the first page also
+Each item also has `frame`, read from the photo in the background (`null` until then): `box`, the
+animal detector's best box as `[x1, y1, x2, y2]` fractions of the upright photo (`null` when it found
+none), `boxUnsure`, `aspect` and `orientation`, `composition` (`size` of `tiny`, `small`, `medium` or
+`frameFilling`, and whether the box centre sits on a rule-of-thirds point, a golden ratio point or the
+centre; `null` without a sure box) and `light` (mean brightness, warm or cool cast, highlight and
+shadow shares and colourfulness). `timeMaybeWrong` is `true` when the sun was well below the horizon
+at the photo's place and time yet the photo is plainly daylit, so its date and time are probably off;
+it's `null` when that can't be told.
+
+A search's `interpretation.parts` lists what each part of the query was read as, in the order typed:
+its `kind` (`group`, `light`, `composition`, `background`, `style`, `description`, `place`, `date` and
+so on), a `label`, the `text` typed for it, and `exact`. Exact parts (names, groups, places, dates,
+composition, and light placed by the sun from GPS and a time with its time zone) filter the results;
+the rest are the picture model's best guess and only rank them. Light words are `golden hour`,
+`blue hour`, `twilight`, `sunrise`, `sunset` and `night`, read from the sun's height, never the
+clock. Composition words are `rule of thirds`, `golden ratio`, `centred`, `small in frame`,
+`frame filling`, `vertical` and `horizontal`. "Tree in the background", "water behind" and "against
+the sky" rank by the picture with the animal greyed out.
+
+It returns one page of `limit` photos (1-500, 500 when left out) plus `nextCursor` (`null` on the last page), and the first page also
 has `total`, the number of matching photos. Pass `nextCursor` back as `cursor` with the same filters
 and `sort`. For syncing, `GET /api/captures` is the better fit.
+
+### `POST /api/albums` (album.write): smart albums
+
+Send `rules` with `POST /api/albums` or `PATCH /api/albums/{id}` to make or change a smart album:
+`{ "rules": { "version": 2, "query": { ... } } }`, where `query` holds the same filters
+`GET /api/gallery` takes (a list for each multi-value filter) plus `q` for a text search. Version 1
+rules, with one value per filter, are still accepted and upgraded. `GET /api/albums/suggestions`
+lists smart albums worth making, each with its rules, and `GET /api/pinned-filters` and
+`PUT /api/pinned-filters` read and replace the filters pinned in the Gallery, in the same rules format.
 
 ### `GET /api/species` (species.read): finding a species
 

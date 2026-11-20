@@ -2,7 +2,7 @@
 title: Wildlife Photo Library & Life List
 sidebar_label: Introduction
 description: Free, open-source photo library and life list for wildlife photographers. Organize photos by species, track checklists, and use Lifer as a desktop app or self-hosted server.
-slug: /
+slug: /intro
 ---
 
 # Lifer documentation
@@ -19,13 +19,13 @@ To start, check the [requirements](./install/requirements.md), [install the desk
 
 ### Species
 
-Everything in Lifer hangs off a species. Each one has a common and scientific name, its place in the taxonomy, a reference photo, a description and habitat, a rarity tier, and a record of where it's found.
+Everything in Lifer hangs off a species. Each one has a common and scientific name, its place in the taxonomy, a reference photo, a description and habitat, a rarity, and a record of where it's found.
 
-Offline packs come with full regional checklists for:
+Downloaded regions come with full regional checklists for:
 
 - **Birds**
 - **Mammals**
-- **Fish**. The Fish packs also include sharks, rays and marine mammals like whales, dolphins and seals.
+- **Fish**. The Fish download also includes sharks, rays and marine mammals like whales, dolphins and seals.
 - **Reptiles & Amphibians**: reptiles, turtles and amphibians
 - **Marine invertebrates**: corals, jellies and anemones, echinoderms, nudibranchs, shells and marine mollusks, cephalopods, and crustaceans
 
@@ -37,15 +37,15 @@ A photo in Lifer is one shot. It can have an edited photo (a JPEG, PNG, WebP, TI
 
 ![The Lifer gallery](/img/gallery.jpg)
 
-### Collected, seen and your life list
+### Photographed, seen and your life list {#collected-seen-and-your-life-list}
 
-A species counts as **collected** only once you've attached your own photo of it. This isn't a sightings log. If you've seen something but haven't photographed it yet, click **Mark as seen** on its species page or card so it stands apart from species you've never encountered. You can also [import your eBird sightings](./guides/ebird-import.md) to mark everything you've seen at once.
+A species counts as **photographed** only once you've attached your own photo of it. This isn't a sightings log. If you've seen something but haven't photographed it yet, click **Mark as seen** on its species page or card so it stands apart from species you've never encountered. You can also [import your eBird sightings](./guides/ebird-import.md) to mark everything you've seen at once.
 
-Your life list is every species you've collected. On the Collection page, the count under the Lifer logo ("X / Y collected") shows how many species you've photographed out of the checklist you're viewing. Pick a region or a group, like Birds, and the count follows it.
+Your life list is every species you've photographed. On the Collection page, the count under the Lifer logo ("X / Y photographed") shows how many species you've photographed out of the checklist you're viewing. Pick a region or a group, like Birds, and the count follows it.
 
-### Rarity tiers
+### Rarity {#rarity-tiers}
 
-A species' tier is **how hard it is to find and photograph** in the place you're looking at:
+A species' rarity is **how hard it is to find and photograph** in the place you're looking at:
 
 - **Common:** an everyday species, seen anywhere, anytime.
 - **Occasional:** findable with a little effort in the right habitat.
@@ -53,17 +53,17 @@ A species' tier is **how hard it is to find and photograph** in the place you're
 - **Rare:** needs travel and patience.
 - **Legendary:** once in a lifetime.
 
-A card's plain badge ("Rare") is the worldwide tier, where the species is easiest to find. On a region's checklist, a second badge ("Occasional here") is its tier in that region.
+A card's plain badge ("Rare") is the worldwide rarity, where the species is easiest to find. On a region's checklist, a second badge ("Occasional here") is its rarity in that region.
 
 It isn't conservation status: an endangered but easy-to-see bird can be Common, and a widespread but secretive one can be Rare. The IUCN status is shown beside it. Where there's too little data to tell, a species shows **Unrated** (or **Not enough data here** on a region's checklist). Marine invertebrates and species added from iNaturalist aren't rated yet.
 
 See [Collection and checklists](./guides/collection-and-checklists.md#rarity-tiers).
 
-### Regions, checklists and packs
+### Regions and checklists {#regions-checklists-and-packs}
 
-A region is a country, a province or state, or a sea zone for fish. Its checklist is every species recorded there. You browse your collection by region and see what you still need. Checklists are meant to be personal: hide vagrants or archive species you aren't chasing.
+A region is a country, a province or state, or an ocean area for fish. Its checklist is every species recorded there. You browse your collection by region and see what you still need. Checklists are meant to be personal: hide vagrants or archive species you aren't chasing.
 
-A pack holds a region's checklist, reference photos and descriptions. You download the packs you care about and they work fully offline from then on. See [Offline packs and the map](./guides/offline-packs-and-map.md).
+Downloading a region gets its checklist, reference photos and descriptions. You download the regions you care about and they work fully offline from then on. See [Downloaded regions and the map](./guides/offline-packs-and-map.md).
 
 ## Desktop app or server?
 
@@ -83,4 +83,4 @@ The desktop app can also be a window onto a server you already run. Connected th
 
 ## Status
 
-Lifer is in beta. It's actively developed, and some features may change before the first stable release. Questions and ideas are welcome in [Discussions](https://github.com/Sparklysparkspark/lifer-app/discussions), and bug reports in [Issues](https://github.com/Sparklysparkspark/lifer-app/issues). See [Getting help](./support.md) and the [Roadmap](./roadmap.md).
+Lifer is in beta. It's actively developed, and some features may change before the first stable release. Questions and ideas are welcome in [Discussions](https://github.com/Sparklysparkspark/lifer-app/discussions), and bug reports in [Issues](https://github.com/Sparklysparkspark/lifer-app/issues). See [Feedback and support](./support.md) and the [Roadmap](./roadmap.md).

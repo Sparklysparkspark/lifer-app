@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="robots" content="noindex" />
+    <title>Lifer Wildlife Archive</title>
+    <meta name="description" content="Lifer is a private archive for your wildlife photos and life list. Coming soon." />
+    <link rel="icon" href="/favicon.png" />
+    <style>
+      :root {
+        color-scheme: light;
+        --canvas: #f6eedc;
+        --surface: #fbf7ee;
+        --line: #e6dcc6;
+        --ink: #242c34;
+        --muted: #5f6b6f;
+        --accent: #68745e;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--canvas);
+        color: var(--ink);
+        font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main {
+        box-sizing: border-box;
+        width: min(32rem, calc(100% - 2rem));
+        padding: 2rem;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 1rem;
+      }
+      h1 img {
+        display: block;
+        width: min(18rem, 100%);
+        height: auto;
+        margin: 0 auto;
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+      }
+      .tag {
+        display: inline-block;
+        margin-top: 1.25rem;
+        padding: 0.25rem 0.75rem;
+        border: 1px solid var(--accent);
+        border-radius: 999px;
+        color: var(--accent);
+        font-size: 0.875rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1><img src="/wordmark.png" alt="Lifer" width="800" height="219" /></h1>
+      <p>A private archive for your wildlife photos and life list.</p>
+      <span class="tag">Coming soon</span>
+    </main>
+  </body>
+</html>

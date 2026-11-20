@@ -34,6 +34,8 @@ const config: Config = {
     locales: ["en"],
   },
 
+  plugins: ["./src/plugins/latestRelease.ts"],
+
   presets: [
     [
       "classic",
@@ -44,6 +46,7 @@ const config: Config = {
           editUrl: `${repoUrl}/edit/main/docs/`,
         },
         blog: false,
+        sitemap: { ignorePatterns: ["/site-kit"] },
         theme: {
           customCss: "./src/css/custom.css",
         },
@@ -82,9 +85,9 @@ const config: Config = {
       },
       items: [
         { type: "docSidebar", sidebarId: "docs", position: "left", label: "Docs" },
-        { to: "/install", label: "Install", position: "left" },
+        { to: "/download", label: "Download", position: "left" },
+        { to: "/self-hosting", label: "Self-hosting", position: "left" },
         { to: "/api/overview", label: "API", position: "left" },
-        { href: `${repoUrl}/releases/latest`, label: "Download", position: "right" },
         { href: repoUrl, label: "GitHub", position: "right" },
       ],
     },
@@ -94,7 +97,7 @@ const config: Config = {
         {
           title: "Docs",
           items: [
-            { label: "Introduction", to: "/" },
+            { label: "Introduction", to: "/intro" },
             { label: "Getting started", to: "/getting-started" },
             { label: "Troubleshooting", to: "/troubleshooting" },
           ],
@@ -114,7 +117,7 @@ const config: Config = {
           items: [
             { label: "Discussions", href: `${repoUrl}/discussions` },
             { label: "Issues", href: `${repoUrl}/issues` },
-            { label: "Getting help", to: "/support" },
+            { label: "Feedback and support", to: "/support" },
             { label: "Code of Conduct", href: `${repoUrl}/blob/main/CODE_OF_CONDUCT.md` },
           ],
         },
@@ -126,6 +129,8 @@ const config: Config = {
             { label: "Changelog", href: `${repoUrl}/blob/main/CHANGELOG.md` },
             { label: "Contributing", href: `${repoUrl}/blob/main/CONTRIBUTING.md` },
             { label: "Security", href: `${repoUrl}/security/policy` },
+            { label: "Open source", to: "/open-source" },
+            { label: "Privacy", to: "/privacy" },
             { label: "Credits", to: "/credits" },
           ],
         },

@@ -31,7 +31,7 @@ When a `v*` tag is pushed, `release.yml`:
 1. Runs the full CI first, and the desktop database upgrade test on Apple Silicon (`desktop-build.yml`'s `pg-upgrade` job, see [Desktop app](./desktop-app.md#pg-upgrade)). Nothing is published if either fails.
 2. Extracts the version's section from `CHANGELOG.md` into the release notes.
 3. Builds the desktop installers:
-   - macOS: `Lifer-macos-arm64.zip` (Apple Silicon) and `Lifer-macos-x64.zip` (Intel), both built on an Apple Silicon runner, the Intel one cross-compiled (see [Desktop app](./desktop-app.md#intel-macs)). Each ships FFmpeg built from source by `build-ffmpeg-macos.sh` in place of ffmpeg-static's nonfree binary (see [Desktop app](./desktop-app.md#building-an-installer)), and PostgreSQL built from source by `build-postgres-macos.sh` (see [The bundled PostgreSQL](./desktop-app.md#bundled-postgres)). Both are signed with Lifer's own self-signed identity and aren't notarized by Apple (see the [code signing policy](../code-signing.md)), so users confirm the first launch once. The FFmpeg and PostgreSQL builds are each cached until their script changes, but a tag can only reuse a cache saved on the default branch, so after changing either script, run the Desktop build workflow on `main` once for each architecture to save them.
+   - macOS: `Lifer-macos-arm64.zip` (Apple Silicon) and `Lifer-macos-x64.zip` (Intel), both built on an Apple Silicon runner, the Intel one cross-compiled (see [Desktop app](./desktop-app.md#intel-macs)). Each ships FFmpeg built from source by `build-ffmpeg-macos.sh` in place of ffmpeg-static's nonfree binary (see [Desktop app](./desktop-app.md#building-an-installer)), and PostgreSQL built from source by `build-postgres-macos.sh` (see [The bundled PostgreSQL](./desktop-app.md#bundled-postgres)). With the Developer ID settings (see [below](#macos-developer-id)) both are signed with Lifer's Developer ID, notarized by Apple and stapled, so they open without a warning. Without them, they're signed with Lifer's own self-signed identity and users confirm the first launch once (see the [code signing policy](../code-signing.md)). The FFmpeg and PostgreSQL builds are each cached until their script changes, but a tag can only reuse a cache saved on the default branch, so after changing either script, run the Desktop build workflow on `main` once for each architecture to save them.
    - Windows (x64): an NSIS `.exe` installer, signed through SignPath once that's set up (see [below](#windows-code-signing))
    - Linux (x64): a `.deb` and an AppImage
 4. Writes the signed Tauri update manifest (`latest.json`) that the desktop app's updater reads, and a `SHA256SUMS` file for every download.
@@ -41,9 +41,8 @@ When a `v*` tag is pushed, `release.yml`:
 |---|---|---|
 | `X.Y.Z` | `0.9.1` | Exactly this release |
 | `X.Y` | `0.9` | The newest release in this minor line |
-| `vX.Y.Z` | `v0.9.1` | The same as `X.Y.Z`, for older install instructions |
 | `release` | | The newest stable release. The compose file's default. |
-| `latest` | | The same as `release`, kept for existing installs |
+| `latest` | | The same as `release`, for tools that pull `latest` by default |
 
 ## Windows code signing {#windows-code-signing}
 
@@ -83,6 +82,24 @@ Signing switches on when `SIGNPATH_API_TOKEN` or `SIGNPATH_ORGANIZATION_ID` is s
 
 Cut releases as usual. While the Windows build runs, approve its two signing requests in SignPath. The build checks the installer's Authenticode signature before uploading it. After the first signed release, update the Windows steps in [Install the desktop app](../install/desktop.md#install-on-windows), which still describe the unsigned warning.
 
+## macOS Developer ID and notarization {#macos-developer-id}
+
+Notarized, the macOS app opens with no Gatekeeper prompt. It needs a paid Apple Developer Program membership. Without the settings below, releases keep Lifer's self-signed identity.
+
+1. In the Apple Developer account, create a **Developer ID Application** certificate. Export it with its private key from Keychain Access as a `.p12` with a password.
+2. In App Store Connect, under **Users and Access > Integrations**, create a team API key with the **Developer** role. Download the `.p8` (it can be downloaded once) and note its key ID and the issuer ID.
+3. Add these in **Settings > Secrets and variables > Actions**:
+
+| Kind | Name | Value |
+|---|---|---|
+| Secret | `APPLE_DEVELOPER_ID_P12_BASE64` | `base64 -i cert.p12` |
+| Secret | `APPLE_DEVELOPER_ID_PASSWORD` | The `.p12`'s password |
+| Secret | `APPLE_NOTARY_KEY_P8_BASE64` | `base64 -i AuthKey_XXXX.p8` |
+| Variable | `APPLE_NOTARY_KEY_ID` | The API key's ID |
+| Variable | `APPLE_NOTARY_ISSUER` | The issuer ID |
+
+Notarizing switches on when `APPLE_DEVELOPER_ID_P12_BASE64` is set; if anything else in the table is missing, the macOS build fails rather than shipping an unnotarized release. `resign-macos.js` then signs every binary in the app with the hardened runtime (`src-tauri/entitlements.plist` lists its exceptions), submits it with `notarytool`, staples the ticket and checks it with `spctl`. Notarization usually takes a few minutes. After the first notarized release, update the macOS steps in [Install the desktop app](../install/desktop.md) and the [code signing policy](../code-signing.md), which still describe the first-launch prompt.
+
 ## Prereleases
 
 A tag with a hyphen, like `v1.0.0-rc.1`, is a prerelease. It gets its exact version tags only, never `release` or `latest`, and the GitHub release isn't marked as latest. So servers on the default `release` tag and desktop apps checking for updates don't get it. Testers opt in by setting `LIFER_VERSION=1.0.0-rc.1`.
@@ -102,6 +119,8 @@ to the release, then add the DLL's sha256 and source to `WINDOWS_LGPL_DLLS` in
 `apps/desktop/scripts/stage-postgres.js` and update THIRD_PARTY_NOTICES.md.
 
 ## After releasing
+
+Before tagging the final release, run the [platform and release checklists](./platform-checklists.md) on a release candidate.
 
 - Check the GitHub release page: notes, installers, `SHA256SUMS`.
 - Pull the new image on a test server and start it, to see the migrations run.

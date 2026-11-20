@@ -8,10 +8,59 @@ banner.
 
 ## [Unreleased]
 
+### Added
+
+- Crash reports: if Lifer crashes, it offers to send a report the next time it opens. Nothing is
+  sent unless you click Send report, and the report holds only the crash details, never anything
+  about your photos or collection. Packagers can turn it off with `LIFER_CRASH_REPORTS=off`.
+- A desktop app linked to a server keeps albums, trips and tags in step both ways, deletions
+  included. Settings shows when it last synced, with **Sync now**.
+- Filters take several values at once (British Columbia or Alberta, 3 to 5 stars), and a set you
+  use often can be pinned as a one-click chip in the Gallery.
+- Smart albums: save a search and filters as an album that fills itself, or start from Lifer's
+  suggestions made from your own photos.
+- Watched folders: photos added to your library folders are picked up on their own.
+- Lightroom Classic: import a catalogue's photos, ratings and keywords (the catalogue is only
+  read, never changed), and a free plugin tags photos with your Lifer species.
+- eBird: import your "My eBird Data" file and see each checklist beside the photos from it.
+- Photo map: place photos by dropping them on the map, save spots you visit often, and a species
+  is checked again once a photo has a location. A quieter map with shaded relief, optional online
+  detail and satellite imagery.
+- Desktop: open a photo in your own editor (Lightroom Classic, Photoshop, darktable, GIMP and
+  others) from its menu.
+- Find similar photos: compare a burst, **Keep all** or mark photos as not similar, with Undo.
+- Save a frame from a video as a photo.
+- Portfolio: export your best photos and life list as a website, without exact locations.
+- Archive health in Settings lists photo files that changed without being edited, can't be read,
+  or are missing.
+- Sensitive species' locations are hidden by region, everywhere a location leaves Lifer.
+- Region search finds countries by other names, such as Holland.
+- An API and an MCP server, so other apps and AI assistants can use your library with the access
+  you approve.
+- Keyboard: Lightroom's keys for rating, moving and opening photos, page shortcuts, and a sheet
+  listing every shortcut.
+- Collection: select several species or groups and act on them at once.
+- Downloads check free space first and say how much is needed.
+- A short guided tour of the main pages, from Settings > General, the command palette or the end of
+  setup. Short hints also appear the first time a feature matters, and can be turned off in
+  Settings > General.
+
 ### Changed
+
+- A simpler sidebar, as in Photos: Collection, Gallery, Map, Albums and Stats, then iNaturalist
+  and suggested apps. Trips now sit on the Albums page, under your own albums. Region downloads
+  moved to Settings > Offline maps and regions, along with the offline map. Old Trips and Regions
+  links still open the right place.
+
+- Docker: the database password no longer needs setting. On its first start Lifer replaces the
+  default with a generated password, kept in the app-data volume. A password of your own still
+  works as before.
 
 - Desktop: the bundled Node.js is updated to 22.23.3, which includes the security fixes from
   22.23.2.
+
+- Keyboard: S no longer starts selecting in the Gallery; use Select, Shift-click or Ctrl+A (Cmd+A
+  on a Mac). Import moves to Ctrl+Shift+I (Cmd+Shift+I), as in Lightroom.
 
 ## [0.11.0] - 2026-10-14
 

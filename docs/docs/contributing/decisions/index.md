@@ -35,6 +35,7 @@ The repository's history begins on 2026-08-22, with much of the design already i
 | [0010](./0010-photo-license-policy.md) | Which photo licenses the project redistributes | Accepted, next release (current form) |
 | [0011](./0011-typebox-validation-and-generated-openapi.md) | Request validation with TypeBox, and an OpenAPI document generated from it | Accepted, next release |
 | [0012](./0012-no-state-management-library.md) | No state-management or data-fetching library in the web app | Accepted, 2026-08-22 |
+| [0013](./0013-open-gallery-vectors.md) | Openly licensed gallery vectors, tagged per vector | Proposed |
 
 ## Adding a record
 

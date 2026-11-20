@@ -109,4 +109,4 @@ Only scripts that upload with a single plain multipart request (instead of [resu
 
 ## The desktop app at home and away
 
-If the desktop app connects to this server, it can use the fast local address at home and your domain elsewhere. See [Automatic address switching](./connect-desktop-to-server.md#url-switching).
+If the desktop app connects to this server, it can use the fast local address at home and your domain elsewhere. See [Automatic URL Switching](./connect-desktop-to-server.md#url-switching).

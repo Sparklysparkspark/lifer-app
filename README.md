@@ -175,7 +175,7 @@ then the [development setup guide](https://sparklysparkspark.github.io/lifer-app
 [Design and architecture](https://sparklysparkspark.github.io/lifer-app/contributing/architecture) explains how Lifer
 is built and why, including the data model, the [security model](https://sparklysparkspark.github.io/lifer-app/security-model)
 and the architecture decision records.
-Everyone taking part follows the [Code of Conduct](./CODE_OF_CONDUCT.md). Lifer has no telemetry: [Privacy](https://sparklysparkspark.github.io/lifer-app/privacy) lists everything it connects to. Please report security
+Everyone taking part follows the [Code of Conduct](./CODE_OF_CONDUCT.md). Lifer has no telemetry and never sends anything by itself; if it crashes, you can choose to send a crash report. [Privacy](https://sparklysparkspark.github.io/lifer-app/privacy) lists everything it connects to. Please report security
 problems privately, as described in [SECURITY.md](./SECURITY.md).
 
 ## License

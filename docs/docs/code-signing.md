@@ -32,7 +32,7 @@ Everyone with these roles uses multi-factor authentication on GitHub and SignPat
 
 ## Privacy
 
-Lifer has no telemetry and sends nothing about its users to the project. It connects to other services only to download public data and updates, and for features the user turns on. [Privacy](./privacy.md) lists every connection.
+Lifer has no telemetry and sends nothing about its users to the project. It connects to other services only to download public data and updates, for features the user turns on, and to send a crash report when the user clicks Send. [Privacy](./privacy.md) lists every connection.
 
 ## Reporting a problem
 

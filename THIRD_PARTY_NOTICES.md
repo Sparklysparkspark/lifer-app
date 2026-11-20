@@ -106,7 +106,8 @@ Copyright 2003-2026, Phil Harvey.
   The Intel macOS app ships onnxruntime-node and onnxruntime-common 1.23.2 instead, the last
   release with Intel Mac binaries.
 - License: MIT. Copyright (c) Microsoft Corporation.
-- Used in: Docker and desktop, to run the species-matching models. The Windows build includes
+- Used in: Docker and desktop, to run the species-matching models; the phone app (onnxruntime-react-native
+  1.24.3, see Phone app below), to embed search queries. The Windows build includes
   Microsoft's DirectML and DirectX Shader Compiler libraries, under Microsoft's redistribution
   terms.
 
@@ -173,11 +174,32 @@ part of the Lifer image.
 - License: Apache-2.0 OR MIT
 - Used in: desktop
 
+### Phone companion
+
+- Components used by the desktop app's phone listener, tray icon and Settings > Connect phone page:
+  [rcgen](https://github.com/rustls/rcgen) 0.14 (self-signed certificate; MIT OR Apache-2.0),
+  [mdns-sd](https://github.com/keepsimple1/mdns-sd) 0.21 (local network discovery; Apache-2.0 OR
+  MIT), [if-addrs](https://github.com/messense/if-addrs) 0.15 (this computer's network
+  addresses; MIT OR BSD-3-Clause),
+  [tauri-plugin-autostart](https://github.com/tauri-apps/plugins-workspace) 2 (the optional "Start
+  at login"; MIT OR Apache-2.0), and [lean-qr](https://github.com/davidje13/lean-qr) 2.7 (the
+  pairing QR code; MIT)
+- Typed pairing's key exchange (CPace, in `packages/shared`), on the API and in the phone app:
+  [@noble/curves](https://github.com/paulmillr/noble-curves) 2.4.0 (ristretto255; MIT) and
+  [@noble/hashes](https://github.com/paulmillr/noble-hashes) 2.4.0 (SHA-512 and HMAC; MIT), both
+  by Paul Miller
+- Used in: desktop (the Rust crates), Docker and desktop (lean-qr, in the web app; the noble
+  libraries, in the API), phone app (the noble libraries)
+
 ### Map libraries
 
 - [MapLibre GL JS](https://github.com/maplibre/maplibre-gl-js) 6.4.1: BSD-3-Clause
 - [PMTiles](https://github.com/protomaps/PMTiles) 4.5.0: BSD-3-Clause
 - [Protomaps basemaps](https://github.com/protomaps/basemaps) 5.7.2 (map styles): BSD-3-Clause
+- [Noto Sans](https://github.com/notofonts/latin-greek-cyrillic) Regular, as map label glyphs (Latin
+  ranges only, `apps/web/public/map-glyphs`, licence text beside them) from
+  [protomaps/basemaps-assets](https://github.com/protomaps/basemaps-assets): SIL Open Font License 1.1,
+  © 2022 The Noto Project Authors
 - Used in: Docker and desktop (the web app)
 
 ## Machine learning models
@@ -203,8 +225,31 @@ licenses and required citations, is in
 [packages/data-pipeline/DATA_SOURCES.md](./packages/data-pipeline/DATA_SOURCES.md) and on the
 [Data sources and credits](https://sparklysparkspark.github.io/lifer-app/credits) docs page.
 
+The iNaturalist logo shown beside Lifer's iNaturalist page is a trademark of iNaturalist. Lifer uses it
+only to mark that integration, and is not affiliated with or endorsed by iNaturalist.
+
 The offline map contains data © OpenStreetMap contributors, available under the
 [Open Database License](https://www.openstreetmap.org/copyright).
+
+The offline town list in the catalog seed (`gazetteer_places`) is derived from
+[GeoNames](https://www.geonames.org/) `cities1000`, under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): place names from GeoNames
+(geonames.org). Lifer keeps a subset of the fields and adds each town's Lifer region. GeoNames
+provides the data "as is" without warranty of accuracy, timeliness or completeness.
+
+Online map services, used when the photo map is zoomed in and online (unless the user turns online
+detail off) or Satellite is picked, and never bundled:
+
+- Detail tiles from [OpenFreeMap](https://openfreemap.org/): "OpenFreeMap © OpenMapTiles Data from
+  OpenStreetMap". OpenStreetMap data under the Open Database License; the
+  [OpenMapTiles](https://openmaptiles.org/) schema under BSD-3-Clause (code) and CC BY 4.0 (design).
+- Place search and place names (when online, unless turned off) from
+  [Photon](https://photon.komoot.io) by komoot: OpenStreetMap data under the Open Database License,
+  credited "Photon (komoot), © OpenStreetMap contributors" under the results.
+- Satellite imagery: "EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH (Contains modified
+  Copernicus Sentinel data 2025)", under
+  [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) for non-commercial use. Lifer
+  is non-commercial; anyone reusing Lifer commercially must swap this source out.
 
 The sea zones in the catalog seed and the sea zone packs are derived from two datasets, both
 under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/):
@@ -218,3 +263,29 @@ under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/):
 
 Lifer reduces each area to a simplified outline of its largest polygon. See
 https://www.marineregions.org/ for the current versions.
+
+## Phone app (apps/mobile)
+
+The phone app scans the pairing QR code with Apple's built-in scanner on iPhone (through expo-camera,
+MIT) and, on Android, with ZXing core 3.5.4 ([Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0))
+fed by AndroidX CameraX 1.6.0 (Apache-2.0). Both decode on the phone, offline. No Google ML Kit or
+Play Services code is included on Android. Typed pairing uses @noble/curves and @noble/hashes (MIT,
+listed under Phone companion above) and the platforms' own Bonjour (NWBrowser) and Network Service
+Discovery (NsdManager) through Lifer's own module.
+
+The phone's offline library uses Expo SDK modules (MIT): expo-sqlite (the on-phone database),
+expo-image (photo display), expo-image-picker (the system photo picker), expo-location (one position
+fix, only when asked), expo-file-system (the photo cache), expo-sharing (the system share sheet) and
+expo-haptics. Screens are navigated with React Navigation (native-stack, bottom-tabs; MIT). The phone's
+look uses expo-symbols (SF Symbols on iPhone, Material Symbols on Android; MIT, the symbol artwork
+itself belongs to Apple and Google and is used through the system), expo-glass-effect (the system glass
+material; MIT), @react-native-segmented-control/segmented-control (the system segmented control; MIT),
+@shopify/flash-list (the recycled Collection list; MIT), and react-native-gesture-handler with
+react-native-worklets (pinch and drag; MIT; worklets is gesture-handler's own requirement). None of
+them phones home. The public pack index in standalone mode is fetched only when the person asks.
+
+Smart search offline runs the hub's CLIP ViT-L/14 text encoder (int8 ONNX, listed under Models below) on the
+phone with [onnxruntime-react-native](https://github.com/microsoft/onnxruntime) 1.24.3 (MIT; it bundles
+the ONNX Runtime C library, MIT). The encoder, its tokenizer and each photo's image vector come from the
+person's own Lifer; nothing is requested from a third party. Typed queries are tokenized by Lifer's own
+TypeScript copy of CLIP's byte-pair tokenizer, using the vocabulary file the hub serves.

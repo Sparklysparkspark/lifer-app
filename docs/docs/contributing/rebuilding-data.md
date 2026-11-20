@@ -72,9 +72,9 @@ Put them in `.env` at the repo root (every pipeline script reads it) or export t
 
 | Variable | Needed | What it's for |
 |---|---|---|
-| `DATABASE_URL` | Required | The pipeline database. Always set it explicitly: without it, scripts fall back to `postgres://lifer:lifer@localhost:5432/lifer`. |
+| `DATABASE_URL` | Required | The pipeline database. Always set it explicitly: without it, scripts fall back to `postgres://lifer:lifer@localhost:5432/lifer`. The refresh prints the database it works on, and `--publish` refuses to start without it. |
 | `GBIF_USER`, `GBIF_PWD` | Required | GBIF country downloads (`compute-provinces-bulk.ts`). |
-| `EBIRD_API_KEY` | Recommended | eBird region species lists (`compute-provinces-bulk.ts`, `report-vagrant-ebird.ts`). |
+| `EBIRD_API_KEY` | Recommended | eBird region species lists (`compute-provinces-bulk.ts`). |
 | `LIFER_DATA_REPO` | Publishing to a fork | Your fork (`owner/name`): the releases the build compares against and publishes to. Defaults to upstream. |
 | `PG_DUMP_BIN` | Optional | The `pg_dump` for the catalog seed. Default: a desktop build's, else the Docker container's behind `DATABASE_URL`, else `pg_dump` on your `PATH` (see [Software](#software)). |
 | `APP_DATA_DIR` | Optional | Where reference photos are saved. Default: `DATA_DIR` when that's set, else `data/lifer-app-data`. |
@@ -89,7 +89,8 @@ Put them in `.env` at the repo root (every pipeline script reads it) or export t
 | `EMBEDDING_MODEL_VERSION`, `TEXT_MODEL_VERSION`, `GALLERY_MODEL_VERSION` | Optional | Override which vectors the catalog seed exports. Only during a model change. |
 | `CLIP_V2_FP32_MODEL` | Optional | The full-precision CLIP file for `regenerate-clip-vectors.ts`. |
 | `LIFER_BUILD_ID` | Optional | Which `data/build/<id>` folder at the repo root `load-seed` reads (see [Build from raw sources](#alternative-build-from-raw-sources)). |
-| `LIFER_POSTGRES_CONTAINER` | Optional | The Postgres container's name, if the doctor can't find it from the port. Also used by `backup.ts`. |
+| `LIFER_POSTGRES_CONTAINER` | Optional | The Postgres container's name, if the doctor can't find it from the port. |
+| `LIFER_BACKUP_DIR` | Optional | Where database snapshots go. Default: `data/backups` in the checkout. |
 | `TEST_DATABASE_URL` | Tests only | The database integration tests use. |
 
 ## Set up the machine
@@ -251,7 +252,11 @@ npm run refresh -w data-pipeline -- --refresh-occurrences         # re-download 
 npm run refresh -w data-pipeline -- --full                        # redo every country
 npm run refresh -w data-pipeline -- --resume                      # continue an interrupted run
 npm run refresh -w data-pipeline -- --publish --accept-drift=<pack id>,...
+npm run refresh -w data-pipeline -- --publish --accept-stale=tiers  # publish past a stage older than its inputs
+npm run refresh -w data-pipeline -- --stages=regions,packs,gate,publish --replace-sea-zones --publish
 ```
+
+Before a new run changes anything, it dumps the database (`pg_dump -Fc`, the same `pg_dump` the seed uses) to `data/backups/lifer-db-before-refresh-<time>.dump`, keeping the newest three of these. A resumed run, or one of only `occurrences`, `packs`, `gate` and `publish`, takes none. Restore one with `pg_restore --clean --if-exists -d "$DATABASE_URL" <file>`, or through the container: `docker exec -i lifer-app-postgres-1 pg_restore --clean --if-exists -U lifer -d lifer < <file>`. `npm run backup -w data-pipeline` takes one on demand (plus an archive of the library), and the doctor warns when the newest is over 30 days old. A run that includes `vectors` checks for the Python environment before it starts.
 
 To download every country's file again, for newer GBIF records, move the files out of `packages/data-pipeline/data/gbif-country-cache` and run with `--full`: the regions stage downloads whatever is missing.
 
@@ -262,13 +267,14 @@ Durations are from the maintainer's run in October 2026, with every cache alread
 | `occurrences` | Lists every species name in the GBIF country files, for the catalog stage. With `--refresh-occurrences`, downloads files again first: those in `--countries`, or without it only the 22 priority countries listed in `compute-provinces-bulk.ts`. Only the catalog's classes are tallied, which keeps memory in check. | `packages/data-pipeline/data/build/zip-names.tsv` | Reads all 239 country files (64 GB). Rebuilt only when a file is newer than the list. |
 | `catalog` | Links species to the names GBIF (Catalogue of Life), iNaturalist and eBird use now; adds species their lists have that the catalog lacks; merges reviewed duplicates (`packages/data-pipeline/data/reference/species-merges.tsv`); records iNaturalist splits; sets IUCN Red List status from the archive GBIF hosts (codes, Not Evaluated for species IUCN never assessed, and a note for splits IUCN still assesses as part of their parent). | `species`, `species_synonyms`, `species_merges`, `species_splits`, the `iucn_*` columns of `species_traits`; `reconcile-report-<date>.json` and `iucn-status-report.tsv` in `packages/data-pipeline/data/build`; files for you to review in `packages/data-pipeline/data/review` | About 113 minutes, plus about 15 for the first IUCN run (GBIF calls, cached after) and under a minute after that |
 | `enrich` | Photos and descriptions for listed species that have none, a retry for those that came up with no photo, descriptions straight from Wikipedia for every species without Wikipedia-sourced text plus a refetch of articles edited since, and a year of Wikipedia pageviews. | `species` photo and description columns, `species_reference_photos`, photo files under `APP_DATA_DIR` | Minutes to hours on an update; two to three days after a seed bootstrap |
-| `regions` | iNaturalist places, province checklists from the GBIF files, new species onto older lists, iNaturalist photo counts, escaped pets off the lists, country checklists, introduced and vagrant flags, WoRMS habitats for fish and marine mammals, every sea zone's list. Downloads any missing GBIF country file. | `region_species`, `sea_zone_species`, `regions`; `province-aggregate-cache`; iNaturalist and eBird caches | About 75 minutes from cached files; days with downloads (pass 1) |
+| `regions` | iNaturalist places, eBird region codes, province checklists from the GBIF files, new species onto older lists, iNaturalist photo counts, escaped pets off the lists, country checklists, eBird's escapee birds off and its naturalized ones marked introduced, introduced and vagrant flags, WoRMS habitats for fish and marine mammals, every sea zone's list. Downloads any missing GBIF country file. Without `EBIRD_API_KEY` it warns, and records `ebirdKey: false` in the stage's notes. With `--replace-sea-zones` it only replaces the sea zones (`replace-sea-zones.ts --apply`), then their WoRMS habitats and lists. | `region_species`, `sea_zone_species`, `regions`; `province-aggregate-cache`; iNaturalist and eBird caches | About 75 minutes from cached files; days with downloads (pass 1) |
+| `gazetteer` | The offline town list: GeoNames `cities1000` (about 172,000 towns of over 1,000 people, downloaded once to `data/raw/geonames` at the repo root; delete that folder for a newer copy), each town's Lifer country from GeoNames' country code (mapped to Lifer's own where they differ, so a town near a border or in a disputed area keeps GeoNames' country) and its province by outline: a town just outside a simplified coastline takes its neighbours' province, and a border town an outline puts in the next province goes back to its own. Takes no database snapshot: it writes only this table. Writes only changed rows and drops towns GeoNames no longer lists, so a rerun on the same download writes nothing. Stops without writing if the list would add over 8 MB compressed to the catalog seed (6.2 MB now) or lacks a known town (Tofino, Fort Nelson, Jasper, Haines and others in `REQUIRED_TOWNS`). Logs counts and spot checks (Prince George, Vancouver, Tofino, Cottonwood, Montréal, Springfield). | `gazetteer_places` | About a minute |
 | `endemic` | The one country each endemic species lives in, from the GBIF country files (a live GBIF call for a country with none), leaving out countries where its records look like escapees. Each country's counts are kept, so only countries whose file changed are read again, and only species whose answer changed are written. | `species_traits.endemic_country_iso3`; `endemic-country-counts` in `packages/data-pipeline/data/build` | Not timed for this page; the first run reads every country file |
-| `tiers` | Rarity tiers for every checklist row, then each species' worldwide tier. Needs PostGIS. Fails when a country's rows have tiers but its province files are gone from `province-aggregate-cache`, since those tiers would ship unchecked: rebuild that country's provinces, or rerun with `--resume --allow-tier-skip` to keep them. | tiers and their inputs in `region_species`, worldwide tiers in `species_rarity` | About 65 minutes |
-| `vectors` | CLIP vectors for photos and names that have none, the identification model's vectors (Python), and GBIF occurrence stats (record count and last year) for species that have none. Occurrence stats are fetched for about 200 species per request; each species GBIF answered for, including those with no records, is checked again only after 90 days. | the embedding tables, `species_traits` | Over an hour on an update; many hours after a seed bootstrap, when every photo needs one |
+| `tiers` | Rarity tiers for every checklist row, then each species' worldwide tier. Needs PostGIS. Fails when a country has checklist rows but its province files are gone from `province-aggregate-cache`, since those rows would ship with unchecked tiers or none: rebuild that country's provinces, or rerun with `--resume --allow-tier-skip` to keep them as they are. | tiers and their inputs in `region_species`, worldwide tiers in `species_rarity` | About 65 minutes |
+| `vectors` | The photo license policy (so photos edited by hand since `enrich` are vetted), then CLIP vectors for photos and names that have none, the identification model's vectors (Python), and GBIF occurrence stats (record count and last year) for species that have none. Occurrence stats are fetched for about 200 species per request; each species GBIF answered for, including those with no records, is checked again only after 90 days. | the embedding tables, `species_traits` | Over an hour on an update; many hours after a seed bootstrap, when every photo needs one |
 | `packs` | The photo store (each photo once), then every pack's checklist, keeping only those that changed. | `photo-store` and `packs-out` in `packages/data-pipeline/data/build` | Not timed for this page; roughly an hour for a full build |
 | `gate` | Checks the result (below). | `packages/data-pipeline/data/build/gate-<date>.json` | Minutes |
-| `publish` | With `--publish`: new photo shards and the photo index, new pack shards and `pack-index.json`, then the catalog seed and its vector files, manifest last. | the three releases | Upload time: about 12 GB the first time, much less after |
+| `publish` | With `--publish`: builds the catalog seed and checks every file against its manifest's size and sha256, then uploads new photo shards and the photo index, new pack shards and `pack-index.json`, then the catalog seed and its vector files, manifest last. A seed that fails to build uploads nothing. | the three releases | Upload time: about 12 GB the first time, much less after |
 
 Each stage's start, end and outcome go in the `pipeline_runs` table, and the run's id and arguments in `packages/data-pipeline/data/build/refresh-current-run.json`.
 
@@ -284,7 +290,7 @@ It continues the last run with that run's own arguments (its countries, `--publi
 
 ## The gate
 
-The build scripts report success whether or not the data is right, so the `gate` stage checks it and, with `--publish`, refuses to publish on any failure. The `publish` stage also refuses unless a gate passed in the same run. It prints a summary:
+The build scripts report success whether or not the data is right, so the `gate` stage checks it and, with `--publish`, refuses to publish on any failure. The `publish` stage also refuses unless a gate passed in the same run, and the gate checks that the stages a publish ships aren't older than their inputs, so `--stages=packs,gate,publish` can't quietly ship tiers from older checklists. It prints a summary:
 
 ```text
 Gate FAILED: 2 failure(s), 1 warning(s), 1 pack(s) with a big species-count change.
@@ -302,7 +308,8 @@ and writes the full report to `packages/data-pipeline/data/build/gate-<date>.jso
 - `catalog_gaps`: species on iNaturalist or eBird lists the catalog still lacks;
 - `pack_missing`: a country with species in a group but no pack for it; `index`: a pack depending on a sea zone pack that isn't in the index;
 - `other_taxa_in_pack`: a user's own Other Taxa species inside a pack;
-- `drift`: a pack's species count moved more than 25% from the published one. Look at those packs, and when the change is right, publish with `--accept-drift=<pack id>,...` (or `--accept-all-drift`).
+- `drift`: a pack's species count moved more than 25% from the published one. Look at those packs, and when the change is right, publish with `--accept-drift=<pack id>,...` (or `--accept-all-drift`);
+- `stale_stage`: `catalog`, `regions`, `endemic`, `tiers` or `vectors` has no finished run newer than what it reads: the GBIF name list (catalog), the newest GBIF country file (regions, endemic, tiers), the last `regions` run (tiers), the last `catalog` or `enrich` run (vectors). Rerun that stage, or when the older data is what you mean to ship, name it in `--accept-stale=<stage>,...` (reported as `stale_accepted` instead).
 
 Warnings (`no_photo`, species with no photo yet) don't stop a publish. On a fork's first publish there's nothing published to drift from, so the drift check passes. The gate only catches what it knows about: after publishing, download a pack and look inside.
 

@@ -1,9 +1,16 @@
 ---
-title: Getting help
-description: Where to ask questions, report bugs and report security problems, and what to include.
+title: Feedback and support
+description: Where to send feedback, ask questions, report bugs and report security problems, and what to include.
 ---
 
-# Getting help
+# Feedback and support
+
+Found a bug? [Report it](https://github.com/Sparklysparkspark/lifer-app/issues/new?template=bug_report.yml). Ideas and questions go to [Discussions](https://github.com/Sparklysparkspark/lifer-app/discussions).
+
+<!-- TODO(maintainer): confirm hello@liferwildlife.com is a real inbox before publishing. -->
+Or email [hello@liferwildlife.com](mailto:hello@liferwildlife.com).
+
+If Lifer crashes, it offers to send a crash report the next time it opens. The report holds only the crash details, and nothing is sent unless you click **Send report**.
 
 Lifer is built by volunteers in the open. Where to go depends on what you need:
 

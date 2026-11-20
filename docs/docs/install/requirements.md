@@ -17,7 +17,7 @@ Lifer runs as a [desktop app](./desktop.md) or a [Docker server](./docker.md). H
 | Linux, 64-bit Intel or AMD (x64) | Yes, as a `.deb` (Debian, Ubuntu and similar) or an AppImage |
 | Windows or Linux on ARM | Not yet |
 
-The desktop app works offline from the first launch: its database engine and the species catalog come with it. The internet is only needed for optional downloads such as offline packs, the map and species-matching models.
+The desktop app works offline from the first launch: its database engine and the species catalog come with it. The internet is only needed for optional downloads such as downloaded regions, the map and species recognition models.
 
 ## Docker server
 
@@ -28,22 +28,22 @@ The desktop app works offline from the first launch: its database engine and the
 
 ## Memory
 
-Species matching loads two image models into memory, and photo previews are made in memory too. As a rough guide:
+Species recognition loads two image models into memory, and photo previews are made in memory too. As a rough guide:
 
 - **4 GB** of RAM on the machine is a workable minimum.
 - **8 GB or more** is comfortable, especially for importing many photos at once or a large library.
 
-On a server, Postgres runs alongside Lifer and needs some of that too. If memory is tight, matching is slower but still works.
+On a server, Postgres runs alongside Lifer and needs some of that too. If memory is tight, species recognition is slower but still works.
 
 ## Disk space
 
-Besides your photos, Lifer keeps its own files: previews of your photos, downloaded models, the offline map, and region packs. Roughly:
+Besides your photos, Lifer keeps its own files: previews of your photos, downloaded models, the offline map, and downloaded regions. Roughly:
 
 | What | Size |
 |---|---|
-| Species-matching models | about 680 MB |
-| Offline map | about 550 MB, if you download it |
-| Region packs | varies by region and whether you choose Full or Small. Sizes are shown before you download. |
+| Species recognition models | about 680 MB |
+| Offline map | about 640 MB, if you download it |
+| Downloaded regions | varies by region and whether you choose Full or Small. Sizes are shown before you download. |
 | Previews of your photos | grows with your library: roughly half a MB per photo |
 | Database | a few GB, mostly the species catalog and its matching data. Your own records add little. |
 | NVIDIA GPU support | about 2.7 GB more, only on a server with an NVIDIA card |
@@ -52,7 +52,7 @@ An SSD for Lifer's own files and the database makes browsing noticeably faster. 
 
 ## GPU (optional)
 
-A GPU isn't needed. When there is one, Lifer tests it and uses it for species matching only if it's faster. The desktop app uses the Mac's GPU, or any GPU on Windows, with nothing to set up. A Docker server can use NVIDIA cards, and Intel or AMD cards on Linux, once you pass them into the container. See [GPU acceleration](./hardware-acceleration.md).
+A GPU isn't needed. When there is one, Lifer tests it and uses it for species recognition only if it's faster. The desktop app uses the Mac's GPU, or any GPU on Windows, with nothing to set up. A Docker server can use NVIDIA cards, and Intel or AMD cards on Linux, once you pass them into the container. See [GPU acceleration](./hardware-acceleration.md).
 
 ## Browser
 

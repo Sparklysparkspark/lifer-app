@@ -15,6 +15,8 @@ You need Rust and the [Tauri prerequisites](https://tauri.app/start/prerequisite
 npm start -w desktop     # tauri dev: hot-reloads the web app against a local API
 ```
 
+Under `tauri dev` the bundled pages (`src/picker.html`, `offline.html`) come from the Tauri CLI's built-in dev server rather than the embedded `tauri://` scheme; `security.rs` (`bundled_page_url`, `is_bundled_page`) resolves them either way, so never hardcode `tauri://localhost/...`. After `prepare-resources` you also need `npm run fetch-catalog-seed -w desktop`, since staging clears the seed.
+
 `tauri dev` runs the PostgreSQL that `prepare-resources.js` last staged in `src-tauri/resources-staging/postgres`. Without one (on a Mac, until you've built it, see below) the crate downloads a theseus-rs build into `~/.theseus/postgresql` on first start instead, which needs macOS 15.
 
 Debug builds from `tauri dev` always have the browser devtools. CI checks the Rust code with `cargo fmt --check`, `cargo clippy` and `cargo test --lib`, so run them in `apps/desktop/src-tauri` before you push (see [Testing](./testing.md#desktop-rust)).
@@ -126,11 +128,16 @@ photo library: the default `data/` folder inside app data and any folder in the 
 when one sits inside a folder being deleted. Only the app's own pages may call it: it has its own
 permission (`allow-local-only-commands`), granted in `capabilities/default.json` and never to a
 connected server's pages, and the command checks the calling page is `tauri://` or the local API
-as well.
+as well. It then asks again in a native OK/Cancel dialog, so script in the page alone can't
+delete anything.
 
 ## Connected to a server
 
 When the app is connected to a server, the server's pages get access to the app's native features only for the origins saved in the desktop config. That access is granted at runtime in `src-tauri/src/security.rs` (`grant_remote_capabilities`), not in `src-tauri/capabilities/`. A server reached over plain `http://` from the internet can't use the updater or relaunch the app, since anyone on the network path could inject script into its pages. This computer and the local network count as safe (`is_local_network_host`: loopback, private and link-local addresses, Tailscale's 100.64.0.0/10, IPv6 unique-local and link-local, single-label names and `.local`, `.lan`, `.home.arpa`, `.internal`), so a home server at `http://192.168.1.10:4000` can still update the app.
+
+## Linked to a server
+
+Once the server link exists, the library on this computer keeps running (`api.rs` is started again by `sync.rs`; a server-only install with no link never starts it) so its API can keep packs, the push and the mirror in step with the server; see [State and sync](./state-and-sync.md#a-desktop-app-linked-to-a-server). The key it uses is written by the server's page through `server_link.rs` and removed whenever the config stops pointing at that server. `sync.rs` only starts the jobs, asks the one question that's the user's (download the server's packs here too) and proxies the sync status to Settings on the server's page, which can't reach the local API itself.
 
 ## Generated folders
 

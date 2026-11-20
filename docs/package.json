@@ -10,7 +10,8 @@
     "build": "docusaurus build",
     "serve": "docusaurus serve",
     "clear": "docusaurus clear",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "test": "node --experimental-strip-types --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@docusaurus/core": "^3.10.2",

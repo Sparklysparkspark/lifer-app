@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex" />
+    <title>Lifer sign-in</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f7f6f2;
+        --card: #ffffff;
+        --ink: #1f2420;
+        --muted: #5c645e;
+        --line: #e2e0d8;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #151816;
+          --card: #1d211f;
+          --ink: #ecefe9;
+          --muted: #a3aba5;
+          --line: #2e3430;
+        }
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main {
+        max-width: 28rem;
+        margin: 1rem;
+        padding: 1.5rem;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+      }
+      h1 {
+        margin: 0 0 0.5rem;
+        font-size: 1.125rem;
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Lifer</h1>
+      <p id="status">Returning you to Lifer...</p>
+      <noscript><p>Turn on JavaScript to finish signing in to iNaturalist.</p></noscript>
+    </main>
+    <script>
+      // Forwards iNaturalist's sign-in to the Lifer install named in `state` (`<random>.<base64url
+      // origin>`). Mirrors apps/api/src/inaturalist/relayState.ts; the code is never logged or stored.
+      function isAllowedReturnOrigin(origin) {
+        var url;
+        try {
+          url = new URL(origin);
+        } catch (e) {
+          return false;
+        }
+        if (url.origin !== origin) return false;
+        if (url.protocol === "https:") return true;
+        if (url.protocol !== "http:") return false;
+        var host = url.hostname;
+        if (host === "localhost" || host === "[::1]" || /\.local$/.test(host)) return true;
+        return /^\d+\.\d+\.\d+\.\d+$/.test(host) && /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host);
+      }
+
+      function decodeRelayState(state) {
+        var dot = state ? state.indexOf(".") : -1;
+        if (dot < 1) return null;
+        var origin;
+        try {
+          origin = atob(state.slice(dot + 1).replace(/-/g, "+").replace(/_/g, "/"));
+        } catch (e) {
+          return null;
+        }
+        return isAllowedReturnOrigin(origin) ? origin : null;
+      }
+
+      function relayTarget(search) {
+        var origin = decodeRelayState(new URLSearchParams(search).get("state"));
+        return origin ? origin + "/api/inaturalist/callback" + search : null;
+      }
+
+      var target = relayTarget(location.search);
+      if (target) {
+        location.replace(target);
+      } else {
+        document.getElementById("status").textContent =
+          "This sign-in link isn't valid. Go back to Lifer and choose Connect iNaturalist again.";
+      }
+    </script>
+  </body>
+</html>

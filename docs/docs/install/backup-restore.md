@@ -9,22 +9,22 @@ Lifer doesn't have a built-in backup button. Your data lives in ordinary files a
 
 ## What to back up
 
-| What | Why it matters | Where it is |
-|---|---|---|
-| **Your photo library** | Your original photos, RAW files and videos. You can't get these back any other way. | Docker: the folder in `LIFER_STORAGE_DIR`. Desktop: the folder you chose at setup, plus any external drives. Also your [trip](../guides/trips.md) folders, wherever they are. |
-| **The database** | Which species each photo shows, ratings, tags, albums, trips, hidden and archived species, and settings. | Docker: the `postgres` container. Desktop: inside Lifer's app data folder. |
-| App data | Thumbnails and preview images, downloaded models, the offline map and catalog downloads, and the key that encrypts a few secrets in the database (`secrets/`). | Docker: the `lifer-app-data` volume. Desktop: the app data folder. Optional: Lifer downloads or rebuilds all of it, but rebuilding thumbnails for a big library takes a while. See [The secrets key](#secrets-key). |
+| What                   | Why it matters                                                                                                                                                 | Where it is                                                                                                                                                                                                         |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Your photo library** | Your original photos, RAW files and videos. You can't get these back any other way.                                                                            | Docker: the folder in `LIFER_STORAGE_DIR`. Desktop: the folder you chose at setup, plus any external drives. Also your [trip](../guides/trips.md) folders, wherever they are.                                       |
+| **The database**       | Which species each photo shows, ratings, tags, albums, trips, hidden and archived species, and settings.                                                       | Docker: the `postgres` container. Desktop: inside Lifer's app data folder.                                                                                                                                          |
+| App data               | Thumbnails and preview images, downloaded models, the offline map and catalog downloads, and the key that encrypts a few secrets in the database (`secrets/`). | Docker: the `lifer-app-data` volume. Desktop: the app data folder. Optional: Lifer downloads or rebuilds all of it, but rebuilding thumbnails for a big library takes a while. See [The secrets key](#secrets-key). |
 
 You don't need to back up the upload work folder (`uploads` in the app data folder, or a hidden `.lifer-uploads` folder inside the library). It only holds files on their way in, and Lifer clears it out by itself.
 
-Downloaded region packs can also be downloaded again from [Offline packs](../guides/offline-packs-and-map.md).
+Downloaded regions can also be downloaded again from [Settings > Species and import > Species downloads](../guides/offline-packs-and-map.md).
 
 ### What the photo library alone can restore {#library-only}
 
-Even with only the photo library, the **Reimport** panel in **Settings > Library** can rebuild most of your collection:
+Even with only the photo library, **Rescan this library** in **Settings > Library** can rebuild most of your collection:
 
-- Collected species come back from the photos, since Lifer writes each photo's species and rating into the file (or an `.xmp` sidecar next to a RAW).
-- Seen species, targets, archived and hidden species, your own rarity tiers and checklist additions come back from `.lifer/collection-state.json` in the library.
+- Photographed species come back from the photos, since Lifer writes each photo's species and rating into the file (or an `.xmp` sidecar next to a RAW).
+- Seen species, targets, archived and hidden species, your own rarity settings, checklist additions, and each species card's cover photo and crop come back from `.lifer/collection-state.json` in the library. Setup recognises the library and chooses the countries and animal groups it had for you, then brings back its photos by itself at the end.
 - Album membership and details come back from `.lifer/album-details.json`, and each trip with its photos from `.lifer/trip.json` in the trip's folder.
 
 Settings, share links, API keys and your account aren't in the files, so they need the database backup.
@@ -78,13 +78,15 @@ docker compose cp ./lifer-secrets/. api:/app-data/secrets/
    ```
 
    The volume name starts with your project folder's name. Run `docker volume ls` to check it. `--no-deps` starts only the database, so nothing else writes to it before your backup is restored.
+
 3. Load the backup:
 
    ```bash
    docker compose exec -T postgres psql -U lifer lifer < lifer-db-2026-09-25.sql
    ```
 
-   The new database gets the password in `DB_PASSWORD`, the same as a first start.
+   The new database starts with the default password, and Lifer moves it onto its generated one when it starts.
+
 4. Start everything:
 
    ```bash
@@ -116,12 +118,12 @@ Tools like Time Machine or File History cover both folders, as long as Lifer is 
 3. Put your library folder back where it was before.
 4. Open Lifer.
 
-If the library is now in a different place, Lifer shows a "Lifer can't save photos right now" banner. Choose the new location in [Settings > Storage](../settings.md#storage-location), then restart Lifer.
+If the library is now in a different place, Lifer shows a "Lifer can't save photos right now" banner. Click **Choose new location** on it and pick the folder. Lifer restarts itself on it.
 
 ### Starting fresh with only your photos
 
-If you've lost the database, install Lifer, choose your old library folder at setup, then open **Settings > Library**, choose **Lifer library** under **Reimport**, and click **Reimport**. Lifer rebuilds your photos and species from the files and restores your collected and seen status from the library.
+If you've lost the database, install Lifer, choose your old library folder at setup, then open **Settings > Library**, and click **Rescan** next to **Rescan this library**. Lifer rebuilds your photos and species from the files and restores your collected and seen status from the library.
 
 ## Moving from the desktop app to a server
 
-You don't need a backup to move. The desktop app can upload your whole library to a server. See [Migrate your library to a server](./connect-desktop-to-server.md#migrate).
+You don't need a backup to move. Signing in to the server from the desktop app sends your whole library to it. See [Move your library to a server](./connect-desktop-to-server.md#migrate).

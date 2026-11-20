@@ -22,7 +22,7 @@ The reason for no PostGIS is recorded in the code. The original `embedded_db.rs`
 
 Postgres rather than SQLite, for three reasons:
 
-- **One codebase and one SQL dialect.** The desktop app and a server run the same queries and the same migrations, so a desktop library moves to a server with no schema translation: the server is the same database design, and [migration](../state-and-sync.md#moving-a-desktop-library-to-a-server) replays the library through the server's ordinary upload API.
+- **One codebase and one SQL dialect.** The desktop app and a server run the same queries and the same migrations, so a desktop library moves to a server with no schema translation: the server is the same database design, and the [sync](../state-and-sync.md#a-desktop-app-linked-to-a-server) replays the library through the server's ordinary upload API.
 - **One catalog seed format.** The seed is a `pg_dump` that the desktop app loads with `psql` and a server merges with `COPY`; a second database engine would need a second seed and a second merge path.
 - **Postgres features the code relies on**, which SQLite lacks or provides differently: `pg_trgm` `similarity` and `word_similarity` with `unaccent` for fuzzy species search (`apps/api/src/species/search.ts`); advisory locks to serialise migrations, first-run registration, and catalog, pack and vector jobs (`migrate.ts`, `auth/routes.ts`, `packages/core/src/lib/referenceDataLock.ts`); statement-level triggers that keep the collection version and search names current (M111); and `jsonb`, arrays, `DISTINCT ON` and `LATERAL` joins throughout the queries.
 
@@ -39,7 +39,7 @@ Positive:
 
 - One schema, one migration path (`packages/data-pipeline/migrations`) and one set of SQL for both deployments.
 - The catalog seed is a `pg_dump` loaded with `psql` or merged with `COPY`, and installs restore it in about a minute.
-- Moving a desktop library to a server needs no schema translation ([State and sync](../state-and-sync.md#moving-a-desktop-library-to-a-server)).
+- Moving a desktop library to a server needs no schema translation ([State and sync](../state-and-sync.md#a-desktop-app-linked-to-a-server)).
 - Fuzzy search, job locking and cache invalidation use the database's own features instead of application code.
 
 Negative:

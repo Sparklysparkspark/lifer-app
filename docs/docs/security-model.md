@@ -56,7 +56,7 @@ The desktop app's Postgres (`apps/desktop/src-tauri/src/embedded_db.rs`) listens
 
 ### When the desktop app is connected to a server
 
-The app shows the server's pages in its window. Those pages get a fixed set of the app's native features (`REMOTE_PERMISSIONS` in `apps/desktop/src-tauri/src/security.rs`): window controls, native file dialogs and saving a file through Save As, opening `http`, `https` and `mailto` links, and the app's own commands. Installing app updates and restarting the app are granted only to servers reached over HTTPS or on this computer or the local network (private and Tailscale addresses, and names like `nas.local`), since a page served over plain http from the internet could be altered on the way. This is granted only to origins saved in the app's config. Commands that reconfigure the app check that the request comes from the bundled pages, the local API or a configured server (`is_trusted_sender`). Connecting the app to a server means trusting that server with those features; connect only to servers you run.
+The app shows the server's pages in its window. Those pages get a fixed set of the app's native features (`REMOTE_PERMISSIONS` in `apps/desktop/src-tauri/src/security.rs`): window controls, native file dialogs and saving a file through Save As, opening `http`, `https` and `mailto` links, and the app's own commands except the local-only ones (`allow-local-only-commands`: removing all data, signing in to a typed server address, moving the library folder, the launch token). Installing app updates and restarting the app are granted only to servers reached over HTTPS or on this computer or the local network (private and Tailscale addresses, and names like `nas.local`), since a page served over plain http from the internet could be altered on the way. This is granted only to origins saved in the app's config. Commands that reconfigure the app check that the request comes from the bundled pages, the local API or a configured server (`is_trusted_sender`). A server's page can change only how the app reaches that same server (Automatic URL Switching): `choose_setup` refuses an address that answers with another instance id, and `test_endpoint` only reports whether an address reaches that server. Connecting the app to a server means trusting that server with those features; connect only to servers you run.
 
 ## Home server on a LAN
 
@@ -117,7 +117,17 @@ See the [API guide](./api/overview.md#authentication) for using them.
 
 ### iNaturalist sign-in
 
-Linking an iNaturalist account uses OAuth with PKCE and a random `state` value kept in memory for the user who started it (`apps/api/src/inaturalist/routes.ts`). Lifer stores no iNaturalist client secret. The access and refresh tokens it receives are stored encrypted with the server's key (`apps/api/src/inaturalist/tokenStore.ts`, see [Secrets at rest](#secrets)).
+Linking an iNaturalist account uses OAuth with PKCE and a random `state` value kept in memory for the user who started it (`apps/api/src/inaturalist/routes.ts`). Lifer stores no iNaturalist client secret.
+
+There are three ways in, and each limits where the sign-in code can go:
+
+- **The desktop app** signs in directly. iNaturalist redirects to the app's own loopback address (`http://127.0.0.1:<port>/api/inaturalist/callback`), which only this computer can reach, and the relay page below is never involved.
+- **A desktop linked to a server** passes its sign-in to the server over the sync link (`PUT /api/inaturalist/account`, which needs the sync key and is refused on a desktop), so uploads work from either side without a second sign-in.
+- **A server opened in a browser** has no loopback address, so it uses the relay page below. The first time a given web address is used, Lifer says where the sign-in will be sent and waits for a yes; the answer is remembered for that address. A `state` value is also tied to the browser session that started it and works once, so a copied or replayed callback link does nothing, and one from another session is refused.
+
+The app registration on iNaturalist lists both redirect URIs: the relay page and the loopback callback.
+
+Every install shares one registered redirect URI, a static page at `liferwildlife.com/inat-callback/` (source: `docs/static/inat-callback/index.html`). The `state` value also carries the address of the Lifer that started the sign-in, and the page forwards iNaturalist's reply there unchanged. It only forwards to an `https` address, or to a plain `http` one on this computer or a local network (`localhost`, `127.0.0.1`, `::1`, `10.x`, `172.16.x` to `172.31.x`, `192.168.x`, or a `.local` name), never logs or stores the code, and sends no referrer. Lifer then accepts the reply only for a `state` it issued itself, and the code is useless without that sign-in's PKCE verifier, which never leaves the server. The access and refresh tokens it receives are stored encrypted with the server's key (`apps/api/src/inaturalist/tokenStore.ts`, see [Secrets at rest](#secrets)).
 
 ## Cross-site requests {#csrf}
 
@@ -150,7 +160,7 @@ Only failures count, and a correct sign-in clears both login counters. A browser
 
 Password fields are capped at 1,024 characters, so an unauthenticated request can't feed a huge value into the password hash.
 
-On a server, every route also shares a generous per-address limit (`RATE_LIMIT_PER_MINUTE`, 3000 a minute by default, IPv6 grouped by /64, `apps/api/src/lib/rateLimit.ts`). Lifer doesn't otherwise defend against a signed-in user, or anyone with a valid API key, overloading their own server.
+On a server, every route also shares a generous per-address limit (`RATE_LIMIT_PER_MINUTE`, 3000 a minute by default, IPv6 grouped by /64, `apps/api/src/lib/rateLimit.ts`). Photo images and uploads (everything under `/api/uploads`, all signed in) each have their own budget on top, 20 and 10 times that, so scrolling a big gallery or importing a full card can't use up the one sign-in and everything else share. Lifer doesn't otherwise defend against a signed-in user, or anyone with a valid API key, overloading their own server.
 
 ## File access {#file-access}
 
@@ -176,7 +186,7 @@ Disk exhaustion by the account holder or an API key with `photos.write` is out o
 
 ### Vectors computed by the desktop app
 
-When the desktop app is connected to a server, it can run species matching itself and send the resulting vectors with the photo, so the server doesn't have to (`packages/core/src/species/clientVectors.ts`). The server accepts them without running the models again. It checks that they're for the same photo (its SHA-256), the same preprocessing and model versions, and that each is a 768-number unit vector of finite values; anything else is ignored and the server computes its own.
+When the desktop app is connected to a server, it can run species recognition itself and send the resulting vectors with the photo, so the server doesn't have to (`packages/core/src/species/clientVectors.ts`). The server accepts them without running the models again. It checks that they're for the same photo (its SHA-256), the same preprocessing and model versions, and that each is a 768-number unit vector of finite values; anything else is ignored and the server computes its own.
 
 A sender could still send well-formed but wrong vectors. That's an accepted risk: only the signed-in user or an API key with `photos.write` can upload, and the vectors only affect that user's own photos (their suggestions, similar-photo search and duplicate hints), never the catalog or anyone else's data. Recomputing even a sample would cost the server the very work this feature saves, for no protection beyond what an account holder can already do to their own library.
 
@@ -184,10 +194,10 @@ A sender could still send well-formed but wrong vectors. That's an accepted risk
 
 Lifer fetches data from a fixed set of services ([Privacy](./privacy.md) lists them). Where the URLs come from:
 
-- **Lifer's own data** (catalog, packs, photo store, map, models): from `packages/core/src/config.ts` defaults or environment variables the server admin sets, never from a request.
+- **Lifer's own data** (catalog, downloaded regions, photo store, map, models): from `packages/core/src/config.ts` defaults or environment variables the server admin sets, never from a request.
 - **Species information and photos:** iNaturalist, GBIF and Wikimedia URLs built in code, or photo URLs that come from those services' responses and the catalog.
 - **GPU runtime libraries:** fixed npm, NuGet and PyPI URLs, each pinned by SHA-256 and size in `apps/api/src/species/gpuRuntime.ts`. Model files are checked against `packages/core/src/species/modelChecksums.ts`.
-- **Migrating a desktop library to a server:** the one place a user types a URL that the API then requests (`apps/api/src/settings/migrateToServer.ts`). It's available only in the desktop app (`desktopOnly`). It refuses loopback, link-local (which includes cloud metadata services) and unspecified addresses, and allows private network addresses, since a home server is the normal target. The check runs on the resolved addresses first, for a clear message, and then on every connection the migration makes, against the address actually connected to (`guardedDispatcher` in `apps/api/src/lib/outboundGuard.ts`). So a name that resolves to a public address when checked and to `127.0.0.1` when used (DNS rebinding), a redirect, or an upload address the server answers with can't reach loopback.
+- **A desktop app linked to a server:** the desktop's own API requests the server's addresses (`apps/api/src/sync/serverLink.ts`), with an API key the server minted for the app. No API request body names those addresses: they come from the desktop config the app's own setup pages wrote (`server-link.json`, written by `apps/desktop/src-tauri/src/server_link.rs` only for the configured server's page), A browser tab on the API can't point it anywhere. The instance id each address must answer with (`GET /health`) only picks which of the configured addresses is the linked server: it's public, so it isn't proof of the server's identity, and whatever answers at a configured address with that id gets the key. Requests that carry the key don't follow redirects.
 
 No route on a server takes a URL to fetch.
 
@@ -201,7 +211,7 @@ No route on a server takes a URL to fetch.
 | Share link passwords | `shared_links.password_hash` | Argon2id hash |
 | iNaturalist access and refresh tokens | `user_inaturalist_accounts` | AES-256-GCM encrypted |
 | The key for the encrypted values | `secrets/at-rest-key-v1` in the app data folder (`APP_DATA_DIR`) | Plain, mode 0600 in a 0700 folder; never in the database |
-| Database password, server | `DB_PASSWORD` in `.env`, and in `DATABASE_URL` in the container's environment | Plain text, readable by anyone who can read `.env` or inspect the container |
+| Database password, server | `secrets/db-password` in the app data folder, generated on first start (or your own, in `DATABASE_URL`) | Plain text, mode 0600 in a 0700 folder |
 | Database password, desktop | `app-data/postgres-password` | Plain text, mode 0600 |
 
 The encrypted values use AES-256-GCM through `node:crypto`, with a random IV each time and the kind of secret bound in as associated data, so a value moved to another column doesn't decrypt (`apps/api/src/lib/secretBox.ts`). The key is 32 random bytes the server makes on first use. Each value starts with its key's version (`lifer-enc:v1:`), so a new key can be introduced later: old values still decrypt with their own key file and are re-encrypted as they're read. On Windows the file modes don't apply; the app data folder's own permissions do.
@@ -219,14 +229,12 @@ Nothing else in the database or on disk is encrypted. Protect the database volum
 - **Docker image:** pushed to GHCR with a BuildKit SBOM and provenance attestation (`sbom: true`, `provenance: mode=max`), plus a GitHub build provenance attestation (`actions/attest-build-provenance`).
 - **Dependencies:** a committed `package-lock.json` installed with `npm ci` in CI. Dependabot opens grouped updates weekly for npm and Cargo, monthly for the docs, GitHub Actions and Docker base images, and security updates as advisories are published (`.github/dependabot.yml`). CodeQL scans the code (`.github/workflows/codeql.yml`).
 - **Bundled tools:** the desktop build fails if the Node runtime doesn't match nodejs.org's `SHASUMS256.txt`, and the macOS FFmpeg is built from pinned, checksum-verified sources ([Desktop app](./contributing/desktop-app.md#building-an-installer)).
-- **Workflow actions:** third-party actions in `ci.yml`, `codeql.yml`, `docs.yml`, `mutation.yml` and `catalog-seed.yml` are pinned by full commit SHA, with the version in a comment, which Dependabot keeps updated. **Known gap:** `release.yml` and `desktop-build.yml` still pin by version tag (`actions/checkout@v4`), so a compromised upstream tag would reach those builds.
+- **Workflow actions:** third-party actions in `ci.yml`, `codeql.yml`, `docs.yml` and `mutation.yml` are pinned by full commit SHA, with the version in a comment, which Dependabot keeps updated. **Known gap:** `release.yml` and `desktop-build.yml` still pin by version tag (`actions/checkout@v4`), so a compromised upstream tag would reach those builds.
 - **Catalog seed:** the species catalog is checked against the SHA-256 in its manifest when the server downloads it (`downloadSeed` in `apps/api/src/species/catalogSeedUpdate.ts`), and the copy bundled into the Docker image is checked against the manifest bundled with it before a first boot loads it (`verifiedBundledSeed`), refusing on a mismatch. The desktop build checks the seed it bundles; the desktop app's own restore of that bundled seed at first launch (`embedded_db.rs`) doesn't check it again yet.
 
-## Desktop offline cache {#offline-cache}
+## Linking a desktop app to a server {#desktop-link}
 
-With **Keep an offline cache** on (the default), the desktop app keeps a copy of the signed-in user's collection from the connected server in `offline-cache` in its app data folder (`apps/desktop/src-tauri/src/offline_cache.rs`): species names, collected and seen status, and covers of at most 48 KB each. It isn't encrypted, so anyone who can read your OS account's files can see which species you've collected and small versions of your cover photos. It holds no password, session, API key or full-size photo.
-
-Only the connected server's own pages, which already hold the session, can write it, and only the app's bundled offline page can read it. It's tied to one server address and one user id, and deleted when the user signs out, unticks the option, switches server or goes back to the local library; a different user on the same server starts from empty. See [Offline cache](./install/connect-desktop-to-server.md#offline-cache).
+A desktop app linked to a server holds a key of its own on it (the `sync` scope, listed under Settings > Server > Linked devices, revocable there). The server's instance id on `/health` is public, so it doesn't prove a server is the one the app linked to. When the key is made the server gives the app a secret derived from the key's id under a key kept only on the server. Before the app sends its key to an address, it sends a fresh random value to `GET /api/sync/link/proof` and checks the answer is the HMAC-SHA256 of that value under the secret. A server that only copies the instance id can't answer it, and a revoked key gets no proof. The route is rate limited and reveals nothing without the secret. The key goes only over https, or plain http on this computer or the local network.
 
 ## Out of scope
 

@@ -32,9 +32,8 @@ The server runs as two containers: Lifer itself (image `ghcr.io/sparklysparkspar
        environment:
          POSTGRES_USER: lifer
          POSTGRES_DB: lifer
-         # Letters and numbers only; it's also in DATABASE_URL below. Postgres reads it once,
-         # when it creates the database.
-         POSTGRES_PASSWORD: <database-password>
+         # Only for the first start: Lifer then moves the database onto a generated password.
+         POSTGRES_PASSWORD: lifer
        volumes:
          - <lifer-folder>/postgres:/var/lib/postgresql
        healthcheck:
@@ -53,7 +52,7 @@ The server runs as two containers: Lifer itself (image `ghcr.io/sparklysparkspar
          postgres:
            condition: service_healthy
        environment:
-         DATABASE_URL: postgres://lifer:<database-password>@postgres:5432/lifer
+         DATABASE_URL: postgres://lifer:lifer@postgres:5432/lifer
          NODE_ENV: production
          PORT: 4000
          DATA_DIR: /data
@@ -78,7 +77,7 @@ The server runs as two containers: Lifer itself (image `ghcr.io/sparklysparkspar
 
 Every other setting has a default. The ones you might want later are in [Environment variables](./environment-variables.md), and they go under `environment:` in the same file.
 
-On a NAS with a Docker interface (a TrueNAS Custom App, Portainer Stacks, Synology Container Manager, or Unraid's Compose Manager plugin), paste the file from step 3 into it, with your folders and password filled in. You don't need a terminal.
+On a NAS with a Docker interface (a TrueNAS Custom App, Portainer Stacks, Synology Container Manager, or Unraid's Compose Manager plugin), paste the file from step 3 into it, with your folders filled in. You don't need a terminal.
 
 ### Alternative: the repository's compose file with a `.env` file {#env-setup}
 
@@ -87,7 +86,7 @@ The repository has a fuller [`docker-compose.yml`](https://raw.githubusercontent
 - a `permissions` step that makes the library folder writable for you, with `PUID` and `PGID` choosing the user (see [File ownership](#file-ownership));
 - every optional setting listed, so you can change one by editing `.env`.
 
-In `.env`, set `LIFER_STORAGE_DIR` to your photo library folder and `DB_PASSWORD` to a database password before the first start, then run `docker compose up -d`.
+In `.env`, set `LIFER_STORAGE_DIR` to your photo library folder, then run `docker compose up -d`.
 
 Lifer works out on its own whether each request came over plain `http://` or HTTPS, so there's nothing to set for that.
 
@@ -112,7 +111,7 @@ The compose file stores data in three places:
 | Inside the container | On your server | What it holds |
 |---|---|---|
 | `/data` | Your photo library folder (`LIFER_STORAGE_DIR` with `.env`) | **Your photo library.** `Birds`, `Mammals` and other folders go directly in here. |
-| `/app-data` | `<lifer-folder>/app-data` (Docker volume `lifer-app-data` with `.env`) | Lifer's own files: thumbnails and preview images of your photos, the offline map, species-matching models, and catalog downloads. Lifer can download or rebuild all of it, but a lost volume means a slow rebuild. |
+| `/app-data` | `<lifer-folder>/app-data` (Docker volume `lifer-app-data` with `.env`) | Lifer's own files: thumbnails and preview images of your photos, the offline map, species recognition models, and catalog downloads. Lifer can download or rebuild all of it, but a lost volume means a slow rebuild. |
 | `/var/lib/postgresql` (in the `postgres` container) | `<lifer-folder>/postgres` (Docker volume `lifer-db` with `.env`) | The database: your species assignments, ratings, tags, albums, trips and settings. |
 
 Your photos and the database are what you must [back up](./backup-restore.md).
@@ -145,15 +144,15 @@ To have Lifer's files belong to your own account instead, set `PUID` and `PGID` 
 
 ## Database password {#db-password}
 
-The database password is `POSTGRES_PASSWORD` in the single-file setup, repeated in `DATABASE_URL`, or `DB_PASSWORD` in `.env`, which defaults to `lifer`. The database can't be reached from your network either way (see [Volumes](#volumes)), but a password of your own is still better.
+There's nothing to set. The database starts with the password `lifer` from the compose file, and on its first start Lifer replaces it with a long random one, saved as `secrets/db-password` in the app-data folder (`/app-data`). The database can't be reached from your network either way (see [Volumes](#volumes)).
 
-Postgres only reads the password when it creates the database, on the very first start. Changing it in the file later doesn't change the database's password, and Lifer then can't connect. To change it on an existing install, change it inside Postgres first, then in the file:
+Lifer only does this while the compose file says `lifer`. To use a password of your own instead, change it inside Postgres first, then put it in `POSTGRES_PASSWORD` and `DATABASE_URL` (or `DB_PASSWORD` in `.env`), and run `docker compose up -d`:
 
 ```bash
 docker compose exec postgres psql -U lifer -c "ALTER USER lifer PASSWORD 'new-password'"
-# then put new-password in POSTGRES_PASSWORD and DATABASE_URL (or DB_PASSWORD in .env), and:
-docker compose up -d
 ```
+
+If the app-data folder is lost but the database isn't, Lifer can't connect and its log says so. Set the database back to `lifer` with the same command, using `lifer` as the new password, then run `docker compose up -d`: Lifer generates a new password on start.
 
 ## Extra library folders {#extra-library-folders}
 

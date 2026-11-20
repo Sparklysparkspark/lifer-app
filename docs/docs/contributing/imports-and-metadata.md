@@ -15,7 +15,7 @@ Every import path ends the same way: the original file is filed into a species f
 
 Two requests, so the user can review before anything is saved:
 
-1. **`POST /api/uploads/inspect`** (`apps/api/src/uploads/inspect.ts`) reads EXIF, keywords and cull marks, checks for duplicates and suggests species. It writes no database rows. A multipart file is kept in a staging folder and returned as a `stagedId`, so the import doesn't upload it again.
+1. **`POST /api/uploads/inspect`** (`apps/api/src/uploads/inspect.ts`) reads EXIF, keywords and cull marks, checks for duplicates and suggests species. It writes no database rows. A multipart file is kept in a staging folder and returned as a `stagedId`, so the import doesn't upload it again. Each photo checked this way also gets its previews and default card crop made in the background (`apps/api/src/uploads/preparedAhead.ts`), which the import reuses. That work runs only while no photo is being checked or imported, two at a time, and an import never waits behind it: a photo whose work hasn't started is dropped from the queue and the import makes its own previews.
 2. **`POST /api/uploads`** (`apps/api/src/uploads/photo.ts`) imports. Its `mode` is `store` (the default: file the file into the library) or `link` (leave it where it is, unmanaged; the path must pass the [path allowlist](../security-model.md#file-access)).
 
 `POST /api/uploads/raw` takes many RAW files at once (two in parallel), and `POST /api/uploads/video` takes MP4 and MOV.
@@ -30,7 +30,7 @@ A trip points at a folder of photos, typically a card dump (`apps/api/src/trips/
 
 ### Checklists from eBird
 
-`POST /api/imports/ebird-csv` (`apps/api/src/imports/routes.ts`) reads an eBird "My eBird Data" export. It needs only a "Scientific Name" column, matches names exactly against `species.scientific_name`, and marks each match `seen` in `user_species` with `ON CONFLICT DO NOTHING`, so a collected species is never downgraded. It returns the matched, already-seen and unmatched counts. No photos are involved, and Lifer never contacts eBird. The CSV parser is minimal: it doesn't handle commas inside quoted fields.
+`POST /api/imports/ebird-csv` (`apps/api/src/imports/routes.ts`) reads an eBird "My eBird Data" export. It needs only a "Scientific Name" column, matches names exactly against `species.scientific_name`, and marks each match `seen` in `user_species` with `ON CONFLICT DO NOTHING`, so a collected species is never downgraded. It returns the matched, already-seen and unmatched counts, the unmatched names, and the ids of the species it newly marked. `POST /api/imports/ebird-csv/undo` takes those ids back and clears only rows still plain `seen`, so nothing photographed since is touched and no schema change is needed to remember the import. No photos are involved, and Lifer never contacts eBird. The CSV parser is minimal: it doesn't handle commas inside quoted fields.
 
 There's no other life-list import. iNaturalist is the other direction: Lifer sends selected photos to iNaturalist as observations (`apps/api/src/inaturalist/`); it doesn't import from it.
 
@@ -50,6 +50,20 @@ A RAW and a JPEG are one capture with two `originals` rows (`kind = 'raw'` and `
 One match links. Several matches are a collision and nothing links. No match: in a folder import the RAW isn't kept; picked for one species, it's filed into that species' `RAW` folder as an unlinked original (`capture_id` NULL, `species_id` set) that a later JPEG can claim; imported as the main file, it becomes its own capture shown through its embedded preview (`apps/api/src/uploads/raw.ts`).
 
 A JPEG that arrives after its RAW claims the waiting RAW the same way, by stem and time, then by fingerprint (`photo.ts`). Trip imports pair by stem only, case-insensitively, preferring a RAW in the photo's own folder (`trips/import.ts`).
+
+## Photo versions
+
+Edits and exports of one photographed moment (`_M8A6162-2.jpg`, `_M8A6162-6.jpg`, a denoised DNG) are grouped so the moment counts once. Every file is still imported as its own capture; once imports go quiet, a background pass (`apps/api/src/uploads/versionGrouping.ts`) reads each new file's role and links versions. A version's capture is hidden behind its group's capture (`capture_versions`), so the life list, species counts and Home count it once, and a split brings it back exactly as it was.
+
+Each `originals` row gets a `role`: `original` (the camera file), `edit` (a DNG, TIFF or PSD saved by an editor) or `export` (any other derived file). A file is derived when its XMP lineage points elsewhere, its name carries an editor suffix (`-2`, `-Edit`, `-Enhanced-NR`, `-Pano`, `-HDR`, a size such as `_10x27`), or its `Software` is an editor. `document_id` is its `OriginalDocumentID`, else `DerivedFromDocumentID`, else its own `DocumentID`.
+
+The rules, strongest first. Only the first two link on their own:
+
+1. **Same document** (`document_id` evidence): files sharing a `document_id`.
+2. **Same shutter press and name** (`time_serial_suffix`): the same strict fingerprint, with sub-seconds and a serial number present, and stems that match once suffixes are removed. Two files whose document IDs differ never link this way.
+3. **Same shutter press only** (`suggested`): offered in the review after an import, never linked until a person confirms.
+
+Several candidate groups is ambiguous and nothing links. Size and dimensions are never a signal, since crops and panoramas differ. A split or dismissed suggestion stays `dismissed`, so the rules never link it again. A group shows its newest edit, else its camera original, unless the user picks another file ("Use this as the photo", which swaps the two captures' photo rows).
 
 ## EXIF, GPS and time
 
@@ -81,20 +95,20 @@ Species are only assigned without the user in recovery: reimport (from keywords 
 
 ## Where files go
 
-Store-mode imports file the original under this layout. Every import path builds it through `speciesFolder` in `apps/api/src/uploads/managedFolders.ts` (layout in `organizedPath.ts`), so a species' photos, RAWs and videos always share one folder:
+Store-mode imports file the original under the user's folder layout. The default (the Species preset) is: Every import path builds it through `speciesFolder` in `apps/api/src/uploads/managedFolders.ts` (layout in `organizedPath.ts`), so a species' photos, RAWs and videos always share one folder:
 
 ```text
-[<location>/][Wildlife <year>/]<Taxon>/<Species folder>/<RAW | Adjusted | Video>/<file>
+<Taxon>/<Species folder>/<RAW | Adjusted | Video>/<file>
 ```
 
 - `<Taxon>` is the group label, such as `Birds` or `Mammals`; Other Taxa use iNaturalist's group, or `Other`.
-- The year and location levels are optional per user (`users.organize_originals_by_year`, `organize_originals_by_location`).
+- The folder levels and their order are per user (`users.folder_layout`, an ordered list of levels defined in `packages/shared/src/folderLayout.ts`, with presets for Species, Year, Date, Trip and Location). A level with no value for a photo is skipped, except `Wildlife <year>`, which keeps `Wildlife Undated`. The RAW, Adjusted or Video folder always comes last.
 - `<Species folder>` follows the user's naming styles (common name, scientific name, ABA or eBird code, or a combination; `apps/api/src/uploads/speciesFolderName.ts`). A common name shared with another species gets the scientific name added. Characters that aren't valid in file names are removed.
-- The base is the trip's destination folder for trip imports, a chosen drive's or library root's `Lifer Originals` folder, or the library (`ORIGINALS_DIR`). Trip imports add the year level but never the location one.
+- The base is the trip's destination folder for trip imports, a chosen drive's or library root's `Lifer Originals` folder, or the library (`ORIGINALS_DIR`). Under a trip's own folder the trip, country, province and place levels are left out; date levels still apply.
 
 Files keep their own names. A clash gets `-2`, `-3` and so on, up to 1000. Files are moved with a hard link and unlink, falling back to an exclusive copy: a move never overwrites (`packages/core/src/lib/safeFs.ts`). See [ADR 0007](./decisions/0007-library-layout-species-folders.md).
 
-A managed original always stays under the base it was filed under (`locateManagedOriginal` in `apps/api/src/uploads/managedFolders.ts`: its trip's destination folder when it's inside it, else its volume's `Lifer Originals` folder for a file on a drive or library root, else the library). When the user changes a photo's species (or a new photo claims an unmatched RAW), only the `<Taxon>/<Species folder>` levels change: the base and any year and location folders above them stay as they are (`moveManagedOriginalToSpeciesFolder`). A file not in that layout is filed under its base with the current settings, and one outside every base Lifer knows, or on a drive that isn't connected, stays put. The move happens before the database changes and is undone if the transaction fails; a file on a volume keeps `volume_id`, with `volume_relative_path` updated; emptied species folders are removed. Unmanaged (linked) files never move. **Reorganize existing photos** in [Settings > Library](../settings.md#photo-library-organization) (`POST /api/settings/reorganize-originals`) refiles every managed original (hidden ones too, not trashed ones) under its own base with the current naming, year and location settings, skipping files on disconnected drives. Reimport's "organize" is the one path that moves files into the library from elsewhere (`fileIntoMainLibrary` in `apps/api/src/uploads/common.ts`).
+A managed original always stays under the base it was filed under (`locateManagedOriginal` in `apps/api/src/uploads/managedFolders.ts`: its trip's destination folder when it's inside it, else its volume's `Lifer Originals` folder for a file on a drive or library root, else the library). When the user changes a photo's species (or a new photo claims an unmatched RAW) and the layout ends in group and species folders, only those change: the base and the folders above them stay as they are (`moveManagedOriginalToSpeciesFolder`). With any other layout, or for a file not in that layout, the file is refiled under its base with the current layout, and one outside every base Lifer knows, or on a drive that isn't connected, stays put. The move happens before the database changes and is undone if the transaction fails; a file on a volume keeps `volume_id`, with `volume_relative_path` updated; emptied species folders are removed. Unmanaged (linked) files never move. **Reorganize existing photos** in [Settings > Library](../settings.md#photo-library-organization) (`POST /api/settings/reorganize-originals`) refiles every managed original (hidden ones too, not trashed ones) under its own base with the current naming and folder layout, skipping files on disconnected drives. Reimport's "organize" is the one path that moves files into the library from elsewhere (`fileIntoMainLibrary` in `apps/api/src/uploads/common.ts`).
 
 ## Previews
 
@@ -134,7 +148,7 @@ Lifer writes its species and rating back to files so the library stays meaningfu
 | `XMP-xmp:Rating` | Lifer's 1 to 5 rating; removed when the user clears it |
 | `XMP-exif:GPSLatitude`, `GPSLongitude` | Sidecars only |
 
-Keywords from other tools are kept: only Lifer's own (species names and codes, `Lifer:Cover`, anything under `Species|`, and photo tags) are replaced. Photo tags are plain keywords, so other apps show them like any other; the `Lifer Tags|<tag>` entry beside each records that the keyword is Lifer's, so removing, renaming or deleting a tag in Lifer removes it from the file and never a keyword another app added (a `|` in a tag is written as `/` there). A keyword another app added with the same text as a Lifer tag goes with the tag. A write that doesn't carry the tags (a species-only rewrite) leaves them as they are. Reimport reads the `Lifer Tags|` entries back. **Camera fields are never written**: capture time, camera, lens and exposure are not part of the write (`exifMetadata.test.ts` checks this).
+Keywords from other tools are kept: only Lifer's own (species names and codes, `Lifer:Cover`, anything under `Species|`, and photo tags) are replaced. Photo tags are plain keywords, so other apps show them like any other; the `Lifer Tags|<tag>` entry beside each records that the keyword is Lifer's, so removing, renaming or deleting a tag in Lifer removes it from the file and never a keyword another app added (a `|` in a tag is written as `/` there). A keyword another app added with the same text as a Lifer tag goes with the tag. A write that doesn't carry the tags (a species-only rewrite) leaves them as they are. Reimport reads the `Lifer Tags|` entries back. **Camera fields are never written**: camera, lens and exposure are not part of the write, and neither is capture time, except a date set in Lifer on an embedded-metadata file without a camera date (written as a UTC wall clock, so a reimport reads back the same instant). A camera writes `CreateDate` beside `DateTimeOriginal` and Lifer writes only `DateTimeOriginal`, so a file with no `DateTimeOriginal`, or one without `CreateDate` (Lifer's own date, or a scan's), takes the date and later corrections; a file with both is never changed. `exifMetadata.test.ts` checks both.
 
 **How:** `exiftool -overwrite_original`, one write at a time per file. ExifTool rewrites the file through a temp file and rename, so an interrupted write doesn't leave a half-written photo, but the file's modification time changes, which backup tools see as a change.
 

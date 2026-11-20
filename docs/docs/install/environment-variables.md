@@ -34,7 +34,7 @@ These are read by the repository's `docker-compose.yml` itself, not by Lifer, so
 | Variable | Default | What it does |
 |---|---|---|
 | `LIFER_VERSION` | `release` | Which Lifer image to run. `release` is the newest stable version. Set a version like `0.9.1` to stay on it, or a minor line like `0.9` to get only that line's fixes. See [Upgrading](./upgrading.md#pin). |
-| `DB_PASSWORD` | `lifer` | The database password. The compose file gives it to the `postgres` container and puts it in `DATABASE_URL`. Use letters and numbers only. Postgres only reads it when the database is first created, so set it before the first start. See [Database password](./docker.md#db-password) to change it later. |
+| `DB_PASSWORD` | `lifer` | The database's first password. The compose file gives it to the `postgres` container and puts it in `DATABASE_URL`. Leave it unset: on its first start Lifer replaces `lifer` with a generated password. See [Database password](./docker.md#db-password) to use your own. |
 | `RENDER_GROUP_ID` | `107` | Intel or AMD GPUs only, with `hwaccel.yml`: the server's `render` group number, so Lifer can open the GPU. See [GPU acceleration](./hardware-acceleration.md#intel-and-amd). |
 
 ## The common ones
@@ -64,7 +64,7 @@ Only needed behind a reverse proxy. See [Reverse proxy and HTTPS](./reverse-prox
 | `LIFER_MAX_IMAGE_PIXELS` | `2000000000` (2 gigapixels) | Yes | The largest photo, in pixels, Lifer will open. It guards against broken or malicious files; memory use depends on a photo's width more than its total pixels, so even very large panoramas are fine. `0` means no limit. |
 | `LIFER_UPLOAD_WORK_DIR` | next to the library | Yes | Where uploads are received and kept until they're imported. By default Lifer uses the `uploads` folder in `APP_DATA_DIR` when that's on the same drive as the library, and otherwise a hidden `.lifer-uploads` folder inside the library, so filing a finished upload is a quick move rather than a second copy. Set it only if you want uploads received somewhere else, for example because that drive is short on space. Unfinished uploads are removed 2 hours after their last piece arrived. |
 | `LIFER_MAX_JSON_BODY_BYTES` | `67108864` (64 MB) | Yes | The largest ordinary (non-upload) request. Uploads aren't affected by it. You shouldn't need to change it. |
-| `RATE_LIMIT_PER_MINUTE` | `3000` | No | How many requests one address can make per minute before Lifer answers "too many requests" for the rest of that minute. It's generous on purpose: scrolling a large gallery makes many requests, and everyone in a household usually shares one address. `0` turns it off. Behind a reverse proxy, set `TRUST_PROXY` so each visitor is counted separately rather than all as the proxy. Sign-in has its own, much stricter limit. The desktop app doesn't use it. |
+| `RATE_LIMIT_PER_MINUTE` | `3000` | No | How many requests one address can make per minute before Lifer answers "too many requests" for the rest of that minute. It's generous on purpose: scrolling a large gallery makes many requests, and everyone in a household usually shares one address. Photo images and imports each get their own, larger budget (20 and 10 times this), so a big import doesn't slow down the rest. `0` turns it off. Behind a reverse proxy, set `TRUST_PROXY` so each visitor is counted separately rather than all as the proxy. Sign-in has its own, much stricter limit. The desktop app doesn't use it. |
 
 Uploads are sent in resumable pieces, so there's no request-size setting to keep in step with your reverse proxy. See [Reverse proxy](./reverse-proxy.md#large-uploads).
 
@@ -76,27 +76,28 @@ The compose file sets these for you. Change them only if you build your own setu
 |---|---|---|---|
 | `DATABASE_URL` | `postgres://lifer:lifer@localhost:5432/lifer` | Yes | The Postgres connection string. The compose file points it at the bundled `postgres` service, with the password from `DB_PASSWORD`. Lifer needs Postgres 16 or newer with the `pgcrypto`, `pg_trgm` and `unaccent` extensions, which come with standard Postgres. It doesn't need PostGIS. |
 | `DATA_DIR` | `/data` in Docker | Yes | Where the photo library is, inside the container. |
-| `APP_DATA_DIR` | `/app-data` in Docker | Yes | Where Lifer keeps its own files: thumbnails and preview images of your photos, the offline map, the species-matching models, and catalog downloads. None of it is original data: Lifer can download or rebuild it. |
+| `APP_DATA_DIR` | `/app-data` in Docker | Yes | Where Lifer keeps its own files: thumbnails and preview images of your photos, the offline map, the species recognition models, and catalog downloads. None of it is original data: Lifer can download or rebuild it. |
 | `WEB_DIST_DIR` | the built web app inside the image | No | Where the web app's files are. Only for custom builds. |
 | `NODE_ENV` | `production` | Yes | Standard Node.js setting. Leave it as is. |
 | `APP_VERSION` | set when the image is built | No | The version Lifer reports, used for the "newer release" banner. Leave it as is. |
 
 ## Download sources
 
-Lifer downloads region packs, catalog updates and models from the project's GitHub releases and from Hugging Face. You'd only change these to use a mirror or for development.
+Lifer downloads regions, catalog updates and models from the project's GitHub releases and from Hugging Face. You'd only change these to use a mirror or for development.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `PACK_INDEX_URL` | the `packs-latest` release on GitHub | The list of downloadable region packs. |
+| `PACK_INDEX_URL` | the `packs-latest` release on GitHub | The list of downloadable regions. |
 | `CATALOG_MANIFEST_URL` | the `catalog-latest` release on GitHub | A small file Lifer checks to see if a newer species catalog exists. |
 | `CATALOG_SEED_URL` | the `catalog-latest` release on GitHub | The species catalog itself. Docker images already include a copy, so a new server works without internet on first start. |
 | `EMBEDDING_MODEL_URL` | the `models` release on GitHub | The general image model (CLIP ViT-L/14, compressed to run well on a CPU) used for Gallery content search, duplicate detection, and suggestions until the identification model is installed. |
-| `EMBEDDING_MODEL_GPU_URL` | CLIP ViT-L/14 on Hugging Face | The full-precision copy of the general image model, downloaded only when Lifer moves matching onto a GPU. |
+| `EMBEDDING_MODEL_GPU_URL` | CLIP ViT-L/14 on Hugging Face | The full-precision copy of the general image model, downloaded only when Lifer moves species recognition onto a GPU. |
 | `ID_MODEL_URL` | the `models` release on GitHub | The species identification model (BioCLIP 2) used for species suggestions. |
-| `ID_MODEL_GPU_URL` | the `models` release on GitHub | The full-precision copy of the identification model, downloaded only when Lifer moves matching onto a GPU. See [One-time downloads for NVIDIA](./hardware-acceleration.md#nvidia-downloads). |
+| `ID_MODEL_GPU_URL` | the `models` release on GitHub | The full-precision copy of the identification model, downloaded only when Lifer moves species recognition onto a GPU. See [One-time downloads for NVIDIA](./hardware-acceleration.md#nvidia-downloads). |
 | `SCENE_MODEL_URL` | the `models` release on GitHub | The scene model (UperNet ConvNeXt, ADE20K) that finds scenes and colors for Gallery search. |
 | `SCENE_MODEL_FP32_URL` | the `models` release on GitHub | The full-precision copy of the scene model, which Intel Macs run instead. |
 | `MAP_DOWNLOAD_URL` | the `map-latest` release on GitHub | Where to download the offline basemap from. Only needed to use a different map file. |
+| `RELIEF_DOWNLOAD_URL` | the `map-latest` release on GitHub | Where to download the map's shaded relief and 3D terrain from (about 90 MB). Only needed to use a different file. The map draws flat without it. |
 
 These are all unset in the shipped compose file, so add them under `environment:` if you use them.
 
@@ -109,17 +110,18 @@ You rarely need these. The defaults suit a typical home server.
 | `PG_POOL_MAX` | `20` | The most database connections Lifer opens at once. Lower it if your Postgres is shared and short on connections. |
 | `LIFER_VECTOR_CACHE_MB` | `128` | How much memory, in MB, Lifer uses to keep your own photos' matching data in memory. It speeds up species suggestions, duplicate checks and Gallery content search. Raise it for a very large library on a server with memory to spare. |
 | `INAT_MIN_HOST_INTERVAL_MS` | `1000` | The shortest gap, in milliseconds, between requests Lifer sends to iNaturalist, shared by every part of Lifer that calls it. Raise it (for example to `2500`) if iNaturalist starts limiting your server. |
-| `LIFER_GPU` | unset (automatic) | Set to `off` to keep species matching on the CPU even when a GPU is available. Only for troubleshooting: by default Lifer uses a GPU only when it gives the same results and is faster. Already listed in the compose file. See [GPU acceleration](./hardware-acceleration.md). |
+| `LIFER_GPU` | unset (automatic) | Set to `off` to keep species recognition on the CPU even when a GPU is available. Only for troubleshooting: by default Lifer uses a GPU only when it gives the same results and is faster. Already listed in the compose file. See [GPU acceleration](./hardware-acceleration.md). |
+| `LIFER_CRASH_REPORTS` | unset (on) | Set to `off` to never save or offer [crash reports](../privacy.md#crash-reports). For packagers who ship Lifer with no way to send one. |
 | `LOG_LEVEL` | `info` | How much the server logs: `error`, `warn`, `info`, `debug` or `trace`. Use `debug` when troubleshooting, then set it back. |
-| `LIFER_INFERENCE_IN_PROCESS` | unset | Set to `1` to run the species-matching models on Lifer's main thread instead of a separate background worker. Only for debugging: the app can become unresponsive while photos are matched. |
+| `LIFER_INFERENCE_IN_PROCESS` | unset | Set to `1` to run the species recognition models on Lifer's main thread instead of a separate background worker. Only for debugging: the app can become unresponsive while photos are matched. |
 
 ## Rarely used
 
 | Variable | Default | What it does |
 |---|---|---|
 | `SINGLE_USER_MODE` | unset | Used by the desktop app, which has no login: the app's own window is signed in with the per-launch secret `LIFER_LAUNCH_TOKEN` instead. **Never set this on a server.** Lifer refuses to start with `SINGLE_USER_MODE=1` unless it also has `LIFER_LAUNCH_TOKEN`, and in this mode it only listens on `127.0.0.1` and refuses requests that came through a proxy. |
-| `INAT_CLIENT_ID` | unset | The client ID of an iNaturalist application you registered at [inaturalist.org/oauth/applications](https://www.inaturalist.org/oauth/applications), for linking an iNaturalist account. That feature is still [coming soon](../guides/inaturalist.md#observations). A client ID saved in Settings takes priority over this. |
-| `INAT_REDIRECT_URI` | the address you opened Lifer at, plus `/api/inaturalist/callback` | The address iNaturalist sends you back to after you link your account. It must match the one registered with your iNaturalist application. A redirect URI saved in Settings takes priority over this. |
+| `INAT_CLIENT_ID` | Lifer's own iNaturalist app | Only to [link iNaturalist](../guides/inaturalist.md#link-account) through an iNaturalist application you registered yourself at [inaturalist.org/oauth/applications](https://www.inaturalist.org/oauth/applications): its client ID. |
+| `INAT_REDIRECT_URI` | Lifer's sign-in page (with your own app: the address you opened Lifer at, plus `/api/inaturalist/callback`) | Only with your own `INAT_CLIENT_ID`: the redirect URI you registered with that application, if it isn't the default. |
 | `LIFER_ALLOW_UNTOKENED_DESKTOP` | unset | For development only. Set to `1` to let `SINGLE_USER_MODE` run without the desktop app's launch token; every request on `127.0.0.1` is then signed in as the local user, with no credential. **Never set this on a server.** |
 
 The desktop app also sets a few internal variables (`LIFER_LAUNCH_TOKEN`, `LIFER_LAUNCH_ID`, `LIFER_WATCH_PARENT_PID`, `LIFER_PG_CTL`, `LIFER_PG_DATA`, and for [matching on this computer](./connect-desktop-to-server.md#desktop-assisted-matching) `LIFER_INFERENCE_TOKEN` and `LIFER_MODEL_DIR`) to manage its background processes. They aren't meant to be set by hand.

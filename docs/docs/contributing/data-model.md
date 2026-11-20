@@ -71,7 +71,7 @@ Some catalog-side tables are maintainer inputs that the seed doesn't ship: `regi
 | `albums`, `album_captures` (M071) | Albums and their photos | `album_captures.capture_id` references `captures_all`, not the view; trashed photos are filtered in queries. |
 | `trips` (M046) | A trip: its source folder, destination folder (M112), cover | A capture belongs to at most one trip, through `captures_all.trip_id`. |
 | `storage_volumes` (M050, M104) | External drives (per user) and server library roots (per install) | A CHECK enforces the two shapes: a drive has a user and no path; a root has a path and no user. |
-| `capture_migrations` (M033) | Which captures were sent to which server by the desktop migration | PK `(capture_id, server_url)`. |
+| `capture_migrations` (M033) | Earlier desktop migrations' record of what was sent where; no longer written (`captures_all.pushed_at` and `remote_id`, M150, took over) | PK `(capture_id, server_url)`. |
 | `ignored_library_files` (M063) | Files the user told reimport to skip, by content hash | Unique `(user_id, content_hash)`. |
 
 There's no encounters table. Encounters are computed when needed by `apps/api/src/lib/clusterEncounters.ts` (captures less than 60 minutes apart form one encounter).

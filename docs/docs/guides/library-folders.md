@@ -45,14 +45,22 @@ The first one a species has becomes the name, and the rest follow in brackets. F
 
 If two species share a common name, Lifer adds the scientific name so their folders stay separate.
 
-## Year and location folders {#organization}
+## Folder layout {#organization}
 
-In the **Library** panel of **Settings > Library** you can add two more levels:
+**Folder layout** in **Settings > Library** sets the folders above each photo. The presets file a photo like this:
 
-- **Folders by year:** files each photo under `Wildlife <year taken>`, using the year the photo was taken. Photos with no date go under `Wildlife Undated`.
-- **Folders by location:** adds an outermost folder named after the **Location** you typed when importing. Photos without one stay where they'd otherwise go.
+| Preset | Example |
+|---|---|
+| Species (default) | `Birds/American Robin/Adjusted/` |
+| Order, then family | `Birds/Passeriformes/Turdidae/American Robin/Adjusted/` |
+| Year, then species | `Wildlife 2025/Birds/American Robin/Adjusted/` |
+| Date (like Lightroom) | `2025/2025-06-14/Adjusted/` |
+| Trip | `Trips/Alaska 2025/Birds/American Robin/Adjusted/` |
+| Location | `Canada/Alberta/Pigeon Lake/Birds/American Robin/Adjusted/` |
 
-With both on, a photo lands in `Prince George/Wildlife 2025/Birds/American Robin/Adjusted/`.
+**Custom** lets you pick and order the levels yourself, from year, month, date, trip, country, province or state, place name, group, order, family and species. Dates go by the camera's own clock. A level the photo has no value for is skipped: a photo outside a trip skips the trip folder, and one with no place name skips that folder. Photos with no date still go under `Wildlife Undated` in the year layout. A trip's own `Wildlife` folder never gets trip or location folders inside it.
+
+With country, province or place folders in the layout, changing a photo's region or place name, or renaming a place in **Settings > Library > Places**, moves its files to match.
 
 ## Applying changes to existing photos
 
@@ -79,7 +87,7 @@ Lifer recognizes the drive by its hardware ID, so it still works if the drive mo
 
 Each drive in the list shows whether it's **Connected** (or when it was last seen), with **Rename**, **Make default** and **Remove**. Removing a drive only stops Lifer checking for it. Photos already imported from it stay in your library.
 
-To save new photos to a drive, use the **Save these photos to** choice when you [upload from a species page](./importing.md#species-page). New files go in a `Lifer Originals` folder on that drive, with the same layout. Lifer picks the connected drive that already has most of that species' photos, then your default drive, then the main library. If most of that species' photos are on a drive that isn't plugged in, it says so, so you can plug it in and keep them together. The **Bulk import** page always saves to the main library.
+To save new photos to a drive, use the **Save these photos to** choice when you [upload from a species page](./importing.md#species-page). New files go in a `Lifer Originals` folder on that drive, with the same layout. Lifer picks the connected drive that already has most of that species' photos, then your default drive, then the main library. If most of that species' photos are on a drive that isn't plugged in, it says so, so you can plug it in and keep them together. The **Import photos** page always saves to the main library.
 
 ### Server
 
@@ -93,20 +101,46 @@ On a server, the administrator adds extra folders with `LIFER_LIBRARY_ROOTS`. **
 
 Plug the drive back in and Lifer notices it on its own.
 
-To bring photos from several drives together later, see [Reimport library](../settings.md#reimport).
+To bring photos from several drives together later, see [Import a library](../settings.md#reimport).
+
+## Moved photos {#moved-photos}
+
+Move or rename photos with Finder, File Explorer or another app, and Lifer finds them again. It only updates where it looks for each photo. It never moves, renames or changes your files.
+
+It looks a few minutes after it opens, when a photo can't be opened, and when you open a trip with missing photos. Each photo is recognized by its size and a quick check of a small part of it, so thousands of photos are found in moments.
+
+- **Found 12 moved photos** appears with **Undo** when it updates some. Undo puts back the old locations, and Lifer won't pick those files again.
+- When two or more files could be the same photo, or one was probably edited in place, Lifer doesn't guess. Open **Settings > Storage**, click **Review** next to **Moved photos to review**, and click **Use this** on the right file, or **Skip** it.
+- A trip whose photos all turned up in a new folder gets a **Use it** offer for that folder. See [If you move or reorganize photos](./trips.md#moved-photos).
+
+### Settings
+
+In **Settings > Storage** under **Moved photos**:
+
+- **Look for moved photos automatically** is on by default. Turn it off to only look when you ask.
+- **Places where photos live** lists folders Lifer searches. Your library folder, trip folders and watched folders are always included. Click **Add folder** to add another, like the folder where you keep all your photos, and **Remove** to take one off. Lifer only searches inside these folders, and doesn't follow shortcuts that lead outside them.
+- **Look now** searches right away, with progress and **Cancel** at the bottom left.
+- **Recently found** lists what Lifer updated, each with **Undo**.
+
+Searching is quick after the first time: Lifer only rereads folders that changed since it last looked. Folders it isn't allowed to open are skipped, and it says how many. A photo on a drive that isn't plugged in isn't searched for; plug the drive in instead.
 
 ## Moving your library {#moving}
+
+To move one trip's photos rather than the whole library, see [Move a trip's files](./trips.md#move-files). It can also move your own files linked where they are, if you ask: each is copied and checked before the original is removed.
 
 **Desktop app:**
 
 1. Open **Settings > Storage**.
 2. In **Library folder**, click **Move** and pick the new place.
-3. Confirm. Lifer moves every file and updates its records.
-4. Restart Lifer.
+3. Confirm **Move and restart**. Lifer moves every file, updates its records and restarts itself on the new folder. Downloads pause and pick up again after the restart. If photos are still importing, Lifer asks you to wait for them first.
 
 **Server:** stop Lifer, move the folder, update `LIFER_STORAGE_DIR` in `.env`, then start it again. See [Volumes](../install/docker.md#volumes).
 
-If you move or delete the library folder while Lifer is running, every page shows a "Lifer can't save photos right now" banner until you put it back or choose its new location, then restart.
+If you move or delete the library folder while Lifer is running, a "Lifer can't save photos right now" banner appears under the toolbar:
+
+- Put the folder back and click **Check again**. The banner goes away and saving works again, with no restart.
+- Or click **Choose new location**, pick where the folder is now, and Lifer restarts on it (desktop app only).
+- **Details** shows the full explanation. The close button hides the banner until Lifer next opens or something fails to save.
 
 ## Using Lifer alongside other apps
 
