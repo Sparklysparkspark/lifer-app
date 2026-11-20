@@ -79,7 +79,7 @@ export async function downloadResumable(
   // refused or restarted) instead of being spliced.
   const validatorPath = `${partPath}.validator`;
   const rangeKey = range ? `${range[0]}+${range[1]}` : "";
-  let saved: { range: string; validator: string } | null = null;
+  let saved: { range: string; validator: string } | null;
   try {
     saved = JSON.parse(readFileSync(validatorPath, "utf8")) as { range: string; validator: string };
   } catch {

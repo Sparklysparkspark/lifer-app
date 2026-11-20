@@ -170,7 +170,9 @@ export function AppProvider({ boot, children }: { boot: Boot; children: ReactNod
       setMode(boot.hub ? "paired" : m);
       await refreshMeta();
     })();
-  }, [db, boot.hub, refreshMeta]);
+    // boot.live is a mutable holder, written here, not read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db, boot.hub, refreshMeta, smart]);
 
   const run = useCallback(async () => {
     const hub = apiRef.current;

@@ -14,7 +14,9 @@ setIdleGate(() => new Promise((resolve) => requestIdleCallback(() => resolve(), 
 
 /** Opens the database and reads the saved pairing: local reads only, no network at launch. */
 export async function bootApp(): Promise<Boot> {
-  const dev = typeof __DEV__ !== "undefined" && __DEV__ ? (require("../dev/fakeHub") as typeof import("../dev/fakeHub")) : null;
+  const dev =
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dev tooling stays out of release bundles
+    typeof __DEV__ !== "undefined" && __DEV__ ? (require("../dev/fakeHub") as typeof import("../dev/fakeHub")) : null;
   const db = await openDb();
   // An unreadable secure store means unpaired, never a crash.
   const hub = await loadHub(secureKv).catch(() => null);

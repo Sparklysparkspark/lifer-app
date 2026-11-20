@@ -54,8 +54,13 @@ export default tseslint.config(
   // TypeScript already reports undefined names, with type information ESLint lacks.
   { files: ["**/*.{ts,tsx}"], rules: { "no-undef": "off" } },
   {
-    files: ["apps/web/**/*.{ts,tsx}", "apps/desktop/src/**/*.js"],
+    files: ["apps/web/**/*.{ts,tsx}", "apps/web/public/**/*.js", "apps/desktop/src/**/*.js"],
     languageOptions: { globals: { ...globals.browser } },
+  },
+  {
+    files: ["apps/mobile/**/*.{ts,tsx}"],
+    plugins: { "react-hooks": reactHooks },
+    rules: { "react-hooks/exhaustive-deps": "error" },
   },
   {
     files: ["apps/web/**/*.{ts,tsx}"],

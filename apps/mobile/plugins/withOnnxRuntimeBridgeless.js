@@ -2,10 +2,9 @@
 // bridgeless mode no longer has: the bridge is an RCTBridgeProxy that answers `runtime` itself.
 // This rewrites those lines in the package's iOS module before the build. It does nothing once the
 // package fixes this, and it can be dropped then.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+/* eslint-disable @typescript-eslint/no-require-imports -- Expo loads config plugins as CommonJS */
 const { withDangerousMod } = require("expo/config-plugins");
 const fs = require("node:fs");
-const path = require("node:path");
 
 const OLD = `    RCTCxxBridge* cxxBridge = (RCTCxxBridge*)_bridge;
     if (cxxBridge == nil) {

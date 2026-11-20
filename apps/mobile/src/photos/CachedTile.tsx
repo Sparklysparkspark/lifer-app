@@ -37,7 +37,12 @@ export function useDisplay(photoId: string | null | undefined): string | null {
 
 /** The hub's square cut of a featured photo once it is saved or fetched; null until then. `owner` is the
  *  scientific name (a species) or the album or trip id. */
-export function useSquare(kind: SquareKind, owner: string, photoId: string | null | undefined, crop: Crop | null | undefined): string | null {
+export function useSquare(
+  kind: SquareKind,
+  owner: string,
+  photoId: string | null | undefined,
+  crop: Crop | null | undefined,
+): string | null {
   const { media } = useApp();
   const [square, setSquare] = useState<{ key: string; uri: string } | null>(null);
   const key = photoId ? `${kind}~${owner}~${photoId}~${crop ? `${crop.x}~${crop.y}~${crop.size}` : ""}` : "";
@@ -47,16 +52,20 @@ export function useSquare(kind: SquareKind, owner: string, photoId: string | nul
     let timer: ReturnType<typeof setTimeout> | undefined;
     // A square that could not be fetched (hub busy, a dropped connection) is tried again a few times, not left on the thumbnail for good.
     const load = (attempt: number) =>
-      void media.square(kind, kind === "species" ? referenceId(owner).slice(4) : owner, photoId, crop ?? null).then((uri) => {
-        if (!alive) return;
-        if (uri) setSquare({ key, uri });
-        else if (attempt < 3) timer = setTimeout(() => load(attempt + 1), 15_000 * (attempt + 1));
-      });
+      void media
+        .square(kind, kind === "species" ? referenceId(owner).slice(4) : owner, photoId, crop ?? null)
+        .then((uri) => {
+          if (!alive) return;
+          if (uri) setSquare({ key, uri });
+          else if (attempt < 3) timer = setTimeout(() => load(attempt + 1), 15_000 * (attempt + 1));
+        });
     load(0);
     return () => {
       alive = false;
       clearTimeout(timer);
     };
+    // `key` carries crop's values, so a new crop object with the same values doesn't refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [media, kind, owner, photoId, key]);
   return square?.key === key ? square.uri : null;
 }
@@ -66,7 +75,12 @@ export function useSquare(kind: SquareKind, owner: string, photoId: string | nul
  * applied), the cropped thumbnail until then. With no photo, a species' reference photo (its display
  * copy, centred).
  */
-export function useFeatured(kind: SquareKind, owner: string, photoId: string | null | undefined, crop: Crop | null | undefined): { uri: string | null; crop: Crop | null } {
+export function useFeatured(
+  kind: SquareKind,
+  owner: string,
+  photoId: string | null | undefined,
+  crop: Crop | null | undefined,
+): { uri: string | null; crop: Crop | null } {
   const square = useSquare(kind, owner, photoId, crop);
   const thumb = useThumb(photoId);
   const reference = useDisplay(photoId || kind !== "species" ? null : referenceId(owner));
@@ -96,5 +110,16 @@ export const CachedTile = memo(function CachedTile({
 }) {
   const { t } = useTranslation();
   const uri = useThumb(photoId);
-  return <PhotoTile uri={uri} size={size} width={width} onPress={onPress} rounded={rounded} crop={crop} dense={dense} label={label ?? t("photos.tile")} />;
+  return (
+    <PhotoTile
+      uri={uri}
+      size={size}
+      width={width}
+      onPress={onPress}
+      rounded={rounded}
+      crop={crop}
+      dense={dense}
+      label={label ?? t("photos.tile")}
+    />
+  );
 });
