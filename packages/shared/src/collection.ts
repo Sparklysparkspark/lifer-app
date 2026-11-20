@@ -8,6 +8,9 @@ export interface CollectionItem {
   speciesId: string;
   scientificName: string;
   commonName: string | null;
+  /** Birds only: ABA (North American) and eBird codes. Optional, as not every route sends them. */
+  abaCode?: string | null;
+  ebirdCode?: string | null;
   /** The species' taxon; null only for rows without one. */
   taxonClass: TaxonClass | null;
   /** For grouping the grid into folk-style sections ("Sparrows", "Hawks & Eagles"); see
@@ -19,6 +22,8 @@ export interface CollectionItem {
   /** Independent of state (migration 090): a collected species can still be a target for a
    *  better photo. */
   isTarget: boolean;
+  /** The "needs a better photo" mark (migration 176), set by the user or a connected app. */
+  needsBetterPhoto?: boolean;
   tier: RarityTier | null;
   /** Region-scoped rarity against the rest of the viewed region's checklist, immune to the
    *  per-country effort skew of the global tier. Only set on GET /regions/:id/species rows. */
@@ -35,6 +40,9 @@ export interface CollectionItem {
   /** Records in the viewed region cluster in very few years (a vagrancy signature, e.g. one
    *  chased bird). Informational only, like `endemic`. Only set on GET /regions/:id/species rows. */
   vagrant: boolean;
+  /** Established in the viewed region but not native: brought in by people (iNaturalist
+   *  establishment status). Only set on GET /regions/:id/species rows. */
+  introduced: boolean;
   /** 52 weekly relative-frequency values for the viewed region (region_species.seasonality), for
    *  sorting by "most likely this week". Only on GET /regions/:id/species rows; null from
    *  GET /collection. */
@@ -42,6 +50,10 @@ export interface CollectionItem {
   /** Every calendar year with a non-trashed capture of this species, for big-year counts.
    *  Null if never captured. */
   capturedYears: number[] | null;
+  /** Seen only because a recording of it exists (shown as a "Heard" badge). */
+  heard?: boolean;
+  /** On the life list only through photos Lifer filed itself, none confirmed yet. */
+  suggested?: boolean;
   /** True if this species is only ever recorded (real GBIF presence) in exactly one of the
    *  258 countries the elusiveness crawl covers. Which country isn't carried here (grid
    *  cards don't need it); the species detail page resolves the name. */
@@ -84,6 +96,10 @@ export interface CollectionItem {
    *  here. Where it was added, for removing it (DELETE /regions/:regionId/checklist-additions/:speciesId,
    *  or /sea-zones/:seaZoneId/... when `kind` is "seaZone"). Null otherwise. */
   userAddedRegion?: { id: string; name: string; kind: "region" | "seaZone" } | null;
+  /** Region checklist rows only: "here" when one of your photos of it was taken in the viewed
+   *  region (or a province inside it), "elsewhere" when your photos with a location are all outside
+   *  it, null when none of them has a location. */
+  photographedWhere?: "here" | "elsewhere" | null;
 }
 
 // Response shape for GET /api/collection/stats (spec §9 Phase 4).

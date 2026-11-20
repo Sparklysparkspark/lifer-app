@@ -42,3 +42,9 @@ export function idleJobStatus<TResult = unknown>(): JobStatus<TResult> {
     result: null,
   };
 }
+
+/** Work done of the whole, in any one unit, for a time-left estimate. */
+export interface LoadProgress {
+  processed: number;
+  total: number;
+}

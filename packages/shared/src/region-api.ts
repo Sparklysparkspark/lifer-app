@@ -23,6 +23,12 @@ export interface RegionSummary {
   /** Country rows only (migration 066): true for a dependency or territory (Puerto Rico, New
    *  Caledonia, ...), so the picker's main list shows only sovereign states. */
   isSovereignDependency: boolean;
+  /** A city for placeholders (migration 169); absent until the catalog carries it. */
+  exampleCity?: string | null;
+  /** The most populous direct child, shown as a country's search example. */
+  populousChildId?: string | null;
+  /** Other names the region is searched by ("Holland", "Burma"). */
+  aliases?: string[];
 }
 
 export interface RegionStats {
@@ -45,6 +51,11 @@ export interface RegionSpeciesResult {
     hasChildren: boolean;
     /** True for a country-level region (has a GADM code to drill down from). */
     canDrillDown: boolean;
+    /** The region's country (a province shown under its continent gives its home country);
+     *  null for World or a continent. Names the "Count photos from" choices. */
+    countryName: string | null;
+    /** The region's own name when it's a province (a leaf below its country, not a group). */
+    provinceName: string | null;
   };
   stats: RegionStats;
   items: CollectionItem[];
@@ -62,4 +73,8 @@ export interface EbirdImportSummary {
   matched: number;
   alreadySeenOrCollected: number;
   unmatched: number;
+  /** Scientific names in the file that matched no species. */
+  unmatchedNames: string[];
+  /** Species this import newly marked seen; send back to POST /imports/ebird-csv/undo. */
+  addedSpeciesIds: string[];
 }

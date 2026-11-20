@@ -5,7 +5,7 @@
 //   - "actinopterygii" (bony fish) vs "elasmobranchii" (sharks/rays) vs "aquatic_mammalia"
 //     (whales/dolphins/dugongs, split out of "mammalia" since they're not land mammals)
 //   - "reptilia" split into "squamata" (lizards/snakes, plus crocodilians and the 2 living
-//     tuatara species, see build-seed-squamata.ts) vs "testudines" (turtles)
+//     tuatara species, see data-pipeline seed-groups.ts) vs "testudines" (turtles)
 //   - "cnidaria" split into "corals" (Scleractinia) vs "jellies_and_anemones"
 //     (Actiniaria/Scyphozoa/Cubozoa/Hydrozoa)
 //   - "mollusca" split into "nudibranchs" (Nudibranchia) and "marine_mollusks" (the rest of

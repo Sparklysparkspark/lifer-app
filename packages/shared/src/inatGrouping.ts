@@ -1,6 +1,6 @@
 // One observation per sighting: Import tab candidates are grouped by species, then split where
-// neighbors are more than SESSION_GAP_MS apart.
-const SESSION_GAP_MS = 60 * 60 * 1000;
+// neighbors are more than an hour apart (splitSessions).
+import { splitSessions } from "./sessions.js";
 
 export interface ClusterableCapture {
   id: string;
@@ -26,23 +26,11 @@ export function clusterForImport(captures: ClusterableCapture[]): ObservationClu
 
   const clusters: ObservationCluster[] = [];
   for (const [speciesId, speciesCaptures] of bySpecies) {
-    const withTime = speciesCaptures
-      .filter((c) => c.takenAt !== null)
-      .sort((a, b) => new Date(a.takenAt!).getTime() - new Date(b.takenAt!).getTime());
-    const withoutTime = speciesCaptures.filter((c) => c.takenAt === null);
-
-    let current: ClusterableCapture[] = [];
-    for (const capture of withTime) {
-      const prev = current[current.length - 1];
-      if (prev && new Date(capture.takenAt!).getTime() - new Date(prev.takenAt!).getTime() > SESSION_GAP_MS) {
-        clusters.push(toCluster(speciesId, current));
-        current = [];
-      }
-      current.push(capture);
-    }
-    if (current.length > 0) clusters.push(toCluster(speciesId, current));
-
-    for (const capture of withoutTime) clusters.push(toCluster(speciesId, [capture]));
+    const withTime = speciesCaptures.filter((c) => c.takenAt !== null);
+    for (const session of splitSessions(withTime, (c) => new Date(c.takenAt!).getTime()))
+      clusters.push(toCluster(speciesId, session));
+    for (const capture of speciesCaptures.filter((c) => c.takenAt === null))
+      clusters.push(toCluster(speciesId, [capture]));
   }
 
   // Newest cluster first, by each cluster's latest capture.

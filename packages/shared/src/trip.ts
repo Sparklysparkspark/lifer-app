@@ -35,4 +35,27 @@ export interface TripSummary {
   quadPhotoIds: string[];
   /** A scan or import is running for this trip, so the card shows a loading state. */
   processing: boolean;
+  /** The trip's dates as YYYY-MM-DD; no end date means it's still going. Null for a trip made
+   *  from a folder before trips had dates. */
+  startDate: string | null;
+  endDate: string | null;
+  /** Suggested first in the import screen's region picker. */
+  regionId: string | null;
+  /** The user's own choice, over the dates: true active, false not. Null goes by the dates. */
+  activeOverride: boolean | null;
+}
+
+/** Today's date on this device, as YYYY-MM-DD. */
+export function localIsoDate(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Active when the user marked it so, or, unless they marked it inactive, when `today` is within
+ *  its dates. Several trips can be active at once. */
+export function isTripActive(
+  trip: Pick<TripSummary, "startDate" | "endDate" | "activeOverride">,
+  today: string,
+): boolean {
+  if (trip.activeOverride != null) return trip.activeOverride;
+  return !!trip.startDate && trip.startDate <= today && (!trip.endDate || trip.endDate >= today);
 }
