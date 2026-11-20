@@ -25,9 +25,16 @@ npm run refresh -w data-pipeline -- --stages=tiers,packs,gate     # just some st
 npm run refresh -w data-pipeline -- --refresh-occurrences         # re-download GBIF files first (--countries, else the priority ones)
 npm run refresh -w data-pipeline -- --full                        # redo every country
 npm run refresh -w data-pipeline -- --resume                      # continue an interrupted run
+npm run refresh -w data-pipeline -- --stages=regions --keep-provinces # every regions step after the province build
 npm run refresh -w data-pipeline -- --publish --accept-drift=<pack id>,...
 npm run refresh -w data-pipeline -- --resume --allow-tier-skip   # keep old tiers of countries with no province files
+npm run refresh -w data-pipeline -- --fix-shared-inat-taxa      # catalog stage also applies fix-shared-inat-taxa.ts
+npm run refresh -w data-pipeline -- --publish --accept-stale=tiers # publish past a stage older than its inputs
 ```
+
+The refresh prints the database it works on, and publishing (`--publish`, or `publish` in
+`--stages`) needs `DATABASE_URL` set. A new run that changes data first dumps the database to
+`data/backups/lifer-db-before-refresh-<time>.dump` (the newest three are kept).
 
 Stages, always run in this order whatever order `--stages` lists them in (`src/scripts/refresh.ts`
 has the details): **occurrences** (GBIF country
@@ -37,7 +44,9 @@ iNaturalist has split), **enrich** (photos and descriptions for new species, des
 straight from Wikipedia and a refetch of edited articles, Wikipedia pageviews), **regions** (iNaturalist places, province checklists, provinces nested
 under their regional groups, new catalog species onto lists built before them, iNaturalist photo
 counts, escaped pets off the lists, group and country checklists,
-introduced flags, sea zone checklists), **endemic** (which country each endemic species lives in,
+introduced flags, sea zone checklists), **places** (example cities and alias names),
+**gazetteer** (the offline town list from GeoNames `cities1000`, into `gazetteer_places`; only
+changed rows written), **endemic** (which country each endemic species lives in,
 rereading only countries whose download changed), **tiers** (absolute local tiers, then worldwide
 tiers), **vectors** (CLIP and
 identification model embeddings, occurrence stats), **packs** (the photo store, then every pack's
@@ -66,7 +75,9 @@ read its report (`data/build/gate-<date>.json`) are in
 Add species to `data/reference/checklist-anchors.json` when you spot a gap, and publish past a
 reviewed species-count change with `--accept-drift=<pack id>,...`. Publishing needs the gate to
 have passed in the same run, so `--stages=packs,publish` alone refuses; use
-`--stages=packs,gate,publish`.
+`--stages=packs,gate,publish`. The gate also fails when catalog, regions, endemic, tiers or
+vectors is older than what it reads (a newer GBIF download, or a later run of the stage it reads
+from); rerun that stage, or name it in `--accept-stale=<stage>,...` to ship the older data.
 
 ### Still check a real pack
 
@@ -80,41 +91,44 @@ Sea zones (the "nearby water" for fish) are the IHO Sea Areas' named seas
 (`src/fetch/fetch-iho-sea-areas.ts`, 94 zones) plus each country's or territory's part of the
 oceans from the EEZ x IHO intersect (`src/fetch/fetch-eez-iho.ts`, 171 zones, e.g. "Chilean part
 of the South Pacific Ocean"). After a new version of either source, or on a database that still
-has older zones (the MEOW ecoregions), run these in order, each with `DATABASE_URL` set to the
-database you mean:
+has older zones (the MEOW ecoregions), run, with `DATABASE_URL` set to the database you mean:
 
-1. `npm run replace-sea-zones -w data-pipeline`: a dry run that prints the database it connected
-   to and lists the zones it would remove and insert. Then
-   `npm run replace-sea-zones -w data-pipeline -- --apply`. It deletes every zone not in the new
-   set (their `sea_zone_species` rows cascade, and this database's `downloaded_packs` rows for
-   their packs go too), inserts the new ones, and rewrites `regions.nearby_sea_zone_ids` for
-   every region from the zones' full outlines. A few minutes, plus downloads of about 250 MB and
-   75 MB the first time. Rerunning is safe; unchanged zones keep their species. Rerun it after
-   adding regions, to link them.
-2. `npx tsx src/scripts/fetch-worms-environment.ts` from `packages/data-pipeline`: each fish and
-   marine mammal's habitats (marine, brackish, freshwater, land) from WoRMS, 50 names a request.
-   About 15 minutes the first time; later runs only look up species not checked in 180 days.
-3. `npx tsx src/scripts/compute-sea-zones-offline.ts --apply` from `packages/data-pipeline`:
-   every zone's fish and marine mammal checklist from the GBIF country downloads already on disk
-   (`data/gbif-country-cache`), in one pass over the coastal countries' files. Each record goes to
-   the zones whose full outline contains it (islands count as part of their sea), and each zone's
-   list follows the live path's rules. About 15 minutes and 2 GB of memory; without `--apply` it
-   prints each zone's count and writes nothing. `--zones=` limits what it writes (it still reads
-   every download). The regions stage of the refresh runs it too. Records GBIF gave no country
-   (the high seas) aren't in the downloads, and the type-specimen check needs a field they lack;
-   the script's header lists the other differences from `compute-sea-zones.ts`.
-4. `npm run refresh -w data-pipeline -- --stages=packs,gate,publish`: new sea zone packs, every
-   country pack again (their sea zone dependencies changed), the old zones' packs dropped from
-   the index, and a catalog seed carrying the new zones and links. Installs drop the old zones
-   when they apply that seed (`catalogSeedUpdate.ts`). The occurrences, catalog, regions and
-   tiers stages don't read sea zones and needn't rerun.
+```
+npm run refresh -w data-pipeline -- --stages=regions,packs,gate,publish --replace-sea-zones --publish
+```
+
+With `--replace-sea-zones` the regions stage does only the sea zones:
+
+1. `replace-sea-zones.ts --apply` deletes every zone not in the new set (their `sea_zone_species`
+   rows cascade, and this database's `downloaded_packs` rows for their packs go too), inserts the
+   new ones, and rewrites `regions.nearby_sea_zone_ids` for every region from the zones' full
+   outlines. A few minutes, plus downloads of about 250 MB and 75 MB the first time. Unchanged
+   zones keep their species. `npm run replace-sea-zones -w data-pipeline` alone is a dry run that
+   prints the database and the zones it would remove and insert; rerun the script with `--apply`
+   after adding regions, to link them.
+2. `fetch-worms-environment.ts`: each fish and marine mammal's habitats (marine, brackish,
+   freshwater, land) from WoRMS, 50 names a request. About 15 minutes the first time; later runs
+   only look up species not checked in 180 days.
+3. `compute-sea-zones-offline.ts --apply`: every zone's fish and marine mammal checklist from the
+   GBIF country downloads already on disk (`data/gbif-country-cache`), in one pass over the
+   coastal countries' files. Each record goes to the zones whose full outline contains it (islands
+   count as part of their sea), and each zone's list follows the live path's rules. About 15
+   minutes and 2 GB of memory. Records GBIF gave no country (the high seas) aren't in the
+   downloads, and the type-specimen check needs a field they lack; the script's header lists the
+   other differences from `compute-sea-zones.ts`.
+
+Then packs builds the new sea zone packs and every country pack again (their sea zone
+dependencies changed), drops the old zones' packs from the index, and publish ships a catalog
+seed carrying the new zones and links. Installs drop the old zones when they apply that seed
+(`catalogSeedUpdate.ts`). Checklists and tiers don't read sea zones, so this regions run doesn't
+count as one for the gate's freshness check, and nothing else needs to rerun.
 
 ## Script inventory by category
 
 ### Catalog names and species (`packages/data-pipeline/src/scripts/` unless noted)
 - `reconcile-species-names.ts`: links catalog species to the names GBIF (Catalogue of Life),
   iNaturalist and eBird use now, as synonyms, iNaturalist ids and eBird codes. `--zip-names`,
-  `--stage=col,inat,history,ebird`, `--checkpoint=` (resumable), `--report=`, `--apply`, or
+  `--stage=col,gbifkey,inat,history,ebird` (gbifkey moves a checklist species whose GBIF key became a synonym to the accepted key), `--checkpoint=` (resumable), `--report=`, `--apply`, or
   `--apply-report=<reviewed.json>`.
 - `add-missing-species.ts`: adds species on cached iNaturalist place lists or in eBird's taxonomy
   that the catalog lacks, and links respellings and genus moves to their existing entry instead.
@@ -122,9 +136,37 @@ database you mean:
 - `find-species-splits.ts`: records which catalog species iNaturalist has split, and into what
   (`species_splits`); possible duplicates and missing replacements go to
   `data/review/inat-taxon-changes.tsv`. `--apply`.
+- `fix-shared-inat-taxa.ts`: gives each iNaturalist taxon to one catalog species. The rest move to
+  iNaturalist's taxon for their own name, merge into the owner when eBird (birds) or Catalogue of
+  Life (the rest) counts them as it (rows added to `species-merges.tsv`), or lose the link and the
+  photos and text they borrowed. Every decision goes to `data/review/shared-inat-taxa.tsv`.
+  Preview by default; `--apply`, or `refresh --fix-shared-inat-taxa`. The gate fails while any
+  taxon is shared.
 - `merge-duplicate-species.ts`: folds the reviewed pairs in
   `data/reference/species-merges.tsv` into one species each, the same way installs apply them.
   `--apply`, `--list=`.
+- `fix-catalog-audit.ts` (`npm run fix-catalog-audit -w data-pipeline`): the reviewed fixes from
+  the data audits, in `data/reference/catalog-audit-fixes.json`, applied to data already in the
+  database or on disk (nothing is downloaded). Passes, in this order: `inat-ids` (iNaturalist ids
+  from the local taxa dump `data/open-vectors/inat/taxa.csv.gz`, for species whose exact name is
+  one active iNaturalist species no other catalog species holds; species the shared-taxon review
+  unlinked stay unlinked), `names` (merges the file names from `species-merges.tsv`, renames with
+  the old name kept as a synonym, wrong common names cleared, then `species-corrections.json`),
+  `ranges` (species taken off zones, countries or ocean basins they don't live in, and old names a
+  split replaced where the new one is listed and the old has no records of its own), `additions`
+  (species an open regional list names for a country, added to the country row with evidence
+  `list`), `unlisted-birds` (bird listings with 5 or fewer records that the region's cached eBird
+  list in `data/ebird-spplist-cache` lacks, where that list already has 95% of the region's
+  well-recorded birds; known feral and reintroduced populations stay), `flags` (vagrant and
+  introduced overrides, kept through rebuilds by `region_species_manual_overrides`),
+  `resident-mammals` (native bats and rodents flagged vagrant from record counts alone, where the
+  species is listed as resident in a region within 300 km, or linked to one by a chain of such
+  listings, as the escape rule does), `classes` (species filed under another
+  class than the rest of their order, such as whales as fish), `sea-basins` (sea zone rows kept only
+  by a neighbour across a land bridge, and strays recorded overwhelmingly in another ocean; deep-sea
+  species are listed for review, not removed) and `shared-names` (report only). Every decision goes
+  to `data/review/catalog-audit-fixes.tsv`. Preview by default; `--apply`, `--passes=`. Rerun it
+  after any regions-stage run and before the tiers stage; a second run changes nothing.
 - `apply-species-corrections.ts`: hand-checked fixes in `data/reference/species-corrections.json`
   (common name, Red List status, extinct flag, each with a reason) for species an upstream source
   describes wrongly, usually a lump whose name iNaturalist and IUCN use for one narrow part (the
@@ -134,8 +176,7 @@ database you mean:
   interest correction for photo-rated tiers. Skips species fetched in the last 90 days.
 - `catalog-quality-report.ts <out.json>`: tier spread and must-have species for a few regions, to
   compare before and after a rebuild.
-- `backfill-aba-codes.ts`, `backfill-common-names.ts`: eBird codes and ABA codes from
-  `data/reference/ebird-taxonomy.csv`; common names and aliases from GBIF vernacular names.
+- `backfill-aba-codes.ts`: eBird codes and ABA codes from `data/reference/ebird-taxonomy.csv`.
 - `backfill-iucn-status.ts`: IUCN Red List status for every catalog species, into
   `species_traits.iucn_status` as the IUCN code (EX, EW, CR, EN, VU, LR/cd, NT, LC, DD, NE; the
   mapping is `packages/shared/src/iucn.ts`). Reads the Red List archive GBIF hosts (one 20 MB
@@ -148,8 +189,7 @@ database you mean:
   own key link finds nothing either. Report only without `--apply`; `--report=FILE` writes every
   decision as TSV; `--gbif-fallback=listed|comprehensive|all|none` (default listed: about 2,000
   cached calls the first time). The refresh's catalog stage runs it.
-- `build-species-name-index.ts`, `build-species-synonym-map.ts`: resolve names in a GBIF
-  bulk download to catalog species, and the gbif_key synonym map `load-seed.ts` uses.
+- `build-species-synonym-map.ts`: the gbif_key synonym map `load-seed.ts` uses.
 
 ### Region checklists (`packages/data-pipeline/src/scripts/`)
 - **`refresh-all-provinces.ts`**: runs `compute-provinces-bulk.ts`'s per-country GBIF download
@@ -170,18 +210,44 @@ database you mean:
 - `compute-provinces-inat.ts`: lists for provinces with none, from iNaturalist Research Grade
   records only.
 - `resolve-inat-places.ts`: iNaturalist place ids for regions that have none. Rerunnable.
+- `fix-ebird-region-codes.ts`: points each province's `ebird_region_code` at a region eBird
+  knows, from eBird's own lists per country (cached in `data/ebird-region-cache`): the code eBird
+  uses that ends the same way (FR-38 to FR-ARA-38), else the one region of the same name (CN-BJ
+  to CN-11). Reports the provinces with no single match. Then fetches eBird's species list for
+  every corrected code and asks once more for any cached empty under a code eBird knows, at
+  eBird's pace; a rerun carries on. `--apply`
 - `add-new-species-to-checklists.ts`: puts species the catalog gained after a province was built
   onto that province's list, from the cached iNaturalist and eBird lists only. Rerunnable.
   `--apply`
 - `refresh-inat-counts.ts`: every place's iNaturalist research-grade list with photo counts, for
   places cached without them. About 1 request a second; run it on its own. Exits non-zero when
   more than `--max-failed=` places (10) couldn't be fetched; a rerun fetches only those.
+- `check-ebird-only.ts`: takes province listings backed by eBird alone (under 5 records, no open list in
+  `data/reference/open-region-lists.json` naming them there) off the checklists, and drops an eBird split
+  whose accepted species the province already lists (`data/reference/ebird-taxon-map.json`). Does nothing
+  while the open-list file is empty. Writes every removal to `data/review/ebird-only-unsupported.tsv`.
 - `remove-escapes.ts`: takes escaped pets and one-off releases off province and country lists.
-  Land mammals except bats, reptiles and amphibians only; a thin listing goes only when no chain
-  of nearby listings links it to an established population. `--apply`
+  Land mammals except bats, reptiles, amphibians, flightless birds and the pet and collection birds in `data/reference/captive-origin-species.json` only; a thin listing goes
+  only when no chain of nearby listings links it to an established population (where the species
+  is introduced, established takes a real share of the province's records, not a few photographed
+  pets). In a province too little recorded to judge, an introduced species with one or two
+  records goes by the same rules. Farm and pet animals (cats, cattle, goats, sheep, horses,
+  donkeys, camels, guinea pigs and the like) stay only with 20 records or more. Listings in
+  `data/reference/known-feral-populations.json` (species, region, country, reason) always stay.
+  A preview leaves the database untouched. `--apply`
 - `build-country-checklists.ts`: each country's list from its provinces, its own well-evidenced
   species, and its iNaturalist list, and each regional group's from its provinces.
   `--countries=`, `--apply`
+- `apply-ebird-exotics.ts`: birds' exotic status from eBird's observations of the last 30 days in
+  each province (needs `EBIRD_API_KEY`; cached in `data/ebird-exotic-cache`, one more window per
+  run once the newest is 90 days old, at most `--max-requests` a run as eBird allows 500 an hour).
+  Birds eBird has seen there only as Escapees come off province, group and country lists, and so
+  do thin listings (under 5 records) of birds eBird has seen escaped elsewhere when nowhere within
+  1,000 km has them wild, naturalized or well recorded; Naturalized and Provisional ones get the
+  Introduced flag, except natives reintroduced in their old range
+  (`data/reference/reintroduced-natives.json`). A province eBird has no region for borrows the
+  status of its group's eBird region, else its country's (status only, never the species list).
+  `--apply`, `--max-failed=` (20), `--max-requests=` (1000)
 - `apply-introduced-flags.ts`: which listings are introduced species, from iNaturalist's
   establishment status for each province and country (cached, about 1 request a second).
   Established ones get the Introduced flag, strays the Vagrant flag, and natives only flagged by
@@ -192,7 +258,8 @@ database you mean:
 - `compute-sea-zones-offline.ts`: every sea zone's fish and marine mammal checklist from the
   cached GBIF country downloads, in one pass (see "Replacing the sea zones"). Freshwater-only
   species (by WoRMS) are left off, and a marine species with only a sliver of its records in a
-  zone stays when a neighbouring zone has it well recorded. Run by the regions stage. `--apply`, `--zones=`, `--countries=` (some downloads only, for trying it out),
+  zone stays when a neighbouring zone has it well recorded, unless that neighbour is across a land
+  bridge (`src/build/sea-basins.ts`: the Caribbean and Panama's Pacific coast). Run by the regions stage. `--apply`, `--zones=`, `--countries=` (some downloads only, for trying it out),
   `--concurrency=`
 - `compute-sea-zones.ts`: one sea zone's checklist from live GBIF polygon searches, for a targeted
   recompute; ~13s a request, so not for every zone. `--apply`, `--zones=`, `--recompute`
@@ -217,13 +284,80 @@ database you mean:
 - `compute-global-tiers.ts`: each species' worldwide tier, its easiest native country's tier.
   `--apply`.
 
+### Gallery top-up (`src/scripts/top-up-galleries.ts`)
+
+Species with fewer than `--min-photos` (5) publishable gallery photos get photos from their most-voted
+research-grade iNaturalist observations (publishable licences only, one per observation, none
+already in the gallery), up to `--target` (6). Photos that aren't of the animal are left out; the
+rest are stored with their matching vectors. Writes the database in `DATABASE_URL`.
+
+```
+npm run top-up-galleries -w data-pipeline                                  # every thin species
+npm run top-up-galleries -w data-pipeline -- --class=squamata,amphibia     # some taxon classes
+npm run top-up-galleries -w data-pipeline -- --region=BLZ --per-class=100  # a capped regional run
+```
+
+`--region=` takes a country code (`BLZ`) or a province's ISO code (`BZ-SC`).
+
+**Resume:** rerun the same command; only species still under `--min-photos` are read again, from the
+iNaturalist response cache. Prints a per-class summary (photos added, licences, photos left out).
+
+### Open gallery vectors (`src/scripts/open-vectors.ts`, plan item D-06)
+
+CLIP vectors of openly licensed iNaturalist photos, with every photo's credit, so the gallery
+vectors can be shared without non-commercial or share-alike conditions. The job writes files
+only, never the database; importing them into the catalog waits for a republish and the
+maintainer's go-ahead (`docs/plans/next-catalog-republish.md`).
+
+```
+npm run open-vectors -w data-pipeline                          # every group, birds first
+npm run open-vectors -w data-pipeline -- --taxa=birds,mammals  # just these groups
+npm run open-vectors -w data-pipeline -- --per-species=10      # photos per species (default 6)
+npm run open-vectors -w data-pipeline -- --limit=50            # stop after 50 species
+npm run open-vectors -w data-pipeline -- --dry-run --limit=5   # show the picks, fetch no photos
+npm run open-vectors -w data-pipeline -- --refresh-metadata    # switch to iNaturalist's newest dump
+```
+
+`--taxa` takes `birds`, `mammals`, `reptiles`, `amphibians`, `fish` or any `taxon_class`. To run it
+in the background: `nohup nice -n 19 npm run open-vectors -w data-pipeline > /dev/null 2>> packages/data-pipeline/data/open-vectors/run.log &`.
+Progress (species done of total, photos, photos a second, ETA) goes to
+`data/open-vectors/run.log` about once a minute: `tail -f` it. Stop it with `kill <pid>`: it
+finishes the species it's on and writes the files.
+
+**Resume:** rerun the same command. Downloads continue by byte range, the index is built once,
+finished species are skipped and a half-done species keeps the photos it has. Nothing is redone.
+A finished species that is short of `--per-species` (counting Lifer's own open gallery photos) is
+looked at again, fetching only candidates not tried before.
+
+**What it collects**, all under `data/open-vectors/` (git-ignored):
+
+- `inat/`: the [iNaturalist Open Data](https://github.com/inaturalist/inaturalist-open-data)
+  metadata (taxa, observers, observations, photos; about 34 GB), each checked against its S3 ETag.
+- `candidates.parquet`: up to 80 candidate photos per species, built once with DuckDB (a few
+  minutes). Only research-grade observations of animals, and only photos whose own licence is CC0,
+  CC BY or public domain (never NC, SA, ND or unknown), at least 500 px.
+- Species come from `DATABASE_URL`, read-only: matched by iNaturalist taxon id, then by
+  scientific name or synonym (a name only for species no taxon matched by id). A species whose
+  open gallery vectors already reach `--per-species` is skipped, and photos already in Lifer's
+  gallery are never taken again.
+- Per species, photos from different observers first, then different places and seasons. Each
+  medium photo is fetched into memory (never saved), re-encoded and embedded exactly as Lifer's
+  gallery vectors are (CLIP ViT-L/14, `EMBEDDING_MODEL_VERSION`), then appended to `rows.jsonl`
+  with its photo id, taxon, photographer, licence, credit line and source page.
+- At the end of every run: `lifer-open-vectors-<model>.prve.gz` in the open reference vectors
+  format (PRVE version 1), read back and checked, and
+  `lifer-open-vectors-<model>-provenance.tsv`, one line per row.
+
+**Credits:** every vector names its photographer, licence and iNaturalist photo page; whatever
+uses the vectors shows the credits grouped by photographer and licence, as CC BY requires. The
+metadata is iNaturalist Open Data on the AWS Open Data Sponsorship Program. GBIF photos for the
+species iNaturalist leaves without open photos are a later step.
+
 ### Enrichment and vectors
 - **`enrich-all-species.ts`**: photos and descriptions from iNaturalist and Wikipedia.
   `--taxa=`, `--listed-only`. Skips enriched species, safe to rerun. Without `--taxa=` it first
   builds a GBIF checklist for each North American country that has none, to order the work
   (membership, frequency and vagrant flags only, never tiers); the refresh always passes `--taxa=`.
-- `enrich-listed-batch.ts`: the same for listed species without a photo, 30 to an
-  iNaturalist request.
 - `recheck-null-photo-species.ts`: retries enriched species that came up with no photo, taking only
   photos whose license allows publishing. Each species is checked again only after
   `--recheck-after-days` (90 by default, tracked in `species.photo_checked_at`); the refresh passes
@@ -249,6 +383,10 @@ database you mean:
   `reference_photo_blocklist` (shipped in the catalog), gallery images are deleted, and a map used
   as a main photo is replaced by the first real gallery photo. Hits above a margin of 0.06 are
   reliably maps or charts; between 0.02 and 0.06, review by eye.
+- `build-portrait-prompt-vectors.ts`: one-time. Embeds the text prompts that tell portraits from
+  eggs, nests, specimens, drawings and the like into `core/src/species/portraitPromptVectors.ts`.
+  Rerun only when the prompts or the CLIP model change, then clear `portrait_kind` and
+  `reference_portrait_kind` so the refresh command's `vectors` stage scores everything again.
 - `fetch-occurrence-stats.ts`: `species_traits.occurrence_count` / `last_occurrence_year` (powers
   Hide-Obscure/Ghost/Lost), the same values one GBIF call per species gives, but about 200
   species per request, grouped by order. Each species GBIF answered for is stamped in
@@ -293,14 +431,10 @@ database you mean:
 - `check-fossil-status.ts`: flags fossil-only species as fully extinct.
 - `detect-unobserved-legendary.ts`, `detect-implausible-regions.ts`: read-only passes flagging
   likely-bad data for review.
-- `flag-nonnative-obscure-taxa.ts`: checks reptiles, amphibians and marine invertebrates on lists
-  against iNaturalist's establishment status per place. `--apply`
-- `flag-vagrant-mismatch-inat.ts`, `report-vagrant-ebird.ts`: read-only reports of listings
-  iNaturalist or eBird don't back up.
-- `verify-vagrant-flags.ts`, `verify-vagrant-fishbase.ts`: check vagrant flags against GBIF
-  distributions and FishBase's country table.
+- `flag-vagrant-mismatch-inat.ts`: a read-only report of listings iNaturalist doesn't back up.
+- `verify-vagrant-flags.ts`: checks vagrant flags against GBIF distributions.
 
-The four vagrant scripts write their JSONL logs to `data/reports/vagrant/` at the repo root
+The two vagrant scripts write their JSONL logs to `data/reports/vagrant/` at the repo root
 (gitignored), or to `VAGRANT_REPORTS_DIR` when it's set.
 
 ### Packs and the catalog seed (`packages/data-pipeline/src/`)
@@ -324,19 +458,23 @@ The four vagrant scripts write their JSONL logs to `data/reports/vagrant/` at th
 - `scripts/build-catalog-seed.ts <out.sql.gz>`: the bootstrap snapshot every fresh install
   (desktop and Docker) restores on first launch, published as `catalog-latest`, plus one float16
   `*.bin.gz` per vector table (CLIP and identification model) and `catalog-manifest.json` with
-  each file's sha256. `refresh --publish` builds and uploads it after the packs. Needs
+  each file's sha256. `refresh --publish` builds it and checks every file against the manifest
+  before uploading anything, then uploads it after the packs. Needs
   `DATABASE_URL` pointed at a fully enriched database and a `pg_dump` 18: `PG_DUMP_BIN`, else a
   desktop build's bundled one (`LIFER_POSTGRES_DIR`, the staged `resources-staging/postgres`, an
   installed Lifer.app), else `docker exec <container> pg_dump` when `DATABASE_URL` is a port a
   local Docker container publishes, else `PATH`'s (`src/pipeline/pgDump.ts`). Run alone, follow
   it with `gh release upload catalog-latest <seed>.sql.gz <dir>/*.bin.gz --clobber`, then the
-  manifest last. It dumps copies of the catalog tables made in a scratch `seed_export` schema
+  manifest last (or `scripts/publish-catalog-seed.ts <dir>`). A session lock lets one build run per
+  database at a time. It dumps copies of the catalog tables made in a scratch `seed_export` schema
   without local file paths or Other Taxa rows, so the source database is never modified; a build
   that dies partway leaves only that schema, which the next build drops.
 
 ### Recurring ops
-- `backup.ts` (data-pipeline): the one cron-worthy script outside the refresh. Needs `DATA_DIR`,
-  `LIFER_BACKUP_DIR`, `LIFER_POSTGRES_CONTAINER`, `POSTGRES_DB`, `POSTGRES_USER`.
+- `backup.ts` (data-pipeline): the one cron-worthy script outside the refresh: a `pg_dump -Fc` of
+  `DATABASE_URL` (through the Docker container when no matching `pg_dump` is installed,
+  `pipeline/dbSnapshot.ts`) and an archive of `DATA_DIR`, into `LIFER_BACKUP_DIR`
+  (default `data/backups`). The doctor warns when the newest dump is over 30 days old.
 - `clear-gbif-cache.ts` (data-pipeline): clears cached GBIF responses. `--like=`
 
 ### Desktop build tooling (`apps/desktop/scripts/`)
@@ -347,9 +485,10 @@ long-running script can point `DATABASE_URL` at it while the app is rebuilt or r
 
 ### npm aliases
 Besides the build-seed aliases below, `npm run <alias> -w data-pipeline` runs: `refresh`,
-`doctor`, `migrate`, `load-seed`, `build-region-pack`, `build-pack-index`, `replace-sea-zones`,
+`doctor`, `migrate`, `load-seed`, `fix-catalog-audit`, `build-region-pack`, `build-pack-index`, `replace-sea-zones`,
 `backup`, `enrich-all-species`, `backfill-descriptions`, `apply-photo-licenses` (the photo license
-policy once, after editing photos by hand; then rerun the vectors stage) and
+policy once, after editing photos by hand; the vectors stage also applies it before computing
+  vectors) and
 `backfill-photo-withheld` (`species.photo_withheld` for listed species with no publishable photo;
 `--dry-run`, `--no-network`).
 
@@ -359,7 +498,9 @@ policy once, after editing photos by hand; then rerun the vectors stage) and
 `build-seed-mammals`, `-fish`, `-amphibians`, `-squamata`, `-testudines`, `-corals`,
 `-jellies-anemones`, `-sponges-tunicates`, `-echinoderms`, `-crustaceans`, `-marine-mollusks`,
 `-cephalopods`, `-nudibranchs`, and `build-seed-test` (a handful of species, to run the whole pipeline end to end in minutes). Run one with
-`npm run build-seed-<group> -w data-pipeline`, then `npm run load-seed -w data-pipeline`.
+`npm run build-seed-<group> -w data-pipeline`, then `npm run load-seed -w data-pipeline`. The groups
+with no trait source of their own are entries in `seed-groups.ts`, built by
+`build-seed.ts --group=<name>` (what their aliases run).
 `build-seed-generic.ts` is the shared builder (GBIF, common names, Wikidata) for groups with no
 trait source of their own. They're only rerun
 when onboarding a new taxon group; the refresh keeps existing groups current. A seed assigns no

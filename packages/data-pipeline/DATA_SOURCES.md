@@ -40,10 +40,12 @@ model files that aren't mirrored on the `models` release.
 | Source | Used for | Where | License | Credit |
 |---|---|---|---|---|
 | [GBIF](https://www.gbif.org/) occurrence downloads | Province and country checklists, occurrence counts behind rarity tiers | `packages/data-pipeline/src/scripts/compute-provinces-bulk.ts`, `src/scripts/compute-endemic-countries.ts`, `src/scripts/fetch-occurrence-stats.ts` | Records are CC0, CC BY or CC BY-NC, set by each publishing dataset | GBIF asks that each download be cited by its DOI: "GBIF.org (date) GBIF Occurrence Download https://doi.org/..." The pipeline doesn't record those DOIs yet. |
-| [eBird](https://ebird.org/) API (species lists) | Bird lists per region, checking vagrant flags | `compute-provinces-bulk.ts`, `report-vagrant-ebird.ts` (needs `EBIRD_API_KEY`) | eBird API Terms of Use | eBird, Cornell Lab of Ornithology |
+| [eBird](https://ebird.org/) API (species lists) | Bird lists per region, checking vagrant flags | `compute-provinces-bulk.ts` (needs `EBIRD_API_KEY`) | eBird API Terms of Use | eBird, Cornell Lab of Ornithology |
+| [eBird](https://ebird.org/) API (region lists) | eBird's own code for each province | `fix-ebird-region-codes.ts` (needs `EBIRD_API_KEY`), cached in `data/ebird-region-cache` | eBird API Terms of Use | eBird, Cornell Lab of Ornithology |
+| [eBird](https://ebird.org/) API (recent observations) | Exotic status per province (Naturalized, Provisional, Escapee): escapee birds off the lists, the others marked introduced | `apply-ebird-exotics.ts` (needs `EBIRD_API_KEY`), cached in `data/ebird-exotic-cache` | eBird API Terms of Use | eBird, Cornell Lab of Ornithology |
 | iNaturalist research-grade observations | Lists for provinces GBIF doesn't cover, photo counts | `compute-provinces-inat.ts`, `refresh-inat-counts.ts` | iNaturalist Terms of Use | iNaturalist |
 | [IUCN Red List](https://www.iucnredlist.org/), through GBIF and Wikidata | Conservation status | `src/pipeline/iucnRedList.ts`, `src/scripts/backfill-iucn-status.ts`, `src/fetch/fetch-wikidata.ts` | CC BY 4.0 (GBIF copy); [IUCN Red List Terms of Use](https://www.iucnredlist.org/terms/terms-of-use) (categories unrestricted) | IUCN, The IUCN Red List of Threatened Species |
-| [FishBase](https://www.fishbase.se/) country table (source.coop mirror) | Checking vagrant flags on fish. Only the resulting flags ship, not FishBase data. | `packages/data-pipeline/src/scripts/verify-vagrant-fishbase.ts` | CC BY-NC 4.0 | Froese, R. and D. Pauly (eds.), FishBase, www.fishbase.org |
+| [FishBase](https://www.fishbase.se/) country table (source.coop mirror) | Checking vagrant flags on fish. Only the resulting flags ship, not FishBase data. | An earlier one-off check; the vagrant flags it set remain in the catalog | CC BY-NC 4.0 | Froese, R. and D. Pauly (eds.), FishBase, www.fishbase.org |
 | [Wikipedia pageviews](https://wikimedia.org/api/rest_v1/) | How well known a species is, a correction for photo-based tiers | `src/scripts/fetch-wiki-pageviews.ts` | CC0 | Wikimedia Foundation |
 
 ## Traits
@@ -65,6 +67,7 @@ delete that folder.
 | Source | Used for | Where | License | Credit |
 |---|---|---|---|---|
 | [Natural Earth](https://www.naturalearthdata.com/) | Country and province boundaries | `packages/core/src/regions/regionBoundary.ts` | Public domain | None required. "Made with Natural Earth" is appreciated. |
+| [GeoNames](https://www.geonames.org/) (`cities1000`, `countryInfo.txt` from [download.geonames.org](https://download.geonames.org/export/dump/)) | The offline town list: town search on the map and a place's locality ("Prince George, British Columbia, Canada") | `src/pipeline/gazetteer.ts` (refresh's `gazetteer` stage); shipped in the catalog seed's `gazetteer_places` table | CC BY 4.0. Changed: trimmed to name, ASCII name, up to five Latin-script other names, point, population, feature and admin codes, plus each town's Lifer country and province. | "Place names from GeoNames (geonames.org), CC BY 4.0" |
 | [IHO Sea Areas, version 3](https://www.marineregions.org/) (Marine Regions, [doi:10.14284/323](https://doi.org/10.14284/323)) | Sea zone outlines for fish and marine packs, and which regions border them | `src/fetch/fetch-iho-sea-areas.ts`, `src/build/build-sea-zones.ts`; shipped in the catalog seed's `sea_zones` table (and the zone ids in `regions.nearby_sea_zone_ids`) | CC BY 4.0. Changed: each area cut to its largest polygon's outline and simplified to 80 points; the oceans left out (see the next row). | Flanders Marine Institute (2018). IHO Sea Areas, version 3. Available online at https://www.marineregions.org/ https://doi.org/10.14284/323. Marine Regions asks that users be pointed to marineregions.org for current versions. |
 | [The intersect of the Exclusive Economic Zones and IHO sea areas, version 5](https://www.marineregions.org/) (Marine Regions, [doi:10.14284/699](https://doi.org/10.14284/699)) | Sea zones for coasts on open ocean: each country's or territory's part of an ocean | `src/fetch/fetch-eez-iho.ts`, `src/build/build-sea-zones.ts`; shipped like the IHO zones | CC BY 4.0. Changed: only the oceans' national parts, without high seas and joint regime areas; each cut to its largest polygon's outline and simplified to 80 points. | Flanders Marine Institute (2024). The intersect of the Exclusive Economic Zones and IHO sea areas, version 5. Available online at https://www.marineregions.org/ https://doi.org/10.14284/699 |
 | [Protomaps](https://protomaps.com/) basemap, built from [OpenStreetMap](https://www.openstreetmap.org/copyright) | The offline world map (`world-z8.pmtiles` on `map-latest`) | `apps/web/src/lib/pmtiles.ts`, `MAP_DOWNLOAD_URL` in `packages/core/src/config.ts` | Map data ODbL 1.0; Protomaps styles BSD-3-Clause | "© OpenStreetMap contributors", and Protomaps |
@@ -105,6 +108,7 @@ more". A stub with nothing but its taxonomy line keeps that line. When the sente
 species is dropped, a following "It ..." gets the species' name instead. Text taken straight from
 Wikipedia is credited "Wikipedia contributors (CC BY-SA)"; the on-view iNaturalist path's
 "Wikipedia contributors (CC BY-SA), via iNaturalist".
+The field-guide notes and AI-rewritten summaries (`load-species-notes`) are adaptations of the article, shared under CC BY-SA 4.0: each stored note carries `credit` and `source_url`, the page shows both with a licence link, and the loader refuses notes with no article title.
 
 ## Models
 
@@ -130,6 +134,9 @@ The static sources change rarely:
   (`npm run build-seed-mammals -w data-pipeline`).
 - **eBird/Clements taxonomy:** a new version each year. Replace
   `data/reference/ebird-taxonomy.csv` from the eBird API's taxonomy endpoint, then run a refresh.
+- **GeoNames:** updated daily upstream; the cached `data/raw/geonames/cities1000.zip` (repo root) is reused.
+  Delete `data/raw/geonames/` before a refresh to pick up new towns, then run
+  `npm run refresh -w data-pipeline -- --stages=gazetteer`. Only changed rows are written.
 - **Traits, the Marine Regions layers and Natural Earth:** tied to one publication or release
   each. Only revisit when a new version supersedes one. For a new IHO Sea Areas or EEZ x IHO
   version, update the WFS URL in `fetch-iho-sea-areas.ts` or `fetch-eez-iho.ts` if the layer

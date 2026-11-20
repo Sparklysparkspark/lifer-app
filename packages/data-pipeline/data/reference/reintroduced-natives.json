@@ -1,0 +1,38 @@
+[
+  {
+    "species": "Meleagris gallopavo",
+    "region": "Ontario",
+    "country": "Canada",
+    "reason": "Native to southern Ontario, extirpated by 1909 and reintroduced from 1984."
+  },
+  {
+    "species": "Meleagris gallopavo",
+    "region": "New Hampshire",
+    "country": "United States of America",
+    "reason": "Native, extirpated in the 1850s and reintroduced in 1975."
+  },
+  {
+    "species": "Meleagris gallopavo",
+    "region": "Vermont",
+    "country": "United States of America",
+    "reason": "Native, extirpated in the 19th century and reintroduced in 1969."
+  },
+  {
+    "species": "Meleagris gallopavo",
+    "region": "Wisconsin",
+    "country": "United States of America",
+    "reason": "Native, extirpated by 1881 and reintroduced from 1976."
+  },
+  {
+    "species": "Gymnogyps californianus",
+    "region": "California",
+    "country": "United States of America",
+    "reason": "Native; every wild condor today descends from the captive-breeding reintroduction."
+  },
+  {
+    "species": "Gymnogyps californianus",
+    "region": "Oregon",
+    "country": "United States of America",
+    "reason": "Within the historic range; the Northern California flock released from 2022 reaches Oregon."
+  }
+]

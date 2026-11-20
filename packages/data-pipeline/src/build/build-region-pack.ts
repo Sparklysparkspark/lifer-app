@@ -155,7 +155,6 @@ interface ManifestSpecies {
   // Checklist membership, so an install can populate a region's checklist from the pack alone
   // (see offlinePacks/routes.ts's applyPack). Sea-zone packs carry only recordCount.
   localFrequency?: number | null;
-  seasonality?: number[] | null;
   localTier?: string | null;
   isVagrant?: boolean;
   recordCount?: number;
@@ -182,7 +181,6 @@ interface SpeciesRow {
   reference_credit: string | null;
   reference_license: string | null;
   local_frequency?: string | null;
-  seasonality?: number[] | null;
   local_tier?: string | null;
   is_vagrant?: boolean;
   record_count?: number;
@@ -329,7 +327,6 @@ function packSpecies(
       thumbFile: null,
       ...(gallery.length > 0 && { gallery }),
       ...(row.local_frequency !== undefined && { localFrequency: row.local_frequency != null ? Number(row.local_frequency) : null }),
-      ...(row.seasonality !== undefined && { seasonality: row.seasonality }),
       ...(row.local_tier !== undefined && { localTier: row.local_tier }),
       ...(row.is_vagrant !== undefined && { isVagrant: row.is_vagrant }),
       ...(row.record_count !== undefined && { recordCount: row.record_count }),
@@ -462,7 +459,7 @@ async function fetchChildRegionsWithSpecies(parentId: string, taxonFilter: strin
     const childSpeciesRes = await pool.query<SpeciesRow>(
       `SELECT s.id, s.scientific_name, s.common_name, s.habitat_description,
               s.reference_display_path, s.reference_thumb_path, s.reference_credit, s.reference_license,
-              rs.local_frequency, rs.seasonality, rs.local_tier, rs.is_vagrant, rs.weekly_frequency, rs.tier_reason, rs.tier_explain
+              rs.local_frequency, rs.local_tier, rs.is_vagrant, rs.weekly_frequency, rs.tier_reason, rs.tier_explain
        FROM region_species rs
        JOIN species s ON s.id = rs.species_id
        WHERE rs.region_id = $1 AND ${LISTED_SPECIES_SQL} ${taxonFilter}
@@ -537,7 +534,7 @@ export async function buildRegionPack(
   const speciesRes = await pool.query<SpeciesRow>(
     `SELECT s.id, s.scientific_name, s.common_name, s.habitat_description,
             s.reference_display_path, s.reference_thumb_path, s.reference_credit, s.reference_license,
-            rs.local_frequency, rs.seasonality, rs.local_tier, rs.is_vagrant, rs.weekly_frequency, rs.tier_reason, rs.tier_explain
+            rs.local_frequency, rs.local_tier, rs.is_vagrant, rs.weekly_frequency, rs.tier_reason, rs.tier_explain
      FROM region_species rs
      JOIN species s ON s.id = rs.species_id
      WHERE rs.region_id = $1 AND ${LISTED_SPECIES_SQL} ${taxonFilter}

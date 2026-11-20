@@ -18,6 +18,8 @@ import { fetchBirdAbundance } from "../fetch/fetch-bird-abundance.js";
 import { buildRegions } from "./build-regions.js";
 import { BUILD_DIR } from "@lifer/core/rawCache.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
+import { buildGenericTaxonSeed } from "./build-seed-generic.js";
+import { SEED_GROUPS } from "./seed-groups.js";
 
 // 16 concurrent requests: fast enough (minutes instead of an hour-plus) without hammering GBIF.
 const GBIF_CONCURRENCY = 16;
@@ -149,7 +151,14 @@ async function main() {
   console.log(`[build-seed] done. ${species.length} species written to ${outDir}`);
 }
 
-main().catch((err) => {
+// --group=<name> builds one of the generic taxon groups (seed-groups.ts) instead of birds.
+const groupArg = process.argv.find((a) => a.startsWith("--group="))?.slice("--group=".length);
+const groupConfig = groupArg ? SEED_GROUPS.get(groupArg) : undefined;
+if (groupArg && !groupConfig) {
+  console.error(`Unknown --group "${groupArg}"; groups are ${[...SEED_GROUPS.keys()].join(", ")}`);
+  process.exit(1);
+}
+(groupConfig ? buildGenericTaxonSeed(groupConfig) : main()).catch((err) => {
   console.error(err);
   process.exit(1);
 });

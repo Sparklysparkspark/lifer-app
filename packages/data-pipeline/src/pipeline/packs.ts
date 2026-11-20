@@ -16,7 +16,7 @@
 // Everything runs in this one process.
 import { execFileSync } from "node:child_process";
 import { descendantIdsSql } from "@lifer/core/regions/regionTree.js";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,13 +24,19 @@ import * as tar from "tar";
 import { pool } from "../db.js";
 import { buildRegionPack, buildSeaZonePack } from "../build/build-region-pack.js";
 import type { PackVariant } from "@lifer/core/packs/packId.js";
-import { GITHUB_REPO, INDEX_RELEASE_TAG } from "../build/release-groups.js";
 import { PACK_SHARD_PREFIX, publishPackStore, writePackStore } from "./packStore.js";
-import type { IndexPack, PackIndex } from "./packIndex.js";
+import {
+  fetchPublishedIndex,
+  isPackIndex,
+  PACK_INDEX_LITE_FILE,
+  writePackIndexFiles,
+  type IndexPack,
+  type PackIndex,
+} from "./packIndex.js";
 import type { TaxonClass } from "@lifer/shared";
 import { assertPhotosPublishable } from "./photoLicensePolicy.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
-import { httpFetch } from "@lifer/core/lib/http.js";
+import { expectShape } from "../lib/jsonGuards.js";
 
 const DATA_PIPELINE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const VARIANTS: PackVariant[] = ["full"];
@@ -56,23 +62,7 @@ export const PACK_TAXA: TaxonClass[] = [
 
 export type { IndexPack, PackIndex } from "./packIndex.js";
 
-// Retried, so one dropped connection doesn't fail the whole stage.
-export async function fetchPublishedIndex(): Promise<PackIndex> {
-  let res: Response;
-  try {
-    res = await httpFetch(`https://github.com/${GITHUB_REPO}/releases/download/${INDEX_RELEASE_TAG}/pack-index.json`, {
-      timeoutMs: 120_000,
-      maxRetries: 4,
-      retryServerErrors: true,
-      backoffBaseMs: 5000,
-    });
-  } catch (err) {
-    throw new Error(`Couldn't fetch the published pack index: ${(err as Error)?.message ?? err}`, { cause: err });
-  }
-  if (res.status === 404) return { generatedAt: new Date(0).toISOString(), packs: [] };
-  if (!res.ok) throw new Error(`Couldn't fetch the published pack index: HTTP ${res.status}`);
-  return (await res.json()) as PackIndex;
-}
+export { fetchPublishedIndex } from "./packIndex.js";
 
 function manifestContentVersion(archivePath: string): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), "lifer-pack-version-"));
@@ -89,11 +79,16 @@ function manifestContentVersion(archivePath: string): string {
  *  province shown under its continent gets packs of its own, as it's browsed there. */
 async function packCountries(names: string[] | null): Promise<Array<{ id: string; name: string }>> {
   const res = await pool.query<{ id: string; name: string }>(
-    `SELECT c.id, c.name FROM regions c
+    // The listed regions are collected once: checking region_species per country with an OR
+    // can't use its index, and scans every row for each country.
+    `WITH listed AS MATERIALIZED (SELECT DISTINCT region_id FROM region_species)
+     SELECT c.id, c.name FROM regions c
      JOIN regions cont ON cont.id = c.parent_id
      JOIN regions w ON w.id = cont.parent_id AND w.parent_id IS NULL
      WHERE ($1::text[] IS NULL OR c.name = ANY($1))
-       AND EXISTS (SELECT 1 FROM region_species rs WHERE rs.region_id = c.id OR rs.region_id IN (${descendantIdsSql("c.id")}))
+       AND EXISTS (SELECT 1 FROM listed l JOIN regions d ON d.id = l.region_id
+                   WHERE d.id = c.id OR d.parent_id = c.id OR d.home_country_id = c.id
+                      OR d.parent_id IN (SELECT g.id FROM regions g WHERE g.parent_id = c.id))
      ORDER BY c.name`,
     [names],
   );
@@ -142,7 +137,8 @@ export async function buildPacks(
     if (
       f.endsWith(".pack.tar.gz") ||
       (f.startsWith(PACK_SHARD_PREFIX) && f.endsWith(".bin")) ||
-      f === "pack-index.json"
+      f === "pack-index.json" ||
+      f === PACK_INDEX_LITE_FILE
     )
       rmSync(path.join(outDir, f));
   }
@@ -230,7 +226,11 @@ export async function buildPacks(
       cwd: DATA_PIPELINE_DIR,
       stdio: ["ignore", "inherit", "inherit"],
     });
-    const index = JSON.parse(readFileSync(path.join(outDir, "pack-index.json"), "utf8")) as PackIndex;
+    const index = expectShape(
+      JSON.parse(readFileSync(path.join(outDir, "pack-index.json"), "utf8")),
+      isPackIndex,
+      "built pack index",
+    );
     // A pack in this run's scope that it didn't build has lost all its species: dropped, so the
     // index never lists a pack whose data is gone. Not after a failed build, which proves nothing.
     if (result.failures.length === 0) {
@@ -238,7 +238,7 @@ export async function buildPacks(
     }
     const shards = writePackStore(outDir, index, new Set(result.changed));
     log(`pack store: ${result.changed.length} pack(s) in ${shards.length} new shard(s)`);
-    writeFileSync(path.join(outDir, "pack-index.json"), JSON.stringify(index, null, 2));
+    writePackIndexFiles(outDir, index);
     result.index = index;
   } else {
     result.index = published;

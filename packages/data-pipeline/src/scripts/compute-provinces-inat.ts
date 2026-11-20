@@ -118,7 +118,8 @@ async function main() {
         const taxonId = idByName.get(row.scientific_name);
         if (!taxonId) continue;
         matchedSpeciesIds.add(row.id);
-        if (apply) await pool.query(`UPDATE species SET inat_taxon_id = $1 WHERE id = $2`, [taxonId, row.id]);
+        if (apply)
+          await pool.query(`UPDATE species SET inat_taxon_id = $1 WHERE id = $2 AND NOT EXISTS (SELECT 1 FROM species o WHERE o.inat_taxon_id = $1 AND o.id <> $2 AND NOT o.is_other_taxa)`, [taxonId, row.id]);
       }
     }
 

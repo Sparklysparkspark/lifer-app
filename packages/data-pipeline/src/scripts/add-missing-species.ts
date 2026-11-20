@@ -202,7 +202,7 @@ export interface EbirdRow {
   extinct: boolean;
   reportAs: string;
 }
-function loadEbird(): EbirdRow[] {
+export function loadEbird(): EbirdRow[] {
   const lines = readFileSync(EBIRD_TAXONOMY_CSV, "utf8").split("\n");
   const header = parseCsvLine(lines[0]);
   const at = (n: string) => header.indexOf(n);
@@ -246,15 +246,16 @@ function parseCsvLine(line: string): string[] {
 }
 
 /** eBird subspecies groups as the species name other lists give them ("Setophaga auduboni" for
- *  Yellow-rumped Warbler (Audubon's)), each with the eBird species it's reported as. Groups
- *  spanning several subspecies ("[auduboni Group]", "a/b") have no such name. */
+ *  Yellow-rumped Warbler (Audubon's)), each with the eBird species it's reported as. A named
+ *  group ("[auduboni Group]") goes by its namesake subspecies; a slash ("a/b") has no such name. */
 export function ebirdFormsByBinomial(ebird: EbirdRow[]): Map<string, string> {
   const speciesCodes = new Set(ebird.filter((r) => r.category === "species").map((r) => r.code));
   const forms = new Map<string, string>();
   for (const r of ebird) {
     if ((r.category !== "issf" && r.category !== "form") || !speciesCodes.has(r.reportAs)) continue;
-    const parts = r.sci.split(" ");
-    if (parts.length !== 3 || /[[/]/.test(r.sci)) continue;
+    const sci = r.sci.replace(/^(\S+ \S+) \[(\S+) Group\]$/, "$1 $2");
+    const parts = sci.split(" ");
+    if (parts.length !== 3 || /[[/]/.test(sci)) continue;
     forms.set(`${parts[0]} ${parts[2]}`, r.reportAs);
   }
   return forms;
@@ -325,7 +326,7 @@ export interface SpeciesLink {
 }
 
 // Latin endings that change with a genus' gender (dorsatus/dorsatum, jacobitus/jacobita).
-const epithetStem = (e: string) => e.replace(/(us|um|a|is|e|i|ae)$/, "");
+export const epithetStem = (e: string) => e.replace(/(us|um|a|is|e|i|ae)$/, "");
 
 export async function findMissingSpecies(opts: {
   offline: boolean;
@@ -565,7 +566,8 @@ export async function insertMissingSpecies(
     // Respellings and genus moves: the existing entry takes the iNaturalist id and the new name.
     await client.query(
       `UPDATE species s SET inat_taxon_id = v.inat FROM unnest($1::uuid[], $2::int[]) AS v(id, inat)
-       WHERE s.id = v.id AND s.inat_taxon_id IS NULL`,
+       WHERE s.id = v.id AND s.inat_taxon_id IS NULL
+         AND NOT EXISTS (SELECT 1 FROM species o WHERE o.inat_taxon_id = v.inat AND NOT o.is_other_taxa)`,
       [links.map((l) => l.speciesId), links.map((l) => l.inatTaxonId)],
     );
     await client.query(

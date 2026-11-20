@@ -51,8 +51,8 @@ describe.skipIf(!url)("buildRegionPack", () => {
     );
     for (const id of [bird, mammal, personal])
       await pool.query(
-        `INSERT INTO region_species (region_id, species_id, local_tier, seasonality, is_vagrant, tier_reason, tier_explain)
-         VALUES ($1, $2, 'uncommon', '{1,2,3,4,5,6,7,8,9,10,11,12}', false, 'test reason', '{"why":"test"}')`,
+        `INSERT INTO region_species (region_id, species_id, local_tier, is_vagrant, tier_reason, tier_explain)
+         VALUES ($1, $2, 'uncommon', false, 'test reason', '{"why":"test"}')`,
         [country, id],
       );
     await pool.query(`INSERT INTO region_species (region_id, species_id, local_tier) VALUES ($1, $2, 'rare')`, [
@@ -102,7 +102,6 @@ describe.skipIf(!url)("buildRegionPack", () => {
       displayFile: null,
       localTier: "uncommon",
       isVagrant: false,
-      seasonality: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
       tierReason: "test reason",
       tierExplain: { why: "test" },
       gallery: [

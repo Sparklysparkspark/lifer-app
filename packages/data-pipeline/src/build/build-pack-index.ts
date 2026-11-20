@@ -3,14 +3,14 @@
 // re-deriving anything, so the index can't drift from the packs.
 //
 // Usage: npm run build-pack-index -w data-pipeline -- [packsDir]
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as tar from "tar";
 import { packIdFromFileName } from "@lifer/core/packs/packId.js";
-import { GITHUB_REPO, INDEX_RELEASE_TAG } from "./release-groups.js";
 import { photoStoreIndexUrl } from "../pipeline/photoStore.js";
+import { fetchPublishedIndex, writePackIndexFiles, type IndexPack, type PackIndex } from "../pipeline/packIndex.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..", "..");
@@ -47,90 +47,82 @@ function readManifest(archivePath: string): PackManifestCore {
   }
 }
 
-async function main() {
-  const packsDir = process.argv[2] ?? path.join(REPO_ROOT, "packs");
-  if (!existsSync(packsDir)) {
-    console.error(`No such directory: ${packsDir}`);
-    process.exit(1);
-  }
-
+/** The index for every archive in packsDir, plus each format-3 pack in `published` this batch
+ *  didn't rebuild (otherwise earlier packs would drop out of the index). */
+export function buildPackIndex(
+  packsDir: string,
+  published: PackIndex,
+): PackIndex & { photoStore: { indexUrl: string } } {
   const files = readdirSync(packsDir).filter((f) => f.endsWith(".pack.tar.gz"));
-  if (files.length === 0) {
-    console.error(`No .pack.tar.gz files found in ${packsDir}`);
-    process.exit(1);
-  }
+  if (files.length === 0) throw new Error(`No .pack.tar.gz files found in ${packsDir}`);
 
   // One manifest at a time, never the whole batch in memory.
-  const packs: Array<ReturnType<typeof buildPackEntry>> = [];
-  for (const file of files) {
-    packs.push(buildPackEntry(packsDir, file));
-  }
-
-  function buildPackEntry(packsDir: string, file: string) {
-    const archivePath = path.join(packsDir, file);
-    const manifest = readManifest(archivePath);
-    const sizeBytes = statSync(archivePath).size;
-    const scientificNames = [
-      ...new Set([
-        ...manifest.species.map((s) => s.scientificName),
-        ...(manifest.children ?? []).flatMap((c) => c.species.map((s) => s.scientificName)),
-      ]),
-    ];
-    console.log(
-      `[build-pack-index] ${file}: ${manifest.speciesCount} species, ${scientificNames.length} distinct, ` +
-        `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`,
-    );
-    return {
-      id: packIdFromFileName(file),
-      // Checklist-only packs in the pack store, photos in the photo store. packs.ts's writePackStore
-      // sets url, range and sha256 once the archive is in a shard.
-      format: 3,
-      type: manifest.type,
-      region: manifest.region,
-      seaZone: manifest.seaZone,
-      taxon: manifest.taxon ?? null,
-      variant: manifest.variant ?? "full",
-      sizeBytes,
-      speciesCount: manifest.speciesCount,
-      contentVersion: manifest.contentVersion,
-      scientificNames,
-      url: "",
-      range: undefined as [number, number] | undefined,
-      sha256: undefined as string | undefined,
-      // Pack IDs, not zone names: a sea zone can have several packs (one per taxon), so a dependency
-      // names the specific one (e.g. "seazone-red_sea-actinopterygii").
-      seaZoneDependencies: manifest.seaZoneDependencies?.map((d) => packIdFromFileName(d.packFile)),
-      photoBytes: manifest.photoBytes,
-      checklistBytes: manifest.checklistBytes,
-    };
-  }
-
-  // This run only builds the local batch, so the currently published index is fetched and every
-  // entry this batch didn't rebuild is kept; otherwise earlier packs would drop out of the index.
-  // Falls back to local-only with a warning if the fetch fails (first run, offline).
+  const packs = files.map((file) => buildPackEntry(packsDir, file));
   const localIds = new Set(packs.map((p) => p.id));
-  let carriedForward: typeof packs = [];
-  try {
-    const res = await fetch(`https://github.com/${GITHUB_REPO}/releases/download/${INDEX_RELEASE_TAG}/pack-index.json`);
-    if (res.ok) {
-      const existing = (await res.json()) as { packs: typeof packs };
-      carriedForward = existing.packs.filter((p) => !localIds.has(p.id) && (p as { format?: number }).format === 3);
-      console.log(`[build-pack-index] merging in ${carriedForward.length} previously-published pack(s) not in this batch`);
-    } else {
-      console.warn(`[build-pack-index] no existing published index found (${res.status}): writing local-only index`);
-    }
-  } catch (err) {
-    console.warn(`[build-pack-index] couldn't fetch existing published index (${(err as Error).message}): writing local-only index`);
-  }
-
+  const carriedForward = published.packs.filter((p) => !localIds.has(p.id) && p.format === 3);
+  console.log(`[build-pack-index] merging in ${carriedForward.length} previously-published pack(s) not in this batch`);
   // Where installs fetch pack photos from (pipeline/photoStore.ts).
-  const index = { generatedAt: new Date().toISOString(), photoStore: { indexUrl: photoStoreIndexUrl() }, packs: [...carriedForward, ...packs] };
-  const indexPath = path.join(packsDir, "pack-index.json");
-  writeFileSync(indexPath, JSON.stringify(index, null, 2));
-  console.log(`[build-pack-index] wrote ${indexPath} (${index.packs.length} packs, ${packs.length} from this batch)`);
+  return {
+    generatedAt: new Date().toISOString(),
+    photoStore: { indexUrl: photoStoreIndexUrl() },
+    packs: [...carriedForward, ...packs],
+  };
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+function buildPackEntry(packsDir: string, file: string): IndexPack & { photoBytes?: number; checklistBytes?: number } {
+  const archivePath = path.join(packsDir, file);
+  const manifest = readManifest(archivePath);
+  const sizeBytes = statSync(archivePath).size;
+  const scientificNames = [
+    ...new Set([
+      ...manifest.species.map((s) => s.scientificName),
+      ...(manifest.children ?? []).flatMap((c) => c.species.map((s) => s.scientificName)),
+    ]),
+  ];
+  console.log(
+    `[build-pack-index] ${file}: ${manifest.speciesCount} species, ${scientificNames.length} distinct, ` +
+      `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`,
+  );
+  return {
+    id: packIdFromFileName(file),
+    // Checklist-only packs in the pack store, photos in the photo store. packs.ts's writePackStore
+    // sets url, range and sha256 once the archive is in a shard.
+    format: 3,
+    type: manifest.type,
+    region: manifest.region,
+    seaZone: manifest.seaZone,
+    taxon: manifest.taxon ?? null,
+    variant: manifest.variant ?? "full",
+    sizeBytes,
+    speciesCount: manifest.speciesCount,
+    contentVersion: manifest.contentVersion,
+    scientificNames,
+    url: "",
+    range: undefined,
+    sha256: undefined,
+    // Pack IDs, not zone names: a sea zone can have several packs (one per taxon), so a dependency
+    // names the specific one (e.g. "seazone-red_sea-actinopterygii").
+    seaZoneDependencies: manifest.seaZoneDependencies?.map((d) => packIdFromFileName(d.packFile)),
+    photoBytes: manifest.photoBytes,
+    checklistBytes: manifest.checklistBytes,
+  };
+}
+
+async function main() {
+  const packsDir = process.argv[2] ?? path.join(REPO_ROOT, "packs");
+  if (!existsSync(packsDir)) throw new Error(`No such directory: ${packsDir}`);
+  // Retried; only a 404 (nothing published yet) gives an index of just this batch. Any other
+  // failure throws, since a local-only index would drop every published pack.
+  const index = buildPackIndex(packsDir, await fetchPublishedIndex());
+  writePackIndexFiles(packsDir, index);
+  console.log(
+    `[build-pack-index] wrote pack-index.json and pack-index-lite.json in ${packsDir} (${index.packs.length} packs)`,
+  );
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

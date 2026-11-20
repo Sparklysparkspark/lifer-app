@@ -1,0 +1,36 @@
+[
+  { "match": ["United Kingdom"], "aliases": ["Britain", "Great Britain", "UK", "U.K.", "England and Scotland"] },
+  { "match": ["Netherlands", "The Netherlands"], "aliases": ["Holland", "Nederland"] },
+  {
+    "match": ["United States of America", "United States"],
+    "aliases": ["USA", "US", "U.S.", "U.S.A.", "America", "United States"]
+  },
+  { "match": ["Myanmar"], "aliases": ["Burma"] },
+  { "match": ["Czechia", "Czech Republic"], "aliases": ["Czech Republic", "Czechia", "Czech"] },
+  { "match": ["Turkey", "Türkiye", "Turkiye"], "aliases": ["Türkiye", "Turkiye", "Turkey"] },
+  { "match": ["Eswatini", "Swaziland"], "aliases": ["Swaziland", "Eswatini"] },
+  { "match": ["North Macedonia", "Macedonia"], "aliases": ["Macedonia", "FYROM"] },
+  { "match": ["Côte d'Ivoire", "Ivory Coast"], "aliases": ["Ivory Coast", "Cote d'Ivoire"] },
+  { "match": ["Timor-Leste", "East Timor"], "aliases": ["East Timor", "Timor Leste"] },
+  { "match": ["Cabo Verde", "Cape Verde"], "aliases": ["Cape Verde", "Cabo Verde"] },
+  { "match": ["South Korea", "Republic of Korea"], "aliases": ["Korea", "Republic of Korea"] },
+  { "match": ["North Korea", "Dem. Rep. Korea"], "aliases": ["DPRK"] },
+  { "match": ["Russia", "Russian Federation"], "aliases": ["Russian Federation"] },
+  { "match": ["United Arab Emirates"], "aliases": ["UAE", "Emirates"] },
+  {
+    "match": ["Democratic Republic of the Congo", "Dem. Rep. Congo"],
+    "aliases": ["DR Congo", "DRC", "Congo-Kinshasa", "Zaire"]
+  },
+  { "match": ["Republic of the Congo", "Congo"], "aliases": ["Congo-Brazzaville"] },
+  { "match": ["Vatican", "Vatican City"], "aliases": ["Holy See"] },
+  { "match": ["Bosnia and Herzegovina", "Bosnia and Herz."], "aliases": ["Bosnia"] },
+  { "match": ["The Bahamas", "Bahamas"], "aliases": ["Bahamas", "The Bahamas"] },
+  { "match": ["The Gambia", "Gambia"], "aliases": ["Gambia", "The Gambia"] },
+  { "match": ["Hong Kong"], "aliases": ["Hong Kong SAR", "HK"] },
+  { "match": ["Macao", "Macau"], "aliases": ["Macau", "Macao SAR"] },
+  { "match": ["Scotland"], "aliases": ["Alba"] },
+  { "match": ["Wales"], "aliases": ["Cymru"] },
+  { "match": ["Faroe Islands", "Faeroe Islands"], "aliases": ["Faroes", "Faeroes"] },
+  { "match": ["Falkland Islands", "Falkland Is."], "aliases": ["Malvinas", "Islas Malvinas"] },
+  { "match": ["Saint Martin", "St-Martin"], "aliases": ["Sint Maarten"] }
+]

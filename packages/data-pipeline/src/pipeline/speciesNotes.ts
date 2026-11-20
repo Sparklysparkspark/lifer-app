@@ -18,8 +18,12 @@ export interface NotesInput {
   revid: number | null;
 }
 
+/** Notes are adaptations of Wikipedia text, shared under CC BY-SA 4.0, so each carries this credit. */
+export const NOTES_CREDIT = "Wikipedia contributors (CC BY-SA)";
+
 export interface StoredNotes {
   sections: { heading: string; bullets: string[] }[];
+  credit: string;
   source_url: string | null;
   revision_id: number | null;
 }
@@ -53,6 +57,7 @@ export function toStoredNotes(input: NotesInput, maxBullets = MAX_BULLETS): Stor
   if (!sections.length) return null;
   return {
     sections,
+    credit: NOTES_CREDIT,
     source_url: input.title ? articleUrlFromTitle(input.title) : null,
     revision_id: input.revid ?? null,
   };
@@ -77,9 +82,16 @@ export async function loadNotes(
   let empty = 0;
   for (const [id, input] of Object.entries(notes)) {
     const stored = toStoredNotes(input, column === "summary_notes" ? MAX_SUMMARY_SENTENCES : MAX_BULLETS);
-    if (stored) rows.push({ id, notes: stored });
-    else empty++;
+    if (!stored) empty++;
+    else rows.push({ id, notes: stored });
   }
+  // Refuse before any write: text with no article to credit can't be shared under CC BY-SA.
+  const uncredited = rows.filter((r) => !r.notes.source_url).map((r) => r.id);
+  if (uncredited.length)
+    throw new Error(
+      `${column}: ${uncredited.length} species have notes but no article title to credit ` +
+        `(first: ${uncredited.slice(0, 3).join(", ")}). Wikipedia text must carry its CC BY-SA credit and source.`,
+    );
   let written = 0;
   if (!opts.dryRun) {
     for (let i = 0; i < rows.length; i += chunk) {

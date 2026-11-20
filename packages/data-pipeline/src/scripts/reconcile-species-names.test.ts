@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { inatAncestorNames, readInatResults, type InatTaxonChange } from "./reconcile-species-names.js";
+import {
+  inatAncestorNames,
+  readGbifKeyStatus,
+  readInatResults,
+  type InatTaxonChange,
+} from "./reconcile-species-names.js";
 
 // Shapes taken from real iNaturalist responses.
 describe("readInatResults", () => {
@@ -86,5 +91,16 @@ describe("inatAncestorNames", () => {
       { status: "draft", input_taxa: [{ id: 9, name: "Old name" }], output_taxa: [{ id: 1, name: "New" }] },
     ];
     expect(await inatAncestorNames(1, draft)).toEqual([]);
+  });
+});
+
+describe("readGbifKeyStatus", () => {
+  it("gives the accepted key of a synonym species", () => {
+    expect(readGbifKeyStatus(1, { taxonomicStatus: "SYNONYM", acceptedKey: 2, rank: "SPECIES" })).toBe(2);
+  });
+  it("leaves accepted keys, self-references and non-species alone", () => {
+    expect(readGbifKeyStatus(1, { taxonomicStatus: "ACCEPTED", rank: "SPECIES" })).toBeNull();
+    expect(readGbifKeyStatus(1, { taxonomicStatus: "SYNONYM", acceptedKey: 1, rank: "SPECIES" })).toBeNull();
+    expect(readGbifKeyStatus(1, { taxonomicStatus: "SYNONYM", acceptedKey: 2, rank: "SUBSPECIES" })).toBeNull();
   });
 });

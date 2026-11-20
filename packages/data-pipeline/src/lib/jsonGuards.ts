@@ -7,7 +7,7 @@ type Guard<T> = (v: unknown) => v is T;
 export const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
-const isArrayOf = <T>(v: unknown, item: Guard<T>): v is T[] => Array.isArray(v) && v.every(item);
+export const isArrayOf = <T>(v: unknown, item: Guard<T>): v is T[] => Array.isArray(v) && v.every(item);
 
 /** The value, typed, or an error naming what was expected. */
 export function expectShape<T>(value: unknown, guard: Guard<T>, what: string): T {

@@ -1,0 +1,12 @@
+[
+  {
+    "ebird": "Larus vegae",
+    "accepted": "Larus argentatus",
+    "note": "Vega Gull, which GBIF's backbone folds into Herring Gull. Check before the first run."
+  },
+  {
+    "ebird": "Porphyrio indicus",
+    "accepted": "Porphyrio poliocephalus",
+    "note": "Black-backed Swamphen, split by eBird from the Grey-headed Swamphen. Check before the first run."
+  }
+]

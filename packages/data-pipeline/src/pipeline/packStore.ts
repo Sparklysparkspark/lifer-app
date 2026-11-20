@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, openSync, readFileSync, statSync, writeSync } from "node:fs";
 import path from "node:path";
 import { GITHUB_REPO, INDEX_RELEASE_TAG } from "../build/release-groups.js";
-import type { IndexPack, PackIndex } from "./packIndex.js";
+import { PACK_INDEX_LITE_FILE, type IndexPack, type PackIndex } from "./packIndex.js";
 
 // Kept well under GitHub's 2 GB per-asset limit.
 const MAX_SHARD_BYTES = 1_500_000_000;
@@ -107,6 +107,8 @@ export async function publishPackStore(
     log(`[pack-store] uploading ${name} (${(statSync(file).size / 1e6).toFixed(0)} MB)`);
     gh(["release", "upload", INDEX_RELEASE_TAG, file, "--clobber"]);
   }
+  // The lite copy first: an install that sees the new full index also finds its lite one.
+  gh(["release", "upload", INDEX_RELEASE_TAG, path.join(outDir, PACK_INDEX_LITE_FILE), "--clobber"]);
   gh(["release", "upload", INDEX_RELEASE_TAG, path.join(outDir, "pack-index.json"), "--clobber"]);
   for (const name of assetNames().filter((n) => n.startsWith(PACK_SHARD_PREFIX) && !used.has(n))) {
     log(`[pack-store] deleting ${name}, no longer used`);

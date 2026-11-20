@@ -395,51 +395,6 @@ export async function fetchOccurrenceCountForSpecies(gbifKey: number, externalCo
 }
 
 /**
- * Monthly seasonality per species for one region. GBIF only facets by month, not week, so this
- * uses 12 monthly bins: 12 per-species facet requests, one per month.
- */
-export async function fetchMonthlySeasonality(
-  externalCode: string,
-  taxonKeys: number[] = [AVES_CLASS_KEY],
-  yearsWindow: number | null = RECENT_YEARS_WINDOW,
-  landOnly = false,
-): Promise<Map<number, number[]>> {
-  const bySpecies = new Map<number, number[]>();
-  const currentYear = new Date().getFullYear();
-  const yearParam = yearsWindow != null ? `&year=${currentYear - yearsWindow},${currentYear}` : "";
-  const regionParam = await gbifRegionParam(externalCode, landOnly);
-
-  for (let month = 1; month <= 12; month++) {
-    let offset = 0;
-    const pageSize = 5000;
-    for (;;) {
-      const url =
-        `${GBIF_OCCURRENCE_API}?${regionParam}&month=${month}${yearParam}` +
-        `&${taxonKeyParams(taxonKeys)}&${basisOfRecordParams}&occurrenceStatus=PRESENT&facet=speciesKey` +
-        `&facetLimit=${pageSize}&facetOffset=${offset}&limit=0`;
-      const res = await fetchWithRetry(url, {});
-      if (!res.ok) {
-        throw new Error(`[gbif-occ] seasonality fetch failed: ${res.status} ${res.statusText} (${url})`);
-      }
-      const data: FacetResponse = expectShape(await res.json(), isGbifFacets, "GBIF facet");
-      const facet = data.facets.find((f) => f.field === "SPECIES_KEY");
-      if (!facet || facet.counts.length === 0) break;
-
-      for (const c of facet.counts) {
-        const gbifKey = Number(c.name);
-        const arr = bySpecies.get(gbifKey) ?? new Array(12).fill(0);
-        arr[month - 1] = c.count;
-        bySpecies.set(gbifKey, arr);
-      }
-      if (facet.counts.length < pageSize) break;
-      offset += pageSize;
-    }
-  }
-
-  return bySpecies;
-}
-
-/**
  * Per-species record counts by year, for passesRecurrenceCheck. One facet=speciesKey call per
  * year in the window rather than one call per species, so the cost per region stays small and
  * fixed. Uses the same window as the checklist's recency filter.

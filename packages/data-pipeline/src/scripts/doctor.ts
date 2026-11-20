@@ -26,6 +26,7 @@ import {
   checkPlatform,
   checkPostgis,
   checkShm,
+  checkSnapshot,
   formatBytes,
   formatReport,
   GIB,
@@ -36,6 +37,7 @@ import {
   type ReleaseFlags,
 } from "../pipeline/doctorChecks.js";
 import { resolvePgDump } from "../pipeline/pgDump.js";
+import { newestSnapshot } from "../pipeline/dbSnapshot.js";
 
 const PIPELINE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const REPO_ROOT = path.join(PIPELINE_DIR, "..", "..");
@@ -385,6 +387,7 @@ async function main() {
   const db = await databaseChecks(url);
   results.push(...db.results);
   results.push(shmCheck(url));
+  results.push(checkSnapshot(newestSnapshot(), new Date()));
   results.push(...pythonCheck());
   results.push(...toolChecks(db.serverMajor, publish));
   results.push(...cacheChecks());

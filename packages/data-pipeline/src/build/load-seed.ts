@@ -71,7 +71,7 @@ interface SeedSpecies {
   };
 }
 
-interface SeedRegion {
+export interface SeedRegion {
   name: string;
   parentName: string | null;
   externalCodes: string[];
@@ -79,6 +79,47 @@ interface SeedRegion {
   boundaryGeoJson: unknown | null;
   sovereigntyGroup?: string | null;
   isSovereignDependency?: boolean;
+}
+
+/** Inserts or updates one seed region and returns its id. */
+export async function upsertSeedRegion(client: PoolClient, r: SeedRegion, parentId: string | null): Promise<string> {
+  const values = [
+    r.name,
+    parentId,
+    r.externalCodes,
+    r.ebirdRegionCode,
+    r.boundaryGeoJson ? JSON.stringify(r.boundaryGeoJson) : null,
+    r.sovereigntyGroup ?? null,
+    r.isSovereignDependency ?? false,
+  ];
+  if (parentId === null) {
+    // NULLs never collide in a unique constraint, so a root needs an explicit lookup or each run adds another.
+    const existing = await client.query(
+      `SELECT id FROM regions WHERE parent_id IS NULL AND name = $1 ORDER BY id LIMIT 1`,
+      [r.name],
+    );
+    if (existing.rows.length > 0) {
+      await client.query(
+        `UPDATE regions SET external_codes = $2, ebird_region_code = $3, boundary_geojson = $4,
+           sovereignty_group = $5, is_sovereign_dependency = $6 WHERE id = $1`,
+        [existing.rows[0].id, ...values.slice(2)],
+      );
+      return existing.rows[0].id as string;
+    }
+  }
+  const res = await client.query(
+    `INSERT INTO regions (name, parent_id, external_codes, ebird_region_code, boundary_geojson, sovereignty_group, is_sovereign_dependency)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (name, parent_id) DO UPDATE SET
+       external_codes = EXCLUDED.external_codes,
+       ebird_region_code = EXCLUDED.ebird_region_code,
+       boundary_geojson = EXCLUDED.boundary_geojson,
+       sovereignty_group = EXCLUDED.sovereignty_group,
+       is_sovereign_dependency = EXCLUDED.is_sovereign_dependency
+     RETURNING id`,
+    values,
+  );
+  return res.rows[0].id as string;
 }
 
 function resolveBuildDir(): string {
@@ -99,7 +140,7 @@ async function main() {
 
   const species: SeedSpecies[] = JSON.parse(readFileSync(path.join(dir, "species.json"), "utf-8"));
   const regions: SeedRegion[] = JSON.parse(readFileSync(path.join(dir, "regions.json"), "utf-8"));
-  const regionSpecies: Record<string, Array<{ gbifKey: number; recordCount: number; seasonality: number[] | null }>> =
+  const regionSpecies: Record<string, Array<{ gbifKey: number; recordCount: number }>> =
     JSON.parse(readFileSync(path.join(dir, "region-species.json"), "utf-8"));
 
   const client = await pool.connect();
@@ -238,28 +279,7 @@ async function main() {
     const regionIdByName = new Map<string, string>();
     for (const r of regions) {
       const parentId = r.parentName ? regionIdByName.get(r.parentName) ?? null : null;
-      const res = await client.query(
-        `INSERT INTO regions (name, parent_id, external_codes, ebird_region_code, boundary_geojson, sovereignty_group, is_sovereign_dependency)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         ON CONFLICT (name, parent_id) DO UPDATE SET
-           parent_id = EXCLUDED.parent_id,
-           external_codes = EXCLUDED.external_codes,
-           ebird_region_code = EXCLUDED.ebird_region_code,
-           boundary_geojson = EXCLUDED.boundary_geojson,
-           sovereignty_group = EXCLUDED.sovereignty_group,
-           is_sovereign_dependency = EXCLUDED.is_sovereign_dependency
-         RETURNING id`,
-        [
-          r.name,
-          parentId,
-          r.externalCodes,
-          r.ebirdRegionCode,
-          r.boundaryGeoJson ? JSON.stringify(r.boundaryGeoJson) : null,
-          r.sovereigntyGroup ?? null,
-          r.isSovereignDependency ?? false,
-        ],
-      );
-      regionIdByName.set(r.name, res.rows[0].id as string);
+      regionIdByName.set(r.name, await upsertSeedRegion(client, r, parentId));
     }
     console.log(`[load-seed] inserted ${regions.length} regions`);
 
@@ -271,11 +291,10 @@ async function main() {
         const speciesId = speciesIdByGbifKey.get(c.gbifKey);
         if (!speciesId) continue;
         await client.query(
-          `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality)
-           VALUES ($1,$2,$3,$4)
-           ON CONFLICT (region_id, species_id) DO UPDATE SET
-             local_frequency = EXCLUDED.local_frequency, seasonality = EXCLUDED.seasonality`,
-          [regionId, speciesId, c.recordCount, c.seasonality],
+          `INSERT INTO region_species (region_id, species_id, local_frequency)
+           VALUES ($1,$2,$3)
+           ON CONFLICT (region_id, species_id) DO UPDATE SET local_frequency = EXCLUDED.local_frequency`,
+          [regionId, speciesId, c.recordCount],
         );
         regionSpeciesCount++;
       }

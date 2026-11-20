@@ -14,12 +14,13 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { PoolClient } from "pg";
 import { pool } from "@lifer/core/db.js";
 import { lockReferenceData } from "@lifer/core/lib/referenceDataLock.js";
 import { applySpeciesMerges } from "@lifer/core/species/speciesMerges.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_LIST = path.join(
+export const DEFAULT_LIST = path.join(
   __dirname,
   "..",
   "..",
@@ -39,7 +40,7 @@ interface Row {
   newName: string;
 }
 
-function readList(file: string): Row[] {
+export function readList(file: string): Row[] {
   const [header, ...lines] = readFileSync(file, "utf8")
     .split("\n")
     .filter((l) => l.trim());
@@ -56,6 +57,43 @@ function readList(file: string): Row[] {
   });
 }
 
+/** Records and applies every listed pair still under its listed names; the caller holds
+ *  lockReferenceData and owns the transaction. Returns how many species were merged away. */
+export async function mergeListedSpecies(client: PoolClient, rows: Row[]): Promise<number> {
+  const valid = await client.query<{ old_id: string; new_id: string; old_name: string }>(
+    `SELECT l.old_id, l.new_id, o.scientific_name AS old_name
+     FROM unnest($1::uuid[], $2::text[], $3::uuid[], $4::text[]) AS l(old_id, old_name, new_id, new_name)
+     JOIN species o ON o.id = l.old_id AND o.scientific_name = l.old_name
+     JOIN species n ON n.id = l.new_id AND n.scientific_name = l.new_name`,
+    [rows.map((r) => r.oldId), rows.map((r) => r.oldName), rows.map((r) => r.newId), rows.map((r) => r.newName)],
+  );
+  console.log(
+    `[merge-duplicate-species] ${valid.rows.length} still match the catalog (the rest were already merged or renamed)`,
+  );
+
+  const impact = await client.query<{ regions: string; captures: string; users: string }>(
+    `SELECT (SELECT count(*) FROM region_species WHERE species_id = ANY($1)) AS regions,
+            (SELECT count(*) FROM captures_all WHERE species_id = ANY($1)) AS captures,
+            (SELECT count(*) FROM user_species WHERE species_id = ANY($1)) AS users`,
+    [valid.rows.map((r) => r.old_id)],
+  );
+  const i = impact.rows[0];
+  console.log(
+    `[merge-duplicate-species] old entries carry ${i.regions} checklist rows, ${i.captures} captures, ${i.users} collected/seen marks`,
+  );
+
+  await client.query(
+    `INSERT INTO species_merges (old_species_id, new_species_id, old_scientific_name)
+     SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::text[])
+     ON CONFLICT (old_species_id) DO UPDATE SET new_species_id = EXCLUDED.new_species_id`,
+    [valid.rows.map((r) => r.old_id), valid.rows.map((r) => r.new_id), valid.rows.map((r) => r.old_name)],
+  );
+  const result = await applySpeciesMerges(client);
+  const left = await client.query<{ n: string }>(`SELECT count(*) AS n FROM species`);
+  console.log(`[merge-duplicate-species] merged ${result.merged} species, ${left.rows[0].n} remain in the catalog`);
+  return result.merged;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const apply = args.includes("--apply");
@@ -67,37 +105,7 @@ async function main() {
   try {
     await client.query("BEGIN");
     await lockReferenceData(client);
-    const valid = await client.query<{ old_id: string; new_id: string; old_name: string }>(
-      `SELECT l.old_id, l.new_id, o.scientific_name AS old_name
-       FROM unnest($1::uuid[], $2::text[], $3::uuid[], $4::text[]) AS l(old_id, old_name, new_id, new_name)
-       JOIN species o ON o.id = l.old_id AND o.scientific_name = l.old_name
-       JOIN species n ON n.id = l.new_id AND n.scientific_name = l.new_name`,
-      [rows.map((r) => r.oldId), rows.map((r) => r.oldName), rows.map((r) => r.newId), rows.map((r) => r.newName)],
-    );
-    console.log(
-      `[merge-duplicate-species] ${valid.rows.length} still match the catalog (the rest were already merged or renamed)`,
-    );
-
-    const impact = await client.query<{ regions: string; captures: string; users: string }>(
-      `SELECT (SELECT count(*) FROM region_species WHERE species_id = ANY($1)) AS regions,
-              (SELECT count(*) FROM captures_all WHERE species_id = ANY($1)) AS captures,
-              (SELECT count(*) FROM user_species WHERE species_id = ANY($1)) AS users`,
-      [valid.rows.map((r) => r.old_id)],
-    );
-    const i = impact.rows[0];
-    console.log(
-      `[merge-duplicate-species] old entries carry ${i.regions} checklist rows, ${i.captures} captures, ${i.users} collected/seen marks`,
-    );
-
-    await client.query(
-      `INSERT INTO species_merges (old_species_id, new_species_id, old_scientific_name)
-       SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::text[])
-       ON CONFLICT (old_species_id) DO UPDATE SET new_species_id = EXCLUDED.new_species_id`,
-      [valid.rows.map((r) => r.old_id), valid.rows.map((r) => r.new_id), valid.rows.map((r) => r.old_name)],
-    );
-    const result = await applySpeciesMerges(client);
-    const left = await client.query<{ n: string }>(`SELECT count(*) AS n FROM species`);
-    console.log(`[merge-duplicate-species] merged ${result.merged} species, ${left.rows[0].n} remain in the catalog`);
+    await mergeListedSpecies(client, rows);
 
     if (apply) {
       await client.query("COMMIT");
@@ -115,7 +123,9 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

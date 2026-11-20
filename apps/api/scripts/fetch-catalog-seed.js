@@ -16,8 +16,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..", "..");
 const CATALOG_MANIFEST_URL =
   "https://github.com/Sparklysparkspark/lifer-app/releases/download/catalog-latest/catalog-manifest.json";
-const LEGACY_SEED_URL =
-  "https://github.com/Sparklysparkspark/lifer-app/releases/download/catalog-latest/lifer-catalog-seed.sql.gz";
 // Matches build-catalog-seed.ts. A bigger seed means something large got added to it.
 const MAX_SEED_BYTES = 400 * 1024 * 1024;
 
@@ -36,8 +34,10 @@ async function main() {
   const manifest = await manifestRes.json();
   writeFileSync(path.join(destDir, "catalog-manifest.json"), JSON.stringify(manifest, null, 2));
 
-  const seedUrl = manifest.seed ? new URL(manifest.seed.url, CATALOG_MANIFEST_URL).toString() : LEGACY_SEED_URL;
-  if (manifest.seed?.bytes > MAX_SEED_BYTES) {
+  // The image ships this file, so an unverifiable one fails the build.
+  if (!manifest.seed?.url || !manifest.seed.sha256) throw new Error("Catalog manifest has no seed url and sha256");
+  const seedUrl = new URL(manifest.seed.url, CATALOG_MANIFEST_URL).toString();
+  if (manifest.seed.bytes > MAX_SEED_BYTES) {
     throw new Error(
       `Published seed is ${Math.round(manifest.seed.bytes / 1048576)} MB, over the ${MAX_SEED_BYTES / 1048576} MB limit`,
     );
@@ -55,7 +55,7 @@ async function main() {
       `Seed is ${Math.round(bytes / 1048576)} MB, over the ${MAX_SEED_BYTES / 1048576} MB limit. Republish it with build-catalog-seed.ts.`,
     );
   }
-  if (manifest.seed?.sha256 && (await sha256(dest)) !== manifest.seed.sha256) {
+  if ((await sha256(dest)) !== manifest.seed.sha256) {
     rmSync(dest);
     throw new Error("Seed checksum doesn't match the manifest");
   }

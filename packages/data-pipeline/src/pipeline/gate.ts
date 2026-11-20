@@ -13,6 +13,8 @@
 // - a user's own Other Taxa species inside any pack;
 // - a pack whose species count moved more than 25% from the published one, unless accepted
 //   (--accept-drift=<pack id>,... or --accept-all-drift after reviewing the list).
+// - (refresh only) catalog, regions, endemic, tiers or vectors older than what they read
+//   (pipeline/freshness.ts), unless accepted with --accept-stale=<stage>,...
 // Warnings (reported, publishing continues): species on lists with no photo yet.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { descendantIdsSql } from "@lifer/core/regions/regionTree.js";
@@ -22,6 +24,7 @@ import { pool } from "../db.js";
 import { findMissingSpecies } from "../scripts/add-missing-species.js";
 import { checkIndex, fetchPublishedIndex, PACK_TAXA, type PackIndex } from "./packs.js";
 import { packIdFromFileName, regionPackFileName } from "@lifer/core/packs/packId.js";
+import { inputFileTimes, loadStageTimes, staleStages } from "./freshness.js";
 
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "data");
 const ANCHORS_PATH = path.join(DATA_DIR, "reference", "checklist-anchors.json");
@@ -188,6 +191,22 @@ async function checkDrift(report: GateReport, index: PackIndex, accepted: Set<st
   }
 }
 
+// Two catalog species on one iNaturalist taxon show the same photos and text, and iNaturalist
+// checklists confirm both from one taxon. fix-shared-inat-taxa.ts resolves them.
+async function checkSharedInatTaxa(report: GateReport) {
+  const res = await pool.query<{ n: string; sample: string[] }>(
+    `SELECT count(*) AS n, (array_agg(names ORDER BY names))[1:5] AS sample FROM (
+       SELECT string_agg(scientific_name, ' / ' ORDER BY scientific_name) AS names FROM species
+        WHERE NOT is_other_taxa AND inat_taxon_id IS NOT NULL GROUP BY inat_taxon_id HAVING count(*) > 1) g`,
+  );
+  const n = Number(res.rows[0].n);
+  if (n > 0)
+    report.failures.push({
+      check: "shared_inat_taxon",
+      detail: `${n} iNaturalist taxa are on more than one catalog species (e.g. ${res.rows[0].sample.join(", ")})`,
+    });
+}
+
 async function checkPhotos(report: GateReport) {
   const res = await pool.query<{ n: string }>(
     `SELECT count(DISTINCT s.id) AS n FROM region_species rs JOIN species s ON s.id = rs.species_id
@@ -197,9 +216,18 @@ async function checkPhotos(report: GateReport) {
   if (n > 0) report.warnings.push({ check: "no_photo", detail: `${n} listed species have no reference photo yet` });
 }
 
+async function checkFreshness(report: GateReport, accepted: Set<string>) {
+  for (const [stage, why] of staleStages(await loadStageTimes(pool), inputFileTimes())) {
+    if (accepted.has(stage)) report.warnings.push({ check: "stale_accepted", detail: why });
+    else report.failures.push({ check: "stale_stage", detail: `${why}; rerun it, or pass --accept-stale=${stage}` });
+  }
+}
+
 export async function runGate(opts: {
   index: PackIndex | null;
   acceptDrift?: string[] | "all";
+  /** Check upstream stages are fresh (refresh does; a standalone gate run needn't). */
+  freshness?: { acceptStale: string[] };
   out?: string;
 }): Promise<GateReport> {
   // Stryker disable next-line BooleanLiteral: equivalent, ok is set from the failures before anyone reads it
@@ -209,6 +237,8 @@ export async function runGate(opts: {
   await checkUntracedTiers(report);
   await checkCatalogGaps(report);
   await checkPhotos(report);
+  await checkSharedInatTaxa(report);
+  if (opts.freshness) await checkFreshness(report, new Set(opts.freshness.acceptStale));
   if (opts.index) {
     await checkCoverage(report, opts.index);
     await checkOtherTaxa(report, opts.index);

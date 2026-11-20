@@ -4,7 +4,9 @@
 // the Catalogue of Life and eBird and iNaturalist follow their own taxonomies. Checklist steps
 // compare names exactly, so a renamed species would otherwise silently drop off.
 //
-// Three stages, each writing species_synonyms rows (with a source) or filling an id:
+// Four stages, each writing species_synonyms rows (with a source) or filling an id:
+//   gbifkey Checklist species whose GBIF taxon key is now a synonym of another key (or gone) get the
+//          accepted key, so GBIF's current backbone data finds them ("Pipra europaea" in the UK).
 //   col    Catalog species that never appear under their own name in the cached GBIF country
 //          downloads get their Catalogue of Life accepted name as a synonym.
 //   inat   Species without an iNaturalist id get one from iNat's taxon search, which matches old
@@ -16,7 +18,7 @@
 // Never links one name or id to two catalog species (that means a source merged species the
 // catalog keeps apart); those are listed in the report instead.
 //
-//   npx tsx src/scripts/reconcile-species-names.ts --zip-names <names.tsv> [--stage col,inat,ebird]
+//   npx tsx src/scripts/reconcile-species-names.ts --zip-names <names.tsv> [--stage col,gbifkey,inat,ebird]
 //     [--inat-limit N] [--checkpoint <progress.jsonl>] [--history-invertebrates] [--apply] [--report <out.json>]
 //   npx tsx src/scripts/reconcile-species-names.ts --apply-report <reviewed-report.json>
 // <names.tsv>: "name<TAB>class<TAB>records" for every species name in the cached country zips.
@@ -31,6 +33,7 @@ import { CATALOG_GBIF_CLASSES } from "../catalogClasses.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EBIRD_TAXONOMY_CSV = path.join(__dirname, "..", "..", "data", "reference", "ebird-taxonomy.csv");
 const COL_MATCH_URL = "https://api.checklistbank.org/dataset/3LXR/match/nameusage";
+const GBIF_SPECIES_URL = "https://api.gbif.org/v1/species";
 const INAT_TAXA_URL = "https://api.inaturalist.org/v1/taxa";
 const INAT_CHANGES_URL = "https://www.inaturalist.org/taxon_changes.json";
 const HISTORY_VERTEBRATE_CLASSES = new Set([
@@ -58,14 +61,16 @@ interface CatalogSpecies {
   taxon_class: string | null;
   inat_taxon_id: number | null;
   ebird_code: string | null;
+  gbif_key: string | null;
   occurrence_count: number | null;
+  listed: boolean;
 }
 
 interface Proposal {
-  stage: "col" | "inat" | "ebird";
+  stage: "col" | "inat" | "ebird" | "gbifkey";
   speciesId: string;
   catalogName: string;
-  kind: "synonym" | "inat_taxon_id" | "ebird_code";
+  kind: "synonym" | "inat_taxon_id" | "ebird_code" | "gbif_key";
   value: string;
   note?: string;
 }
@@ -119,6 +124,16 @@ export async function colAcceptedName(name: string): Promise<string | null> {
   const acceptedSpecies = (u.classification ?? []).find((c) => c.rank === "species" && c.status === "accepted");
   const accepted = acceptedSpecies?.name ?? u.accepted?.name?.scientificName ?? null;
   return accepted && accepted !== name ? accepted : null;
+}
+
+/** GBIF's `species/{key}` answer for a key: the accepted species key it now points to, or null
+ * when the key is already the accepted one. */
+export function readGbifKeyStatus(
+  key: number,
+  usage: { taxonomicStatus?: string; acceptedKey?: number; rank?: string },
+): number | null {
+  if (usage.taxonomicStatus === "ACCEPTED" || usage.rank !== "SPECIES") return null;
+  return usage.acceptedKey != null && usage.acceptedKey !== key ? usage.acceptedKey : null;
 }
 
 /** iNaturalist's current species for a name (it matches old names too, via "matched_term"). */
@@ -193,15 +208,17 @@ async function main() {
     return;
   }
   const zipNamesPath = arg("zip-names");
-  const stages = new Set((arg("stage") ?? "col,inat,history,ebird").split(","));
+  const stages = new Set((arg("stage") ?? "col,gbifkey,inat,history,ebird").split(","));
   const apply = process.argv.includes("--apply");
   const inatLimit = Number(arg("inat-limit") ?? "5000");
   const reportPath = arg("report") ?? "reconcile-species-names-report.json";
 
   const catalog = (
     await pool.query<CatalogSpecies>(
-      `SELECT s.id, s.scientific_name, s.common_name, s.taxon_class, s.inat_taxon_id::int AS inat_taxon_id, s.ebird_code,
-              t.occurrence_count::int AS occurrence_count
+      `SELECT s.id, s.scientific_name, s.common_name, s.taxon_class, s.inat_taxon_id::int AS inat_taxon_id, s.ebird_code, s.gbif_key::text AS gbif_key,
+              t.occurrence_count::int AS occurrence_count,
+              (EXISTS (SELECT 1 FROM region_species rs WHERE rs.species_id = s.id)
+                OR EXISTS (SELECT 1 FROM sea_zone_species z WHERE z.species_id = s.id)) AS listed
          FROM species s LEFT JOIN species_traits t ON t.species_id = s.id
         WHERE s.is_other_taxa = false`,
     )
@@ -318,14 +335,59 @@ async function main() {
     console.log(`[col] ${proposals.filter((p) => p.stage === "col").length} links`);
   }
 
+  // --- gbifkey ---
+  if (stages.has("gbifkey")) {
+    const takenKeys = new Map(catalog.filter((s) => s.gbif_key != null).map((s) => [s.gbif_key!, s.id]));
+    const todo = scope.filter((s) => s.listed && s.gbif_key != null && !finished.has(`gbifkey:${s.id}`));
+    console.log(`[gbifkey] checking ${todo.length} listed species' GBIF keys`);
+    let done = 0;
+    await mapWithConcurrency(todo, 6, async (s) => {
+      let ok = true;
+      try {
+        const usage = await getJson<Parameters<typeof readGbifKeyStatus>[1]>(`${GBIF_SPECIES_URL}/${s.gbif_key}`);
+        const accepted = readGbifKeyStatus(Number(s.gbif_key), usage);
+        if (accepted != null) {
+          const owner = takenKeys.get(String(accepted));
+          if (owner && owner !== s.id) {
+            conflicts.push({
+              stage: "gbifkey",
+              catalogName: s.scientific_name,
+              name: String(accepted),
+              reason: `GBIF ${accepted} already on ${owner} (a duplicate to merge?)`,
+            });
+          } else {
+            takenKeys.set(String(accepted), s.id);
+            proposals.push({
+              stage: "gbifkey",
+              speciesId: s.id,
+              catalogName: s.scientific_name,
+              kind: "gbif_key",
+              value: String(accepted),
+              note: `was ${s.gbif_key}`,
+            });
+          }
+        }
+      } catch (err) {
+        // A key GBIF no longer has (404) is reported, not guessed at.
+        conflicts.push({ stage: "gbifkey", catalogName: s.scientific_name, reason: (err as Error).message });
+        ok = false;
+      }
+      if (ok) finish(`gbifkey:${s.id}`);
+      if (++done % 1000 === 0) console.log(`[gbifkey] ${done}/${todo.length}`);
+    });
+    console.log(`[gbifkey] ${proposals.filter((p) => p.stage === "gbifkey").length} keys to update`);
+  }
+
   // --- inat ---
   if (stages.has("inat")) {
+    const synonymsOf = new Map<string, string[]>();
+    for (const [name, id] of synonymOwner) synonymsOf.set(id, [...(synonymsOf.get(id) ?? []), name]);
     const takenInatIds = new Map(catalog.filter((s) => s.inat_taxon_id != null).map((s) => [s.inat_taxon_id!, s.id]));
-    // Most-recorded first, so a limited run fixes the species people actually see. Finished ones
-    // are left out before the limit, so a rerun moves on to the next batch.
+    // Listed species (what packs ship) first, then most-recorded, so a limited run fixes the
+    // species people actually see. Finished ones are left out before the limit, so a rerun moves on.
     const todo = scope
       .filter((s) => s.inat_taxon_id == null && !finished.has(`inat:${s.id}`))
-      .sort((a, b) => (b.occurrence_count ?? 0) - (a.occurrence_count ?? 0))
+      .sort((a, b) => Number(b.listed) - Number(a.listed) || (b.occurrence_count ?? 0) - (a.occurrence_count ?? 0))
       .slice(0, inatLimit);
     console.log(`[inat] resolving ${todo.length} species without an iNaturalist id`);
     let done = 0;
@@ -333,10 +395,15 @@ async function main() {
       if (finished.has(`inat:${s.id}`)) continue;
       let ok = true;
       try {
-        const d = await getJson<{ results?: InatTaxonResult[] }>(
-          `${INAT_TAXA_URL}?q=${encodeURIComponent(s.scientific_name)}&per_page=10`,
-        );
-        const exact = readInatResults(s.scientific_name, d.results ?? []);
+        // iNat's search doesn't know every old name, so the species' synonyms are tried too.
+        let exact: { id: number; name: string } | null = null;
+        for (const name of [s.scientific_name, ...(synonymsOf.get(s.id) ?? [])]) {
+          const d = await getJson<{ results?: InatTaxonResult[] }>(
+            `${INAT_TAXA_URL}?q=${encodeURIComponent(name)}&per_page=10`,
+          );
+          exact = readInatResults(name, d.results ?? []);
+          if (exact) break;
+        }
         if (exact) {
           const owner = takenInatIds.get(exact.id);
           if (owner && owner !== s.id) {
@@ -522,6 +589,12 @@ async function applyProposals(proposals: Proposal[], apply: boolean): Promise<vo
             `INSERT INTO species_synonyms (species_id, synonym_name, source) VALUES ($1, $2, $3) ON CONFLICT (synonym_name) DO NOTHING`,
             [p.speciesId, p.value, p.stage],
           );
+        } else if (p.kind === "gbif_key") {
+          await client.query(`UPDATE species SET gbif_key = $2 WHERE id = $1 AND gbif_key = $3`, [
+            p.speciesId,
+            Number(p.value),
+            Number(p.note?.replace("was ", "")),
+          ]);
         } else if (p.kind === "inat_taxon_id") {
           await client.query(`UPDATE species SET inat_taxon_id = $2 WHERE id = $1 AND inat_taxon_id IS NULL`, [
             p.speciesId,

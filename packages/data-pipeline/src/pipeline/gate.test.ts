@@ -15,6 +15,7 @@ const db = vi.hoisted(() => ({
   fakeRare: { n: "0", sample: [] as string[] },
   untraced: { n: "0", sample: [] as string[] },
   noPhoto: { n: "0" },
+  sharedInat: { n: "0", sample: [] as string[] },
   coverage: [] as Array<{ name: string; taxa: string[] }>,
   otherTaxa: [] as string[],
   catalogNames: [] as string[],
@@ -42,6 +43,7 @@ vi.mock("../db.js", () => ({
       if (sql.includes("'rare', 'legendary'")) return { rows: [db.fakeRare] };
       if (sql.includes("tier_reason IS NULL")) return { rows: [db.untraced] };
       if (sql.includes("reference_photo IS NULL")) return { rows: [db.noPhoto] };
+      if (sql.includes("GROUP BY inat_taxon_id")) return { rows: [db.sharedInat] };
       if (sql.includes("array_agg(DISTINCT s.taxon_class)")) return { rows: db.coverage };
       const names = (params[0] ?? []) as string[];
       if (sql.includes("WHERE is_other_taxa AND")) {
@@ -84,6 +86,13 @@ vi.mock("node:fs", async (importOriginal) => {
   };
 });
 
+const stages = vi.hoisted(() => ({ times: new Map<string, Date>() }));
+vi.mock("./freshness.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./freshness.js")>()),
+  loadStageTimes: async () => stages.times,
+  inputFileTimes: () => ({}),
+}));
+
 const { runGate, summarizeGate, DRIFT_LIMIT } = await import("./gate.js");
 type GateReport = Awaited<ReturnType<typeof runGate>>;
 
@@ -114,6 +123,7 @@ beforeEach(() => {
   db.fakeRare = { n: "0", sample: [] };
   db.untraced = { n: "0", sample: [] };
   db.noPhoto = { n: "0" };
+  db.sharedInat = { n: "0", sample: [] };
   db.coverage = [];
   db.otherTaxa = [];
   db.catalogNames = [];
@@ -230,6 +240,21 @@ describe("runGate", () => {
     const report = await runGate({ index: null, out: OUT });
     expect(report.ok).toBe(true);
     expect(report.warnings).toEqual([{ check: "no_photo", detail: "3 listed species have no reference photo yet" }]);
+  });
+
+  it("fails when catalog species share an iNaturalist taxon, naming examples", async () => {
+    db.sharedInat = {
+      n: "2",
+      sample: ["Passerella iliaca / Passerella unalaschcensis", "Piranga flava / Piranga lutea"],
+    };
+    const report = await runGate({ index: null, out: OUT });
+    expect(report.failures).toEqual([
+      {
+        check: "shared_inat_taxon",
+        detail:
+          "2 iNaturalist taxa are on more than one catalog species (e.g. Passerella iliaca / Passerella unalaschcensis, Piranga flava / Piranga lutea)",
+      },
+    ]);
   });
 
   it("skips the pack checks when there's no index", async () => {
@@ -390,5 +415,35 @@ describe("summarizeGate", () => {
   it("shows exactly 8 without a 'more' line", () => {
     const failures = Array.from({ length: 8 }, (_, i) => ({ check: "drift", detail: `d${i}` }));
     expect(summarizeGate({ ...base, ok: false, failures })).not.toContain("more");
+  });
+});
+
+describe("freshness", () => {
+  const day = (d: number) => new Date(Date.UTC(2026, 9, d));
+  beforeEach(() => {
+    stages.times = new Map([
+      ["catalog", day(1)],
+      ["enrich", day(1)],
+      ["regions", day(5)],
+      ["endemic", day(5)],
+      ["tiers", day(3)],
+      ["vectors", day(2)],
+    ]);
+  });
+
+  it("fails on a stage older than what it reads", async () => {
+    const report = await runGate({ index: null, out: OUT, freshness: { acceptStale: [] } });
+    expect(checks(report)).toEqual(["stale_stage"]);
+    expect(report.failures[0].detail).toContain("--accept-stale=tiers");
+  });
+
+  it("warns instead when the stage is accepted", async () => {
+    const report = await runGate({ index: null, out: OUT, freshness: { acceptStale: ["tiers"] } });
+    expect(report.ok).toBe(true);
+    expect(report.warnings.map((w) => w.check)).toContain("stale_accepted");
+  });
+
+  it("isn't checked by a standalone gate run", async () => {
+    expect((await runGate({ index: null, out: OUT })).ok).toBe(true);
   });
 });

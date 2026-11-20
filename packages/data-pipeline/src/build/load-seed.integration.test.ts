@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PoolClient } from "pg";
 import { pool } from "../db.js";
-import { insertSeedRarity } from "./load-seed.js";
+import { insertSeedRarity, upsertSeedRegion, type SeedRegion } from "./load-seed.js";
 
 let client: PoolClient;
 let speciesId: string;
@@ -48,5 +48,28 @@ describe("insertSeedRarity", () => {
       speciesId,
     ]);
     expect(res.rows[0]).toEqual({ tier: "uncommon", tier_reason: "rated", tier_explain: { v: 1 } });
+  });
+});
+
+describe("upsertSeedRegion", () => {
+  const region = (name: string, parentName: string | null): SeedRegion => ({
+    name,
+    parentName,
+    externalCodes: [],
+    ebirdRegionCode: null,
+    boundaryGeoJson: null,
+  });
+
+  it("reuses the existing root and its children on a rerun instead of adding a second tree", async () => {
+    const name = "Test World Root";
+    const first = await upsertSeedRegion(client, region(name, null), null);
+    const child = await upsertSeedRegion(client, region("Test Continent", name), first);
+    const again = await upsertSeedRegion(client, { ...region(name, null), ebirdRegionCode: "XX" }, null);
+    expect(again).toBe(first);
+    expect(await upsertSeedRegion(client, region("Test Continent", name), again)).toBe(child);
+    const roots = await client.query(`SELECT ebird_region_code FROM regions WHERE parent_id IS NULL AND name = $1`, [
+      name,
+    ]);
+    expect(roots.rows).toEqual([{ ebird_region_code: "XX" }]);
   });
 });

@@ -58,6 +58,8 @@ import {
   sensitiveRegionMatches,
   SENSITIVE_CLUSTER_DIAGONAL_KM,
 } from "@lifer/core/species/sensitiveSpecies.js";
+import { unmatchedSensitiveLabels } from "../regions/sensitiveLabels.js";
+import { ebirdGet } from "../regions/ebirdApi.js";
 
 // Countries processed first, in order, before everyone else.
 const PRIORITY_COUNTRIES = [
@@ -387,6 +389,8 @@ interface ProvinceRegion {
   rings: Point[][];
   bbox: BoundingBox;
   ebirdRegionCode: string | null;
+  /** Its group under the country ("Wales", "England - South East"), if it has one. */
+  groupName: string | null;
 }
 
 async function loadProvinces(countryId: string): Promise<ProvinceRegion[]> {
@@ -395,17 +399,27 @@ async function loadProvinces(countryId: string): Promise<ProvinceRegion[]> {
     name: string;
     boundary_geojson: { type: string; coordinates: unknown };
     ebird_region_code: string | null;
+    group_name: string | null;
   }>(
     // Every province, grouped or not, never a group: a group's list is its provinces' together.
-    `SELECT id, name, boundary_geojson, ebird_region_code FROM regions
-     WHERE id IN (${provinceIdsSql("$1")}) AND boundary_geojson IS NOT NULL`,
+    `SELECT p.id, p.name, p.boundary_geojson, p.ebird_region_code,
+            (SELECT g.name FROM regions g WHERE g.id = p.parent_id AND g.id <> $1) AS group_name
+     FROM regions p
+     WHERE p.id IN (${provinceIdsSql("$1")}) AND p.boundary_geojson IS NOT NULL`,
     [countryId],
   );
   return res.rows.map((r) => {
     const geometry = (r.boundary_geojson as { geometry?: unknown }).geometry ?? r.boundary_geojson;
     const rings = exteriorRingsFromGeometry(geometry as { type: string; coordinates: unknown });
     const allPoints = rings.flat();
-    return { id: r.id, name: r.name, rings, bbox: ringBoundingBox(allPoints), ebirdRegionCode: r.ebird_region_code };
+    return {
+      id: r.id,
+      name: r.name,
+      rings,
+      bbox: ringBoundingBox(allPoints),
+      ebirdRegionCode: r.ebird_region_code,
+      groupName: r.group_name,
+    };
   });
 }
 
@@ -416,8 +430,16 @@ const EBIRD_API_KEY = process.env.EBIRD_API_KEY;
 const EBIRD_SPPLIST_CACHE_DIR = path.join(REPO_ROOT, "packages/data-pipeline/data/ebird-spplist-cache");
 const ebirdSpeciesCodesCache = new Map<string, Promise<Set<string> | null>>();
 
+let warnedNoEbirdKey = false;
+
 async function fetchEbirdRegionSpeciesCodes(regionCode: string): Promise<Set<string> | null> {
-  if (!EBIRD_API_KEY) return null;
+  if (!EBIRD_API_KEY) {
+    // Once: the lists still build, but differ from a run with the key.
+    if (!warnedNoEbirdKey)
+      console.warn("[provinces] WARNING: EBIRD_API_KEY is not set; province lists leave out eBird's region lists");
+    warnedNoEbirdKey = true;
+    return null;
+  }
   if (!ebirdSpeciesCodesCache.has(regionCode)) {
     ebirdSpeciesCodesCache.set(
       regionCode,
@@ -429,16 +451,12 @@ async function fetchEbirdRegionSpeciesCodes(regionCode: string): Promise<Set<str
         }
         // Only "eBird has no such region" means no list. A network error, rate limit or outage
         // fails the country for the retry pass instead: membership mustn't depend on luck.
-        const res = await fetch(`https://api.ebird.org/v2/product/spplist/${regionCode}`, {
-          headers: { "X-eBirdApiToken": EBIRD_API_KEY },
-        });
-        if (res.status === 400 || res.status === 404) return null;
-        if (!res.ok) throw new Error(`eBird species list for ${regionCode}: HTTP ${res.status}`);
-        const codes: unknown = await res.json();
-        if (!Array.isArray(codes) || !codes.every((c) => typeof c === "string"))
+        const codes = await ebirdGet<unknown>(`product/spplist/${regionCode}`, EBIRD_API_KEY);
+        if (!codes) return null;
+        if (!codes.every((c) => typeof c === "string"))
           throw new Error(`eBird species list for ${regionCode}: unexpected response`);
         writeFileSync(cachePath, JSON.stringify(codes));
-        return new Set(codes);
+        return new Set(codes as string[]);
       })(),
     );
     // A failure isn't remembered, so the retry pass asks again.
@@ -709,6 +727,11 @@ async function computeCountryProvinces(
   // --provinces limits the run to named provinces.
   const provinceNameFilter = provincesArg ? new Set(provincesArg.slice("--provinces=".length).split(",")) : null;
   const allProvinces = await loadProvinces(countryId);
+  const unmatched = unmatchedSensitiveLabels(allProvinces, countryName, iso2);
+  if (unmatched.length > 0)
+    console.warn(
+      `[compute-provinces-bulk] ${countryName}: eBird sensitive-species regions matching no province (points there aren't blurred): ${unmatched.join(", ")}`,
+    );
   const provinces = provinceNameFilter ? allProvinces.filter((p) => provinceNameFilter.has(p.name)) : allProvinces;
   if (provinces.length === 0) {
     console.log(
@@ -999,7 +1022,7 @@ async function computeCountryProvinces(
             ? () => true
             : (week: number | null) => {
                 const matchingRegions = scope.regions.filter((r) =>
-                  sensitiveRegionMatches(r.region, province.name, countryName, iso2),
+                  sensitiveRegionMatches(r.region, province.name, countryName, iso2, province.groupName),
                 );
                 return matchingRegions.some((r) => r.season === null || (week != null && weekInSeason(week, r.season)));
               };

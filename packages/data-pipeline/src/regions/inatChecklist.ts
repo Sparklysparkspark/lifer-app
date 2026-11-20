@@ -583,7 +583,8 @@ export async function matchedSpeciesIdsForRegion(
       const taxonId = idByName.get(row.scientific_name);
       matchedSpeciesIds.add(row.id);
       matchedNames.add(row.scientific_name);
-      if (taxonId) await pool.query(`UPDATE species SET inat_taxon_id = $1 WHERE id = $2`, [taxonId, row.id]);
+      if (taxonId)
+        await pool.query(`UPDATE species SET inat_taxon_id = $1 WHERE id = $2 AND NOT EXISTS (SELECT 1 FROM species o WHERE o.inat_taxon_id = $1 AND o.id <> $2 AND NOT o.is_other_taxa)`, [taxonId, row.id]);
     }
 
     // Then by synonym, for species iNat renamed or split. The synonym's iNat id isn't stored on
@@ -602,8 +603,8 @@ export async function matchedSpeciesIdsForRegion(
 }
 
 /** Before dropping species iNat doesn't confirm, checks whether each is only listed under an
- * outdated name. Returns the candidates that resolve to a taxon iNat has here (and backfills
- * their inat_taxon_id); everything else is safe to remove. */
+ * outdated name. Returns the candidates that resolve to a taxon iNat has here that no other
+ * catalog species holds (and backfills their inat_taxon_id); everything else is safe to remove. */
 export async function resolveRemovalRescues(
   candidates: Array<{ id: string; scientific_name: string }>,
   rawTaxonIds: Set<number>,
@@ -618,8 +619,12 @@ export async function resolveRemovalRescues(
     }
     const currentTaxonId = await resolveCurrentInatTaxonId(candidate.scientific_name);
     if (currentTaxonId != null && rawTaxonIds.has(currentTaxonId)) {
-      rescued.add(candidate.id);
-      await pool.query(`UPDATE species SET inat_taxon_id = $1 WHERE id = $2`, [currentTaxonId, candidate.id]);
+      // A taxon another catalog species already holds makes this one its duplicate, not a rescue.
+      const linked = await pool.query(`UPDATE species SET inat_taxon_id = $1 WHERE id = $2 AND NOT EXISTS (SELECT 1 FROM species o WHERE o.inat_taxon_id = $1 AND o.id <> $2 AND NOT o.is_other_taxa)`, [
+        currentTaxonId,
+        candidate.id,
+      ]);
+      if (linked.rowCount) rescued.add(candidate.id);
     }
   }
   return rescued;

@@ -18,8 +18,8 @@
 //   npx tsx src/scripts/compute-local-tiers.ts --countries="Costa Rica,Canada" --apply
 //   npx tsx src/scripts/compute-local-tiers.ts --apply                                   (every country)
 // Options: --inputs forces re-reading the partitions; --strict exits non-zero when an anchor misses;
-// --allow-skip lets a country with tiered rows but no partitions on disk keep its old tiers (it
-// fails the run otherwise, since those tiers would ship unchecked).
+// --allow-skip lets a country with checklist rows but no partitions on disk keep its old tiers, or
+// none (it fails the run otherwise, since those rows would ship unchecked or unrated).
 import { createReadStream, existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
@@ -1033,15 +1033,18 @@ async function main() {
     if (forceInputs || !hasEffort) {
       const ok = await refreshTierInputs(country);
       if (!ok) {
-        const tiered = await pool.query(
-          `SELECT 1 FROM region_species WHERE region_id = ANY($1) AND local_tier IS NOT NULL LIMIT 1`,
-          [regionIdsOf(country)],
-        );
+        // Null when the country lists nothing, so there's nothing to rate.
+        const tiered = (
+          await pool.query<{ tiered: boolean | null }>(
+            `SELECT bool_or(local_tier IS NOT NULL) AS tiered FROM region_species WHERE region_id = ANY($1)`,
+            [regionIdsOf(country)],
+          )
+        ).rows[0].tiered;
         console.log(
           `[tiers] ${country.name}: no province partitions on disk, skipped` +
-            (tiered.rowCount ? " (its rows keep the tiers they had)" : ""),
+            (tiered ? " (its rows keep the tiers they had)" : tiered === false ? " (its rows stay unrated)" : ""),
         );
-        if (tiered.rowCount) skipped.push(country.name);
+        if (tiered != null) skipped.push(country.name);
         continue;
       }
     }
@@ -1099,7 +1102,7 @@ async function main() {
   await pool.end();
   if (skipped.length > 0) {
     console.error(
-      `[tiers] ${skipped.length} countries have tiered rows but no partitions to rate them from: ${skipped.join(", ")}. ` +
+      `[tiers] ${skipped.length} countries have checklist rows but no partitions to rate them from: ${skipped.join(", ")}. ` +
         `Rebuild their provinces (compute-provinces-bulk.ts --countries=...), or pass --allow-skip to keep their old tiers.`,
     );
     if (!allowSkip) process.exit(1);

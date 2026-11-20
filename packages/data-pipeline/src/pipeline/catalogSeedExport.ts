@@ -32,6 +32,8 @@ export const CATALOG_TABLES = [
   "sea_zone_species",
   // Non-photo reference images to delete from installs (migration 106).
   "reference_photo_blocklist",
+  // The offline town list (migration 183, the refresh command's gazetteer stage).
+  "gazetteer_places",
 ];
 
 // Shipped as NULL. Paths point at the build machine (installs fill them in from region packs or
@@ -62,6 +64,23 @@ export const OTHER_TAXA_COLUMN: Record<string, string> = {
 const CHECKLIST_TABLES = new Set(["region_species", "sea_zone_species"]);
 
 const ident = (name: string) => `"${name.replace(/"/g, '""')}"`;
+
+/** Holds a session lock for one seed build, so a second build can't drop the scratch schema the
+ *  first is dumping. Returns the release; throws when another build holds it. */
+export async function lockSeedExport(pool: Pool): Promise<() => Promise<void>> {
+  const db = await pool.connect();
+  try {
+    const res = await db.query<{ ok: boolean }>(`SELECT pg_try_advisory_lock(hashtext($1)) AS ok`, [SEED_SCHEMA]);
+    if (!res.rows[0].ok) throw new Error("Another catalog seed build is running against this database");
+  } catch (err) {
+    db.release();
+    throw err;
+  }
+  return async () => {
+    await db.query(`SELECT pg_advisory_unlock(hashtext($1))`, [SEED_SCHEMA]).catch(() => {});
+    db.release();
+  };
+}
 
 export async function dropSeedExportSchema(pool: Pool): Promise<void> {
   await pool.query(`DROP SCHEMA IF EXISTS ${SEED_SCHEMA} CASCADE`);

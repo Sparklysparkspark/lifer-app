@@ -16,6 +16,7 @@
 // Usage (from packages/data-pipeline):
 //   npx tsx src/scripts/apply-introduced-flags.ts            (fetch what's missing, preview)
 //   npx tsx src/scripts/apply-introduced-flags.ts --apply
+//   ... --max-failed=10                                       (refuse when more places fail, default 10)
 //   LIFER_INAT_OFFLINE=1 ... --apply                          (cached lists only)
 import path from "node:path";
 import { COUNTRIES_SQL } from "@lifer/core/regions/regionTree.js";
@@ -40,7 +41,7 @@ interface Region {
   iso3: string | null;
 }
 
-export async function applyIntroducedFlags(opts: { apply: boolean; log?: (m: string) => void }) {
+export async function applyIntroducedFlags(opts: { apply: boolean; maxFailed?: number; log?: (m: string) => void }) {
   const log = opts.log ?? ((m) => console.log(`[introduced] ${m}`));
   // Countries (World > continent > country) and everything under them, each with its country. A
   // province shown under its continent goes with its country.
@@ -67,6 +68,11 @@ export async function applyIntroducedFlags(opts: { apply: boolean; log?: (m: str
     if ((i + 1) % 250 === 0) log(`${i + 1}/${places.length} places (${failed} failed)`);
   }
   if (failed > 0) log(`${failed} place(s) couldn't be fetched; their regions use their country's list`);
+  // Past a few, the flags would depend on how throttled this run was. Offline, an uncached place is
+  // expected to have none.
+  const maxFailed = opts.maxFailed ?? 10;
+  if (failed > maxFailed && process.env.LIFER_INAT_OFFLINE !== "1")
+    throw new Error(`more than ${maxFailed} places failed; nothing was changed, rerun to retry`);
 
   const species = (
     await pool.query<{ id: string; inat_taxon_id: number | null; scientific_name: string }>(
@@ -186,7 +192,11 @@ export async function applyIntroducedFlags(opts: { apply: boolean; log?: (m: str
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  applyIntroducedFlags({ apply: process.argv.includes("--apply") })
+  const maxFailed = process.argv.find((a) => a.startsWith("--max-failed="))?.slice("--max-failed=".length);
+  applyIntroducedFlags({
+    apply: process.argv.includes("--apply"),
+    maxFailed: maxFailed ? Number(maxFailed) : undefined,
+  })
     .then(() => pool.end())
     .catch((err) => {
       console.error(err);

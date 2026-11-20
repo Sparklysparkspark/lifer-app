@@ -7,6 +7,16 @@ import type { Point } from "@lifer/core/lib/geometry.js";
 
 export const NEIGHBOUR_CELL_DEGREES = 0.25;
 
+// Each part's exterior ring only: an island (a hole in the outline) belongs to the sea around it,
+// and fish records on its shore often carry a point on land. With the holes cut out, agreement
+// with the live path's lists drops sharply around island-studded seas (Aegean, Andaman).
+export function exteriorRingsOf(geometry: { type: string; coordinates: unknown } | null): Point[][] {
+  if (!geometry) return [];
+  if (geometry.type === "Polygon") return [(geometry.coordinates as Point[][])[0]];
+  if (geometry.type === "MultiPolygon") return (geometry.coordinates as Point[][][]).map((p) => p[0]);
+  return [];
+}
+
 function cellKey(x: number, y: number, columns: number): number {
   // Longitude wraps, so a zone on either side of the antimeridian still meets its neighbour.
   const wrapped = ((x % columns) + columns) % columns;

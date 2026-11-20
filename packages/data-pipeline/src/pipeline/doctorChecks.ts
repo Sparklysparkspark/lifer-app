@@ -330,6 +330,22 @@ export function checkPostgis(installed: boolean, available: boolean): CheckResul
   };
 }
 
+export const SNAPSHOT_MAX_AGE_DAYS = 30;
+
+/** The newest database dump in data/backups (refresh takes one at start, backup.ts on demand). */
+export function checkSnapshot(
+  newest: { file: string; at: Date } | null,
+  now: Date,
+  maxAgeDays = SNAPSHOT_MAX_AGE_DAYS,
+): CheckResult {
+  const name = "Database snapshot";
+  const fix = "npm run backup -w data-pipeline (a refresh also takes one when it starts)";
+  if (!newest) return { name, status: "warn", detail: "none in data/backups", fix };
+  const days = Math.floor((now.getTime() - newest.at.getTime()) / 86_400_000);
+  if (days > maxAgeDays) return { name, status: "warn", detail: `newest is ${newest.file}, ${days} days old`, fix };
+  return { name, status: "pass", detail: `${newest.file}, ${days} day(s) old` };
+}
+
 // ---------- data releases ----------
 
 /** The GitHub releases that aren't app releases: the data, which installs and the pipeline find by

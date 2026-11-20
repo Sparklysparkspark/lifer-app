@@ -19,6 +19,8 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import { pool } from "../db.js";
 import { GITHUB_REPO } from "../build/release-groups.js";
 import { assertPhotosPublishable } from "./photoLicensePolicy.js";
+import { httpFetch } from "@lifer/core/lib/http.js";
+import { expectShape, isArrayOf, isRecord } from "../lib/jsonGuards.js";
 
 export const PHOTO_STORE_RELEASE_TAG = "photos-latest";
 export const PHOTO_STORE_INDEX_NAME = "lifer-photo-store.json.gz";
@@ -39,20 +41,49 @@ export interface PhotoStoreIndex {
   species: Record<string, PhotoPair & { g?: Record<string, PhotoPair> }>;
 }
 
+/** lifer-photo-store.json.gz, decompressed: version 1 with its shard list and species map. */
+export function isPhotoStoreIndex(v: unknown): v is PhotoStoreIndex {
+  return (
+    isRecord(v) &&
+    v.v === 1 &&
+    typeof v.builtAt === "string" &&
+    isArrayOf(
+      v.shards,
+      (s): s is PhotoStoreIndex["shards"][number] =>
+        isRecord(s) && typeof s.name === "string" && typeof s.bytes === "number" && typeof s.sha256 === "string",
+    ) &&
+    isRecord(v.species) &&
+    Object.values(v.species).every(isRecord)
+  );
+}
+
 export function readPhotoStoreIndex(file: string): PhotoStoreIndex {
-  return JSON.parse(gunzipSync(readFileSync(file)).toString("utf8")) as PhotoStoreIndex;
+  return expectShape(
+    JSON.parse(gunzipSync(readFileSync(file)).toString("utf8")),
+    isPhotoStoreIndex,
+    "photo store index",
+  );
 }
 
 // Only a 404 means nothing is published. Any other failure throws: building from scratch would
 // rewrite and re-upload every photo.
 async function fetchPublishedIndex(log: (m: string) => void): Promise<PhotoStoreIndex | null> {
-  const res = await fetch(photoStoreIndexUrl(), { signal: AbortSignal.timeout(120_000) });
+  const res = await httpFetch(photoStoreIndexUrl(), {
+    timeoutMs: 120_000,
+    maxRetries: 4,
+    retryServerErrors: true,
+    backoffBaseMs: 5000,
+  });
   if (res.status === 404) {
     log("[photo-store] no published store yet; building on the last local build, if any");
     return null;
   }
   if (!res.ok) throw new Error(`Couldn't fetch the published photo store index: HTTP ${res.status}`);
-  return JSON.parse(gunzipSync(Buffer.from(await res.arrayBuffer())).toString("utf8")) as PhotoStoreIndex;
+  return expectShape(
+    JSON.parse(gunzipSync(Buffer.from(await res.arrayBuffer())).toString("utf8")),
+    isPhotoStoreIndex,
+    "published photo store index",
+  );
 }
 
 const sha1 = (buf: Buffer) => createHash("sha1").update(buf).digest("hex");
@@ -80,8 +111,8 @@ export async function buildPhotoStore(opts: {
   // Builds on the published store, or on the last local build when nothing is published yet
   // (its shards are still in outDir), so a rebuild never rewrites photos it already has.
   const localIndex = path.join(opts.outDir, PHOTO_STORE_INDEX_NAME);
-  // PHOTO_STORE_FROM_SCRATCH=1 writes every photo anew, so no published shard is reused: after
-  // publishing, every old shard is unused and gets deleted. Needed when published shards hold
+  // PHOTO_STORE_FROM_SCRATCH=1 writes every photo anew, so no published shard is reused: every
+  // old shard is unused and gets deleted by the publish after the next one. Needed when published shards hold
   // photos that must go (such as ones whose license doesn't allow publishing).
   const fromScratch = process.env.PHOTO_STORE_FROM_SCRATCH === "1";
   const previous =
@@ -225,8 +256,14 @@ export async function buildPhotoStore(opts: {
   return { indexPath, newShards, photos, reused, newBytes, totalBytes };
 }
 
+/** Shard files to delete: those neither the new index nor the one it replaces uses. */
+export function staleShards(assets: string[], current: PhotoStoreIndex, previous: PhotoStoreIndex | null): string[] {
+  const keep = new Set([...current.shards, ...(previous?.shards ?? [])].map((s) => s.name));
+  return assets.filter((n) => n.endsWith(".bin") && !keep.has(n));
+}
+
 /** Uploads a build's new shards, then its index (so the index never names a shard not uploaded
- *  yet), then deletes shards the new index no longer uses. */
+ *  yet), then deletes shards neither it nor the index it replaced uses. */
 export async function publishPhotoStore(build: PhotoStoreBuild, log: (m: string) => void = console.log): Promise<void> {
   const { execFileSync } = await import("node:child_process");
   const gh = (args: string[], inherit = true) =>
@@ -264,12 +301,13 @@ export async function publishPhotoStore(build: PhotoStoreBuild, log: (m: string)
     );
     gh(["release", "upload", PHOTO_STORE_RELEASE_TAG, file, "--clobber"]);
   }
+  // Installs mid-download still fetch the replaced index's shards, so they stay one more publish.
+  const previous = await fetchPublishedIndex(log);
   gh(["release", "upload", PHOTO_STORE_RELEASE_TAG, build.indexPath, "--clobber"]);
-  const usedNames = new Set(used.map((s) => s.name));
   assets = JSON.parse(
     gh(["release", "view", PHOTO_STORE_RELEASE_TAG, "--json", "assets", "--jq", "[.assets[].name]"], false),
   ) as string[];
-  for (const name of assets.filter((n) => n.endsWith(".bin") && !usedNames.has(n))) {
+  for (const name of staleShards(assets, readPhotoStoreIndex(build.indexPath), previous)) {
     log(`[photo-store] deleting ${name}, no longer used`);
     gh(["release", "delete-asset", PHOTO_STORE_RELEASE_TAG, name, "--yes"]);
   }

@@ -96,9 +96,10 @@ async function store(job: Job, embedding: number[]): Promise<void> {
     );
   } else {
     await pool.query(
-      `INSERT INTO species_reference_gallery_embeddings (reference_photo_id, species_id, embedding, model_version)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (reference_photo_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version, computed_at = now()`,
+      `INSERT INTO species_reference_gallery_embeddings (reference_photo_id, species_id, embedding, model_version, license, photographer)
+       SELECT $1, $2, $3, $4, p.license, p.credit FROM species_reference_photos p WHERE p.id = $1
+       ON CONFLICT (reference_photo_id) DO UPDATE SET embedding = EXCLUDED.embedding, model_version = EXCLUDED.model_version,
+         license = EXCLUDED.license, photographer = EXCLUDED.photographer, computed_at = now()`,
       [job.id, job.speciesId, embedding, EMBEDDING_MODEL_VERSION],
     );
   }

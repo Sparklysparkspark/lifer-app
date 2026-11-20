@@ -1,0 +1,480 @@
+inat_taxon_id	inat_name	species_id	name	action	category	into_or_new_id	borrowed_photos	reason
+4237	Tachybaptus ruficollis	426f6c5e-76ed-441c-ab2e-f7ab30768751	Tachybaptus ruficollis	keep	owner		5	keeps the taxon: the only one eBird accepts as a species
+4237	Tachybaptus ruficollis	863e0774-d148-4b7b-9149-057a7f212a4d	Tachybaptus tricolor	merge	a_merge	Tachybaptus ruficollis	5	eBird counts it as a group of Tachybaptus ruficollis
+5268	Milvus migrans	ceaf1d5f-da27-46fb-810b-7b3b5d00c28e	Milvus migrans	keep	owner		2	keeps the taxon: the only one eBird accepts as a species
+5268	Milvus migrans	7d144b8c-eaab-4341-bf00-27e26e628d35	Milvus aegyptius	merge	c	Milvus migrans	2	not an eBird species; iNaturalist treats it as Milvus migrans
+5401	Torgos tracheliotos	0ad8e746-92bf-443f-a4dc-54b2e89339e4	Torgos tracheliotos	keep	owner		1	keeps the taxon: the only one eBird accepts as a species
+5401	Torgos tracheliotos	3c903ab5-e0c9-40ce-9526-8e30f0e40886	Torgos tracheliotus	merge	c	Torgos tracheliotos	1	not an eBird species; iNaturalist treats it as Torgos tracheliotos
+7279	Aegithalos iouschistos	d3af9204-4903-403f-8549-54d5e156cc06	Aegithalos iouschistos	keep	owner		0	keeps the taxon: the only one eBird accepts as a species
+7279	Aegithalos iouschistos	596d1b40-d589-45b6-aed5-24924d4f2792	Aegithalos bonvaloti	merge	c	Aegithalos iouschistos	0	not an eBird species; iNaturalist treats it as Aegithalos iouschistos
+7708	Prinia bairdii	181e74f2-3d90-469a-8791-c8102686ddf5	Prinia bairdii	keep	owner		1	keeps the taxon: the only one eBird accepts as a species
+7708	Prinia bairdii	1b40dd1c-9873-4c0c-bbcf-352692374bfe	Prinia melanops	merge	c	Prinia bairdii	1	not an eBird species; iNaturalist treats it as Prinia bairdii
+9017	Formicarius analis	1ae1535f-0858-40c5-bff4-9a189ac4d993	Formicarius moniliger	relink	b	1286941	0	iNaturalist has it as taxon 1286941
+9017	Formicarius analis	e865af05-d3a4-4f93-a4f8-891ca4fdf80a	Formicarius analis	keep	owner		0	keeps the taxon: the only one eBird accepts as a species
+9156	Passerella iliaca	7d85f203-f724-4d34-9531-f12b87e8b2b4	Passerella iliaca	keep	owner		4	keeps the taxon: the only one eBird accepts as a species
+9156	Passerella iliaca	8f8c7911-63c3-4fd2-b436-14b7e2da8506	Passerella megarhyncha	merge	a_merge	Passerella iliaca	0	eBird counts it as a group of Passerella iliaca
+9156	Passerella iliaca	79f73c6f-1fd7-4d53-8bd4-306bdabd2cc1	Passerella schistacea	merge	a_merge	Passerella iliaca	4	eBird counts it as a group of Passerella iliaca
+9156	Passerella iliaca	3ec53957-1d5c-4a9b-9b9a-7db924a351e0	Passerella unalaschcensis	merge	a_merge	Passerella iliaca	4	eBird counts it as a group of Passerella iliaca
+9924	Piranga flava	e7b76597-9006-4f7f-b8a7-f9b873da101c	Piranga flava	keep	owner		7	keeps the taxon: the only one eBird accepts as a species
+9924	Piranga flava	5b3a67ca-eb98-4e4f-acff-54ce214c8d3c	Piranga hepatica	merge	a_merge	Piranga flava	7	eBird counts it as a group of Piranga flava
+9924	Piranga flava	794a3315-d53f-4cd4-ab79-4044177b1a82	Piranga lutea	merge	a_merge	Piranga flava	1	eBird counts it as a group of Piranga flava
+12971	Muscicapa striata	31b96a6d-0476-4274-a0a2-e3c11c929924	Muscicapa striata	keep	owner		0	keeps the taxon: the only one eBird accepts as a species
+12971	Muscicapa striata	9d89803e-fd5f-43af-abf1-40d5ed991a50	Muscicapa tyrrhenica	merge	c	Muscicapa striata	0	not an eBird species; iNaturalist treats it as Muscicapa striata
+13749	Anthus vaalensis	856ac09f-46ba-4e50-9285-ef282297d127	Anthus vaalensis	keep	owner		1	keeps the taxon: the only one eBird accepts as a species
+13749	Anthus vaalensis	d1b43a88-b1b3-432d-a8c7-dffd39f0b1ee	Anthus longicaudatus	merge	c	Anthus vaalensis	1	not an eBird species; iNaturalist treats it as Anthus vaalensis
+16447	Pyrocephalus rubinus	592700b8-e586-4cfd-bcd9-e275285eb6f6	Pyrocephalus rubinus	keep	owner		4	keeps the taxon: the only one eBird accepts as a species
+16447	Pyrocephalus rubinus	512512b1-a411-4dae-846f-095344fce03d	Pyrocephalus obscurus	merge	a_merge	Pyrocephalus rubinus	4	eBird counts it as a group of Pyrocephalus rubinus
+17609	Campethera maculosa	d6161774-0ca9-4fab-9896-8fed19cf43e0	Campethera maculosa	keep	owner		1	keeps the taxon: the only one eBird accepts as a species
+17609	Campethera maculosa	ba2debc4-57a7-480c-bade-e4bab05bd497	Campethera cailliautii	merge	a_merge	Campethera maculosa	1	eBird counts it as a group of Campethera maculosa
+17751	Picumnus exilis	0aa9a3ba-0efb-473a-b0e1-913a8cd20eb3	Picumnus exilis	keep	owner		5	keeps the taxon: the only one eBird accepts as a species
+17751	Picumnus exilis	d112b97b-3f8d-45fa-acd6-2feca2a2f070	Picumnus nigropunctatus	merge	c	Picumnus squamulatus	5	eBird counts Black-dotted Piculet as a group of Scaled Piculet, not Golden-spangled
+18019	Veniliornis sanguineus	00a970e3-ace5-4440-800e-28fd43c20829	Veniliornis sanguineus	keep	owner		1	keeps the taxon: the only one eBird accepts as a species
+18019	Veniliornis sanguineus	8a98ce6e-7ce5-4281-ba48-069fa18d2c38	Dryobates sanguineus	merge	c	Veniliornis sanguineus	1	not an eBird species; iNaturalist treats it as Veniliornis sanguineus
+18063	Celeus undatus	11089821-7e18-4706-ac8b-7962f5918ee6	Celeus undatus	keep	owner		4	keeps the taxon: the only one eBird accepts as a species
+18063	Celeus undatus	49901eb1-8fad-4e2f-af6d-9fd718bf13e7	Celeus grammicus	merge	a_merge	Celeus undatus	4	eBird counts it as a group of Celeus undatus
+27678	Boiga multomaculata	dbaa0e1e-8718-4fdf-b89e-804cfcdea346	Boiga multomaculata	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+27678	Boiga multomaculata	394c33f7-9f9e-4ab1-89eb-482f3c62ff54	Boiga ochracea	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Boiga multomaculata
+32938	Brookesia antakarana	b07c7e7b-abac-4a5b-8937-75c1f47be157	Brookesia antakarana	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+32938	Brookesia antakarana	76bff61b-7742-409c-9d01-f2616f1d97da	Brookesia ambreensis	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Brookesia antakarana
+34496	Hemidactylus angulatus	d0b7f492-0f5f-4119-98f4-e3c0ab358362	Hemidactylus angulatus	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+34496	Hemidactylus angulatus	f5b3f955-0747-458a-a1f7-28e140875681	Hemidactylus haitianus	merge	c	Hemidactylus angulatus	0	Catalogue of Life and iNaturalist both treat it as Hemidactylus angulatus
+35253	Ephalophis greyae	38c846cc-63a6-4888-a17d-c264910fae06	Ephalophis greyae	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+35253	Ephalophis greyae	8ccb9682-e724-4e79-a70c-276b93712ddf	Ephalophis greyi	merge	c	Ephalophis greyae	1	a spelling or genus variant of Ephalophis greyae
+37415	Trachylepis varia	163d31e6-6ba3-439e-bf4d-a89995886359	Trachylepis albopunctata	relink	b	1545853	0	iNaturalist has it as taxon 1545853
+37415	Trachylepis varia	d45f9ab6-9856-4bbd-a9b5-37512bb20ade	Trachylepis varia	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+37703	Typhlosaurus vermis	110d9714-cbe1-419c-a23b-f09183171e49	Typhlosaurus vermis	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+37703	Typhlosaurus vermis	e8bbb475-9ef0-4ef1-b5bd-5b63cf669ef5	Typhlosaurus lomiae	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Typhlosaurus vermis
+39096	Liolaemus zapallarensis	2c382ef9-1b0a-4dbe-8267-0be11ff8b65b	Liolaemus zapallarensis	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+39096	Liolaemus zapallarensis	246aa1cf-d568-4c7d-9c80-fe9a80ee2a44	Liolaemus kuhlmanni	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Liolaemus zapallarensis
+40430	Scotoecus hirundo	7c8a1ff8-1bba-4a4a-9b39-aa242cee91cc	Scotoecus albigula	relink	b	1431043	1	iNaturalist has it as taxon 1431043
+40430	Scotoecus hirundo	f368acd6-bd9b-41fc-a7f3-5929980ac65c	Scotoecus hindei	relink	b	1431042	0	iNaturalist has it as taxon 1431042
+40430	Scotoecus hirundo	4dbca081-4674-43cf-b10a-7d2c849f9c76	Scotoecus hirundo	keep	owner		1	keeps the taxon: the only one Catalogue of Life accepts as a species
+40531	Laephotis angolensis	87aba54f-1554-46a3-a39c-f30302bf72df	Laephotis angolensis	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+40531	Laephotis angolensis	7d5725bd-838d-44b7-be41-57deda7ea356	Laephotis botswanae	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Laephotis angolensis
+41098	Lonchophylla robusta	a0bf60e1-27d4-48f9-8127-3bd45c22efa1	Lonchophylla orienticollina	relink	b	1453962	7	iNaturalist has it as taxon 1453962
+41098	Lonchophylla robusta	e77d63ee-84ec-40b2-b9d0-e1249d60a594	Lonchophylla robusta	keep	owner		7	keeps the taxon: the only one Catalogue of Life accepts as a species
+42330	Kobus kob	931cae61-025d-4931-8d31-2315366221ee	Kobus kob	keep	owner		4	keeps the taxon: named as iNaturalist names the taxon
+42330	Kobus kob	36b8fc86-972b-479a-a858-6ec754e9fdd4	Kobus loderi	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Kobus kob
+42338	Tragelaphus spekii	02ad4ce1-25b3-4563-8dbd-9cc92b280dec	Tragelaphus spekii	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+42338	Tragelaphus spekii	02179704-a9b9-4402-9981-160e2437388d	Tragelaphus selousi	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Tragelaphus spekii
+44134	Heteromys desmarestianus	e6d35110-7b6c-4636-909d-9229eab940b2	Heteromys goldmani	relink	b	1639174	0	iNaturalist has it as taxon 1639174
+44134	Heteromys desmarestianus	a15ad47b-d2cb-4891-b225-5de2701fc808	Heteromys desmarestianus	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+44390	Peromyscus eremicus	337e509d-286e-43f4-ba45-9d02b5f61a51	Peromyscus eremicus	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+44390	Peromyscus eremicus	7602eabd-4ff3-4da6-a75b-7dfed5825165	Peromyscus interparietalis	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Peromyscus eremicus
+44989	Tachyoryctes splendens	4be724b5-57c9-4741-a209-6f481f7fc7fd	Tachyoryctes splendens	keep	owner		2	keeps the taxon: named as iNaturalist names the taxon
+44989	Tachyoryctes splendens	77394dbb-ee4c-491c-ba5f-df9f8a4416d9	Tachyoryctes daemon	unlink	a_keep		2	Catalogue of Life accepts it as a species; iNaturalist lumps it into Tachyoryctes splendens
+44989	Tachyoryctes splendens	6ba567bc-7154-40a5-b5f9-84d0fde359fa	Tachyoryctes ibeanus	unlink	a_keep		2	Catalogue of Life accepts it as a species; iNaturalist lumps it into Tachyoryctes splendens
+44989	Tachyoryctes splendens	fef2efb1-3630-403d-a24c-6ada31ea8800	Tachyoryctes ruandae	unlink	a_keep		2	Catalogue of Life accepts it as a species; iNaturalist lumps it into Tachyoryctes splendens
+44989	Tachyoryctes splendens	11f9e680-3b74-494b-9501-96d1b7dfbf5e	Tachyoryctes ruddi	unlink	a_keep		2	Catalogue of Life accepts it as a species; iNaturalist lumps it into Tachyoryctes splendens
+44993	Beamys hindei	8cc02908-dbce-4278-99a5-e7ad5a1833f6	Beamys hindei	keep	owner		7	keeps the taxon: named as iNaturalist names the taxon
+44993	Beamys hindei	0712aaef-cc39-4168-868a-10f915937e6d	Beamys major	unlink	a_keep		7	Catalogue of Life accepts it as a species; iNaturalist lumps it into Beamys hindei
+45009	Holochilus brasiliensis	3c7b20e0-2e2c-484a-98eb-8b2a48c7257e	Holochilus brasiliensis	keep	owner		7	keeps the taxon: named as iNaturalist names the taxon
+45009	Holochilus brasiliensis	6a34f575-de6b-4d98-a99c-6fec9e872874	Holochilus vulpinus	unlink	a_keep		7	Catalogue of Life accepts it as a species; iNaturalist lumps it into Holochilus brasiliensis
+45723	Rhabdomys pumilio	fc947946-a734-451d-b928-bea398741bcc	Rhabdomys dilectus	relink	b	1453939	0	iNaturalist has it as taxon 1453939
+45723	Rhabdomys pumilio	2575f027-5f3a-434e-af38-8ada960e0166	Rhabdomys pumilio	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+46255	Ammospermophilus leucurus	783cbcfc-cee4-4571-8b78-07bc661a6aab	Ammospermophilus leucurus	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+46255	Ammospermophilus leucurus	92f70416-7605-4fd4-a90a-feaaf747c2aa	Ammospermophilus insularis	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Ammospermophilus leucurus
+47252	Sphyraena borealis	77a091d8-1b57-4778-804a-87e462101e80	Sphyraena borealis	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+47252	Sphyraena borealis	47bb0aba-9b35-40f8-a2bb-87444f874ee5	Sphyraena picudilla	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Sphyraena borealis
+49587	Micropterus salmoides	15731a2b-bb3a-4541-9d3c-274dcc5715c6	Micropterus salmoides	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+49587	Micropterus salmoides	13f222eb-3fea-4769-a4af-d7ea5bc99f3e	Micropterus floridanus	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Micropterus salmoides
+51404	Trichiurus lepturus	46cab797-73b0-45fa-94fe-aa17df3868da	Trichiurus japonicus	relink	b	1316683	0	iNaturalist has it as taxon 1316683
+51404	Trichiurus lepturus	12aa42fe-1a4e-4e22-bccb-1bd1953e83f4	Trichiurus lepturus	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+53479	Uraspis helvola	3c7e41c2-6430-48de-bc37-312e0b68167e	Uraspis helvola	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+53479	Uraspis helvola	fff53f1e-2815-4152-ace8-19d49939e64e	Uraspis secunda	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Uraspis helvola
+56772	Prionurus laticlavius	d1ba939a-4653-4482-9104-54cb21bb4ced	Prionurus laticlavius	keep	owner		7	keeps the taxon: named as iNaturalist names the taxon
+56772	Prionurus laticlavius	f0a8283d-4b95-428e-a6f2-a04d4370f2e9	Prionurus punctatus	unlink	a_keep		7	Catalogue of Life accepts it as a species; iNaturalist lumps it into Prionurus laticlavius
+57347	Synodus lacertinus	eda79636-5626-4953-888e-578a1d3ed7d0	Synodus lacertinus	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+57347	Synodus lacertinus	b92d441c-7dc3-426a-ba27-d3177865204f	Synodus marchenae	merge	c	Synodus lacertinus	0	Catalogue of Life and iNaturalist both treat it as Synodus lacertinus
+58642	Fundulus heteroclitus	b5b5db2c-6162-4b6a-82ab-66f39284ee14	Fundulus heteroclitus	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+58642	Fundulus heteroclitus	9e4b25a7-338e-4539-bd50-1d4e0331ce0e	Fundulus bermudae	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Fundulus heteroclitus
+64846	Allobates fratisenescus	3ed92ede-b8b7-4477-a57e-38883e58f7be	Allobates insperatus	relink	b	1659970	2	iNaturalist has it as taxon 1659970
+64846	Allobates fratisenescus	ce27b0aa-10be-4d3a-b68d-4e70eb48f6c0	Allobates fratisenescus	keep	owner		2	keeps the taxon: the only one Catalogue of Life accepts as a species
+67128	Rhinella margaritifera	1631d991-0a8e-4989-90e3-b43687323a32	Rhinella martyi	relink	b	1545220	1	iNaturalist has it as taxon 1545220
+67128	Rhinella margaritifera	88277d90-60f7-4101-8d14-389bf884f399	Rhinella margaritifera	keep	owner		1	keeps the taxon: the only one Catalogue of Life accepts as a species
+67819	Arvicola amphibius	03f71142-f6f1-49f2-b071-753a85245260	Arvicola amphibius	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+67819	Arvicola amphibius	86ee41a3-9aea-4ccc-8970-a3207189388b	Arvicola scherman	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Arvicola amphibius
+74360	Gerbilliscus afer	12fb9969-37ff-41f9-ad76-83f9ea997d86	Gerbilliscus afer	keep	owner		2	keeps the taxon: named as iNaturalist names the taxon
+74360	Gerbilliscus afer	7c51e9eb-e911-414d-9b07-302ef7b5e537	Gerbilliscus afra	unlink	a_keep		2	Catalogue of Life accepts it as a species; iNaturalist lumps it into Gerbilliscus afer
+74642	Molossus currentium	23392cbc-cadb-4c32-8469-ad072e9e6c19	Molossus bondae	relink	b	1370840	0	iNaturalist has it as taxon 1370840
+74642	Molossus currentium	0ba0e2c9-2920-4c11-a693-6595dbcef9d4	Molossus currentium	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+74731	Natalus mexicanus	51cc976d-05e6-4e37-b896-a1c622595bf9	Natalus mexicanus	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+74731	Natalus mexicanus	6f3f3f2a-1e49-4db3-9d15-38d2f43746e8	Natalus lanatus	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Natalus mexicanus
+74855	Peromyscus fraterculus	1cd014c3-0a6f-486b-87a8-0259343ac086	Peromyscus fraterculus	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+74855	Peromyscus fraterculus	3c88cfcd-301e-4ed5-b8ca-73d52d26b908	Peromyscus pseudocrinitus	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Peromyscus fraterculus
+75175	Thomasomys vulcani	26ada68d-8cc4-444f-950e-9d6d0b223bb7	Thomasomys vulcani	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+75175	Thomasomys vulcani	04d7fad2-2860-479a-ac60-92243fd98eec	Thomasomys rhoadsi	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Thomasomys vulcani
+93123	Acheilognathus barbatulus	19336382-f089-430a-9449-e3c0f04ff007	Acheilognathus barbatulus	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+93123	Acheilognathus barbatulus	1d4153a4-0538-4c62-82ad-85209835b2b2	Acheilognathus peihoensis	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Acheilognathus barbatulus
+93798	Ambassis ambassis	dc06412b-a8dd-4ed6-9741-d7eb1b985098	Ambassis ambassis	keep	owner		5	keeps the taxon: named as iNaturalist names the taxon
+93798	Ambassis ambassis	7083555c-4849-488a-8551-106761648665	Ambassis gymnocephalus	unlink	a_keep		5	Catalogue of Life accepts it as a species; iNaturalist lumps it into Ambassis ambassis
+94106	Anguilla bengalensis	e2936545-4a78-4311-a4c1-e7d2b40ff283	Anguilla labiata	relink	b	1462567	0	iNaturalist has it as taxon 1462567
+94106	Anguilla bengalensis	22789f4c-0a7b-4509-9a6f-863b08524946	Anguilla bengalensis	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+94395	Apogon atricaudus	9e504120-693c-42b8-8a9c-7f9c00a6b81b	Apogon atricaudus	keep	owner		5	keeps the taxon: named as iNaturalist names the taxon
+94395	Apogon atricaudus	7d234140-c9d5-4e5a-b048-efec1731e624	Apogon guadalupensis	unlink	a_keep		5	Catalogue of Life accepts it as a species; iNaturalist lumps it into Apogon atricaudus
+94765	Astyanax mexicanus	f36ca835-2fc1-4ad7-a4cb-b3794594e0e3	Astyanax jordani	relink	b	1596892	0	iNaturalist has it as taxon 1596892
+94765	Astyanax mexicanus	42468ad2-96ae-4596-ae96-5892376a478c	Astyanax mexicanus	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+95038	Bagarius bagarius	6f0ba272-cf8a-4442-b702-70c81c57b788	Bagarius bagarius	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+95038	Bagarius bagarius	d0548d9e-9617-4542-9801-b83f1fc3d070	Bagarius yarrelli	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Bagarius bagarius
+95099	Barbatula barbatula	7ec9324e-f403-4b51-8c80-5973a2372f92	Barbatula barbatula	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+95099	Barbatula barbatula	31a19206-6be0-4d2b-9f77-20c7cd053b14	Barbatula quignardi	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Barbatula barbatula
+95424	Basilichthys microlepidotus	64cd591c-7a40-428f-8b98-ee8b85e9e319	Basilichthys microlepidotus	keep	owner		2	keeps the taxon: named as iNaturalist names the taxon
+95424	Basilichthys microlepidotus	dd5112be-a443-43f4-9ced-8b282c505d53	Basilichthys australis	unlink	a_keep		2	Catalogue of Life accepts it as a species; iNaturalist lumps it into Basilichthys microlepidotus
+96631	Campostoma anomalum	7e88677b-ca85-413f-9c90-6b078225cf8e	Campostoma pullum	relink	b	1596888	0	iNaturalist has it as taxon 1596888
+96631	Campostoma anomalum	1da1339b-21bb-4a7d-beb6-ce7dfbdc7c53	Campostoma anomalum	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+97267	Channa aurantimaculata	9949d614-7795-47ff-ad92-b37f34a53bc1	Channa aurantimaculata	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+97267	Channa aurantimaculata	608bace1-8cf4-4cc3-b02c-16d0474e20c2	Channa brahmacharyi	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Channa aurantimaculata
+97296	Characodon lateralis	31bff0b5-c648-49ae-94c9-bc438cb53a64	Characodon lateralis	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+97296	Characodon lateralis	17a8d0ca-f9d5-47eb-abd6-b7362f95416e	Characodon audax	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Characodon lateralis
+98434	Coregonus albula	1725407c-d708-4c24-8e33-c148bee4cf57	Coregonus sardinella	relink	b	1596902	0	iNaturalist has it as taxon 1596902
+98434	Coregonus albula	cd085f82-239e-4dd0-bf37-b95e822c702b	Coregonus albula	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+99221	Devario aequipinnatus	6f9a3c83-5925-4ba1-87b7-8d80915d4096	Devario aequipinnatus	keep	owner		7	keeps the taxon: named as iNaturalist names the taxon
+99221	Devario aequipinnatus	ecfc7238-b839-4a6d-aab2-e4e8e8c5b58c	Devario assamensis	unlink	a_keep		7	Catalogue of Life accepts it as a species; iNaturalist lumps it into Devario aequipinnatus
+99560	Draco fimbriatus	93f61b18-f6cd-45c9-bf96-b65f0eea41c1	Draco punctatus	relink	b	1439456	0	iNaturalist has it as taxon 1439456
+99560	Draco fimbriatus	8d4d6ac0-d8b6-453c-99c9-013a5b9c4dfd	Draco fimbriatus	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+100427	Esomus thermoicos	29f1954c-a2c1-485e-8461-debb9365e02d	Esomus thermoicos	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+100427	Esomus thermoicos	ff85404a-4d86-4a2c-81bc-6c03820f338b	Esomus malabaricus	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Esomus thermoicos
+100906	Favonigobius reichei	b2c6d6b6-3147-46f2-a203-6db15e0c9c52	Favonigobius reichei	keep	owner		4	keeps the taxon: named as iNaturalist names the taxon
+100906	Favonigobius reichei	fb53d53d-1d0c-4dd7-b1e2-8e81d0cf6262	Favonigobius aliciae	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Favonigobius reichei
+101234	Garra dunsirei	087472d2-3380-42b8-ae24-2426f1493314	Garra dunsirei	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+101234	Garra dunsirei	3a4acec2-35d7-4fb5-ba17-52064c41a1af	Garra smartae	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Garra dunsirei
+102481	Hemichromis fasciatus	0ca1e9f8-b5a8-41b7-aee3-095e318758bd	Hemichromis fasciatus	keep	owner		7	keeps the taxon: named as iNaturalist names the taxon
+102481	Hemichromis fasciatus	0b0f027c-4a75-4065-a97f-9e3b24f3bde9	Hemichromis frempongi	unlink	a_keep		7	Catalogue of Life accepts it as a species; iNaturalist lumps it into Hemichromis fasciatus
+102652	Herichthys pantostictus	376d6f50-7c6b-4b53-8e92-5ceed4848e1c	Nosferatu pantostictus	keep	owner		1	keeps the taxon: iNaturalist's name for the taxon is its synonym
+102652	Herichthys pantostictus	75e5a7a6-7dc6-4be5-84ec-8bef7daceb17	Nosferatu pratinus	unlink	review		1	Catalogue of Life names it Herichthys pratinus
+102778	Himantura uarnak	d0dfb3d6-f9a8-4928-b949-c8de6d402f5e	Himantura uarnak	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+102778	Himantura uarnak	d72b2435-a7db-482b-b5b3-2e2963cfae6a	Himantura tutul	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Himantura uarnak
+103742	Kyphosus elegans	a83ac28b-3258-44cc-a0e7-d108ac7de5ae	Kyphosus elegans	keep	owner		7	keeps the taxon: named as iNaturalist names the taxon
+103742	Kyphosus elegans	95ae2c85-9d39-4b59-9fca-d32e67f799af	Kyphosus sandwicensis	unlink	a_keep		7	Catalogue of Life accepts it as a species; iNaturalist lumps it into Kyphosus elegans
+103868	Labeotropheus fuelleborni	b45990ad-d129-4eb5-99b6-762ddcfc5102	Labeotropheus artatorostris	relink	b	1561361	7	iNaturalist has it as taxon 1561361
+103868	Labeotropheus fuelleborni	1c293e4d-64be-4fda-8fd4-ce6c7f38c70e	Labeotropheus fuelleborni	keep	owner		7	keeps the taxon: the only one Catalogue of Life accepts as a species
+104686	Liolaemus smaug	c1570a97-828e-4bea-ab2a-be10d5337060	Liolaemus smaug	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+104686	Liolaemus smaug	e683fa4b-9cd6-4f46-a52e-6471f8cec220	Liolaemus choique	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Liolaemus smaug
+105252	Mastacembelus armatus	23c62b04-37ea-4db0-97cc-65ec00c8c5e4	Mastacembelus armatus	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+105252	Mastacembelus armatus	4d8d71e7-3769-45c5-8fd4-ec620b55e9bb	Mastacembelus undulatus	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Mastacembelus armatus
+105814	Micropogonias altipinnis	1675e344-7a91-488d-9d8a-155033a6be32	Micropogonias altipinnis	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+105814	Micropogonias altipinnis	81ce816b-cb43-4eff-816c-520b39c4592d	Micropogonias ectenes	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Micropogonias altipinnis
+105814	Micropogonias altipinnis	41b5de26-9991-4a10-b624-6397a9280517	Micropogonias megalops	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Micropogonias altipinnis
+105895	Milyeringa veritas	89f6b62f-124a-433b-830a-651b0cc91b00	Milyeringa veritas	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+105895	Milyeringa veritas	1907f819-9a25-4841-8db6-d4cedbcd5398	Milyeringa brooksi	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Milyeringa veritas
+106222	Mugil cephalus	dd3cc870-4785-4f18-be38-17d48559d3e1	Mugil cephalus	keep	owner		7	keeps the taxon: named as iNaturalist names the taxon
+106222	Mugil cephalus	ce00ca14-b047-405a-8ce4-145694d7efea	Mugil galapagensis	unlink	a_keep		7	Catalogue of Life accepts it as a species; iNaturalist lumps it into Mugil cephalus
+106413	Mystus wolffii	c0aecb9b-bb9d-419c-9155-4a205a7b22d5	Mystus wolffii	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+106413	Mystus wolffii	470458ae-a118-449c-b936-d29eed6bdb08	Mystus armiger	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Mystus wolffii
+106777	Neolamprologus pulcher	51507cd4-947c-48b4-8ea6-6a9e376a6a0a	Neolamprologus brichardi	relink	b	1545676	0	iNaturalist has it as taxon 1545676
+106777	Neolamprologus pulcher	1b23c1ba-e1d8-4ef9-a4c1-ae384d7825f9	Neolamprologus pulcher	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+108004	Oryzias carnaticus	5bec1797-8559-432b-8950-35bf4bddf177	Oryzias carnaticus	keep	owner		2	keeps the taxon: named as iNaturalist names the taxon
+108004	Oryzias carnaticus	f01bc70d-190d-4d5f-8795-bf45c6f4f2de	Oryzias melastigma	unlink	a_keep		2	Catalogue of Life accepts it as a species; iNaturalist lumps it into Oryzias carnaticus
+108442	Parachela oxygastroides	1d356b51-5448-40e7-a0d8-f728e4aebd7c	Parachela oxygastroides	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+108442	Parachela oxygastroides	02b2fbe8-ae00-43b5-8b28-c9777f721eef	Oxygaster pointoni	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Parachela oxygastroides
+108442	Parachela oxygastroides	0cb85e78-2061-4487-997a-2e83e4d23d2c	Parachela siamensis	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Parachela oxygastroides
+108448	Parachromis friedrichsthalii	918e66b4-147f-4bea-9098-e056d2ce7f80	Parachromis friedrichsthalii	keep	owner		4	keeps the taxon: named as iNaturalist names the taxon
+108448	Parachromis friedrichsthalii	9ed9ee50-ff8e-473e-b555-7f7d1d77174b	Parachromis loisellei	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Parachromis friedrichsthalii
+108554	Paralaubuca typus	4a042a80-68ec-44e9-b1f4-e7e87a0230e3	Paralaubuca typus	keep	owner		2	keeps the taxon: named as iNaturalist names the taxon
+108554	Paralaubuca typus	e568e37d-81d0-413a-b384-af1063c4b044	Paralaubuca riveroi	unlink	a_keep		2	Catalogue of Life accepts it as a species; iNaturalist lumps it into Paralaubuca typus
+109940	Pollimyrus marianne	5577b6bf-584f-476d-98bb-67919abe5957	Pollimyrus marianne	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+109940	Pollimyrus marianne	63eaee5d-f387-48fc-93d5-1dc28515863d	Pollimyrus cuandoensis	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Pollimyrus marianne
+110152	Poropuntius deauratus	f88fae81-d0e6-4985-b856-b07e8cf55462	Poropuntius deauratus	keep	owner		4	keeps the taxon: named as iNaturalist names the taxon
+110152	Poropuntius deauratus	4ccab664-2ece-4fcd-a6a7-a4affa3920d9	Poropuntius normani	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Poropuntius deauratus
+110152	Poropuntius deauratus	30e3a472-84df-47ba-b3d1-b84aac454c43	Poropuntius smedleyi	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Poropuntius deauratus
+110152	Poropuntius deauratus	659114aa-e3b1-4fc2-a602-402cacd16481	Poropuntius solitus	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Poropuntius deauratus
+110381	Pristis pristis	9ae60836-27da-46b7-bbf6-758287eccff8	Pristis pristis	keep	owner		5	keeps the taxon: the only one Catalogue of Life accepts as a species
+110381	Pristis pristis	73bb2c5e-4496-4db1-b2d1-0774acebe980	Pristis microdon	merge	c	Pristis pristis	5	Catalogue of Life and iNaturalist both treat it as Pristis pristis
+111039	Pseudolabrus sieboldi	a8471047-f978-4945-9524-bdc513ee3adb	Pseudolabrus sieboldi	keep	owner		4	keeps the taxon: named as iNaturalist names the taxon
+111039	Pseudolabrus sieboldi	7eb15555-dfd9-4fbb-8dc1-0c7f17788a9a	Pseudolabrus japonicus	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Pseudolabrus sieboldi
+111974	Salvelinus alpinus	afc13662-77e7-4059-b1ea-8f279bd2f59c	Salvelinus alpinus	keep	owner		4	keeps the taxon: named as iNaturalist names the taxon
+111974	Salvelinus alpinus	c45e9e4a-a3f2-496e-a2fe-a073437c707c	Salvelinus umbla	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Salvelinus alpinus
+112129	Scartichthys viridis	ade615a6-ba30-409a-a341-2d42e1744a7f	Scartichthys viridis	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+112129	Scartichthys viridis	b5ef3e88-1f0e-483b-aed5-23d5904d54b2	Scartichthys crapulatus	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Scartichthys viridis
+114005	Thamnophis bogerti	49802342-6573-429f-a7a9-34dc1aa0712e	Thamnophis bogerti	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+114005	Thamnophis bogerti	1aa970d5-7401-436f-a3b6-66dadd44a317	Thamnophis lineri	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Thamnophis bogerti
+114372	Trichogaster fasciata	bf233d4a-65c6-4834-be63-91c7fdf82f44	Trichogaster fasciata	keep	owner		5	keeps the taxon: named as iNaturalist names the taxon
+114372	Trichogaster fasciata	f0dbec4b-9285-449f-9254-591093ba3ea4	Trichogaster lalius	unlink	a_keep		5	Catalogue of Life accepts it as a species; iNaturalist lumps it into Trichogaster fasciata
+114979	Vimba vimba	cfb415c6-6286-47c7-9249-3cc248a9acff	Vimba vimba	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+114979	Vimba vimba	fc97a548-5265-41fe-873b-f230d75adb62	Vimba elongata	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Vimba vimba
+116814	Bradypterus baboecala	a6727677-163c-4593-bcb7-e14360bbf4d8	Bradypterus centralis	relink	b	1287028	0	iNaturalist has it as taxon 1287028
+116814	Bradypterus baboecala	338945ea-55f2-4890-9920-fa33feed8994	Bradypterus baboecala	keep	owner		0	keeps the taxon: the only one eBird accepts as a species
+117570	Syngnathus californiensis	b4e230a2-58d2-4a9c-b083-1599c724ebe7	Syngnathus californiensis	keep	owner		5	keeps the taxon: named as iNaturalist names the taxon
+117570	Syngnathus californiensis	4be02e63-c63b-4513-830d-cbf5e7dfb1ae	Syngnathus exilis	unlink	a_keep		5	Catalogue of Life accepts it as a species; iNaturalist lumps it into Syngnathus californiensis
+117691	Leptasterias hexactis	b6fa04df-5aea-4154-b3e0-8214f4b600f7	Leptasterias aequalis	relink	b	1640749	0	iNaturalist has it as taxon 1640749
+117691	Leptasterias hexactis	6a605bb1-d213-40e8-a38b-c041511c35b3	Leptasterias hexactis	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+118599	Sardinella aurita	94e50fd0-1ad8-4aa2-bb31-1a7ebb602a94	Sardinella aurita	keep	owner		7	keeps the taxon: named as iNaturalist names the taxon
+118599	Sardinella aurita	2acbc809-29c8-40aa-8d9b-08ee7cacbf79	Sardinella brasiliensis	unlink	a_keep		7	Catalogue of Life accepts it as a species; iNaturalist lumps it into Sardinella aurita
+124316	Lutjanus campechanus	8ade6409-422c-4538-895d-d7e4c3c824c9	Lutjanus campechanus	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+124316	Lutjanus campechanus	cd554dc1-f765-4779-869c-13195ceb17df	Lutjanus purpureus	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Lutjanus campechanus
+131523	Kyphosus sectatrix	7e15e1cc-ab1c-4bb7-b53a-f9919e7dcfe4	Kyphosus sectatrix	keep	owner		4	keeps the taxon: named as iNaturalist names the taxon
+131523	Kyphosus sectatrix	785652f0-4768-409a-8ae8-a0eadb91fbbb	Kyphosus lutescens	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Kyphosus sectatrix
+131523	Kyphosus sectatrix	4280e0d5-ce9b-43de-8a60-b5116c94f50e	Kyphosus pacificus	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Kyphosus sectatrix
+132406	Pterocaesio marri	7f62abff-97b3-47e7-863b-070f54e81956	Pterocaesio marri	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+132406	Pterocaesio marri	16cc399d-bfef-43eb-9731-f96ca9e428f6	Pterocaesio flavifasciata	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Pterocaesio marri
+144505	Chroicocephalus bulleri	cdad987a-bb47-4904-93cc-1764c9b99e68	Chroicocephalus bulleri	keep	owner		0	keeps the taxon: the only one eBird accepts as a species
+144505	Chroicocephalus bulleri	0228d6c4-9efc-4eff-a19b-f1c6370af542	Larus bulleri	merge	c	Chroicocephalus bulleri	0	not an eBird species; iNaturalist treats it as Chroicocephalus bulleri
+144838	Melaniparus rufiventris	db73f1a6-460f-4fe2-89bc-d683d76936d2	Parus pallidiventris	keep	owner		0	keeps the taxon: iNaturalist's name for the taxon is its synonym
+144838	Melaniparus rufiventris	c4223bbf-abd1-4f1c-965d-1b91f00c98d3	Parus rufiventris	merge	c	Parus pallidiventris	0	not an eBird species; iNaturalist treats it as Melaniparus rufiventris
+145068	Phoenicurus fuliginosus	784ed711-2beb-4431-bae3-0e6b1facf6e7	Phoenicurus fuliginosus	keep	owner		1	keeps the taxon: the only one eBird accepts as a species
+145068	Phoenicurus fuliginosus	3e97fd6f-e6a6-4376-bff7-5bd92bfd9603	Rhyacornis fuliginosa	merge	c	Phoenicurus fuliginosus	1	not an eBird species; iNaturalist treats it as Phoenicurus fuliginosus
+145138	Cyanomitra veroxii	832ac0f6-0974-40d6-a398-df615bf6ff45	Cyanomitra veroxii	keep	owner		2	keeps the taxon: the only one eBird accepts as a species
+145138	Cyanomitra veroxii	dbceee2e-d434-4317-bb4f-9d9297ca5e1d	Cyanomitra verreauxii	merge	c	Cyanomitra veroxii	2	not an eBird species; iNaturalist treats it as Cyanomitra veroxii
+145208	Anthus cinnamomeus	ad94d8bd-308d-463d-8a66-186772e91f8b	Anthus cinnamomeus	keep	owner		3	keeps the taxon: the only one eBird accepts as a species
+145208	Anthus cinnamomeus	e09aa5a9-a38e-497f-8240-b91268e446e6	Anthus pseudosimilis	merge	c	Anthus cinnamomeus	3	not an eBird species; iNaturalist treats it as Anthus cinnamomeus
+147455	Makaira nigricans	4ece0e6a-ec28-4359-b930-18f59630f322	Makaira nigricans	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+147455	Makaira nigricans	36ff93ea-e5c1-41e5-9306-82b7ca31f6fc	Makaira mazara	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Makaira nigricans
+179526	Ogcocephalus cubifrons	3d107705-26ad-4bb0-8c52-1dd74f0a5fe0	Ogcocephalus cubifrons	keep	owner		5	keeps the taxon: named as iNaturalist names the taxon
+179526	Ogcocephalus cubifrons	63d6b54d-c108-4e06-9ff1-5af055b08e79	Ogcocephalus radiatus	unlink	a_keep		5	Catalogue of Life accepts it as a species; iNaturalist lumps it into Ogcocephalus cubifrons
+182242	Rineloricaria lanceolata	3adccd99-41f3-4c1f-bccd-d9632e41adeb	Rineloricaria lanceolata	keep	owner		4	keeps the taxon: named as iNaturalist names the taxon
+182242	Rineloricaria lanceolata	d4e33e7d-7b36-43f9-84f2-8aaa18b9507d	Rineloricaria hoehnei	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Rineloricaria lanceolata
+187360	Drombus globiceps	9df851a1-31d8-4467-b41f-2f07d3bab5c4	Drombus globiceps	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+187360	Drombus globiceps	cc471f07-3e85-4e59-8aed-928d4683d5e1	Drombus kranjiensis	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Drombus globiceps
+187552	Hypseleotris cyprinoides	34b3cbde-b7b8-42bd-8780-53fecb246005	Hypseleotris cyprinoides	keep	owner		7	keeps the taxon: named as iNaturalist names the taxon
+187552	Hypseleotris cyprinoides	c3c25f2c-3cee-4d9a-9d4c-82c66ee46b62	Hypseleotris leuciscus	unlink	a_keep		7	Catalogue of Life accepts it as a species; iNaturalist lumps it into Hypseleotris cyprinoides
+187591	Labeo chrysophekadion	adc82cb1-2b2a-4e17-b5d7-a67040e315b8	Labeo chrysophekadion	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+187591	Labeo chrysophekadion	8f3578d6-4e79-413f-a406-3857284b5ecb	Labeo barbatulus	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Labeo chrysophekadion
+187611	Lentipes kaaea	2d7f08d3-49e3-4135-a2d0-c17efe9a5342	Lentipes kaaea	keep	owner		2	keeps the taxon: named as iNaturalist names the taxon
+187611	Lentipes kaaea	58b81e65-e9a8-41bd-ae8b-11b2ab38b72b	Lentipes solomonensis	unlink	a_keep		2	Catalogue of Life accepts it as a species; iNaturalist lumps it into Lentipes kaaea
+188099	Poropuntius laoensis	849c1189-6deb-48df-9796-d8bbc55ab3f5	Poropuntius laoensis	keep	owner		2	keeps the taxon: named as iNaturalist names the taxon
+188099	Poropuntius laoensis	37fa0890-f80d-4671-81e9-a7c80a094bf9	Poropuntius bantamensis	unlink	a_keep		2	Catalogue of Life accepts it as a species; iNaturalist lumps it into Poropuntius laoensis
+188142	Pseudogobius poicilosoma	4477de18-9f6f-4642-bd92-8c7d318580df	Pseudogobius poicilosoma	keep	owner		4	keeps the taxon: named as iNaturalist names the taxon
+188142	Pseudogobius poicilosoma	68830c5b-d9bf-4e84-a28f-90a8ce3821db	Pseudogobius gastrospilus	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Pseudogobius poicilosoma
+188210	Redigobius balteatus	09a47186-fffc-4b6c-8620-2a7b5c4d06c7	Redigobius balteatus	keep	owner		4	keeps the taxon: named as iNaturalist names the taxon
+188210	Redigobius balteatus	80fece60-ded5-4d60-a153-44c294cad16c	Redigobius balteatops	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Redigobius balteatus
+188522	Synodontis multipunctatus	efeb7618-0e5b-432f-bdc2-c181631b2b3b	Synodontis multipunctatus	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+188522	Synodontis multipunctatus	3098dc7e-73b6-434b-a2a4-4f65053fa4c8	Synodontis grandiops	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Synodontis multipunctatus
+188570	Tor tambra	5c530489-917a-438e-96ff-6a5f2097569d	Tor tambra	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+188570	Tor tambra	236ac799-1d34-4220-8d74-ebaec86bc73e	Tor douronensis	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Tor tambra
+194820	Facciolella equatorialis	6abfa5ea-62f9-4894-b627-abfb5850e3e0	Facciolella equatorialis	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+194820	Facciolella equatorialis	a7833a7f-bd5e-4318-b88b-779476ab27e6	Facciolella gilbertii	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Facciolella equatorialis
+194825	Myrichthys xysturus	915eda04-4fef-4788-8023-5431009aa6fe	Myrichthys xysturus	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+194825	Myrichthys xysturus	5fa6c980-6843-4e5f-afc1-3fedf2816570	Myrichthys tigrinus	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Myrichthys xysturus
+196489	Nemateleotris decora	16eb09a6-3c7b-4153-a2cf-1d49ff198d9d	Nemateleotris decora	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+196489	Nemateleotris decora	fc0d0dff-d1d9-46da-bc4b-a9325ead1182	Nemateleotris exquisita	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Nemateleotris decora
+196711	Plagiotremus laudandus	54acf6bb-f726-48c0-babd-7e25c34b1f87	Plagiotremus laudandus	keep	owner		5	keeps the taxon: named as iNaturalist names the taxon
+196711	Plagiotremus laudandus	b19a9382-18d7-474a-9837-c7390e3c6a3c	Plagiotremus flavus	unlink	a_keep		5	Catalogue of Life accepts it as a species; iNaturalist lumps it into Plagiotremus laudandus
+202152	Toxotes chatareus	edf1f358-ae1c-42eb-acad-de5d010099ec	Toxotes chatareus	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+202152	Toxotes chatareus	0c4e6290-ba01-4653-9694-0769ea407403	Toxotes mekongensis	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Toxotes chatareus
+202152	Toxotes chatareus	708049cc-ca26-4916-96b4-9855b38cbc79	Toxotes siamensis	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Toxotes chatareus
+204455	Acrocephalus scirpaceus	8caf6888-0422-44c6-856a-4ca7a43b732e	Acrocephalus scirpaceus	keep	owner		3	keeps the taxon: the only one eBird accepts as a species
+204455	Acrocephalus scirpaceus	360e6c30-5c85-4976-bed0-dd0e206f0936	Acrocephalus baeticatus	merge	a_merge	Acrocephalus scirpaceus	3	eBird counts it as a group of Acrocephalus scirpaceus
+204481	Certhilauda subcoronata	5e57b916-b0fd-47e1-85b7-34642ca69514	Certhilauda subcoronata	keep	owner		3	keeps the taxon: the only one eBird accepts as a species
+204481	Certhilauda subcoronata	0ac8239d-54e0-4ef6-963c-5b560a12ffdb	Certhilauda benguelensis	merge	c	Certhilauda subcoronata	3	not an eBird species; iNaturalist treats it as Certhilauda subcoronata
+204526	Indicator minor	d234d15a-a821-41a3-b9e2-f84976b8c369	Indicator minor	keep	owner		4	keeps the taxon: the only one eBird accepts as a species
+204526	Indicator minor	a17d8f5c-da4f-4e9b-9f6e-36144257e354	Indicator conirostris	merge	c	Indicator minor	4	not an eBird species; iNaturalist treats it as Indicator minor
+204557	Ortygospiza atricollis	3bee7d3c-9e44-4f1f-bef3-0148bcf9e337	Ortygospiza atricollis	keep	owner		0	keeps the taxon: the only one eBird accepts as a species
+204557	Ortygospiza atricollis	28b727be-5bcd-44dc-a7ee-c09e88c290c4	Ortygospiza fuscocrissa	merge	a_merge	Ortygospiza atricollis	3	eBird counts it as a group of Ortygospiza atricollis
+204557	Ortygospiza atricollis	4684a13b-dd1e-4ece-a714-73fa3ab5b7a0	Ortygospiza gabonensis	merge	a_merge	Ortygospiza atricollis	3	eBird counts it as a group of Ortygospiza atricollis
+210173	Kyphosus vaigiensis	787bf543-554b-45c4-98f8-aea4b1a6c518	Kyphosus vaigiensis	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+210173	Kyphosus vaigiensis	720cdc52-cc0a-4ced-aabd-c81d23f4d515	Kyphosus incisor	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Kyphosus vaigiensis
+254906	Eupleura muriciformis	51541888-c3a0-4464-9646-4b6ad3cc84ee	Eupleura triquetra	relink	b	1521573	7	iNaturalist has it as taxon 1521573
+254906	Eupleura muriciformis	35f28f51-5660-4c17-bbd6-d4b024db65e1	Eupleura muriciformis	keep	owner		7	keeps the taxon: the only one Catalogue of Life accepts as a species
+255868	Heliaster helianthus	ccc6ea24-9512-4f27-8eff-d19501a9c87b	Heliaster helianthus	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+255868	Heliaster helianthus	953cfc76-a653-48c6-a2b0-2534549d63a1	Heliaster canopus	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Heliaster helianthus
+333786	Chaetostoma anale	56019dc6-6f0d-467c-8644-5caadf44d7c6	Chaetostoma anale	keep	owner		2	keeps the taxon: named as iNaturalist names the taxon
+333786	Chaetostoma anale	6acff091-a63b-4135-8334-8f863a22301e	Chaetostoma vagum	unlink	a_keep		2	Catalogue of Life accepts it as a species; iNaturalist lumps it into Chaetostoma anale
+338921	Macruronus novaezelandiae	6753960a-066a-42cf-95e0-021e8417da4d	Macruronus novaezelandiae	keep	owner		4	keeps the taxon: named as iNaturalist names the taxon
+338921	Macruronus novaezelandiae	469019e8-a6e6-40a6-b1e1-04b189d21daa	Macruronus magellanicus	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Macruronus novaezelandiae
+339714	Horornis flavolivaceus	7e9ff96f-d984-4769-bd26-6523319c83cc	Horornis flavolivaceus	keep	owner		3	keeps the taxon: the only one eBird accepts as a species
+339714	Horornis flavolivaceus	86870ecb-a707-4b07-b979-852dc66bedfe	Horornis vulcanius	merge	a_merge	Horornis flavolivaceus	3	eBird counts it as a group of Horornis flavolivaceus
+339800	Pellorneum malaccense	2f15758c-df34-41a6-93e2-a61f4b9d1714	Pellorneum malaccense	keep	owner		3	keeps the taxon: the only one eBird accepts as a species
+339800	Pellorneum malaccense	23b12a43-1d61-40fa-8c20-81e6ea75ce19	Malacocincla malaccensis	merge	c	Pellorneum malaccense	3	not an eBird species; iNaturalist treats it as Pellorneum malaccense
+339832	Ianthocincla lunulata	45e57355-46c4-40c0-9138-200166d445ee	Ianthocincla lunulata	keep	owner		1	keeps the taxon: the only one eBird accepts as a species
+339832	Ianthocincla lunulata	22908f39-5928-4a75-bbca-c684088e29f3	Garrulax lunulatus	merge	c	Ianthocincla lunulata	1	not an eBird species; iNaturalist treats it as Ianthocincla lunulata
+347809	Photopectoralis bindus	52c8e3dd-b3ff-487e-95d3-2ebb9aef2edf	Photopectoralis bindus	keep	owner		4	keeps the taxon: named as iNaturalist names the taxon
+347809	Photopectoralis bindus	7197f022-4600-411e-af9c-27c56e004129	Leiognathus brevirostris	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Photopectoralis bindus
+360786	Rhinogobius similis	a7cfdbf8-15dd-42e6-acf0-918c549a6cf2	Rhinogobius similis	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+360786	Rhinogobius similis	e2878202-2b29-42ea-8ed2-9bf913f38628	Rhinogobius giurinus	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Rhinogobius similis
+368117	Melanotaenia splendida	7d901cae-9dcc-4e9f-b725-c2fffb9e1529	Melanotaenia splendida	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+368117	Melanotaenia splendida	a8ac2d31-3357-49ea-94a5-696f6a9c711d	Melanotaenia solata	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Melanotaenia splendida
+369141	Cymbacephalus nematophthalmus	3e6d748a-9420-4606-a6b4-25fff8069673	Cymbacephalus nematophthalmus	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+369141	Cymbacephalus nematophthalmus	f34a7ba5-6d07-4d0d-a6c1-4ae35806b77f	Cymbacephalus staigeri	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Cymbacephalus nematophthalmus
+418233	Sphyraena pinguis	09816aaa-baca-429a-9fd5-21d5d0ffb856	Sphyraena pinguis	keep	owner		4	keeps the taxon: named as iNaturalist names the taxon
+418233	Sphyraena pinguis	560db1ba-1fc3-454b-9521-9199a95e5302	Sphyraena chrysotaenia	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Sphyraena pinguis
+445593	Acanthopagrus morrisoni	89884ea0-6f35-49bc-94f4-99c4c4108a98	Acanthopagrus morrisonae	keep	owner		4	keeps the taxon: the only one Catalogue of Life accepts as a species
+445593	Acanthopagrus morrisoni	d24c0f9b-fec9-46bc-92a9-8f5fd1e0a8ba	Acanthopagrus morrisoni	merge	c	Acanthopagrus morrisonae	4	a spelling or genus variant of Acanthopagrus morrisonae
+445636	Alticus monochrus	ecb8062d-7e65-4b8d-ac0c-565ec743fdcf	Alticus monochrus	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+445636	Alticus monochrus	158ced10-f7d6-41c1-90ef-0a39b3761b29	Alticus anjouanae	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Alticus monochrus
+445737	Capoeta capoeta	285f5118-9035-4870-af18-f873946dc6dc	Capoeta capoeta	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+445737	Capoeta capoeta	b66b53f8-58e9-4ebe-b7de-fac514fa6f20	Capoeta ekmekciae	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Capoeta capoeta
+445760	Cheimarrichthys fosteri	ab77dee4-4708-42b5-a351-432b07ceb2fc	Cheimarrichthys fosterae	keep	owner		6	keeps the taxon: the only one Catalogue of Life accepts as a species
+445760	Cheimarrichthys fosteri	0a220498-e603-4aa4-8488-5b333bf8813a	Cheimarrichthys fosteri	merge	c	Cheimarrichthys fosterae	6	a spelling or genus variant of Cheimarrichthys fosterae
+446147	Lagocephalus spadiceus	f6dfac96-a3aa-4b91-823a-fa7ca804422c	Lagocephalus spadiceus	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+446147	Lagocephalus spadiceus	a5a84583-1a86-4191-9102-26d7ac625431	Lagocephalus wheeleri	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Lagocephalus spadiceus
+446550	Systomus sarana	9f6bba40-d21b-43bf-a290-d318cec8d955	Systomus sarana	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+446550	Systomus sarana	6cafc7fc-3a82-4be0-b4cf-70f7d1777c86	Systomus subnasutus	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Systomus sarana
+446552	Takifugu alboplumbeus	54cce665-0418-4d6b-9cd6-3c9ccd1bd87f	Takifugu alboplumbeus	keep	owner		7	keeps the taxon: named as iNaturalist names the taxon
+446552	Takifugu alboplumbeus	3c958672-baad-4472-bbb3-62ba87b60b44	Takifugu niphobles	unlink	a_keep		7	Catalogue of Life accepts it as a species; iNaturalist lumps it into Takifugu alboplumbeus
+446552	Takifugu alboplumbeus	bf1b36a3-857b-4472-9c80-e0da061153d5	Takifugu poecilonotus	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Takifugu alboplumbeus
+448011	Sicydium salvini	9c4d6a78-5187-4724-8f37-c00174794037	Sicydium salvini	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+448011	Sicydium salvini	2c558cd4-00e1-40ce-ba93-52459432de6a	Sicydium multipunctatum	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Sicydium salvini
+467033	Cyprinion watsoni	44c0c1ae-fc8b-4f39-8529-c48efe0f4436	Cyprinion watsoni	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+467033	Cyprinion watsoni	8868845a-3426-4ca8-956d-53ef075da7e6	Cyprinion microphthalmum	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Cyprinion watsoni
+469793	Chromis notata	b6490f7a-d3e2-4e4a-998e-657a9c106728	Chromis notata	keep	owner		5	keeps the taxon: named as iNaturalist names the taxon
+469793	Chromis notata	b7132607-7919-4d6c-9f47-56af0e13357e	Chromis flavomaculata	unlink	a_keep		5	Catalogue of Life accepts it as a species; iNaturalist lumps it into Chromis notata
+472132	Butis humeralis	2fd9e941-baba-49a5-99de-c2578c041c5d	Butis humeralis	keep	owner		5	keeps the taxon: named as iNaturalist names the taxon
+472132	Butis humeralis	2d85b1e5-1b7b-4b31-bacc-83933d16db20	Butis melanostigma	unlink	a_keep		5	Catalogue of Life accepts it as a species; iNaturalist lumps it into Butis humeralis
+484027	Copella arnoldi	ed1d07f5-77e8-4140-92ab-5843f1a6c003	Copella arnoldi	keep	owner		2	keeps the taxon: named as iNaturalist names the taxon
+484027	Copella arnoldi	459bde54-d49c-4438-9e9a-91aae21474b3	Copella carsevennensis	unlink	a_keep		2	Catalogue of Life accepts it as a species; iNaturalist lumps it into Copella arnoldi
+489056	Pterygoplichthys ambrosettii	f34551e6-ef4b-41e9-8ec0-5e6458c935a6	Pterygoplichthys ambrosettii	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+489056	Pterygoplichthys ambrosettii	d9ae72ce-7c58-466d-ab2a-2e01e5db5a19	Pterygoplichthys anisitsi	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Pterygoplichthys ambrosettii
+491868	Macroctopus maorum	bae66e81-05f8-4777-852e-62209d55d398	Pinnoctopus cordiformis	relink	b	395220	7	iNaturalist has it as taxon 395220
+491868	Macroctopus maorum	3cf15ddf-58bc-43c7-b630-f9f2bed389ba	Macroctopus maorum	keep	owner		7	keeps the taxon: the only one Catalogue of Life accepts as a species
+512108	Ailuroedus melanotis	f0a905ef-c422-4ada-88e5-d3740e7dca4e	Ailuroedus melanotis	keep	owner		1	keeps the taxon: the only one eBird accepts as a species
+512108	Ailuroedus melanotis	4c5c976a-4016-4caa-bb16-e2c33e2d0a11	Ailuroedus arfakianus	merge	c	Ailuroedus melanotis	1	not an eBird species; iNaturalist treats it as Ailuroedus melanotis
+516335	Hoplias aimara	2d6dabc2-b9ec-4acf-b85c-a8feb19fc255	Hoplias aimara	keep	owner		5	keeps the taxon: named as iNaturalist names the taxon
+516335	Hoplias aimara	02b13428-54c0-47ce-b716-ac7aae274223	Hoplias macrophthalmus	unlink	a_keep		5	Catalogue of Life accepts it as a species; iNaturalist lumps it into Hoplias aimara
+524892	Dawkinsia filamentosa	9cc5acf3-f1ec-46c6-8fdc-5b53a5cc98f5	Dawkinsia filamentosa	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+524892	Dawkinsia filamentosa	e1252df9-a68d-4919-acc1-85b1c74dcb4c	Dawkinsia singhala	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Dawkinsia filamentosa
+530059	Mugilogobius platynotus	d5fefc0f-7ce3-46bd-8023-fd254e8270ac	Mugilogobius platynotus	keep	owner		4	keeps the taxon: named as iNaturalist names the taxon
+530059	Mugilogobius platynotus	7f7ff238-cfea-44f9-96f0-952d80a6e5bd	Mugilogobius paludis	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Mugilogobius platynotus
+539680	Erythrolamprus epinephalus	37a231ce-554d-44f0-8709-722b6ec3f630	Erythrolamprus epinephalus	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+539680	Erythrolamprus epinephalus	5016ba69-2e1c-43ca-bab7-75170324f72f	Erythrolamprus epinephelus	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Erythrolamprus epinephalus
+558556	Sphenopsis melanotis	350620e8-4626-45bb-941d-cf348c2bd14d	Sphenopsis melanotis	keep	owner		4	keeps the taxon: the only one eBird accepts as a species
+558556	Sphenopsis melanotis	44a98335-83a9-4219-a475-92a5ef0307ff	Sphenopsis piurae	merge	c	Sphenopsis melanotis	4	not an eBird species; iNaturalist treats it as Sphenopsis melanotis
+558840	Acanthocercus annectans	74d35b8f-4343-44db-be6e-d217339b6124	Acanthocercus annectans	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+558840	Acanthocercus annectans	dc4c2d85-593b-4e11-83dd-12f53406faea	Acanthocercus annectens	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Acanthocercus annectans
+578607	Galerida cristata	76f60abe-e136-42b9-afb7-a876bb21f5b7	Galerida cristata	keep	owner		7	keeps the taxon: the only one eBird accepts as a species
+578607	Galerida cristata	7982453f-93dc-4a51-a80e-a5c01905712e	Galerida macrorhyncha	merge	c	Galerida cristata	7	not an eBird species; iNaturalist treats it as Galerida cristata
+607541	Tetronarce nobiliana	1d9164a3-3154-4a1a-982f-a60f5ae4560d	Tetronarce nobiliana	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+607541	Tetronarce nobiliana	0d31a251-1560-4cef-b4b9-710d94c50e4b	Tetronarce fairchildi	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Tetronarce nobiliana
+608060	Jenynsia lineata	56b63549-62f2-4912-ad11-763a13789111	Jenynsia lineata	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+608060	Jenynsia lineata	31491822-723a-4a2c-a1a3-dd87a19af433	Jenynsia multidentata	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Jenynsia lineata
+608107	Leporellus pictus	7ea9ffe3-b296-4ed3-806b-bd987a5f0908	Leporellus pictus	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+608107	Leporellus pictus	2d41c71c-61d5-4423-961b-07b99239a94d	Leporellus retropinnis	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Leporellus pictus
+609036	Tachysurus sinensis	08e8bc80-4521-4ae7-8d93-0ee8b050afff	Tachysurus sinensis	keep	owner		6	keeps the taxon: named as iNaturalist names the taxon
+609036	Tachysurus sinensis	47a1ce19-7cf1-4488-ae89-79bb42bc7c2a	Tachysurus fulvidraco	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Tachysurus sinensis
+609570	Aspidoras albater	6b7a6802-0662-4103-94de-cfa02a540bcb	Aspidoras albater	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+609570	Aspidoras albater	fa375f9d-de63-47b0-bd8d-fefbb94fdbff	Aspidoras eurycephalus	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Aspidoras albater
+609570	Aspidoras albater	2da1556d-8abe-4552-82f0-c6cfa3ca402c	Aspidoras taurus	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Aspidoras albater
+609584	Aspidoras raimundi	a15400e8-5147-4d87-9270-c298d7a59816	Aspidoras raimundi	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+609584	Aspidoras raimundi	f1a3d024-6a08-4ce3-8d06-bb8b13e3d748	Aspidoras menezesi	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Aspidoras raimundi
+609584	Aspidoras raimundi	05a69fbd-6561-47f4-9500-8750bb9861cc	Aspidoras spilotus	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Aspidoras raimundi
+610112	Aphyocharax pusillus	61c0b96f-9266-46c6-b530-b3dfb90a7a69	Aphyocharax pusillus	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+610112	Aphyocharax pusillus	2030a586-9b3d-4450-97d3-3bc0f1bbd7a2	Aphyocharax alburnus	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Aphyocharax pusillus
+610189	Astyanax lacustris	d67dad53-cfc1-4bcd-8117-2630420cf230	Astyanax lacustris	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+610189	Astyanax lacustris	710f36fd-b51a-4bad-acc4-5f3a199ab7e1	Astyanax altiparanae	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Astyanax lacustris
+610189	Astyanax lacustris	7b6e7f72-1214-46a5-9001-4df8a352a06c	Astyanax asuncionensis	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Astyanax lacustris
+610189	Astyanax lacustris	b1ae6c20-3c34-430a-a9fb-5c355b83050b	Astyanax jacuhiensis	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Astyanax lacustris
+610501	Galeocharax gulo	cb3274db-b90f-42fc-92c5-b479b5a97bf2	Galeocharax gulo	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+610501	Galeocharax gulo	c8577daa-b284-4e4b-88c3-167a130c911f	Galeocharax knerii	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Galeocharax gulo
+611728	Clarias leiacanthus	1a64f4de-def9-4321-9e87-aa57846d0832	Clarias leiacanthus	keep	owner		5	keeps the taxon: named as iNaturalist names the taxon
+611728	Clarias leiacanthus	e78a6f83-85c1-4c4c-9cdc-a2d6cfadd227	Clarias cataractus	unlink	a_keep		5	Catalogue of Life accepts it as a species; iNaturalist lumps it into Clarias leiacanthus
+611728	Clarias leiacanthus	1bfa640b-8e9c-4e6d-a141-ae36057afe55	Clarias teijsmanni	unlink	a_keep		5	Catalogue of Life accepts it as a species; iNaturalist lumps it into Clarias leiacanthus
+613486	Rasbora dandia	ce98fae5-290e-407f-93fc-14f417a12be6	Rasbora dandia	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+613486	Rasbora dandia	580bae21-cfd7-41bf-bc8b-35cc90187732	Rasbora caverii	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Rasbora dandia
+613745	Trigonopoma gracile	beb4e03d-eb98-4c66-808b-7a67bfdf048d	Trigonopoma gracile	keep	owner		1	keeps the taxon: the only one Catalogue of Life accepts as a species
+613745	Trigonopoma gracile	1a4217c0-0383-40ab-8143-c5076a3f72e2	Rasbora taeniata	unlink	review		1	Catalogue of Life doesn't know the name
+614067	Thryssa malabarica	68aa274c-f9e7-43db-94c8-c52afbd46419	Thryssa malabarica	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+614067	Thryssa malabarica	24404028-af1a-4b88-bdf4-b67c2086a7fc	Thryssa hamiltonii	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Thryssa malabarica
+614275	Acanthogobius hasta	d37a29d0-2ab9-4b5e-a98a-d332d531ef66	Acanthogobius hasta	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+614275	Acanthogobius hasta	d43cf0f7-0f70-4471-9df9-e06d4ff00e53	Synechogobius ommaturus	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Acanthogobius hasta
+615142	Genyatremus luteus	eedb998f-147f-48a6-b00e-eeac9b15c040	Genyatremus luteus	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+615142	Genyatremus luteus	444ec0ff-c88f-424f-9d7d-8deeb03aec1c	Genyatremus cavifrons	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Genyatremus luteus
+615650	Copella nattereri	b6f0b67a-c14d-4018-a876-147fbc91714a	Copella nattereri	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+615650	Copella nattereri	cbb558e9-b0a6-4e30-943f-65c596c9172b	Copella meinkeni	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Copella nattereri
+616138	Ancistrus malacops	8bab49ec-3249-43b3-8263-3c4568951498	Ancistrus malacops	keep	owner		2	keeps the taxon: named as iNaturalist names the taxon
+616138	Ancistrus malacops	d1c0ae54-a4a3-41d3-b60c-f6425a572011	Ancistrus occidentalis	unlink	a_keep		2	Catalogue of Life accepts it as a species; iNaturalist lumps it into Ancistrus malacops
+616162	Ancistrus trinitatis	f5d41c99-889b-45cd-9caa-77e7b1abd08a	Ancistrus trinitatis	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+616162	Ancistrus trinitatis	ab2cf23c-3ab6-4dcf-a4d6-767eb9dfd442	Ancistrus maracasae	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Ancistrus trinitatis
+616186	Chaetostoma branickii	b168cbc1-9e4c-4625-9600-ac725cb1bfa6	Chaetostoma branickii	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+616186	Chaetostoma branickii	ffeed68b-54c3-4e64-bd60-1440cd352833	Chaetostoma breve	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Chaetostoma branickii
+616510	Hypostomus pusarum	b26a33b8-c8e1-4cdc-b931-806936a967ee	Hypostomus pusarum	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+616510	Hypostomus pusarum	13f92d34-5560-4459-8277-230a81216176	Hypostomus carvalhoi	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Hypostomus pusarum
+616510	Hypostomus pusarum	16b89fef-7686-43ea-b9c9-ec54a97fb03e	Hypostomus jaguribensis	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Hypostomus pusarum
+616510	Hypostomus pusarum	b89f0430-00d0-4a7c-a618-250b140d7698	Hypostomus nudiventris	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Hypostomus pusarum
+616510	Hypostomus pusarum	e32bb828-1457-4b6b-abaa-f00072c1e439	Hypostomus papariae	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Hypostomus pusarum
+616921	Sturisoma barbatum	05bf3b90-8dc7-41a1-9025-4414a99d03af	Sturisoma barbatum	keep	owner		2	keeps the taxon: named as iNaturalist names the taxon
+616921	Sturisoma barbatum	c5143a15-c85a-490b-bee4-507929d5ffb0	Sturisoma robustum	unlink	a_keep		2	Catalogue of Life accepts it as a species; iNaturalist lumps it into Sturisoma barbatum
+619909	Gymnorhamphichthys rondoni	3b3d4a02-8c88-4554-a213-c4c543a5fc83	Gymnorhamphichthys rondoni	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+619909	Gymnorhamphichthys rondoni	d69d33a6-4001-47f0-aab2-9690efa46549	Gymnorhamphichthys petiti	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Gymnorhamphichthys rondoni
+621049	Zebrias zebrinus	a12e3f54-56e2-41ce-a2e5-c3954fa08957	Zebrias zebrinus	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+621049	Zebrias zebrinus	d30b7e22-8d3d-4740-9f05-93f47be8a8dc	Zebrias fasciatus	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Zebrias zebrinus
+621554	Pao cochinchinensis	7f1e4f38-9d26-4966-8890-21fe18492e7e	Pao cochinchinensis	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+621554	Pao cochinchinensis	40f6fd42-9247-4734-ad80-6891998365b7	Pao cambodgiensis	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Pao cochinchinensis
+621555	Pao fangi	f55a2c22-af96-4842-aef8-ac1739196d52	Pao fangi	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+621555	Pao fangi	8894457e-3628-4f49-a145-8c43ea386fe0	Pao brevirostris	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Pao fangi
+621964	Triportheus auritus	1352a1cf-b3b1-48f6-84f5-778bc8af133f	Triportheus auritus	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+621964	Triportheus auritus	099c3dfd-a3e4-4842-906b-4ce0205f0401	Triportheus elongatus	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Triportheus auritus
+621970	Triportheus nematurus	7bd4ccd6-f507-4f15-a832-205a78356ca8	Triportheus nematurus	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+621970	Triportheus nematurus	0fde2f3c-f723-4a6a-8193-fc16cfa24512	Triportheus paranensis	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Triportheus nematurus
+622527	Helotes octolineatus	d0bb109b-e71d-405a-9169-468bd983012d	Helotes sexlineatus	relink	b	1316667	0	iNaturalist has it as taxon 1316667
+622527	Helotes octolineatus	d9d3ea60-33c9-43e8-a715-ec91c6849f99	Pelates octolineatus	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+717902	Masticophis bilineatus	16226697-d622-443f-9b12-ff706dc02f90	Masticophis bilineatus	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+717902	Masticophis bilineatus	b3f0a73f-57eb-49ed-a23a-d18aa8f303c2	Coluber bilineatus	merge	c	Masticophis bilineatus	1	a spelling or genus variant of Masticophis bilineatus
+786236	Neotrygon orientale	9b099d95-ae6b-4f65-b431-93c3e931802b	Neotrygon orientalis	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+786236	Neotrygon orientale	d1308f23-1b6d-4b73-a82e-1f086d2fe183	Neotrygon orientale	merge	c	Neotrygon orientalis	0	a spelling or genus variant of Neotrygon orientalis
+786435	Pao barbatus	4e2f7560-cf9f-4259-a668-ea08b136d977	Pao barbatus	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+786435	Pao barbatus	c8818ad0-7bcd-4d7d-8c52-ded8306bf56b	Tetraodon barbatus	merge	c	Pao barbatus	0	a spelling or genus variant of Pao barbatus
+793244	Chamaetylas poliocephala	26583113-aa9b-490c-b2d5-df12253c90f0	Chamaetylas poliocephala	keep	owner		1	keeps the taxon: the only one eBird accepts as a species
+793244	Chamaetylas poliocephala	a6742d32-a5e3-4ab1-8580-f5da0f7f44e5	Pseudalethe poliocephala	merge	c	Chamaetylas poliocephala	1	not an eBird species; iNaturalist treats it as Chamaetylas poliocephala
+793246	Chamaetylas poliophrys	59c8315d-ee19-4c57-8edb-10b26f7316e2	Chamaetylas poliophrys	keep	owner		4	keeps the taxon: the only one eBird accepts as a species
+793246	Chamaetylas poliophrys	5653491d-98a4-4655-84c6-128847eef967	Pseudalethe poliophrys	merge	c	Chamaetylas poliophrys	4	not an eBird species; iNaturalist treats it as Chamaetylas poliophrys
+793249	Chamaetylas choloensis	11639432-750c-4ade-8e75-47523ed7f463	Chamaetylas choloensis	keep	owner		1	keeps the taxon: the only one eBird accepts as a species
+793249	Chamaetylas choloensis	833a0899-a7ad-4a92-b521-7c670479b277	Pseudalethe choloensis	merge	c	Chamaetylas choloensis	1	not an eBird species; iNaturalist treats it as Chamaetylas choloensis
+793321	Passer cinnamomeus	ddcc39ce-a96f-4356-913b-0bcd29cdb7db	Passer cinnamomeus	keep	owner		4	keeps the taxon: the only one eBird accepts as a species
+793321	Passer cinnamomeus	019271a7-7135-41d0-8750-ece8919b6d59	Passer rutilans	merge	c	Passer cinnamomeus	4	not an eBird species; iNaturalist treats it as Passer cinnamomeus
+827403	Phylloscopus intensior	875e7c77-8c07-46ff-822f-07b014ade02f	Phylloscopus intensior	keep	owner		3	keeps the taxon: the only one eBird accepts as a species
+827403	Phylloscopus intensior	3a7d76d4-7df3-42b2-9658-4152b86b5034	Phylloscopus davisoni	merge	c	Phylloscopus intensior	3	not an eBird species; iNaturalist treats it as Phylloscopus intensior
+925950	Conepatus chinga	fbdc1929-0303-45ac-ad45-d8e7c4219dff	Conepatus chinga	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+925950	Conepatus chinga	e549a06f-7cd4-4267-95be-4380365ca049	Conepatus humboldtii	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Conepatus chinga
+979641	Camaroptera brachyura	137b2311-4d87-4ea4-a46c-c58ae600a37c	Camaroptera brachyura	keep	owner		0	keeps the taxon: the only one eBird accepts as a species
+979641	Camaroptera brachyura	ba260092-b4ab-43e8-86a9-1bf4de45c442	Camaroptera brevicaudata	merge	a_merge	Camaroptera brachyura	0	eBird counts it as a group of Camaroptera brachyura
+979744	Kurochkinegramma hypogrammicum	0a41ca2d-f9b7-45f9-b59c-fb864132aa8f	Hypogramma hypogrammicum	keep	owner		0	keeps the taxon: the most recorded
+979744	Kurochkinegramma hypogrammicum	c3e460d6-b9fb-456f-9bdb-cccb30beeaaf	Arachnothera hypogrammicum	unlink	review		0	neither name is an eBird species
+979837	Oreolais pulcher	80af2db3-ba71-40d1-86de-c1dd25c8265c	Oreolais pulcher	keep	owner		2	keeps the taxon: the only one eBird accepts as a species
+979837	Oreolais pulcher	a448b766-d93e-41b8-afda-2361199cdbbf	Oreolais pulchra	merge	c	Oreolais pulcher	2	not an eBird species; iNaturalist treats it as Oreolais pulcher
+990457	Eothenomys eleusis	7a6ae941-5eea-4c5d-b24d-472c401365b1	Eothenomys miletus	keep	owner		1	keeps the taxon: the only one Catalogue of Life accepts as a species
+990457	Eothenomys eleusis	19fac3aa-baad-4039-966a-749f6f8af76d	Eothenomys eleusis	unlink	review		1	Catalogue of Life names it Eothenomys melanogaster
+1242468	Chinchaysuyoa labiata	87170de6-d1c5-48dd-9d9c-b0c424b49b2f	Chinchaysuyoa labiata	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+1242468	Chinchaysuyoa labiata	3f6506c4-eea5-4f29-a282-1e370b4ac42d	Hexanematichthys henni	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Chinchaysuyoa labiata
+1289434	Gypsophila crassa	c7768dca-249b-47f2-a20e-c2a3b0d75138	Napothera crassa	keep	owner		1	keeps the taxon: the most recorded
+1289434	Gypsophila crassa	7d413c5a-56d0-42d4-99e1-8b5a0519ca2f	Turdinus crassus	unlink	review		1	neither name is an eBird species
+1289442	Erythrogenys erythrogenys	3505f150-d36c-4514-8516-d59ff0c54a8c	Pomatorhinus erythrogenys	keep	owner		3	keeps the taxon: the most recorded
+1289442	Erythrogenys erythrogenys	0f0a85ea-dc98-466c-a29c-2a8311af6789	Megapomatorhinus erythrogenys	unlink	review		3	neither name is an eBird species
+1289504	Helopsaltes fasciolatus	1685bc80-6d55-4ef3-8f25-7a97047cc774	Helopsaltes fasciolatus	keep	owner		1	keeps the taxon: the only one eBird accepts as a species
+1289504	Helopsaltes fasciolatus	deba770b-7a3b-42a3-9299-e5cc69a7770f	Locustella fasciolata	merge	c	Helopsaltes fasciolatus	1	not an eBird species; iNaturalist treats it as Helopsaltes fasciolatus
+1313512	Pycnochromis pacifica	7da22b6a-cacc-44a5-af70-85ebd1f7f987	Pycnochromis pacifica	keep	owner		7	keeps the taxon: named as iNaturalist names the taxon
+1313512	Pycnochromis pacifica	dc6cebc0-ae97-4309-bd3d-068ed409010d	Chromis pacifica	merge	c	Pycnochromis pacifica	7	a spelling or genus variant of Pycnochromis pacifica
+1315546	Chaetostoma platyrhynchus	1ffd7f67-f2ed-440e-871d-47ff78ee9926	Cordylancistrus platyrhynchus	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+1315546	Chaetostoma platyrhynchus	7b84ac71-8fb5-4295-86e3-e62eb53a4a8d	Chaetostoma platyrhynchus	merge	c	Cordylancistrus platyrhynchus	0	a spelling or genus variant of Cordylancistrus platyrhynchus
+1315869	Trichosomus trachinoides	638272b6-5e45-4418-9572-9226eff4c5d9	Trichosomus trachinoides	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+1315869	Trichosomus trachinoides	11519691-5f38-477b-acc7-e0dfa0dfee1a	Vespicula trachinoides	merge	c	Trichosomus trachinoides	1	a spelling or genus variant of Trichosomus trachinoides
+1315883	Lebiasina erythrinoides	bbff4242-fd33-4b50-b116-241437bceab6	Piabucina erythrinoides	keep	owner		1	keeps the taxon: the most recorded
+1315883	Lebiasina erythrinoides	cba38789-ecb0-4b7f-ac35-45976d411935	Piabucina pleurotaenia	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Lebiasina erythrinoides
+1315914	Eretmobrycon emperador	9aa2679c-25a7-4134-8955-5a2a6a3de920	Bryconamericus emperador	keep	owner		1	keeps the taxon: the most recorded
+1315914	Eretmobrycon emperador	3fe5001e-ffde-4f5b-b339-03b6a399d91b	Bryconamericus zeteki	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Eretmobrycon emperador
+1316138	Misgurnus dabryanus	359482e2-e75d-4a30-bea9-40b0fd18d7ff	Misgurnus mizolepis	keep	owner		5	keeps the taxon: the most recorded
+1316138	Misgurnus dabryanus	7a1ec0a4-b166-453d-8b63-d7de74e15a49	Paramisgurnus dabryanus	unlink	a_keep		5	Catalogue of Life accepts it as a species; iNaturalist lumps it into Misgurnus dabryanus
+1316369	Hemibrycon caucanus	ef0bdcfc-0cfc-48a4-9c9c-31a6ce7df000	Hemibrycon caucanus	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+1316369	Hemibrycon caucanus	09a912e9-8374-4c37-94bb-3fe9fcc62191	Bryconamericus caucanus	merge	c	Hemibrycon caucanus	1	a spelling or genus variant of Hemibrycon caucanus
+1364829	Melanocichla calva	e2d8c869-662b-467c-946d-f132fd09600f	Melanocichla calva	keep	owner		0	keeps the taxon: the only one eBird accepts as a species
+1364829	Melanocichla calva	55b35bbf-deb3-4cd7-a04b-938458a1824a	Garrulax calvus	merge	c	Melanocichla calva	0	not an eBird species; iNaturalist treats it as Melanocichla calva
+1367260	Lycodon fasciolatus	53466ba4-dca9-4730-bd9e-d0bfcb58f948	Lycodon fasciolatus	keep	owner		3	keeps the taxon: the only one Catalogue of Life accepts as a species
+1367260	Lycodon fasciolatus	f4520e6e-9b49-4b1e-8397-50f635d6bc3e	Argyrogena fasciolata	merge	c	Lycodon fasciolatus	3	Catalogue of Life and iNaturalist both treat it as Lycodon fasciolatus
+1416326	Sarcocheilichthys sciistius	a89dff5f-7800-4b8d-af98-825f96157584	Sarcocheilichthys czerskii	keep	owner		6	keeps the taxon: the most recorded
+1416326	Sarcocheilichthys sciistius	9ded8ef0-e8af-4b3d-bfce-feb5d1c39b86	Sarcocheilichthys soldatovi	unlink	a_keep		6	Catalogue of Life accepts it as a species; iNaturalist lumps it into Sarcocheilichthys sciistius
+1439280	Echidnocerus cibarius	ad3f90fa-edf5-48bd-abaa-197771b6936e	Echidnocerus cibarius	keep	owner		1	keeps the taxon: named as iNaturalist names the taxon
+1439280	Echidnocerus cibarius	95dfbeff-7c31-43e7-b4df-5eeda2529127	Lopholithodes mandtii	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Echidnocerus cibarius
+1453466	Castoria angustidens	edbde77a-3afb-4e5d-87be-0eaa56943409	Castoria angustidens	keep	owner		3	keeps the taxon: named as iNaturalist names the taxon
+1453466	Castoria angustidens	7633e57f-b312-49e7-beb1-09ee267dbedd	Akodon serrensis	unlink	a_keep		3	Catalogue of Life accepts it as a species; iNaturalist lumps it into Castoria angustidens
+1505888	Psephotellus varius	82c224a5-8f83-493f-b258-7025792e1fb1	Psephotellus varius	keep	owner		1	keeps the taxon: the only one eBird accepts as a species
+1505888	Psephotellus varius	70218b08-f69e-4062-8d8d-86b147c7ef3e	Psephotus varius	merge	c	Psephotellus varius	1	not an eBird species; iNaturalist treats it as Psephotellus varius
+1506152	Anthus chii	dfb90966-1d38-4f54-9be7-af15106d58d8	Anthus chii	keep	owner		1	keeps the taxon: the only one eBird accepts as a species
+1506152	Anthus chii	a66f764b-0aec-4f7a-a40d-a19bcba9f646	Anthus lutescens	merge	c	Anthus chii	1	not an eBird species; iNaturalist treats it as Anthus chii
+1506947	Chloropsis moluccensis	3e35ecc9-ea19-4f5f-a1e5-4dff771b99b2	Chloropsis cochinchinensis	relink	b	12011	0	iNaturalist has it as taxon 12011
+1506947	Chloropsis moluccensis	11c80792-6ddc-41f3-9995-81d2729384f6	Chloropsis moluccensis	keep	owner		0	keeps the taxon: the only one eBird accepts as a species
+1508365	Sphoeroides asellus	82086cfc-4c33-458d-9e69-2f4c8a0b231f	Colomesus asellus	keep	owner		0	keeps the taxon: the most recorded
+1508365	Sphoeroides asellus	f9b08ff8-8e3f-4e87-a986-f9845c48b4ca	Colomesus tocantinensis	unlink	review		0	Catalogue of Life names it Sphoeroides tocantinensis
+1513842	Saxatilia brasiliensis	6b84c3fe-0171-4f6d-8ba3-33c704800eea	Crenicichla brasiliensis	keep	owner		1	keeps the taxon: iNaturalist's name for the taxon is its synonym
+1513842	Saxatilia brasiliensis	e4789bfd-9d18-4d12-9ba9-bb93e44c0e8a	Crenicichla menezesi	unlink	a_keep		1	Catalogue of Life accepts it as a species; iNaturalist lumps it into Saxatilia brasiliensis
+1556557	Moolgarda tade	989dfd74-a0f7-4cac-bf99-63adfb3783c5	Crenimugil buchanani	keep	owner		4	keeps the taxon: the most recorded
+1556557	Moolgarda tade	d58b97be-55c5-4f15-923b-8a102a327e3b	Planiliza tade	unlink	a_keep		4	Catalogue of Life accepts it as a species; iNaturalist lumps it into Moolgarda tade
+1556594	Myliobatis tenuicaudata	728490aa-103c-45ea-8a27-66509f5b6f6a	Myliobatis tenuicaudatus	keep	owner		0	keeps the taxon: the most recorded
+1556594	Myliobatis tenuicaudata	ee657408-b60f-40d4-94b8-5aa2a256dd3a	Myliobatis australis	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Myliobatis tenuicaudata
+1561498	Systomus rubripinnis	5fcec07b-4f84-4e99-8cb0-cbd665ba6e17	Systomus rubripinnis	keep	owner		0	keeps the taxon: named as iNaturalist names the taxon
+1561498	Systomus rubripinnis	26de8720-49c8-4a67-8d53-3d1e35edad4c	Systomus orphoides	unlink	a_keep		0	Catalogue of Life accepts it as a species; iNaturalist lumps it into Systomus rubripinnis
+1585900	Cossyphicula isabellae	bbfa657e-c28d-4ea5-987b-a3abf9d0bc7b	Cossyphicula isabellae	keep	owner		1	keeps the taxon: the only one eBird accepts as a species
+1585900	Cossyphicula isabellae	3ce7fb64-7b6b-4127-8cc0-82fee9134770	Cossypha isabellae	merge	c	Cossyphicula isabellae	1	not an eBird species; iNaturalist treats it as Cossyphicula isabellae
+1585912	Dessonornis caffer	3b04e0da-4066-4fab-9134-a29e52746328	Dessonornis caffer	keep	owner		0	keeps the taxon: the only one eBird accepts as a species
+1585912	Dessonornis caffer	5e307eb5-2ed0-450b-a434-8322fde24281	Cossypha caffra	merge	c	Dessonornis caffer	0	not an eBird species; iNaturalist treats it as Dessonornis caffer
+1650431	Megaloprepia formosa	24adea45-d7a1-4c6e-bc40-ca7dc0bcb38e	Megaloprepia formosa	keep	owner		5	keeps the taxon: the only one eBird accepts as a species
+1650431	Megaloprepia formosa	3ee431ef-e960-41fc-8ff7-bb007c013276	Ptilinopus bernsteinii	merge	c	Megaloprepia formosa	5	not an eBird species; iNaturalist treats it as Megaloprepia formosa
+1713187	Flammeo marianus	26558246-c63a-4e03-8f29-c250d517858a	Neoniphon marianus	keep	owner		0	keeps the taxon: the only one Catalogue of Life accepts as a species
+1713187	Flammeo marianus	063fa1f3-a8a6-460a-b5f8-768cedf76537	Flammeo marianus	merge	c	Neoniphon marianus	0	a spelling or genus variant of Neoniphon marianus

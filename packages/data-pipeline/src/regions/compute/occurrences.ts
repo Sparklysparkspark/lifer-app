@@ -1,11 +1,10 @@
 // Builds a region's checklist from GBIF (plus iNaturalist for membership). Used only by the
 // pack-building scripts; the app itself reads checklists from downloaded packs. It writes
-// membership, frequency, seasonality and vagrant flags only: local tiers belong to the refresh
+// membership, frequency and vagrant flags only: local tiers belong to the refresh
 // tiers stage (compute-local-tiers.ts).
 import { pool, withTransaction } from "@lifer/core/db.js";
 import {
   fetchSpeciesCountsForRegion,
-  fetchMonthlySeasonality,
   fetchYearCountsForSpecies,
   fetchYearlyRecordCounts,
   passesRecurrenceCheck,
@@ -118,11 +117,6 @@ export async function computeRegionOccurrences(region: {
     const globalCount = await fetchGlobalOccurrenceCount(c.gbifKey);
     if (!looksLikeGeographicOutlier(c.recordCount, globalCount)) fishCounts.push(c);
   }
-  const [birdMammalSeasonality, fishSeasonality] = await Promise.all([
-    fetchMonthlySeasonality(code, BIRD_MAMMAL_TAXON_KEYS),
-    fetchMonthlySeasonality(code, fishKeys, FISH_YEARS_WINDOW, false),
-  ]);
-  const seasonality = new Map([...birdMammalSeasonality, ...fishSeasonality]);
 
   // A fish leaves the default list only if a nearby sea zone's checklist has it too (a habitat
   // guess breaks on salt lakes). That removes reef fish the `country` match let in.
@@ -312,16 +306,14 @@ export async function computeRegionOccurrences(region: {
             const gbifKey = row.gbif_key != null ? Number(row.gbif_key) : null;
             const match = gbifKey != null ? byGbifKey.get(gbifKey) : undefined;
             await client.query(
-              `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, is_vagrant)
-             VALUES ($1,$2,$3,$4,$5)
+              `INSERT INTO region_species (region_id, species_id, local_frequency, is_vagrant)
+             VALUES ($1,$2,$3,$4)
              ON CONFLICT (region_id, species_id) DO UPDATE SET
-               local_frequency = EXCLUDED.local_frequency, seasonality = EXCLUDED.seasonality,
-               is_vagrant = EXCLUDED.is_vagrant`,
+               local_frequency = EXCLUDED.local_frequency, is_vagrant = EXCLUDED.is_vagrant`,
               [
                 regionId,
                 row.id,
                 match?.recordCount ?? 0,
-                match ? (seasonality.get(match.gbifKey) ?? null) : null,
                 match ? (isVagrantByGbifKey.get(match.gbifKey) ?? false) : false,
               ],
             );
@@ -334,18 +326,11 @@ export async function computeRegionOccurrences(region: {
           const speciesId = speciesIdRes.rows[0]?.id;
           if (!speciesId) continue;
           await client.query(
-            `INSERT INTO region_species (region_id, species_id, local_frequency, seasonality, is_vagrant)
-           VALUES ($1,$2,$3,$4,$5)
+            `INSERT INTO region_species (region_id, species_id, local_frequency, is_vagrant)
+           VALUES ($1,$2,$3,$4)
            ON CONFLICT (region_id, species_id) DO UPDATE SET
-             local_frequency = EXCLUDED.local_frequency, seasonality = EXCLUDED.seasonality,
-             is_vagrant = EXCLUDED.is_vagrant`,
-            [
-              regionId,
-              speciesId,
-              c.recordCount,
-              seasonality.get(c.gbifKey) ?? null,
-              isVagrantByGbifKey.get(c.gbifKey) ?? false,
-            ],
+             local_frequency = EXCLUDED.local_frequency, is_vagrant = EXCLUDED.is_vagrant`,
+            [regionId, speciesId, c.recordCount, isVagrantByGbifKey.get(c.gbifKey) ?? false],
           );
         }
       }

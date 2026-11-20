@@ -82,8 +82,8 @@ async function writeGlobalTiers(tiers: GlobalTier[]) {
     const b = tiers.slice(i, i + BATCH);
     // species_rarity.tier has no NULL: an unrated species is 'unrated', with the reason alongside.
     await pool.query(
-      // The old percentile scores (range_score, abundance_score, composite) are required columns;
-      // a species new to the catalog starts them at 0, and they no longer decide anything.
+      // The old percentile scores (range_score, abundance_score, composite) decide nothing. Written
+      // as 0 so this still runs on a database that hasn't had migration 153 (nullable) yet.
       `INSERT INTO species_rarity (species_id, range_score, abundance_score, composite, tier, tier_reason, tier_explain, computed_at)
        SELECT id, 0, 0, 0, COALESCE(tier, 'unrated'), reason, explain::jsonb, now()
        FROM unnest($1::uuid[], $2::text[], $3::text[], $4::text[]) AS v(id, tier, reason, explain)

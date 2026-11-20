@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { articleUrlFromTitle, MAX_BULLETS, toStoredNotes } from "./speciesNotes.js";
+import type { Pool } from "pg";
+import { articleUrlFromTitle, loadNotes, MAX_BULLETS, NOTES_CREDIT, toStoredNotes } from "./speciesNotes.js";
 
 describe("toStoredNotes", () => {
   it("keeps headings and bullet text, drops citations, and links the article", () => {
@@ -17,6 +18,7 @@ describe("toStoredNotes", () => {
         { heading: "Habitat", bullets: ["Montane forest edges, 1,000-2,500 m."] },
         { heading: "Feeding", bullets: ["Hovers at tubular flowers."] },
       ],
+      credit: "Wikipedia contributors (CC BY-SA)",
       source_url: "https://en.wikipedia.org/wiki/Emerald-chinned_hummingbird",
       revision_id: 1351091127,
     });
@@ -47,7 +49,12 @@ describe("toStoredNotes", () => {
         title: null,
         revid: null,
       }),
-    ).toEqual({ sections: [{ heading: "Feeding", bullets: ["Grazes algae."] }], source_url: null, revision_id: null });
+    ).toEqual({
+      sections: [{ heading: "Feeding", bullets: ["Grazes algae."] }],
+      credit: NOTES_CREDIT,
+      source_url: null,
+      revision_id: null,
+    });
   });
 
   it("returns null when nothing usable is left", () => {
@@ -59,5 +66,19 @@ describe("articleUrlFromTitle", () => {
   it("encodes the title the way Wikipedia links it", () => {
     expect(articleUrlFromTitle("Grey's mudsnake")).toBe("https://en.wikipedia.org/wiki/Grey's_mudsnake");
     expect(articleUrlFromTitle("Vicuña")).toBe("https://en.wikipedia.org/wiki/Vicu%C3%B1a");
+  });
+});
+
+describe("loadNotes credit", () => {
+  it("refuses notes with no article to credit, before any query", async () => {
+    const db = { query: () => Promise.reject(new Error("no queries expected")) } as unknown as Pool;
+    const notes = {
+      "11111111-1111-1111-1111-111111111111": {
+        sections: [{ heading: "Habitat", bullets: [{ text: "Forest." }] }],
+        title: null,
+        revid: null,
+      },
+    };
+    await expect(loadNotes(db, "summary_notes", notes)).rejects.toThrow(/no article title to credit/);
   });
 });

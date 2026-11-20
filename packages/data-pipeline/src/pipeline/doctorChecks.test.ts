@@ -9,6 +9,7 @@ import {
   checkPgDump,
   checkPostgis,
   checkShm,
+  checkSnapshot,
   formatBytes,
   formatReport,
   GIB,
@@ -223,5 +224,17 @@ describe("checkDataReleaseFlags", () => {
 
   it("skips when gh can't list releases", () => {
     expect(checkDataReleaseFlags(null).status).toBe("skip");
+  });
+});
+
+describe("checkSnapshot", () => {
+  const now = new Date("2026-10-20T12:00:00Z");
+  const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000);
+  it("passes a recent dump, warns on an old one or none", () => {
+    expect(checkSnapshot({ file: "a.dump", at: daysAgo(3) }, now).status).toBe("pass");
+    const old = checkSnapshot({ file: "a.dump", at: daysAgo(45) }, now);
+    expect(old.status).toBe("warn");
+    expect(old.detail).toContain("45 days old");
+    expect(checkSnapshot(null, now).status).toBe("warn");
   });
 });

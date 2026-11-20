@@ -52,5 +52,40 @@
     "scientificName": "Microctenopoma ansorgii",
     "reason": "Native to the Congo basin in both Congos.",
     "endemicCountry": null
+  },
+  {
+    "scientificName": "Lama glama",
+    "reason": "The domestic llama. Guanaco is Lama guanicoe, a catalog species of its own.",
+    "commonName": "Llama"
+  },
+  {
+    "scientificName": "Bos frontalis",
+    "reason": "The domestic gayal (mithun). Gaur is Bos gaurus, a catalog species of its own.",
+    "commonName": "Gayal"
+  },
+  {
+    "scientificName": "Narcine brasiliensis",
+    "reason": "Lesser Electric Ray is Narcine bancroftii; this south-west Atlantic species is the Brazilian Electric Ray (Carvalho 1999).",
+    "commonName": "Brazilian Electric Ray"
+  },
+  {
+    "scientificName": "Carcharhinus leucas",
+    "reason": "The name source picked a regional Australian nickname over the standard English name.",
+    "commonName": "Bull Shark"
+  },
+  {
+    "scientificName": "Alopias vulpinus",
+    "reason": "The name source picked a regional nickname over the standard English name.",
+    "commonName": "Common Thresher"
+  },
+  {
+    "scientificName": "Dalatias licha",
+    "reason": "The name source picked a regional nickname over the standard English name.",
+    "commonName": "Kitefin Shark"
+  },
+  {
+    "scientificName": "Gallinula galeata",
+    "reason": "The row had no common name while stored under its misspelt subspecies name.",
+    "commonName": "Common Gallinule"
   }
 ]

@@ -1,0 +1,333 @@
+{
+  "renames": [
+    {
+      "from": "Urolophus halleri",
+      "to": "Urobatis halleri",
+      "reason": "Round Stingray's current name (Catalog of Fishes); the catalog row still used the old genus."
+    },
+    {
+      "from": "Gallinula sanvicensis",
+      "to": "Gallinula galeata",
+      "reason": "This row is Common Gallinule (eBird comgal1, listed across the Americas) stored under a misspelling of the Hawaiian subspecies' name (sandvicensis)."
+    }
+  ],
+  "merges": [
+    "Urobatis sloani",
+    "Dasyatis hastata"
+  ],
+  "wrongCommonNames": [
+    {
+      "scientificName": "Urobatis sloani",
+      "commonName": "Round Stingray",
+      "reason": "Round Stingray is Urobatis halleri; cleared before the merge into Yellow Stingray so it never becomes an alias there."
+    }
+  ],
+  "replacedNames": [
+    {
+      "scientificName": "Saltator coerulescens",
+      "replacedBy": "Saltator grandis",
+      "reason": "Grayish Saltator was split; the Middle American birds are Cinnamon-bellied Saltator. The old name stays where it has its own records (South America)."
+    },
+    {
+      "scientificName": "Formicarius analis",
+      "replacedBy": "Formicarius moniliger",
+      "reason": "Black-faced Antthrush was split; the birds from south-east Mexico to Honduras are Mayan Antthrush. The old name stays where it has its own records."
+    }
+  ],
+  "rangeExclusions": [
+    {
+      "scientificName": "Narcine brasiliensis",
+      "keepZones": [
+        "Brazilian part of the South Atlantic Ocean",
+        "Argentinian part of the South Atlantic Ocean",
+        "Uruguayan part of the South Atlantic Ocean"
+      ],
+      "keepCountries": [
+        "BRA",
+        "URY",
+        "ARG"
+      ],
+      "reason": "Brazilian Electric Ray lives from Espirito Santo (Brazil) to Argentina. Records further north are Lesser Electric Ray (Narcine bancroftii), identified before the 1999 split."
+    },
+    {
+      "scientificName": "Dasyatis pastinaca",
+      "dropZones": [
+        "Caribbean Sea",
+        "Gulf of Mexico"
+      ],
+      "dropCountries": [
+        "USA"
+      ],
+      "reason": "Common Stingray is an eastern Atlantic and Mediterranean species; western Atlantic records are misapplied names."
+    },
+    {
+      "scientificName": "Myliobatis aquila",
+      "dropZones": [
+        "Caribbean Sea"
+      ],
+      "dropCountries": [
+        "USA",
+        "CYM"
+      ],
+      "reason": "Common Eagle Ray is an eastern Atlantic, Mediterranean and western Indian Ocean species; western Atlantic records are misapplied names."
+    },
+    {
+      "scientificName": "Rhynchobatus pristinus",
+      "dropZones": [
+        "Caribbean Sea"
+      ],
+      "reason": "An eastern Atlantic wedgefish; no Rhynchobatus lives in the western Atlantic."
+    },
+    {
+      "scientificName": "Galeocerdo acanthodon",
+      "keepZones": [],
+      "keepCountries": [],
+      "reason": "A Miocene fossil tiger shark, not a living species."
+    },
+    {
+      "scientificName": "Kyphosus lutescens",
+      "keepBasins": [
+        "indo-pacific"
+      ],
+      "reason": "An eastern Pacific sea chub; its Atlantic listings come from records iNaturalist files under Bermuda Chub."
+    },
+    {
+      "scientificName": "Kyphosus pacificus",
+      "keepBasins": [
+        "indo-pacific"
+      ],
+      "reason": "A Pacific sea chub; its Atlantic listings come from records iNaturalist files under Bermuda Chub."
+    },
+    {
+      "scientificName": "Carcharhinus melanopterus",
+      "keepBasins": [
+        "indo-pacific"
+      ],
+      "reason": "Blacktip Reef Shark is an Indo-Pacific reef shark; Atlantic records (Faroes, Caribbean) are aquarium animals or data errors."
+    },
+    {
+      "scientificName": "Carcharhinus amblyrhynchos",
+      "keepBasins": [
+        "indo-pacific"
+      ],
+      "reason": "Grey Reef Shark is an Indo-Pacific reef shark; Atlantic records (Faroes) are aquarium animals or data errors."
+    },
+    {
+      "scientificName": "Gonichthys tenuiculus",
+      "keepBasins": [
+        "indo-pacific"
+      ],
+      "reason": "Slendertail Lanternfish is an eastern Pacific species (California to Chile); the Atlantic lanternfish of this genus is Cocco's Lanternfish."
+    },
+    {
+      "scientificName": "Hygophum atratum",
+      "keepBasins": [
+        "indo-pacific"
+      ],
+      "reason": "Thickhead Lanternfish lives in the eastern Pacific; nearly all its records are off Mexico and in the Gulf of California."
+    },
+    {
+      "scientificName": "Bathophilus filifer",
+      "keepBasins": [
+        "indo-pacific"
+      ],
+      "reason": "An eastern Pacific dragonfish (Mexico to Peru); the Atlantic has its own Bathophilus species."
+    },
+    {
+      "scientificName": "Myctophum aurolaternatum",
+      "keepBasins": [
+        "indo-pacific"
+      ],
+      "reason": "Golden Lanternfish is an Indo-Pacific species; its records run from the eastern Pacific to the western Indian Ocean."
+    },
+    {
+      "scientificName": "Nezumia stelgidolepis",
+      "keepBasins": [
+        "indo-pacific"
+      ],
+      "reason": "California Grenadier lives along the Pacific coast of the Americas."
+    },
+    {
+      "scientificName": "Talismania bifurcata",
+      "keepBasins": [
+        "indo-pacific"
+      ],
+      "reason": "Threadfin Slickhead is a north-east Pacific species (Gulf of Alaska to the Gulf of California)."
+    },
+    {
+      "scientificName": "Galeus piperatus",
+      "keepBasins": [
+        "indo-pacific"
+      ],
+      "reason": "Peppered Catshark is endemic to the Gulf of California and nearby Pacific waters."
+    },
+    {
+      "scientificName": "Gigantactis paxtoni",
+      "keepBasins": [
+        "indo-pacific"
+      ],
+      "reason": "Paxton's Whipnose is known from the south-west Pacific (Australia and New Zealand)."
+    },
+    {
+      "scientificName": "Chascanopsetta crumenalis",
+      "keepBasins": [
+        "indo-pacific"
+      ],
+      "reason": "A Pacific flounder known mostly from Hawaii; the Atlantic species of the genus is Pelican Flounder."
+    },
+    {
+      "scientificName": "Etmopterus schultzi",
+      "keepBasins": [
+        "atlantic"
+      ],
+      "reason": "Fringefin Lanternshark lives in the Gulf of Mexico and the Caribbean; its one Pacific record is across the Panama isthmus."
+    }
+  ],
+  "flagOverrides": [
+    {
+      "scientificName": "Nyctinomops laticaudatus",
+      "country": "BLZ",
+      "isVagrant": false,
+      "reason": "Resident bat in Belize; few records because bats are rarely photographed, not because it strays."
+    },
+    {
+      "scientificName": "Glossophaga leachii",
+      "country": "BLZ",
+      "isVagrant": false,
+      "reason": "Resident bat in Belize; few records because bats are rarely photographed, not because it strays."
+    },
+    {
+      "scientificName": "Myotis pilosatibialis",
+      "country": "BLZ",
+      "isVagrant": false,
+      "reason": "Resident bat in Belize; few records because bats are rarely photographed, not because it strays."
+    },
+    {
+      "scientificName": "Molossus sinaloae",
+      "country": "BLZ",
+      "isVagrant": false,
+      "reason": "Resident bat in Belize; few records because bats are rarely photographed, not because it strays."
+    },
+    {
+      "scientificName": "Meleagris gallopavo",
+      "country": "BLZ",
+      "isInvasive": true,
+      "reason": "Belize's wild turkey is the Ocellated Turkey; Wild Turkey records there are domestic birds."
+    },
+    {
+      "scientificName": "Melopsittacus undulatus",
+      "country": "BLZ",
+      "isInvasive": true,
+      "reason": "An Australian cage bird; Belize records are escapes."
+    }
+  ],
+  "basinAllow": [
+    {
+      "scientificName": "Salvelinus alpinus",
+      "reason": "Arctic Char is circumpolar and native in Alaska and the Bering Sea."
+    },
+    {
+      "scientificName": "Oncorhynchus gorbuscha",
+      "reason": "Pink Salmon from the White Sea introductions now run in Norway and the North Sea."
+    },
+    {
+      "scientificName": "Carcharhinus amboinensis",
+      "reason": "FishBase lists the eastern Atlantic (Nigeria) as part of Pigeye Shark's range."
+    },
+    {
+      "scientificName": "Poecilia latipinna",
+      "reason": "Sailfin Molly is established in Hawaii's brackish waters."
+    },
+    {
+      "scientificName": "Lucania parva",
+      "reason": "Rainwater Killifish is established in California."
+    },
+    {
+      "scientificName": "Chlorophthalmus agassizi",
+      "reason": "FishBase: circumglobal in temperate and tropical seas."
+    },
+    {
+      "scientificName": "Notopogon lilliei",
+      "reason": "FishBase: Tristan da Cunha and Gough Island are part of its range."
+    },
+    {
+      "scientificName": "Allothunnus fallai",
+      "reason": "FishBase: circumglobal in the Southern Ocean."
+    },
+    {
+      "scientificName": "Holtbyrnia melanocephala",
+      "reason": "FishBase: eastern Atlantic off Morocco and Portugal."
+    },
+    {
+      "scientificName": "Kuronezumia bubonis",
+      "reason": "FishBase: western Atlantic, western Indian Ocean and Pacific."
+    },
+    {
+      "scientificName": "Mentodus facilis",
+      "reason": "FishBase: tropical and subtropical seas worldwide."
+    },
+    {
+      "scientificName": "Bathylychnops exilis",
+      "reason": "FishBase: eastern Atlantic off the Azores."
+    },
+    {
+      "scientificName": "Megacataetyx niki",
+      "reason": "FishBase: south-east Atlantic off the Cape."
+    },
+    {
+      "scientificName": "Cataetyx niki",
+      "reason": "FishBase (as Megacataetyx niki): south-east Atlantic off the Cape."
+    },
+    {
+      "scientificName": "Eschrichtius robustus",
+      "reason": "Gray Whales have been recorded in the Atlantic since 2010, so a real sighting should stay loggable from the list."
+    }
+  ],
+  "seaLinks": [
+    {
+      "zones": [
+        "Gulf of Suez",
+        "Mediterranean Sea - Eastern Basin"
+      ],
+      "reason": "The Suez Canal joins them: Red Sea fish are established in the eastern Mediterranean (Lessepsian migrants)."
+    }
+  ],
+  "additions": [
+    {
+      "scientificName": "Atractosteus tropicus",
+      "country": "BLZ",
+      "source": "FishBase Belize checklist (present), cross-checked in docs/plans/belize-data-audit.md",
+      "reason": "Tropical Gar: listed in Peten and Quintana Roo on both sides of Belize, with research-grade iNaturalist photos on the Rio Hondo border river."
+    },
+    {
+      "scientificName": "Thorichthys affinis",
+      "country": "BLZ",
+      "source": "FishBase Belize checklist (present), cross-checked in docs/plans/belize-data-audit.md",
+      "reason": "Listed in Peten and Quintana Roo, with a research-grade iNaturalist photo on the Mopan at the Belize border."
+    },
+    {
+      "scientificName": "Phallichthys fairweatheri",
+      "country": "BLZ",
+      "source": "FishBase Belize checklist (present), cross-checked in docs/plans/belize-data-audit.md",
+      "reason": "Picotee Livebearer: listed in Peten and Quintana Roo, which border Belize."
+    },
+    {
+      "scientificName": "Dorosoma anale",
+      "country": "BLZ",
+      "source": "FishBase Belize checklist (present), cross-checked in docs/plans/belize-data-audit.md",
+      "reason": "Mexican River Gizzard Shad: listed in Peten, which borders Belize."
+    },
+    {
+      "scientificName": "Carlhubbsia stuarti",
+      "country": "BLZ",
+      "source": "FishBase Belize checklist (present), cross-checked in docs/plans/belize-data-audit.md",
+      "reason": "Barred Livebearer: listed in Izabal, which borders Toledo."
+    },
+    {
+      "scientificName": "Poecilia teresae",
+      "country": "BLZ",
+      "source": "FishBase Belize checklist (present), cross-checked in docs/plans/belize-data-audit.md",
+      "reason": "Mountain Molly: described from the Maya Mountains of Belize; no Lifer list had it."
+    }
+  ]
+}

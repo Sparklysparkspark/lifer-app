@@ -15,10 +15,8 @@
 // byte-stable across runs.
 //
 // Usage: DATABASE_URL=postgres://... npx tsx packages/data-pipeline/src/scripts/build-catalog-seed.ts <outputPath.sql.gz>
-// After running, publish the seed, every vector asset, then the manifest last, to the
-// catalog-latest release (or run the catalog-seed.yml workflow, which does this for you):
-//   gh release upload catalog-latest <outputPath> <dir>/*.bin.gz --clobber
-//   gh release upload catalog-latest <dir>/catalog-manifest.json --clobber
+// `refresh --publish` builds, verifies and publishes it; scripts/publish-catalog-seed.ts <dir>
+// publishes a folder built by hand.
 import { createHash } from "node:crypto";
 import { createGzip } from "node:zlib";
 import { createReadStream, createWriteStream, statSync, writeFileSync } from "node:fs";
@@ -39,6 +37,7 @@ import {
   createSeedExportSchema,
   dropSeedExportSchema,
   dumpSeedSchema,
+  lockSeedExport,
 } from "../pipeline/catalogSeedExport.js";
 
 // Installers bundle the seed, and NSIS can't exceed 2GB (the installer is about 350 MB). Catch a
@@ -189,6 +188,7 @@ async function main() {
     process.exit(1);
   }
   await assertPhotosPublishable(pool);
+  const unlock = await lockSeedExport(pool);
 
   try {
     await createSeedExportSchema(pool);
@@ -278,6 +278,7 @@ async function main() {
     console.log(`[build-catalog-seed] wrote ${manifestPath} (version ${version})`);
   } finally {
     await dropSeedExportSchema(pool);
+    await unlock();
     await pool.end();
   }
 }

@@ -27,7 +27,11 @@ describe("ebirdFormsByBinomial", () => {
     expect(forms.get("Setophaga auduboni")).toBe("yerwar");
   });
 
-  it("skips groups spanning several subspecies", () => {
-    expect(forms.size).toBe(1);
+  it("names a bracketed group after its namesake subspecies", () => {
+    expect(forms.get("Catharus auduboni")).toBe("herthr");
+  });
+
+  it("skips slash forms spanning several subspecies", () => {
+    expect(forms.size).toBe(2);
   });
 });

@@ -82,6 +82,33 @@ describe.skipIf(!url)("migrate", () => {
   );
 
   it(
+    "records each migration's sha256 and warns when an applied one has changed",
+    async () => {
+      const { name, db } = await freshDatabase("checksum");
+      try {
+        expect((await migrate(name)).code).toBe(0);
+        const [first, second] = [...migrationFiles].sort();
+        const hashed = await db.query(
+          `SELECT count(*)::int AS n FROM schema_migrations WHERE sha256 ~ '^[0-9a-f]{64}$'`,
+        );
+        expect(hashed.rows[0].n).toBe(migrationFiles.length);
+        // An edited migration, and a row from before the column existed.
+        await db.query(`UPDATE schema_migrations SET sha256 = 'edited' WHERE filename = $1`, [first]);
+        await db.query(`UPDATE schema_migrations SET sha256 = NULL WHERE filename = $1`, [second]);
+        const rerun = await migrate(name);
+        expect(rerun.code, rerun.output).toBe(0);
+        expect(rerun.output).toContain(`warn  ${first} changed after it was applied`);
+        expect(rerun.output).not.toContain(`warn  ${second}`);
+        const backfilled = await db.query(`SELECT sha256 FROM schema_migrations WHERE filename = $1`, [second]);
+        expect(backfilled.rows[0].sha256).toMatch(/^[0-9a-f]{64}$/);
+      } finally {
+        await db.end();
+      }
+    },
+    MIGRATE_TEST_TIMEOUT_MS,
+  );
+
+  it(
     "lets two servers starting at once share the work without applying anything twice",
     async () => {
       const { name, db } = await freshDatabase("concurrent");

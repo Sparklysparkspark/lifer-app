@@ -28,7 +28,7 @@
 //   of the taxon, from fetch-occurrence-stats.ts) rather than a live count of present records
 //   with a real basis of record, so it is a little higher and flags an outlier slightly sooner.
 import { spawn } from "node:child_process";
-import { readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,7 +46,9 @@ import { loadEezIhoFeatures } from "../fetch/fetch-eez-iho.js";
 import { ZonePolygonIndex } from "../build/zone-polygon-index.js";
 import { SeaZoneTally, decideZoneChecklist } from "../build/sea-zone-checklist.js";
 import { TsvClassFilter } from "../build/tsv-class-filter.js";
-import { zoneNeighbours } from "../build/zone-neighbours.js";
+import { exteriorRingsOf, zoneNeighbours } from "../build/zone-neighbours.js";
+import { assignBasins, landBridges } from "../build/sea-basins.js";
+import { FIXES_FILE, parseFixes } from "./fix-catalog-audit.js";
 import { isFreshwaterOrLandOnly } from "../pipeline/wormsEnvironment.js";
 
 const PIPELINE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -113,16 +115,6 @@ function parseArgs(argv: string[]): Options {
   };
   const concurrency = Number(argv.find((a) => a.startsWith("--concurrency="))?.slice(14) ?? DEFAULT_CONCURRENCY);
   return { apply: argv.includes("--apply"), zones: list("zones"), countries: list("countries"), concurrency };
-}
-
-// Each part's exterior ring only: an island (a hole in the outline) belongs to the sea around it,
-// and fish records on its shore often carry a point on land. With the holes cut out, agreement
-// with the live path's lists drops sharply around island-studded seas (Aegean, Andaman).
-function exteriorRingsOf(geometry: { type: string; coordinates: unknown } | null): Point[][] {
-  if (!geometry) return [];
-  if (geometry.type === "Polygon") return [(geometry.coordinates as Point[][])[0]];
-  if (geometry.type === "MultiPolygon") return (geometry.coordinates as Point[][][]).map((p) => p[0]);
-  return [];
 }
 
 /** Catalog species id per name, the catalog's own name winning over a synonym, as the province
@@ -204,8 +196,9 @@ async function main() {
   const started = Date.now();
   const elapsed = () => `${Math.round((Date.now() - started) / 1000)}s`;
 
-  const zonesRes = await pool.query<{ id: string; name: string }>(
-    `SELECT id, name FROM sea_zones WHERE $1::text[] IS NULL OR name = ANY($1) ORDER BY name`,
+  const zonesRes = await pool.query<{ id: string; name: string; minLat: number; maxLat: number }>(
+    `SELECT id, name, bbox_min_lat AS "minLat", bbox_max_lat AS "maxLat"
+     FROM sea_zones WHERE $1::text[] IS NULL OR name = ANY($1) ORDER BY name`,
     [opts.zones],
   );
   if (opts.zones) {
@@ -227,6 +220,14 @@ async function main() {
   const zoneRings = zones.map((z) => exteriorRingsOf(geometries.get(z.name)!));
   const index = new ZonePolygonIndex(zoneRings.map((rings) => ({ rings })));
   const neighbours = zoneNeighbours(zoneRings);
+  // A neighbour across a land bridge (Caribbean and Panama's Pacific coast) shares no fauna, so it
+  // never keeps a rare species here (fix-catalog-audit.ts applies the same rule to existing lists).
+  const linkNames = parseFixes(JSON.parse(readFileSync(FIXES_FILE, "utf8"))).seaLinks;
+  const at = new Map(zones.map((z, i) => [z.name, i]));
+  const seaLinks = new Set(
+    linkNames.flatMap(({ zones: [a, b] }) => (at.has(a) && at.has(b) ? [`${at.get(a)}|${at.get(b)}`] : [])),
+  );
+  const bridges = landBridges(zoneRings, assignBasins(zones, neighbours), neighbours, seaLinks);
   zoneRings.length = 0;
   geometries.clear();
   console.log(`[compute-sea-zones-offline] indexed ${zones.length} zone outline(s) (${elapsed()})`);
@@ -314,7 +315,9 @@ async function main() {
   for (const [zi, zone] of zones.entries()) {
     const establishedNearby = (speciesId: string) =>
       [...(neighbours.get(zi) ?? [])].some(
-        (nz) => (tally.byZone.get(nz)?.get(speciesId)?.recordCount ?? 0) > GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS,
+        (nz) =>
+          !bridges.has(`${zi}|${nz}`) &&
+          (tally.byZone.get(nz)?.get(speciesId)?.recordCount ?? 0) > GEOGRAPHIC_OUTLIER_MAX_LOCAL_RECORDS,
       );
     const checklist = await decideZoneChecklist(tally.byZone.get(zi) ?? new Map(), {
       ...baseInputs,

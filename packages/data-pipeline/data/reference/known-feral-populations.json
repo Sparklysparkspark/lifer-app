@@ -1,0 +1,80 @@
+[
+  {
+    "species": "Equus asinus",
+    "region": "Hawaii",
+    "country": "United States of America",
+    "reason": "Feral donkeys (the Kona Nightingales) have roamed the Big Island since the 19th century."
+  },
+  {
+    "species": "Equus asinus",
+    "region": "Queensland",
+    "country": "Australia",
+    "reason": "Part of Australia's feral donkey population, culled as a pest in the state's north and west."
+  },
+  {
+    "species": "Equus asinus",
+    "region": "Galápagos",
+    "country": "Ecuador",
+    "reason": "Feral donkeys on Isabela and Santa Cruz, targets of the islands' eradication programmes."
+  },
+  {
+    "species": "Equus caballus",
+    "region": "Galápagos",
+    "country": "Ecuador",
+    "reason": "Feral horses on Isabela, documented alongside the feral donkeys."
+  },
+  {
+    "species": "Apteryx owenii",
+    "region": "Southland",
+    "country": "New Zealand",
+    "reason": "The Chalky Island population in Fiordland, translocated for conservation and wild since."
+  },
+  {
+    "species": "Potamochoerus larvatus",
+    "region": "Madagascar",
+    "country": "Madagascar",
+    "reason": "Brought to Madagascar centuries ago and wild across the island since; few records only because few people record it."
+  },
+  {
+    "species": "Viverricula indica",
+    "region": "Tanzania",
+    "country": "Tanzania",
+    "reason": "Introduced long ago to Zanzibar, Pemba and the coast, and established there."
+  },
+  {
+    "species": "Suncus murinus",
+    "region": "Iraq",
+    "country": "Iraq",
+    "reason": "A commensal shrew established around the Gulf ports, Basra included."
+  },
+  {
+    "species": "Suncus murinus",
+    "region": "Tinian",
+    "country": "N. Mariana Is.",
+    "reason": "Established on the Mariana Islands since the Second World War."
+  },
+  {
+    "species": "Felis catus",
+    "region": "Archipel des Kerguelen",
+    "country": "Fr. S. Antarctic Lands",
+    "reason": "Feral cats, released in the 1950s, live wild across Grande Terre."
+  },
+  {
+    "species": "Felis catus",
+    "region": "Auckland Islands",
+    "country": "New Zealand",
+    "reason": "Feral cats on Auckland Island, the target of the Maukahuka pest-free programme."
+  },
+  {
+    "species": "Felis catus",
+    "region": "Christmas Island",
+    "country": "Indian Ocean Ter.",
+    "reason": "Feral cats across the island, managed under the island's cat eradication plan."
+  },
+  {
+    "species": "Equus asinus",
+    "region": "Ascension",
+    "country": "Saint Helena",
+    "reason": "Feral donkeys have roamed Ascension since the 19th century."
+  }
+]
