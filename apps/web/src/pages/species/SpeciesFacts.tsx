@@ -122,7 +122,8 @@ function CountList({ n, rows, i18nKey }: { n: number; rows: NamedCount[]; i18nKe
   }, [open]);
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  if (rows.length === 0) return <Count n={n} i18nKey={i18nKey} />;
+  const count = <Count n={n} i18nKey={i18nKey} />;
+  if (rows.length === 0) return count;
   const hoverOpen = (e: React.PointerEvent) => {
     if (e.pointerType !== "mouse") return;
     clearTimeout(timer.current);
@@ -150,7 +151,7 @@ function CountList({ n, rows, i18nKey }: { n: number; rows: NamedCount[]; i18nKe
         onPointerLeave={hoverClose}
         className="rounded-control underline decoration-dotted decoration-muted underline-offset-4 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
       >
-        <Count n={n} i18nKey={i18nKey} />
+        {count}
       </button>
       {open &&
         createPortal(
