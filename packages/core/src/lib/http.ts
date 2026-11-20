@@ -79,7 +79,7 @@ export function holdHost(host: string, ms: number): void {
 
 // Unpaced hosts aren't serialized (GBIF downloads run in parallel); they only wait out a hold.
 async function waitForHost(host: string, paceMs: number, signal?: AbortSignal): Promise<void> {
-  if (paceMs > 0) return paceHost(host, paceMs);
+  if (paceMs > 0) return untilAborted(paceHost(host, paceMs), signal);
   const wait = (heldUntilByHost.get(host) ?? 0) - Date.now();
   if (wait > 0) await sleep(wait, signal);
 }
@@ -89,6 +89,17 @@ export function resetHostPacing(): void {
   hostQueues.clear();
   lastCallAtByHost.clear();
   heldUntilByHost.clear();
+}
+
+// The shared queue keeps running for other callers; only this caller stops waiting.
+function untilAborted(turn: Promise<void>, signal?: AbortSignal): Promise<void> {
+  if (!signal) return turn;
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason);
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    turn.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -230,7 +241,9 @@ export async function httpFetch(url: string, opts: HttpOptions = {}): Promise<Re
       await sleep(backoff(attempt), opts.signal);
       continue;
     }
-    const retryAfter = retryAfterMs(res.headers.get("retry-after"));
+    // Capped so one server answer can't freeze every call to the host for hours.
+    const header = retryAfterMs(res.headers.get("retry-after"));
+    const retryAfter = header === null ? null : Math.min(header, maxMs);
     // Throttling holds the host for every caller in the process, final attempt included.
     if (res.status === 429) holdHost(host, retryAfter ?? backoff(attempt));
     const retryable = res.status === 429 || (opts.retryServerErrors === true && res.status >= 500);

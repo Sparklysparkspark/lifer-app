@@ -344,7 +344,7 @@ describe("accepted photo types", () => {
   });
 
   it("lists the type uploads are sent as first", () => {
-    // migrateToServer uploads with mimeTypes[0], so it has to be the standard name.
+    // uploadToServer uploads with mimeTypes[0], so it has to be the standard name.
     expect(Object.fromEntries(Object.entries(PHOTO_FORMATS).map(([f, info]) => [f, info.mimeTypes[0]]))).toEqual({
       jpeg: "image/jpeg",
       png: "image/png",

@@ -21,6 +21,26 @@ describe("createLimiter", () => {
     expect(results).toEqual([0, 1, 2, 3, 4, 5]);
   });
 
+  it("never exceeds max when new callers arrive while slots are being handed over", async () => {
+    const limit = createLimiter(2);
+    let active = 0;
+    let peak = 0;
+    const tick = () => Promise.resolve();
+    const task = async () => {
+      active++;
+      peak = Math.max(peak, active);
+      for (let i = 0; i < Math.floor(Math.random() * 3); i++) await tick();
+      active--;
+    };
+    const calls: Promise<void>[] = [];
+    for (let i = 0; i < 200; i++) {
+      calls.push(limit(task));
+      for (let j = 0; j < Math.floor(Math.random() * 4); j++) await tick();
+    }
+    await Promise.all(calls);
+    expect(peak).toBe(2);
+  });
+
   it("releases the slot when a task throws", async () => {
     const limit = createLimiter(1);
     await expect(

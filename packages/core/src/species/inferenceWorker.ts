@@ -70,6 +70,9 @@ export interface EmbedTarget {
   missingMessage: string;
   /** Crop to the detected animal first (suggestion-time vectors), else the whole photo. */
   crop: boolean;
+  /** Grey out the detected animal and read what's left (the background vector). Fails for a photo
+   *  with no animal found, or one the animal fills too much of to leave a background. */
+  maskSubject?: boolean;
 }
 
 export interface TextModelSpec {
@@ -86,6 +89,20 @@ export interface SubjectPresence {
   personArea: number;
   /** Best score for any animal class this detector knows (see ANIMAL_CLASS_INDICES). */
   animal: number;
+  /** Confident animal boxes left after NMS, of any animal class. */
+  count: number;
+}
+
+/** The subject box and light of one photo, for Gallery search by composition and light. */
+export interface PhotoFrame {
+  /** Best animal box [x1, y1, x2, y2] as fractions of the upright photo, or null. */
+  box: [number, number, number, number] | null;
+  unsure: boolean;
+  /** 0 to 1: how much to trust the box for framing (see SUBJECT_FRAMING_MIN). 0 with no box. */
+  confidence: number;
+  /** Upright width / height. */
+  aspect: number;
+  light: { luma: number; warmth: number; highlights: number; shadows: number; saturation: number };
 }
 
 export interface CardCrop {
@@ -107,6 +124,8 @@ export type InferenceRequest =
       cardCrop: boolean;
       /** Run detection (or reuse it) only to report subjectUnsure. */
       subject?: boolean;
+      /** Report the subject box and light stats (PhotoFrame). */
+      frame?: boolean;
     }
   | { op: "text"; texts: string[]; model: TextModelSpec; allowDownload: boolean }
   | {
@@ -135,6 +154,8 @@ export interface AnalyzeResult {
   cardCrop: CardCrop | null;
   /** Whether the detector was unsure of the subject (see DetectionOutcome), when it ran. */
   subjectUnsure: boolean | null;
+  /** With `frame`: the subject box and light stats. */
+  frame?: PhotoFrame | null;
 }
 
 export interface SceneResult {
@@ -170,10 +191,13 @@ const INTRA_OP_THREADS = Math.max(1, (os.availableParallelism?.() ?? os.cpus().l
 
 type Ort = typeof import("onnxruntime-node");
 let ortModule: Promise<Ort> | null = null;
-const ort = () =>
-  (ortModule ??= process.env.LIFER_ORT_MODULE
+const ort = () => {
+  // Lifer never phones home; onnxruntime-node's usage data is on unless disabled before loading.
+  process.env.ORT_DISABLE_TELEMETRY = "1";
+  return (ortModule ??= process.env.LIFER_ORT_MODULE
     ? Promise.resolve(createRequire(import.meta.url)(process.env.LIFER_ORT_MODULE) as Ort)
     : import("onnxruntime-node"));
+};
 
 interface SessionEntry {
   session: Promise<InferenceSession>;
@@ -254,6 +278,25 @@ function releaseSession(modelPath: string): void {
   for (const key of [...sessions.keys()]) if (key.startsWith(`${modelPath}|`)) releaseSessionKey(key);
 }
 
+/** Every output of one run, in session.outputNames order. */
+async function runOutputs(
+  session: InferenceSession,
+  input: Float32Array,
+  dims: number[],
+  hooks: RunHooks,
+  label: string,
+): Promise<Tensor[]> {
+  const { Tensor } = await ort();
+  const tensor = new Tensor("float32", input, dims);
+  hooks.runStarted(label);
+  try {
+    const results = await session.run({ [session.inputNames[0]]: tensor });
+    return session.outputNames.map((name) => results[name]);
+  } finally {
+    hooks.runEnded();
+  }
+}
+
 async function run(
   session: InferenceSession,
   input: Float32Array,
@@ -261,15 +304,7 @@ async function run(
   hooks: RunHooks,
   label: string,
 ): Promise<Tensor> {
-  const { Tensor } = await ort();
-  const tensor = new Tensor("float32", input, dims);
-  hooks.runStarted(label);
-  try {
-    const results = await session.run({ [session.inputNames[0]]: tensor });
-    return results[session.outputNames[0]];
-  } finally {
-    hooks.runEnded();
-  }
+  return (await runOutputs(session, input, dims, hooks, label))[0];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -352,13 +387,24 @@ const CARD_CROP_PADDING_FRACTION = 0.3;
 // @lifer/shared's MIN_CARD_CROP_PERCENT, repeated because this file imports nothing from the app
 // (a test checks the two match).
 export const MIN_CARD_CROP_PERCENT = 8;
-// bird, cat, dog, horse, sheep, cow, elephant, bear, zebra, giraffe (COCO order)
-const ANIMAL_CLASS_INDICES = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
+// The animal detector's one "animal" class (any animal at all), given an index past COCO's 80 so
+// both detectors' boxes share one numbering.
+const ANY_ANIMAL_CLASS_INDEX = 80;
+// bird, cat, dog, horse, sheep, cow, elephant, bear, zebra, giraffe (COCO order), and any animal
+const ANIMAL_CLASS_INDICES = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 23, ANY_ANIMAL_CLASS_INDEX]);
 const PERSON_CLASS_INDEX = 0;
+// The animal detector's classes (animal, person, vehicle) in that numbering; a vehicle counts as a car.
+const ANIMAL_DETECTOR_CLASSES = [ANY_ANIMAL_CLASS_INDEX, PERSON_CLASS_INDEX, 2];
 // A 640 px pass shrinks a large photo so much that a small bird vanishes. Overlapping 3x3 tiles
 // give it more pixels; tried only when the whole pass isn't confident.
 const TILE_GRID = 3;
 const TILE_OVERLAP = 0.25;
+// The animal detector already finds small subjects at 640 px, so it tiles only a photo with well over
+// that many pixels to give it (each of its passes costs several of the basic detector's).
+const ANIMAL_DETECTOR_TILE_MIN_SIDE = 2 * DETECT_SIZE;
+// Its clear subjects score 0.8 and up; below this the whole-frame pass is likely a guess, and a
+// small animal in a big photo is found more surely on the tiles.
+const ANIMAL_DETECTOR_TILE_BELOW = 0.5;
 
 export interface Detection {
   score: number;
@@ -408,11 +454,11 @@ async function letterbox(
   return { floats, scale, padX, padY };
 }
 
-/** Best box in one pass: the top animal-class box over ANIMAL_FLOOR, else the top box of any
- * class over CONF_THRESHOLD, else null. Only one box is ever needed, so no NMS. Coordinates are
- * in the 640 px letterboxed canvas. */
-function pickBestDetection(output: Float32Array, numAnchors: number, numClasses: number): Detection | null {
-  let bestAnimal: Detection | null = null;
+/** Subject candidates in one pass, best first: animal-class boxes over ANIMAL_FLOOR after NMS that
+ * score close enough to the best one to be the subject, else the top box of any class over
+ * CONF_THRESHOLD, else none. Coordinates are in the 640 px letterboxed canvas. */
+function pickDetections(output: Float32Array, numAnchors: number, numClasses: number): Detection[] {
+  const animals: Detection[] = [];
   let bestAny: Detection | null = null;
   for (let i = 0; i < numAnchors; i++) {
     let bestClassScore = -Infinity;
@@ -435,16 +481,119 @@ function pickBestDetection(output: Float32Array, numAnchors: number, numClasses:
       classIndex: bestClassIndex,
       box: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2],
     };
-    if (isAnimal) {
-      if (!bestAnimal || bestClassScore > bestAnimal.score) bestAnimal = detection;
-    } else if (!bestAny || bestClassScore > bestAny.score) {
-      bestAny = detection;
-    }
+    if (isAnimal) animals.push(detection);
+    else if (!bestAny || bestClassScore > bestAny.score) bestAny = detection;
   }
-  return bestAnimal ?? bestAny;
+  return subjectCandidates(animals, bestAny);
 }
 
-/** Animal-class first, then score: the same preference pickBestDetection uses within a pass. */
+/** Animal boxes that score close enough to the best one to be the subject, after NMS; else the
+ *  best box of any other class, else none. */
+function subjectCandidates(animals: Detection[], bestAny: Detection | null): Detection[] {
+  if (animals.length === 0) return bestAny ? [bestAny] : [];
+  animals.sort((a, b) => b.score - a.score);
+  const kept: Detection[] = [];
+  for (const d of animals) {
+    if (d.score < animals[0].score * RIVAL_MIN_RATIO || kept.length === MAX_RIVALS) break;
+    if (kept.every((k) => iou(k.box, d.box) < COUNT_IOU)) kept.push(d);
+  }
+  return kept;
+}
+
+// Other animals scoring at least this share of the best one compete to be the subject.
+const RIVAL_MIN_RATIO = 0.4;
+const MAX_RIVALS = 5;
+// Below this share of the sharpest candidate's detail, a candidate counts as out of focus.
+const SHARP_SHARE = 0.5;
+const EDGE_MARGIN = 0.005;
+// The Compare view zooms to the box only from this confidence up; below it shows the whole frame.
+export const SUBJECT_FRAMING_MIN = 0.15;
+// Two candidates ranking this close are both plausible subjects (a flock): no single framing.
+const RIVAL_TIE = 0.85;
+
+/** Where a candidate's box sits in the photo, as the subject ranking weighs it. */
+function placement(box: Detection["box"], size: { width: number; height: number }) {
+  const [x1, y1, x2, y2] = [box[0] / size.width, box[1] / size.height, box[2] / size.width, box[3] / size.height];
+  const share = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  const offCentre = Math.hypot((x1 + x2) / 2 - 0.5, (y1 + y2) / 2 - 0.5) / Math.SQRT1_2;
+  const atEdge = x1 <= EDGE_MARGIN || y1 <= EDGE_MARGIN || x2 >= 1 - EDGE_MARGIN || y2 >= 1 - EDGE_MARGIN;
+  return { share, offCentre: Math.min(1, offCentre), atEdge };
+}
+
+/** Ranks subject candidates: the detector's score, weighed toward the sharp, the larger, the
+ * central and those clear of the frame edge (a fragment cut off by it, or a stray at the margin).
+ * `detail` is each box's Laplacian variance, compared with the sharpest's. Returns the pick and
+ * how much to trust it for framing. */
+export function pickSubject(
+  candidates: Detection[],
+  detail: number[],
+  size: { width: number; height: number },
+): { subject: Detection; confidence: number } | null {
+  if (candidates.length === 0) return null;
+  const sharpest = Math.max(...detail, 0);
+  const ranked = candidates
+    .map((d, i) => {
+      const { share, offCentre, atEdge } = placement(d.box, size);
+      const sharp = sharpest > 0 ? Math.max(0.1, Math.min(1, detail[i] / sharpest / SHARP_SHARE)) : 1;
+      const edge = atEdge ? 0.5 : 1;
+      const rank = d.score * sharp * edge * (1 - 0.5 * offCentre) * (0.8 + 0.2 * Math.min(1, share / 0.05));
+      return { d, rank, edge };
+    })
+    .sort((a, b) => b.rank - a.rank);
+  const [best, rival] = ranked;
+  const animal = ANIMAL_CLASS_INDICES.has(best.d.classIndex);
+  const tied = rival && rival.rank >= best.rank * RIVAL_TIE && iou(best.d.box, rival.d.box) === 0;
+  return { subject: best.d, confidence: animal && !tied ? best.d.score * best.edge : 0 };
+}
+
+/** Variance of the Laplacian of a single-channel image inside a box: high for sharp detail. */
+export function laplacianVariance(
+  grey: Uint8Array,
+  width: number,
+  height: number,
+  box: [number, number, number, number],
+): number {
+  const x0 = Math.max(1, Math.floor(box[0]));
+  const y0 = Math.max(1, Math.floor(box[1]));
+  const x1 = Math.min(width - 1, Math.ceil(box[2]));
+  const y1 = Math.min(height - 1, Math.ceil(box[3]));
+  let sum = 0;
+  let sumSq = 0;
+  let n = 0;
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const i = y * width + x;
+      const l = 4 * grey[i] - grey[i - 1] - grey[i + 1] - grey[i - width] - grey[i + width];
+      sum += l;
+      sumSq += l * l;
+      n++;
+    }
+  return n > 0 ? sumSq / n - (sum / n) ** 2 : 0;
+}
+
+// Sharpness is read on a copy this size: enough to tell a soft background bird from a sharp one.
+const DETAIL_SIZE = 1024;
+
+/** laplacianVariance of each box (in the photo's pixel space), on one greyscale decode. */
+async function boxDetail(
+  bytes: ImageData,
+  size: { width: number; height: number },
+  boxes: Detection["box"][],
+): Promise<number[]> {
+  const scale = Math.min(1, DETAIL_SIZE / Math.max(size.width, size.height));
+  const width = Math.max(1, Math.round(size.width * scale));
+  const height = Math.max(1, Math.round(size.height * scale));
+  const { data } = await openImage(bytes)
+    .rotate()
+    .resize(width, height, { fit: "fill" })
+    .removeAlpha()
+    .toColourspace("b-w")
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return boxes.map((b) => laplacianVariance(data, width, height, b.map((v) => v * scale) as Detection["box"]));
+}
+
+/** Animal-class first, then score: the same preference pickDetections uses within a pass. */
 function isBetterDetection(candidate: Detection, current: Detection): boolean {
   const candidateAnimal = ANIMAL_CLASS_INDICES.has(candidate.classIndex);
   const currentAnimal = ANIMAL_CLASS_INDICES.has(current.classIndex);
@@ -473,42 +622,123 @@ interface DetectionOutcome {
   box: [number, number, number, number] | null;
   /** The detector wasn't sure the box is the animal: it came from the tile fallback or is tiny. */
   unsure: boolean;
+  /** See PhotoFrame.confidence. */
+  confidence: number;
   width: number;
   height: number;
   presence: SubjectPresence;
 }
 
-/** One pass over an encoded image (the photo, or one tile of it at `offset`). Returns the best
- * detection mapped into the photo's space, plus the raw output for the presence reading. */
+/** The animal detector (MegaDetector v6, RT-DETR) has two outputs, logits and boxes; the basic
+ *  one has a single YOLO tensor. */
+const isAnimalDetector = (session: InferenceSession) => session.outputNames.length === 2;
+
+/** The photo squashed to 640x640 (how the animal detector was trained), as [0,1] CHW floats. */
+async function squashed(bytes: ImageData): Promise<Float32Array> {
+  const { data, info } = await openImage(bytes)
+    .rotate()
+    .resize(DETECT_SIZE, DETECT_SIZE, { fit: "fill" })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const rgb = toRgb(data, info.channels);
+  const pixelCount = DETECT_SIZE * DETECT_SIZE;
+  const floats = new Float32Array(3 * pixelCount);
+  for (let i = 0; i < pixelCount; i++) for (let c = 0; c < 3; c++) floats[c * pixelCount + i] = rgb[i * 3 + c] / 255;
+  return floats;
+}
+
+// The animal detector scores some query "animal" up to about this in any photo (foliage, water), so
+// the presence reading starts here, where the basic detector's reads near zero on an empty scene.
+const ANIMAL_NOISE = 0.15;
+
+/** A box under UNSURE_BOX_SHARE of the frame, cut by its edge (fractions of the image): the bow of
+ *  the boat, a post at the margin. It doesn't count as an animal in the photo. */
+const edgeSpeck = (cx: number, cy: number, w: number, h: number) =>
+  w * h < UNSURE_BOX_SHARE &&
+  (cx - w / 2 <= EDGE_MARGIN || cy - h / 2 <= EDGE_MARGIN || cx + w / 2 >= 1 - EDGE_MARGIN || cy + h / 2 >= 1 - EDGE_MARGIN);
+
+/** The animal detector's output: per query, class logits and a (cx, cy, w, h) box as fractions of
+ *  the image. Returns the subject candidates in the image's pixel space and the presence reading. */
+export function readAnimalDetector(
+  logits: Float32Array,
+  boxes: Float32Array,
+  size: { width: number; height: number },
+): { detections: Detection[]; presence: SubjectPresence } {
+  const queries = boxes.length / 4;
+  const classes = logits.length / queries;
+  const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
+  const animals: Detection[] = [];
+  let bestAny: Detection | null = null;
+  const presence: SubjectPresence = { person: 0, personArea: 0, animal: 0, count: 0 };
+  const counted: Array<{ score: number; box: Detection["box"] }> = [];
+  for (let q = 0; q < queries; q++) {
+    const [cx, cy, w, h] = [boxes[q * 4], boxes[q * 4 + 1], boxes[q * 4 + 2], boxes[q * 4 + 3]];
+    const box: Detection["box"] = [
+      (cx - w / 2) * size.width,
+      (cy - h / 2) * size.height,
+      (cx + w / 2) * size.width,
+      (cy + h / 2) * size.height,
+    ];
+    let best = -1;
+    let bestScore = 0;
+    for (let c = 0; c < classes; c++) {
+      const score = sigmoid(logits[q * classes + c]);
+      const kind = ANIMAL_DETECTOR_CLASSES[c];
+      if (kind === ANY_ANIMAL_CLASS_INDEX && score >= ANIMAL_NOISE && !edgeSpeck(cx, cy, w, h))
+        presence.animal = Math.max(presence.animal, score);
+      if (kind === PERSON_CLASS_INDEX && score > presence.person) {
+        presence.person = score;
+        presence.personArea = Math.min(1, w * h);
+      }
+      if (score > bestScore) [best, bestScore] = [c, score];
+    }
+    const classIndex = ANIMAL_DETECTOR_CLASSES[best] ?? -1;
+    const animal = classIndex === ANY_ANIMAL_CLASS_INDEX;
+    if (animal && bestScore >= CONF_THRESHOLD) counted.push({ score: bestScore, box });
+    if (bestScore < (animal ? ANIMAL_FLOOR : CONF_THRESHOLD)) continue;
+    const detection: Detection = { score: bestScore, classIndex, box };
+    if (animal) animals.push(detection);
+    else if (!bestAny || bestScore > bestAny.score) bestAny = detection;
+  }
+  presence.count = countBoxes(counted);
+  return { detections: subjectCandidates(animals, bestAny), presence };
+}
+
+/** One pass over an encoded image (the photo, or one tile of it at `offset`). Returns the subject
+ * candidates mapped into the photo's space, plus the presence reading. */
 async function detectPass(
   session: InferenceSession,
   bytes: ImageData,
   size: { width: number; height: number },
   offset: Rect | null,
   hooks: RunHooks,
-) {
+): Promise<{ detections: Detection[]; presence: SubjectPresence }> {
+  const offsetX = offset?.left ?? 0;
+  const offsetY = offset?.top ?? 0;
+  const shift = (d: Detection, f: (v: number, axis: 0 | 1) => number): Detection => ({
+    ...d,
+    box: [f(d.box[0], 0) + offsetX, f(d.box[1], 1) + offsetY, f(d.box[2], 0) + offsetX, f(d.box[3], 1) + offsetY],
+  });
+  if (isAnimalDetector(session)) {
+    const [logits, boxes] = await runOutputs(session, await squashed(bytes), [1, 3, DETECT_SIZE, DETECT_SIZE], hooks, "detect");
+    const read = readAnimalDetector(logits.data as Float32Array, boxes.data as Float32Array, size);
+    return { detections: read.detections.map((d) => shift(d, (v) => v)), presence: read.presence };
+  }
   const { floats, scale, padX, padY } = await letterbox(bytes, size.width, size.height);
   const out = await run(session, floats, [1, 3, DETECT_SIZE, DETECT_SIZE], hooks, "detect");
   const [, numAttrs, numAnchors] = out.dims as [number, number, number];
   const data = out.data as Float32Array;
-  const detection = pickBestDetection(data, numAnchors, numAttrs - 4);
-  const offsetX = offset?.left ?? 0;
-  const offsetY = offset?.top ?? 0;
-  const mapped: Detection | null = detection && {
-    score: detection.score,
-    classIndex: detection.classIndex,
-    box: [
-      (detection.box[0] - padX) / scale + offsetX,
-      (detection.box[1] - padY) / scale + offsetY,
-      (detection.box[2] - padX) / scale + offsetX,
-      (detection.box[3] - padY) / scale + offsetY,
-    ],
-  };
-  return { detection: mapped, data, numAnchors, numClasses: numAttrs - 4, scale };
+  const detections = pickDetections(data, numAnchors, numAttrs - 4).map((d) =>
+    shift(d, (v, axis) => (v - (axis === 0 ? padX : padY)) / scale),
+  );
+  // Boxes are in the 640 px canvas; the photo itself fills (width * scale) x (height * scale).
+  const imageArea = Math.max(1, size.width * scale * size.height * scale);
+  return { detections, presence: readPresence(data, numAnchors, numAttrs - 4, imageArea) };
 }
 
-/** Person and animal scores from the whole-frame pass. The detector knows only ten animal kinds,
- * so the useful signal is a confident person with no animal. */
+/** Person and animal scores from the basic detector's whole-frame pass. It knows only ten animal
+ * kinds, so the useful signal is a confident person with no animal. */
 function readPresence(data: Float32Array, numAnchors: number, numClasses: number, imageArea: number): SubjectPresence {
   let person = 0;
   let personArea = 0;
@@ -525,7 +755,43 @@ function readPresence(data: Float32Array, numAnchors: number, numClasses: number
       if (a > animal) animal = a;
     }
   }
-  return { person, personArea, animal };
+  return { person, personArea, animal, count: countAnimals(data, numAnchors, numClasses) };
+}
+
+// Overlap at which two animal boxes are taken as one animal (ultralytics' NMS default).
+const COUNT_IOU = 0.45;
+
+/** Animals in one pass: animal-class boxes over CONF_THRESHOLD after class-agnostic NMS, since
+ * the detector names a deer horse in one box and cow in the next. */
+export function countAnimals(data: Float32Array, numAnchors: number, numClasses: number): number {
+  const boxes: Array<{ score: number; box: [number, number, number, number] }> = [];
+  for (let i = 0; i < numAnchors; i++) {
+    let score = 0;
+    for (const c of ANIMAL_CLASS_INDICES) if (c < numClasses) score = Math.max(score, data[(4 + c) * numAnchors + i]);
+    if (score < CONF_THRESHOLD) continue;
+    const cx = data[i];
+    const cy = data[numAnchors + i];
+    const w = data[2 * numAnchors + i];
+    const h = data[3 * numAnchors + i];
+    boxes.push({ score, box: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2] });
+  }
+  return countBoxes(boxes);
+}
+
+/** Animals among confident boxes after class-agnostic NMS. */
+function countBoxes(boxes: Array<{ score: number; box: [number, number, number, number] }>): number {
+  boxes.sort((a, b) => b.score - a.score);
+  const kept: Array<[number, number, number, number]> = [];
+  for (const { box } of boxes) if (kept.every((k) => iou(k, box) < COUNT_IOU)) kept.push(box);
+  return kept.length;
+}
+
+function iou(a: [number, number, number, number], b: [number, number, number, number]): number {
+  const w = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0]));
+  const h = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+  const overlap = w * h;
+  const union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - overlap;
+  return union > 0 ? overlap / union : 0;
 }
 
 // Each tile is re-encoded in the photo's own format; the photo is decoded once for all tiles.
@@ -549,10 +815,10 @@ async function encodeTiles(bytes: ImageData, tiles: Rect[]): Promise<Uint8Array[
 // class within one piece's length of each other are joined into one box; faint guesses stay out.
 const TILE_MERGE_MIN_SCORE = 0.1;
 
-/** The best tile detection, grown to take in the other pieces of the same animal. */
-export function mergeTileDetections(found: Detection[]): Detection | null {
-  let best: Detection | null = null;
-  for (const d of found) if (!best || isBetterDetection(d, best)) best = d;
+/** The chosen (else the best) tile detection, grown to take in the other pieces of the same animal. */
+export function mergeTileDetections(found: Detection[], chosen?: Detection): Detection | null {
+  let best: Detection | null = chosen ?? null;
+  if (!best) for (const d of found) if (!best || isBetterDetection(d, best)) best = d;
   if (!best) return null;
   const box = [...best.box] as Detection["box"];
   const longest = (b: Detection["box"]) => Math.max(b[2] - b[0], b[3] - b[1]);
@@ -589,31 +855,52 @@ async function detect(
   try {
     const size = await originalSize(bytes);
     const whole = await detectPass(session, bytes, size, null, hooks);
-    // Boxes are in the 640 px canvas; the photo itself fills (width * scale) x (height * scale).
-    const imageArea = Math.max(1, size.width * whole.scale * size.height * whole.scale);
-    const presence = readPresence(whole.data, whole.numAnchors, whole.numClasses, imageArea);
-    let detection = whole.detection;
+    const presence = whole.presence;
+    // Sharpness is only read when there is a choice to make.
+    const choose = async (candidates: Detection[]) =>
+      pickSubject(
+        candidates,
+        candidates.length > 1
+          ? await boxDetail(
+              bytes,
+              size,
+              candidates.map((d) => d.box),
+            )
+          : [],
+        size,
+      );
+    let picked = await choose(whole.detections);
     let fromTiles = false;
     // Also tile after a weak whole-pass guess, since a small subject almost always scores faintly.
     // Whichever result looks better wins.
-    if (!detection || detection.score < CONF_THRESHOLD) {
+    const tileable = !isAnimalDetector(session) || Math.max(size.width, size.height) >= ANIMAL_DETECTOR_TILE_MIN_SIDE;
+    const tileBelow = isAnimalDetector(session) ? ANIMAL_DETECTOR_TILE_BELOW : CONF_THRESHOLD;
+    if (tileable && (!whole.detections[0] || whole.detections[0].score < tileBelow)) {
       const tiles = buildTiles(size.width, size.height);
       const tileBytes = await encodeTiles(bytes, tiles);
       const found: Detection[] = [];
       for (let i = 0; i < tiles.length; i++) {
-        const { detection: hit } = await detectPass(session, tileBytes[i], tiles[i], tiles[i], hooks);
-        if (hit) found.push(hit);
+        const { detections } = await detectPass(session, tileBytes[i], tiles[i], tiles[i], hooks);
+        if (detections[0]) found.push(detections[0]);
       }
-      const tiled = mergeTileDetections(found);
-      if (tiled && (!detection || isBetterDetection(tiled, detection))) {
-        detection = tiled;
+      const tiledPick = await choose(found);
+      const tiled = tiledPick && mergeTileDetections(found, tiledPick.subject);
+      if (tiled && (!picked || isBetterDetection(tiled, picked.subject))) {
+        picked = { subject: tiled, confidence: tiledPick.confidence };
         fromTiles = true;
       }
     }
-    const box = detection?.box ?? null;
+    const box = picked?.subject.box ?? null;
     const boxShare = box ? ((box[2] - box[0]) * (box[3] - box[1])) / Math.max(1, size.width * size.height) : 0;
     const unsure = !box || fromTiles || boxShare < UNSURE_BOX_SHARE;
-    return { box, unsure, width: size.width, height: size.height, presence };
+    return {
+      box,
+      unsure,
+      confidence: picked?.confidence ?? 0,
+      width: size.width,
+      height: size.height,
+      presence,
+    };
   } finally {
     armIdleUnload(detectorPath, providers);
   }
@@ -684,7 +971,8 @@ async function cropTensor(bytes: ImageData, rect: Rect): Promise<Float32Array> {
 
 async function analyze(req: Extract<InferenceRequest, { op: "analyze" }>, hooks: RunHooks): Promise<AnalyzeResult> {
   const bytes = "bytes" in req.image ? req.image.bytes : await decodableInput(req.image.path);
-  const needsDetection = req.presence || req.cardCrop || !!req.subject || req.targets.some((t) => t.crop);
+  const needsDetection =
+    req.presence || req.cardCrop || !!req.subject || !!req.frame || req.targets.some((t) => t.crop || t.maskSubject);
 
   let outcome: DetectionOutcome | null = null;
   let cropRect: Rect | null = null;
@@ -712,7 +1000,11 @@ async function analyze(req: Extract<InferenceRequest, { op: "analyze" }>, hooks:
   for (const target of req.targets) {
     try {
       let floats: Float32Array;
-      if (target.crop && cropRect) floats = await (cropFloats ??= cropTensor(bytes, cropRect));
+      if (target.maskSubject) {
+        const bg = outcome && backgroundBox(outcome);
+        if (!bg) throw new Error("No background to read");
+        floats = await maskedTensor(bytes, bg, outcome!);
+      } else if (target.crop && cropRect) floats = await (cropFloats ??= cropTensor(bytes, cropRect));
       else floats = await fullFrameTensor();
       vectors.push(await embedTensor(target, floats, hooks));
     } catch (err) {
@@ -727,6 +1019,113 @@ async function analyze(req: Extract<InferenceRequest, { op: "analyze" }>, hooks:
     presence: req.presence ? (outcome?.presence ?? null) : null,
     cardCrop: req.cardCrop && outcome ? cardCropFor(outcome) : null,
     subjectUnsure: needsDetection ? (outcome?.unsure ?? true) : null,
+    ...(req.frame ? { frame: await photoFrame(bytes, outcome) } : {}),
+  };
+}
+
+// The background vector needs the animal to leave this much of the frame, or there's nothing to read.
+const BACKGROUND_MAX_SUBJECT_SHARE = 0.6;
+// Greyed out a little past the box, so the animal's edges don't count as background.
+const BACKGROUND_MASK_PADDING = 0.1;
+const LIGHT_SAMPLE_SIZE = 64;
+
+/** The subject box as fractions of the upright photo, padded for masking, or null when there's no
+ *  box or it leaves too little background. */
+function backgroundBox(outcome: DetectionOutcome): [number, number, number, number] | null {
+  if (!outcome.box || outcome.width < 1 || outcome.height < 1) return null;
+  const [x1, y1, x2, y2] = outcome.box;
+  const share = ((x2 - x1) * (y2 - y1)) / (outcome.width * outcome.height);
+  if (share > BACKGROUND_MAX_SUBJECT_SHARE) return null;
+  const padX = (x2 - x1) * BACKGROUND_MASK_PADDING;
+  const padY = (y2 - y1) * BACKGROUND_MASK_PADDING;
+  const clamp = (v: number) => Math.min(1, Math.max(0, v));
+  return [
+    clamp((x1 - padX) / outcome.width),
+    clamp((y1 - padY) / outcome.height),
+    clamp((x2 + padX) / outcome.width),
+    clamp((y2 + padY) / outcome.height),
+  ];
+}
+
+/** The whole photo as the stored vectors see it (224 px, centre cover crop), with the box filled
+ *  with CLIP's mean colour, which normalizes to zero. */
+async function maskedTensor(
+  bytes: ImageData,
+  box: [number, number, number, number],
+  size: { width: number; height: number },
+): Promise<Float32Array> {
+  const { data, info } = await openImage(bytes)
+    .rotate()
+    .resize(CLIP_INPUT_SIZE, CLIP_INPUT_SIZE, { fit: "cover" })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const rgb = toRgb(data, info.channels);
+  // Where the cover crop put the photo: scaled to cover, then centred.
+  const scale = Math.max(CLIP_INPUT_SIZE / size.width, CLIP_INPUT_SIZE / size.height);
+  const offX = (size.width * scale - CLIP_INPUT_SIZE) / 2;
+  const offY = (size.height * scale - CLIP_INPUT_SIZE) / 2;
+  const px = (f: number, side: number, off: number) =>
+    Math.min(CLIP_INPUT_SIZE, Math.max(0, Math.round(f * side * scale - off)));
+  const [left, top] = [px(box[0], size.width, offX), px(box[1], size.height, offY)];
+  const [right, bottom] = [px(box[2], size.width, offX), px(box[3], size.height, offY)];
+  const fill = CLIP_MEAN.map((m) => Math.round(m * 255));
+  for (let y = top; y < bottom; y++)
+    for (let x = left; x < right; x++) for (let c = 0; c < 3; c++) rgb[(y * CLIP_INPUT_SIZE + x) * 3 + c] = fill[c];
+  return clipTensor(rgb);
+}
+
+/** Light stats of a small downscale of the whole photo (see PhotoFrame). */
+export function lightStats(rgb: Uint8Array): PhotoFrame["light"] {
+  const n = rgb.length / 3;
+  let luma = 0;
+  let warmth = 0;
+  let highlights = 0;
+  let shadows = 0;
+  let saturation = 0;
+  for (let i = 0; i < n; i++) {
+    const r = rgb[i * 3];
+    const g = rgb[i * 3 + 1];
+    const b = rgb[i * 3 + 2];
+    const l = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    luma += l;
+    warmth += (r - b) / 255;
+    if (l > 0.9) highlights++;
+    if (l < 0.1) shadows++;
+    const max = Math.max(r, g, b);
+    if (max > 0) saturation += (max - Math.min(r, g, b)) / max;
+  }
+  const round = (v: number) => Math.round((v / Math.max(1, n)) * 1000) / 1000;
+  return {
+    luma: round(luma),
+    warmth: round(warmth),
+    highlights: round(highlights),
+    shadows: round(shadows),
+    saturation: round(saturation),
+  };
+}
+
+async function photoFrame(bytes: ImageData, outcome: DetectionOutcome | null): Promise<PhotoFrame> {
+  const size = outcome ?? (await originalSize(bytes));
+  const { data, info } = await openImage(bytes)
+    .rotate()
+    .resize(LIGHT_SAMPLE_SIZE, LIGHT_SAMPLE_SIZE, { fit: "fill" })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const box = outcome?.box ?? null;
+  const frac = (v: number, side: number) => Math.round(Math.min(1, Math.max(0, v / side)) * 10000) / 10000;
+  return {
+    box: box && [
+      frac(box[0], size.width),
+      frac(box[1], size.height),
+      frac(box[2], size.width),
+      frac(box[3], size.height),
+    ],
+    unsure: outcome?.unsure ?? true,
+    confidence: Math.round((outcome?.confidence ?? 0) * 1000) / 1000,
+    aspect: size.width / Math.max(1, size.height),
+    light: lightStats(toRgb(data, info.channels)),
   };
 }
 

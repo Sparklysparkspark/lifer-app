@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   EBIRD_SENSITIVE_SPECIES,
+  isEbirdSensitiveAt,
+  type SensitiveLocation,
   sensitiveRegionMatches,
   weekInSeason,
+  type SensitiveScope,
   type SensitiveSeason,
 } from "./sensitiveSpecies.js";
 
@@ -58,8 +61,23 @@ describe("sensitiveRegionMatches", () => {
     ["a country label with a hyphen", "Guinea-Bissau", "Bissau", "Guinea-Bissau", "GW", true],
     ["a hyphenated country is not a province label", "Guinea-Bissau", "Guinea", "Guinea", "BI", false],
     ["a lowercase suffix is not a country code", "Ontario-ca", "Ontario", "Canada", "CA", false],
+    ["accents differ", "Quebec-CA", "Québec", "Canada", "CA", true],
+    ["macrons differ", "Hyogo-JP", "Hyōgo", "Japan", "JP", true],
+    ["a dotless i", "Kırşehir-TR", "Kirsehir", "Turkey", "TR", true],
+    ["the Czech kraj suffix", "Moravskoslezský kraj-CZ", "Moravskoslezský", "Czechia", "CZ", true],
+    ["a Polish name for an English one", "Mazowieckie-PL", "Masovian", "Poland", "PL", true],
+    ["an alias only for its own province", "Mazowieckie-PL", "Lublin", "Poland", "PL", false],
   ])("%s", (_label, label, province, country, iso2, expected) => {
     expect(sensitiveRegionMatches(label, province, country, iso2)).toBe(expected);
+  });
+
+  it.each([
+    ["a province in the named group", "Wales-GB", "Gwynedd", "Wales", true],
+    ["a province in a group split by area", "England-GB", "Kent", "England - South East", true],
+    ["a province in another group", "Wales-GB", "Kent", "England - South East", false],
+    ["a group name that only starts the same", "England-GB", "Kent", "Englandshire", false],
+  ])("%s", (_label, label, province, group, expected) => {
+    expect(sensitiveRegionMatches(label, province, "United Kingdom", "GB", group)).toBe(expected);
   });
 });
 
@@ -80,5 +98,56 @@ describe("EBIRD_SENSITIVE_SPECIES", () => {
         }
       }
     }
+  });
+});
+
+describe("isEbirdSensitiveAt", () => {
+  const at = (country: string, countryCode: string, state: string | null = null, group: string | null = null) =>
+    ({ country, countryCode, state, group }) satisfies SensitiveLocation;
+  const UK = at("United Kingdom", "GB");
+  const CANADA = at("Canada", "CA");
+
+  it("treats a regionally listed species as sensitive only where it is listed", () => {
+    const goldeneye = "Bucephala clangula";
+    expect(EBIRD_SENSITIVE_SPECIES.get(goldeneye)).toMatchObject({ global: false });
+    expect(isEbirdSensitiveAt(goldeneye, at("United Kingdom", "GB", "Kent", "England - South East"))).toBe(true);
+    expect(isEbirdSensitiveAt(goldeneye, at("United Kingdom", "GB", "Highland", "Scotland"))).toBe(false);
+    // Only the country is known, so England can't be ruled out.
+    expect(isEbirdSensitiveAt(goldeneye, UK)).toBe(true);
+    expect(isEbirdSensitiveAt(goldeneye, at("Canada", "CA", "Ontario"))).toBe(false);
+    expect(isEbirdSensitiveAt(goldeneye, CANADA)).toBe(false);
+  });
+
+  it("is sensitive everywhere when listed globally, and never when not listed", () => {
+    expect(isEbirdSensitiveAt("Strix nebulosa", CANADA)).toBe(true);
+    expect(isEbirdSensitiveAt("Strix nebulosa", null)).toBe(true);
+    expect(isEbirdSensitiveAt("Anas platyrhynchos", UK)).toBe(false);
+    expect(isEbirdSensitiveAt("Anas platyrhynchos", null)).toBe(false);
+  });
+
+  it("keeps the cautious rule for an unknown location or one too coarse to rule an area out", () => {
+    const list = new Map<string, SensitiveScope>([
+      ["Testus avis", { global: false, regions: [{ region: "Ontario-CA", season: null }] }],
+      ["Testus mexicanus", { global: false, regions: [{ region: "Mexico", season: null }] }],
+    ]);
+    expect(isEbirdSensitiveAt("Testus avis", null, list)).toBe(true);
+    expect(isEbirdSensitiveAt("Testus avis", at("", ""), list)).toBe(true);
+    // Only the country is known, and the area is inside it.
+    expect(isEbirdSensitiveAt("Testus avis", CANADA, list)).toBe(true);
+    expect(isEbirdSensitiveAt("Testus avis", at("Canada", "CA", "Ontario"), list)).toBe(true);
+    expect(isEbirdSensitiveAt("Testus avis", at("Canada", "CA", "Quebec"), list)).toBe(false);
+    expect(isEbirdSensitiveAt("Testus avis", at("United States", "US", "Ontario"), list)).toBe(false);
+    expect(isEbirdSensitiveAt("Testus mexicanus", at("Mexico", "MX", "Jalisco"), list)).toBe(true);
+    expect(isEbirdSensitiveAt("Testus mexicanus", at("Canada", "CA", "Ontario"), list)).toBe(false);
+  });
+
+  it("matches an eBird area through the group a province is listed under", () => {
+    const list = new Map<string, SensitiveScope>([
+      ["Testus avis", { global: false, regions: [{ region: "England-GB", season: null }] }],
+    ]);
+    expect(isEbirdSensitiveAt("Testus avis", at("United Kingdom", "GB", "Kent", "England - South East"), list)).toBe(
+      true,
+    );
+    expect(isEbirdSensitiveAt("Testus avis", at("United Kingdom", "GB", "Fife", "Scotland"), list)).toBe(false);
   });
 });

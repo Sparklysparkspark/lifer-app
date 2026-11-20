@@ -110,3 +110,15 @@ describe("isPublishableLicense", () => {
     expect(isPublishableLicense("all-rights-reserved")).toBe(false);
   });
 });
+
+describe("isOpenVectorLicense", () => {
+  it("accepts CC0, the public domain mark and CC BY, with or without a version", async () => {
+    const { isOpenVectorLicense } = await import("./licensePolicy.js");
+    for (const code of ["cc0", "pd", "CC-BY-4.0", "cc-by"]) expect(isOpenVectorLicense(code)).toBe(true);
+  });
+  it("rejects share-alike, non-commercial, no-derivatives and missing licenses", async () => {
+    const { isOpenVectorLicense } = await import("./licensePolicy.js");
+    for (const code of ["cc-by-sa", "cc-by-nc", "cc-by-nd", "", null, undefined])
+      expect(isOpenVectorLicense(code)).toBe(false);
+  });
+});

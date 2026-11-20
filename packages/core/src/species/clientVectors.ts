@@ -26,7 +26,7 @@ export interface ClientVectors {
   clipCrop?: EncodedVector;
   idFull?: EncodedVector;
   idCrop?: EncodedVector;
-  /** Whether the detector was unsure of the subject; idFull comes with it when true. */
+  /** Whether the detector was unsure of the subject. */
   subjectUnsure?: boolean;
 }
 

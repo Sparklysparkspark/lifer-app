@@ -31,8 +31,8 @@ function describe(folder: "library" | "appData", dir: string, problem: FolderPro
       ? `Lifer's ${what} (${dir}) was moved or deleted while Lifer was running, so nothing can be saved there.`
       : `Lifer's ${what} (${dir}) is missing, so nothing can be saved there.`;
   const fix = SINGLE_USER_MODE
-    ? "Move it back, or choose its new location in Settings > Storage, then restart Lifer."
-    : "Move it back to where it was, or update the folder in your Docker setup to its new location, then restart Lifer.";
+    ? "Move it back, or choose its new location in Settings > Storage."
+    : "Move it back to where it was, or update the folder in your Docker setup to its new location, then restart the Lifer server.";
   return `${happened} ${fix}`;
 }
 

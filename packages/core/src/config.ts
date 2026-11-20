@@ -13,6 +13,11 @@ const REPO_ROOT = path.join(__dirname, "..", "..", "..");
 // .env lives at the repo root, not in apps/api where `npm run dev -w api` runs.
 loadDotenv({ path: path.join(REPO_ROOT, ".env"), quiet: true });
 
+// Tuning knobs read in the module that uses them (log.ts can't import this file, which imports
+// it): LOG_LEVEL (lib/log.ts), LIFER_MAX_IMAGE_PIXELS (lib/imageLimits.ts),
+// INAT_MIN_HOST_INTERVAL_MS (lib/http.ts), LIFER_VECTOR_CACHE_MB (species/userIndex.ts),
+// LIFER_ALLOW_NONCOMMERCIAL_PHOTOS (species/licensePolicy.ts).
+
 // Appended to reference-photo URLs so a file replaced in place is refetched after a restart.
 export const MEDIA_CACHE_BUST = Date.now();
 
@@ -54,11 +59,23 @@ export const CACHE_DIR = process.env.LIFER_CACHE_DIR?.trim() || APP_DATA_DIR;
 export const MODELS_DIR = path.join(CACHE_DIR, "models");
 export const GPU_RUNTIME_DIR = path.join(CACHE_DIR, "gpu-runtime");
 export const ACCELERATION_CACHE_FILE = path.join(CACHE_DIR, "acceleration.json");
+// Downloaded source data the API needs at runtime (Natural Earth provinces for drill-down).
+export const RAW_CACHE_DIR = path.join(CACHE_DIR, "raw");
 // The opt-in offline map download: the rolling "map-latest" release, so a map update needs no
 // app release.
 export const MAP_DOWNLOAD_URL =
   process.env.MAP_DOWNLOAD_URL ??
   "https://github.com/Sparklysparkspark/lifer-app/releases/download/map-latest/world-z8.pmtiles";
+// The shaded-relief archive that goes with the map: downloaded together with it.
+export const RELIEF_DOWNLOAD_URL =
+  process.env.RELIEF_DOWNLOAD_URL ??
+  "https://github.com/Sparklysparkspark/lifer-app/releases/download/map-latest/relief-z5.pmtiles";
+// The index of optional per-country detailed maps (data-pipeline's pipeline/maps.ts).
+export const MAP_DETAIL_INDEX_URL =
+  process.env.MAP_DETAIL_INDEX_URL ??
+  "https://github.com/Sparklysparkspark/lifer-app/releases/download/map-detail-latest/map-detail-index.json";
+// Where downloaded detailed maps live; served under /maps/detail/ with the world map.
+export const MAP_DETAIL_DIR = path.join(MAPS_DIR, "detail");
 // Per-file upload cap, as a disk-safety net only: 0 (the default) means no cap. Enforced on
 // multipart parts and on a resumable upload's declared Upload-Length.
 export const MAX_UPLOAD_BYTES = Math.max(0, Number(process.env.MAX_UPLOAD_BYTES ?? 0) || 0);
@@ -175,8 +192,10 @@ export const CATALOG_SEED_URL =
   "https://github.com/Sparklysparkspark/lifer-app/releases/download/catalog-latest/lifer-catalog-seed.sql.gz";
 
 // The catalog seed bundled into the Docker image at build time, so a fresh container needs no
-// network. Empty elsewhere, where seedCatalogIfEmpty downloads it instead.
-export const BUNDLED_CATALOG_SEED_DIR = path.join(REPO_ROOT, "catalog-seed");
+// network. The desktop app passes its bundled copy's folder. Empty elsewhere, where
+// seedCatalogIfEmpty downloads it instead.
+export const BUNDLED_CATALOG_SEED_DIR =
+  process.env.LIFER_BUNDLED_CATALOG_SEED_DIR || path.join(REPO_ROOT, "catalog-seed");
 
 // The CLIP ViT-L/14 vision encoder for suggestions and gallery search: a per-channel int8 copy
 // (packages/data-pipeline/python/export_clip_model.py) on this repo's "models" release. A new
@@ -204,6 +223,15 @@ export const ID_MODEL_GPU_URL =
   "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/bioclip-2-v1-fp32.onnx";
 export const ID_MODEL_GPU_BYTES = 1_216_631_032;
 
+// The animal detector (MegaDetector v6, its Apache-2.0 RT-DETR "c" variant; see
+// packages/data-pipeline/python/export_detector_model.py): one "animal" class for every kind of
+// animal. Installs don't download it: the basic detector stays in use unless this file is placed
+// in the models folder (detectorModel.ts). A new checkpoint needs a new ANIMAL_DETECTOR_VERSION too.
+export const ANIMAL_DETECTOR_VERSION = "megadetector-v6c-v1";
+export const ANIMAL_DETECTOR_URL =
+  process.env.ANIMAL_DETECTOR_URL ??
+  "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/megadetector-v6c-v1.onnx";
+
 // The scene segmentation model (UperNet ConvNeXt-tiny trained on ADE20K, int8 ONNX; see
 // packages/data-pipeline/python/export_scene_model.py): which scene classes and colours fill each
 // photo, for Gallery search. CPU only. A new checkpoint needs a new SCENE_MODEL_VERSION too.
@@ -216,7 +244,13 @@ export const SCENE_MODEL_FP32_URL =
   process.env.SCENE_MODEL_FP32_URL ??
   "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/upernet-convnext-tiny-ade-v1-fp32.onnx";
 
-// iNaturalist OAuth with PKCE (a secret in an open-source app isn't secret). These are the
-// desktop defaults; a server registers its own iNaturalist app and sets both in Settings.
-export const INAT_CLIENT_ID = process.env.INAT_CLIENT_ID || null;
-export const INAT_REDIRECT_URI = process.env.INAT_REDIRECT_URI || `http://127.0.0.1:${PORT}/api/inaturalist/callback`;
+// iNaturalist OAuth with PKCE (a secret in an open-source app isn't secret). Lifer's own
+// iNaturalist app has one redirect URI for every install: a static relay page that forwards the
+// sign-in to the install named in `state` (docs/static/inat-callback/index.html).
+// Lifer's registered iNaturalist Application ID. Empty keeps linking off.
+export const BUILT_IN_INAT_CLIENT_ID = "AmY63BnMxy7KMo_GxbQVn4mvJjqRyRInslLvSKHqd5s";
+export const INAT_RELAY_REDIRECT_URI = "https://liferwildlife.com/inat-callback/";
+// Overrides for a self-registered iNaturalist app (also settable in inat_server_config). Such an
+// app without INAT_REDIRECT_URI redirects straight to this install (inaturalist/routes.ts).
+export const INAT_CLIENT_ID = process.env.INAT_CLIENT_ID || BUILT_IN_INAT_CLIENT_ID || null;
+export const INAT_REDIRECT_URI = process.env.INAT_REDIRECT_URI || null;

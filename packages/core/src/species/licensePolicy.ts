@@ -46,6 +46,17 @@ const PUBLISHABLE_LICENSES = new Set([
 /** Whether a photo may be published. Fixed by policy: LIFER_ALLOW_NONCOMMERCIAL_PHOTOS is for
  *  local development and never changes what the project redistributes. iNaturalist's "pd" is the
  *  Public Domain Mark. */
+/** The publishable licenses in iNaturalist's photo_license filter (it has no code for the Public Domain Mark). */
+export const INAT_PUBLISHABLE_LICENSE_CODES = [...PUBLISHABLE_LICENSES].filter((l) => l !== "pd");
+
 export function isPublishableLicense(code: string | null | undefined): boolean {
   return code != null && PUBLISHABLE_LICENSES.has(normalizeLicense(code));
+}
+
+/** Licenses of photos whose vectors count as open: CC0, the Public Domain Mark and CC BY. Share-alike
+ *  and non-commercial ones are left out so the open subset can be reused without conditions beyond credit. */
+export const OPEN_VECTOR_LICENSES = new Set(["cc0", "pd", "cc-by"]);
+
+export function isOpenVectorLicense(code: string | null | undefined): boolean {
+  return code != null && OPEN_VECTOR_LICENSES.has(normalizeLicense(code));
 }

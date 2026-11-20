@@ -2,7 +2,7 @@
 // request instead of freezing the server. Avoids mkdirSync recursive, which can spin forever in
 // native code when a NAS mount keeps reporting a parent as missing; this walks one level at a time.
 import { constants } from "node:fs";
-import { access, mkdir, stat, writeFile, copyFile, rename, rm } from "node:fs/promises";
+import { access, mkdir, stat, writeFile, copyFile, link, unlink, rm } from "node:fs/promises";
 import path from "node:path";
 import { explainMissingLibraryFolder } from "./libraryFolder.js";
 
@@ -115,16 +115,24 @@ export async function copyToNewFile(dir: string, filename: string, source: strin
   throw new Error(`Couldn't find a free file name for ${filename} in ${dir}`);
 }
 
-/** Moves `source` into `dir` under a free name and returns the new path. Renames when it can,
- *  and copies then deletes when the destination is on another drive. */
+/** Moves `source` into `dir` under a free name and returns the new path. Links when it can,
+ *  and copies then deletes when the destination is on another drive. Never overwrites. */
 export async function moveToFolder(source: string, dir: string, filename = path.basename(source)): Promise<string> {
   await ensureDir(dir);
-  const dest = await uniqueDestination(dir, filename);
-  try {
-    await rename(source, dest);
-  } catch {
-    await copyFile(source, dest, constants.COPYFILE_EXCL);
-    await rm(source, { force: true });
+  for (let attempt = 1; attempt <= MAX_NAME_ATTEMPTS; attempt++) {
+    const candidate = path.join(dir, candidateName(filename, attempt));
+    try {
+      // link fails on an existing name, unlike rename, so two moves can't claim the same path.
+      await link(source, candidate);
+    } catch (err) {
+      if (isCode(err, "EEXIST")) continue;
+      // Other drive, or a filesystem without hard links.
+      const dest = await copyToNewFile(dir, filename, source);
+      await rm(source, { force: true });
+      return dest;
+    }
+    await unlink(source);
+    return candidate;
   }
-  return dest;
+  throw new Error(`Couldn't find a free file name for ${filename} in ${dir}`);
 }

@@ -2,6 +2,7 @@
 // LIFER_LIBRARY_ROOTS are allowed, checked lexically before touching the candidate on disk so a
 // 403 never reveals whether a path exists. On desktop any path the user picks is allowed.
 import { realpathSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import { DATA_DIR, LIBRARY_ROOTS, SINGLE_USER_MODE } from "../config.js";
 import { canonicalPath, isWithin } from "./pathContainment.js";
@@ -65,4 +66,12 @@ export function assertAllowedPath(absPath: string): string {
   }
   if (!isWithin(realRoot, real)) throw new PathNotAllowedError();
   return real;
+}
+
+/** Whether `absPath` is an existing folder. Async, since user-chosen folders can be on a slow NAS. */
+export async function isDirectory(absPath: string): Promise<boolean> {
+  return stat(absPath).then(
+    (s) => s.isDirectory(),
+    () => false,
+  );
 }

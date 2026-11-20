@@ -4,7 +4,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { downloadResumable, StallError } from "./resumableDownload.js";
 
 const body = Buffer.from(Array.from({ length: 100_000 }, (_, i) => i % 251));
@@ -144,5 +144,69 @@ describe("downloadResumable with a byte range", () => {
     await expect(downloadResumable(`${base}/ranged`, path.join(tmp(), "bad.bin"), { range: [3, 0] })).rejects.toThrow(
       /invalid byte range/,
     );
+  });
+});
+
+describe("downloadResumable on a stalled connection", () => {
+  it("gives up after 30 s with no bytes, not before, and keeps what it got for the next try", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      // One chunk, then silence, ended only by the abort.
+      vi.stubGlobal("fetch", (_url: string, init: RequestInit) =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new Uint8Array(1000));
+                init.signal?.addEventListener("abort", () => controller.error(new Error("aborted")));
+              },
+            }),
+            { status: 200, headers: { "content-length": "5000", etag: '"v1"' } },
+          ),
+        ),
+      );
+      const dest = path.join(tmp(), "stalled.bin");
+      const done = downloadResumable("https://packs.invalid/big", dest, { stallTimeoutMs: 30_000 });
+      const outcome = done.then(
+        () => "finished",
+        (err: unknown) => err,
+      );
+      await vi.advanceTimersByTimeAsync(29_000);
+      expect(await Promise.race([outcome, Promise.resolve("pending")])).toBe("pending");
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(await outcome).toBeInstanceOf(StallError);
+      // Kept (not deleted) for the next try to resume from.
+      expect(existsSync(`${dest}.part`)).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it("resumes a ranged part with its validator instead of starting the range over", async () => {
+    const seen: Array<string | undefined> = [];
+    vi.stubGlobal("fetch", (_url: string, init: RequestInit) => {
+      const headers = init.headers as Record<string, string>;
+      seen.push(headers.Range);
+      const from = Number(/bytes=(\d+)-/.exec(headers.Range)![1]);
+      const bytes = body.subarray(from, 10 + 40);
+      return Promise.resolve(
+        new Response(bytes, {
+          status: 206,
+          headers: { "content-range": `bytes ${from}-${10 + 40 - 1}/${body.length}`, etag: '"v1"' },
+        }),
+      );
+    });
+    try {
+      const dest = path.join(tmp(), "ranged-resume.bin");
+      // An earlier try got the first 15 bytes of the range [10, 40], with its validator saved.
+      writeFileSync(`${dest}.part`, body.subarray(10, 25));
+      writeFileSync(`${dest}.part.validator`, JSON.stringify({ range: "10+40", validator: '"v1"' }));
+      await downloadResumable("https://packs.invalid/shard", dest, { range: [10, 40] });
+      expect(seen).toEqual(["bytes=25-49"]);
+      expect(readFileSync(dest).equals(body.subarray(10, 50))).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

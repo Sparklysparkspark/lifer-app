@@ -9,6 +9,8 @@ export const pool = new Pool({
   max: PG_POOL_MAX,
   connectionTimeoutMillis: 30000,
   idleTimeoutMillis: 0,
+  // JIT compiling adds seconds to big interactive queries (smart albums) and gains nothing here.
+  options: "-c jit=off",
 });
 
 // An idle client erroring (Postgres restarted) emits "error" on the pool, which would otherwise

@@ -22,7 +22,7 @@ const KIND_VERSION: Record<PhotoVectorKind, string> = {
   "id-crop": `${ID_MODEL_VERSION}:p${EMBED_PIPELINE_VERSION}`,
 };
 /** The whole-photo vector that backs up each crop kind. */
-const WHOLE_KIND = { "clip-crop": "clip", "id-crop": "id" } as const;
+export const WHOLE_KIND = { "clip-crop": "clip", "id-crop": "id" } as const;
 const memoKey = (kind: PhotoVectorKind, hash: string) => `${kind}:${KIND_VERSION[kind]}:${hash}`;
 
 // Importing a photo needs the same vectors while checking it and again after saving it, so
@@ -171,22 +171,21 @@ export function photoVectors(
   return { vectors, presence, subjectUnsure };
 }
 
-/** The vectors a photo's suggestions rank from: its subject crop, plus the whole photo when the
- * detector was unsure, so a wrong crop can't decide alone. */
+/** The vectors a photo's suggestions rank from: its subject crop and the whole photo, each species
+ * scored by its better match. The crop finds small subjects; the frame adds habitat and rescues a
+ * wrong crop. Both come from one worker job. */
 export async function suggestionVectors(
   image: ImageSource,
   kind: "clip-crop" | "id-crop",
   opts: { key?: string | null; priority: Priority },
 ): Promise<Float32Array[]> {
-  const { vectors, subjectUnsure } = photoVectors(image, {
-    kinds: [kind],
+  const { vectors } = photoVectors(image, {
+    kinds: [kind, WHOLE_KIND[kind]],
     key: opts.key,
-    subject: true,
     priority: opts.priority,
   });
   const crop = await vectors[kind];
-  if (!(await subjectUnsure)) return [crop];
-  const whole = await photoVector(WHOLE_KIND[kind], image, opts).catch(() => null);
+  const whole = await vectors[WHOLE_KIND[kind]].catch(() => null);
   return whole ? [crop, whole] : [crop];
 }
 

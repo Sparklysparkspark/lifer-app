@@ -1,17 +1,19 @@
 // On-demand species enrichment: the reference photo, a short description and the gallery,
 // fetched together the first time a species page is opened rather than for the whole catalog.
 // This builds the result; persistReference.ts stores it.
-import { isPublishableLicense, normalizeLicense } from "./licensePolicy.js";
+import { INAT_PUBLISHABLE_LICENSE_CODES, isPublishableLicense, normalizeLicense } from "./licensePolicy.js";
 import { composeDescription, htmlToText } from "./descriptionText.js";
 import {
   downloadAndCacheImage,
   fetchINaturalistTaxon,
+  fetchObservationPhotos,
   fetchTaxonRecord,
   type INaturalistPhoto,
   type INaturalistTaxonRecord,
 } from "./inatClient.js";
+import { pool } from "../db.js";
 
-const MAX_GALLERY_PHOTOS = 6;
+export const MAX_GALLERY_PHOTOS = 6;
 
 export interface EnrichmentResult {
   referencePhoto: string | null;
@@ -113,7 +115,13 @@ export async function taxonDetailFromRecord(
 ): Promise<TaxonDetail> {
   const candidates = (taxon?.taxon_photos ?? []).map((tp) => tp.photo).filter((p) => p.medium_url !== excludePhotoUrl);
   const allowed = candidates.filter((p) => !options.publishableOnly || isPublishableLicense(toGalleryPhoto(p).license));
-  const photos = allowed.slice(0, MAX_GALLERY_PHOTOS);
+  let photos = allowed.slice(0, MAX_GALLERY_PHOTOS);
+  // Nothing publishable on the taxon page (and no publishable default photo): observers often
+  // license their own photos openly even when the taxon's chosen ones aren't.
+  if (options.publishableOnly && taxon && photos.length === 0 && !excludePhotoUrl)
+    photos = ((await fetchObservationPhotos(taxon.id, INAT_PUBLISHABLE_LICENSE_CODES, MAX_GALLERY_PHOTOS)) ?? []).filter((p) =>
+      isPublishableLicense(toGalleryPhoto(p).license),
+    );
 
   const gallery: EnrichmentResult["gallery"] = [];
   for (const photo of photos) {
@@ -134,13 +142,27 @@ export async function taxonDetailFromRecord(
   return { gallery, wikipediaSummary, wikipediaUrl, photosWithheld, textChecked: taxon != null };
 }
 
+// A taxon another catalog species holds is that species' (iNaturalist lumps this name into it),
+// so its photos and text would be borrowed. Fails open: without a database nothing is stored anyway.
+async function ownTaxon(species: { id: string; scientific_name: string }) {
+  const taxon = await fetchINaturalistTaxon(species.scientific_name);
+  if (!taxon) return null;
+  const held = await pool
+    .query(`SELECT 1 FROM species WHERE inat_taxon_id = $1 AND id::text <> $2 AND NOT is_other_taxa LIMIT 1`, [
+      taxon.id,
+      species.id,
+    ])
+    .catch(() => ({ rowCount: 0 }));
+  return held.rowCount ? null : taxon;
+}
+
 // The gallery alone, used by enrichSpecies and the species page's gallery backfill.
 export async function fetchAnyGallery(species: {
   id: string;
   scientific_name: string;
   reference_photo: string | null;
 }): Promise<EnrichmentResult["gallery"]> {
-  const taxon = await fetchINaturalistTaxon(species.scientific_name);
+  const taxon = await ownTaxon(species);
   if (!taxon) return [];
   return (await fetchINaturalistTaxonDetail(taxon.id, species.reference_photo, species.id)).gallery;
 }
@@ -152,7 +174,7 @@ export async function enrichSpecies(
   },
   options: EnrichOptions = {},
 ): Promise<EnrichmentResult> {
-  const taxon = await fetchINaturalistTaxon(species.scientific_name);
+  const taxon = await ownTaxon(species);
   const inat = mainPhotoCandidate(taxon?.defaultPhoto ?? null, options);
   const detail = taxon
     ? await fetchINaturalistTaxonDetail(taxon.id, inat?.photoUrl ?? null, species.id, options)

@@ -8,12 +8,14 @@
 // Timeouts cover only a model run, never queue time. A hung run gets the worker restarted; its job
 // fails and the rest carry on. Config-free so the desktop inference sidecar can reuse it.
 import { fork, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import sharp from "sharp";
+export { SUBJECT_FRAMING_MIN } from "./inferenceWorker.js";
 import {
   WORKER_MARKER,
   type AnalyzeResult,
@@ -21,6 +23,7 @@ import {
   type EmbedTarget,
   type InferenceRequest,
   type InferenceResult,
+  type PhotoFrame,
   type ProbeResult,
   type ProviderSpec,
   type RunHooks,
@@ -32,10 +35,15 @@ import {
 import { currentPlan, onPlanChange, placementFor } from "./acceleration.js";
 import { log } from "../lib/log.js";
 
+// onnxruntime-node sends usage data to Microsoft unless this is set before it loads. Set here,
+// on the main thread, so worker threads and forked GPU processes inherit it.
+process.env.ORT_DISABLE_TELEMETRY = "1";
+
 export type {
   AnalyzeResult,
   CardCrop,
   EmbedTarget,
+  PhotoFrame,
   ProbeResult,
   ProviderSpec,
   SceneResult,
@@ -46,8 +54,21 @@ export type {
 export type Priority = "interactive" | "commit" | "background";
 const PRIORITIES: Priority[] = ["interactive", "commit", "background"];
 
-/** Bundled with the source, so it ships with Docker and the desktop app as is. */
-export const DETECTOR_MODEL_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "models", "yolov8n.onnx");
+/** The basic detector (YOLOv8n: birds and nine mammals), bundled with the source so it ships with
+ *  Docker and the desktop app as is. Used until the animal detector is downloaded. */
+export const BASIC_DETECTOR_MODEL_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "models", "yolov8n.onnx");
+
+// The animal detector (every kind of animal), downloaded with the species-matching models. Set by
+// whoever knows the model folder (detectorModel.ts, the desktop's inference server).
+let animalDetectorPath: string | null = null;
+export function useAnimalDetector(modelPath: string | null): void {
+  animalDetectorPath = modelPath;
+}
+
+/** The animal detector while its file is there, else the basic one. */
+export function activeDetectorPath(): string {
+  return animalDetectorPath && existsSync(animalDetectorPath) ? animalDetectorPath : BASIC_DETECTOR_MODEL_PATH;
+}
 
 // One model run. Past this, something is wrong with the native call.
 const RUN_TIMEOUT_MS = 20_000;
@@ -417,6 +438,7 @@ export function analyzeImage(
     presence?: boolean;
     cardCrop?: boolean;
     subject?: boolean;
+    frame?: boolean;
     priority: Priority;
   },
 ): Promise<AnalyzeResult> {
@@ -430,6 +452,7 @@ export function analyzeImage(
       presence: opts.presence ?? false,
       cardCrop: opts.cardCrop ?? false,
       subject: opts.subject ?? false,
+      frame: opts.frame ?? false,
     },
     opts.priority,
   );
@@ -459,8 +482,10 @@ export function embedTexts(
 }
 
 function detectorTarget(): { detectorPath: string; detectorProviders?: ProviderSpec[] } {
-  const { modelPath, providers } = placementFor("detector", DETECTOR_MODEL_PATH);
-  return { detectorPath: modelPath, detectorProviders: providers };
+  const cpuPath = activeDetectorPath();
+  const { modelPath, providers } = placementFor("detector", cpuPath);
+  // A placement chosen for the other detector file doesn't apply.
+  return modelPath === cpuPath ? { detectorPath: modelPath, detectorProviders: providers } : { detectorPath: cpuPath };
 }
 
 /** Starts the worker and loads the given models now, on the backends they run on, at background

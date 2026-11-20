@@ -13,6 +13,8 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 
+// No database: the response cache and catalog lookups fail open instead of touching a real one.
+process.env.DATABASE_URL = "postgres://none@127.0.0.1:1/none";
 const { enrichmentFromTaxonRecord } = await import("./lazyEnrich.js");
 
 const photo = (id: number, license: string | null) => ({
@@ -67,6 +69,35 @@ describe("enrichmentFromTaxonRecord", () => {
     expect(result.referencePhoto).toBeNull();
     expect(result.gallery).toEqual([]);
     expect(result.photoWithheld).toBe(true);
+  });
+
+  it("with publishableOnly, falls back to openly licensed observation photos, the taxon's own first", async () => {
+    const obsPhoto = (id: number, license: string | null) => ({
+      url: `https://inaturalist-open-data.s3.amazonaws.com/photos/${id}/square.jpg`,
+      license_code: license,
+      attribution: `Observer ${id}`,
+    });
+    vi.mocked(fetch).mockImplementation(async (input) =>
+      String(input).includes("/observations?")
+        ? Response.json({
+            results: [
+              { taxon: { id: 99 }, photos: [obsPhoto(31, "cc-by")] },
+              { taxon: { id: 1 }, photos: [obsPhoto(30, "cc-by-nc"), obsPhoto(32, "cc0")] },
+              { taxon: { id: 1 }, photos: [obsPhoto(33, null)] },
+            ],
+          })
+        : new Response(null, { status: 404 }),
+    );
+    try {
+      const result = await enrichmentFromTaxonRecord("s4b", taxon(null, [null]), { publishableOnly: true });
+
+      expect(result.referencePhoto).toBe("https://inaturalist-open-data.s3.amazonaws.com/photos/30/medium.jpg");
+      expect(result.referenceCredit).toBe("Observer 30");
+      expect(result.gallery.map((g) => g.license)).toEqual(["cc-by"]);
+      expect(result.photoWithheld).toBe(false);
+    } finally {
+      vi.mocked(fetch).mockImplementation(async () => new Response(null, { status: 404 }));
+    }
   });
 
   it("with publishableOnly, reports a withheld photo when only the default photo exists and can't be published", async () => {

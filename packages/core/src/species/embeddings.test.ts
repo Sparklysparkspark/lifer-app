@@ -132,6 +132,29 @@ describe("matchTargets", () => {
   it("returns nothing when there's nothing to match against", () => {
     expect(matchTargets({ your_embeddings: null, ref_embedding: null, gallery_embeddings: null })).toEqual([]);
   });
+
+  it("keeps only openly licensed reference photos, plus the user's own, for open data", () => {
+    const targets = matchTargets(
+      {
+        your_embeddings: [[1, 0]],
+        ref_embedding: [0, 1],
+        ref_license: "cc-by-nc",
+        gallery_embeddings: [
+          [0.5, 0.5],
+          [0.6, 0.4],
+          [0.7, 0.3],
+          [0.8, 0.2],
+        ],
+        gallery_licenses: ["cc-by-4.0", "pd", "cc-by-sa", null],
+      },
+      true,
+    );
+    expect(targets.map((t) => t.embedding)).toEqual([
+      [1, 0],
+      [0.5, 0.5],
+      [0.6, 0.4],
+    ]);
+  });
 });
 
 describe("rankSpeciesByEmbedding", () => {

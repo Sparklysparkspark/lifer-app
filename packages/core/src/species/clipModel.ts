@@ -10,6 +10,8 @@ import {
 } from "../config.js";
 import { isInferenceStuck as inferenceStuck, releaseModels } from "./inference.js";
 import { createOnnxImageModel } from "./onnxImageModel.js";
+// Registers the downloaded animal detector's path with inference, for every process that matches.
+import "./detectorModel.js";
 
 // Opt-in download, never bundled. Holds the CLIP and identification models plus the text
 // encoder cache, and is deleted wholesale on offload. In the OS cache folder on desktop (config.ts).

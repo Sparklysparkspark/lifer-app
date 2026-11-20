@@ -189,6 +189,28 @@ describe("holdHost", () => {
     expect((await other).status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+  it("caps a huge Retry-After at backoffMaxMs", async () => {
+    vi.useFakeTimers();
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 429, headers: { "retry-after": "86400" } }))
+      .mockResolvedValue(new Response("ok"));
+    const pending = httpFetch("https://example.org/a", { backoffMaxMs: 2_000 });
+    await vi.advanceTimersByTimeAsync(2_100);
+    expect((await pending).status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets a caller queued behind the pacer give up when aborted", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(async () => new Response("ok"));
+    await httpFetch("https://api.inaturalist.org/v1/taxa/1");
+    const controller = new AbortController();
+    const queued = httpFetch("https://api.inaturalist.org/v1/taxa/2", { signal: controller.signal });
+    const settled = expect(queued).rejects.toThrow("stop");
+    controller.abort(new Error("stop"));
+    await settled;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("httpFetch against a real server", () => {

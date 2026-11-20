@@ -3,9 +3,19 @@
 // a fixed total time, which a slow but healthy link can exceed), and verified against a sha256.
 // `pipeline` (not `pipe`) so a dropped connection rejects here instead of crashing the process.
 import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream, existsSync, renameSync, rmSync, statSync } from "node:fs";
+import {
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { DiskFullError, ensureRoom, isDiskFull } from "./freeSpace.js";
 import { USER_AGENT } from "./http.js";
 
 export const DEFAULT_STALL_TIMEOUT_MS = 60_000;
@@ -20,7 +30,8 @@ export interface ResumableDownloadOptions {
   label?: string;
   // Only these bytes, [offset, length], of the file at the URL (a pack in a pack store shard).
   // Anything but exactly that range back is an error: a server that ignores Range would send the
-  // whole shard. A ranged download never resumes.
+  // whole shard. A ranged download resumes only when the server sent a validator (ETag or
+  // Last-Modified) for that same range, so a stray partial file is never spliced in.
   range?: [number, number];
 }
 
@@ -63,8 +74,24 @@ export async function downloadResumable(
   }
 
   const partPath = `${destPath}.part`;
-  if (range) rmSync(partPath, { force: true });
+  // The file's ETag (or Last-Modified) when the partial file was started, and for which range: a
+  // resume sends it as If-Range, so a file republished meanwhile comes back whole (and is
+  // refused or restarted) instead of being spliced.
+  const validatorPath = `${partPath}.validator`;
+  const rangeKey = range ? `${range[0]}+${range[1]}` : "";
+  let saved: { range: string; validator: string } | null = null;
+  try {
+    saved = JSON.parse(readFileSync(validatorPath, "utf8")) as { range: string; validator: string };
+  } catch {
+    saved = null;
+  }
+  const validator = saved?.range === rangeKey && saved.validator ? saved.validator : null;
+  if (range && !validator) rmSync(partPath, { force: true });
   const existing = existsSync(partPath) ? statSync(partPath).size : 0;
+  // A ranged part already whole can't be asked for more: start it over.
+  if (range && existing >= range[1]) rmSync(partPath, { force: true });
+  const resumeFrom = range && existing >= range[1] ? 0 : existing;
+  let badAnswer = false;
 
   const ctl = new AbortController();
   const onOuterAbort = () => ctl.abort(opts.signal?.reason);
@@ -85,13 +112,19 @@ export async function downloadResumable(
   try {
     armStall(CONNECT_TIMEOUT_MS);
     const rangeHeader = range
-      ? `bytes=${range[0]}-${range[0] + range[1] - 1}`
-      : existing > 0
-        ? `bytes=${existing}-`
+      ? `bytes=${range[0] + resumeFrom}-${range[0] + range[1] - 1}`
+      : resumeFrom > 0
+        ? `bytes=${resumeFrom}-`
         : undefined;
+    // Plain fetch, not httpFetch: its timeout bounds the whole body, which a large download on a
+    // slow link can outlast. The stall timer here bounds silence instead.
     const res = await fetch(url, {
       signal: ctl.signal,
-      headers: { "User-Agent": USER_AGENT, ...(rangeHeader ? { Range: rangeHeader } : {}) },
+      headers: {
+        "User-Agent": USER_AGENT,
+        ...(rangeHeader ? { Range: rangeHeader } : {}),
+        ...(resumeFrom > 0 && validator ? { "If-Range": validator } : {}),
+      },
       redirect: "follow",
     });
     // A partial file that's already whole (the app quit while hashing it) can't be resumed: restart.
@@ -99,10 +132,15 @@ export async function downloadResumable(
       await res.body?.cancel().catch(() => {});
       if (stallTimer) clearTimeout(stallTimer);
       rmSync(partPath, { force: true });
+      rmSync(validatorPath, { force: true });
       return await downloadResumable(url, destPath, opts);
     }
     if (!res.ok || !res.body) throw new Error(`Couldn't download ${label}: HTTP ${res.status}`);
-    if (range && (res.status !== 206 || !res.headers.get("content-range")?.startsWith(`bytes ${range[0]}-`))) {
+    if (
+      range &&
+      (res.status !== 206 || !res.headers.get("content-range")?.startsWith(`bytes ${range[0] + resumeFrom}-`))
+    ) {
+      badAnswer = true;
       await res.body.cancel().catch(() => {});
       throw new Error(
         `Couldn't download ${label}: the server didn't return the requested part of the file (HTTP ${res.status})`,
@@ -110,19 +148,27 @@ export async function downloadResumable(
     }
 
     // 206 means the server honored the Range request; anything else restarts from zero.
-    const resumed = !range && res.status === 206 && existing > 0;
-    const offset = resumed ? existing : 0;
+    const resumed = res.status === 206 && resumeFrom > 0;
+    const offset = resumed ? resumeFrom : 0;
+    if (!resumed) {
+      const fresh = res.headers.get("etag") ?? res.headers.get("last-modified");
+      if (fresh) writeFileSync(validatorPath, JSON.stringify({ range: rangeKey, validator: fresh }));
+      else rmSync(validatorPath, { force: true });
+    }
     const len = res.headers.get("content-length");
     totalBytes = range ? range[1] : len ? Number(len) + offset : null;
     downloaded = offset;
+    if (totalBytes != null) await ensureRoom(destPath, totalBytes - offset);
     opts.onProgress?.(downloaded, totalBytes);
     armStall(stallMs);
 
     const counter = new Transform({
       transform(chunk: Buffer, _enc, cb) {
         downloaded += chunk.length;
-        if (range && downloaded > range[1])
+        if (range && downloaded > range[1]) {
+          badAnswer = true;
           return cb(new Error(`Couldn't download ${label}: more than the expected ${range[1]} bytes`));
+        }
         armStall(stallMs);
         opts.onProgress?.(downloaded, totalBytes);
         cb(null, chunk);
@@ -137,8 +183,12 @@ export async function downloadResumable(
       throw new Error(`Couldn't download ${label}: connection closed early (${downloaded} of ${totalBytes} bytes)`);
     }
   } catch (err) {
-    // Keep the partial file so the next attempt resumes; a ranged one can't resume.
-    if (range) rmSync(partPath, { force: true });
+    // Keep the partial file so the next attempt resumes, unless the answer itself was wrong.
+    if (badAnswer || isDiskFull(err)) {
+      rmSync(partPath, { force: true });
+      rmSync(validatorPath, { force: true });
+    }
+    if (isDiskFull(err)) throw new DiskFullError(totalBytes ?? 0, 0, destPath);
     if (stalled) throw new StallError(label, Math.round(stallMs / 1000));
     throw err;
   } finally {
@@ -154,5 +204,6 @@ export async function downloadResumable(
     }
   }
   renameSync(partPath, destPath);
+  rmSync(validatorPath, { force: true });
   return { bytes: downloaded, totalBytes };
 }

@@ -3,7 +3,7 @@
 // GBIF lookup keys but its geometry can't be shipped.
 
 import { readFileSync } from "node:fs";
-import { fetchCached } from "../rawCache.js";
+import { fetchCached, type FetchCachedOptions } from "../rawCache.js";
 
 const ADMIN0_URL =
   "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_countries.geojson";
@@ -21,24 +21,34 @@ interface GeoJsonFeatureCollection {
   features: GeoJsonFeature[];
 }
 
+// Natural Earth's admin-1 file is ~40MB; anything far larger is not the file we expect.
+const MAX_GEOJSON_BYTES = 200 * 1024 * 1024;
+
 // Memoized in-process: drill-down sweeps call this thousands of times and the file is ~40MB.
 let admin0Cache: Promise<GeoJsonFeatureCollection> | null = null;
 let admin1Cache: Promise<GeoJsonFeatureCollection> | null = null;
 
 async function loadAdmin0(): Promise<GeoJsonFeatureCollection> {
   if (!admin0Cache) {
-    admin0Cache = fetchCached("natural-earth", "ne_10m_admin_0_countries.geojson", ADMIN0_URL).then(
-      (path) => JSON.parse(readFileSync(path, "utf-8")) as GeoJsonFeatureCollection,
-    );
+    admin0Cache = fetchCached("natural-earth", "ne_10m_admin_0_countries.geojson", ADMIN0_URL)
+      .then((path) => JSON.parse(readFileSync(path, "utf-8")) as GeoJsonFeatureCollection)
+      .catch((err: unknown) => {
+        admin0Cache = null; // let the next call retry
+        throw err;
+      });
   }
   return admin0Cache;
 }
 
-async function loadAdmin1(): Promise<GeoJsonFeatureCollection> {
+async function loadAdmin1(cacheDir?: string): Promise<GeoJsonFeatureCollection> {
   if (!admin1Cache) {
-    admin1Cache = fetchCached("natural-earth", "ne_10m_admin_1_states_provinces.geojson", ADMIN1_URL).then(
-      (path) => JSON.parse(readFileSync(path, "utf-8")) as GeoJsonFeatureCollection,
-    );
+    const opts: FetchCachedOptions = { dir: cacheDir, maxBytes: MAX_GEOJSON_BYTES };
+    admin1Cache = fetchCached("natural-earth", "ne_10m_admin_1_states_provinces.geojson", ADMIN1_URL, opts)
+      .then((path) => JSON.parse(readFileSync(path, "utf-8")) as GeoJsonFeatureCollection)
+      .catch((err: unknown) => {
+        admin1Cache = null; // let the next call retry
+        throw err;
+      });
   }
   return admin1Cache;
 }
@@ -160,9 +170,10 @@ export interface ProvinceEntry {
 // Extend as other countries' equivalents are found.
 const OVERSEAS_TERRITORY_TYPES = new Set(["Overseas département", "Overseas Territory", "Dependency", "Island Area"]);
 
-/** All provinces/states for one country (Natural Earth's `adm0_a3` property), for lazy drill-down. */
-export async function fetchProvincesForCountry(iso3: string): Promise<ProvinceEntry[]> {
-  const data = await loadAdmin1();
+/** All provinces/states for one country (Natural Earth's `adm0_a3` property), for lazy drill-down.
+ *  `cacheDir` replaces the repo's data/raw, which installed builds don't have. */
+export async function fetchProvincesForCountry(iso3: string, cacheDir?: string): Promise<ProvinceEntry[]> {
+  const data = await loadAdmin1(cacheDir);
   return data.features
     .filter((f) => f.properties.adm0_a3 === iso3 && f.properties.name)
     .map((f) => ({

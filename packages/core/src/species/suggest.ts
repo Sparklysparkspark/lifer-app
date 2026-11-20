@@ -1,10 +1,12 @@
 // Species auto-suggest: local nearest-neighbor search over image embeddings, nothing leaves the
 // device. The embedded Postgres has no pgvector, so vectors are plain real[] columns and ranking
 // is brute-force cosine similarity in JS, which is fast enough at personal-library scale.
+import { monthlyFromWeekly } from "./seasonality.js";
 import { HUMAN_SCIENTIFIC_NAME } from "./neverListed.js";
 import type { Pool, PoolClient } from "pg";
 import { ID_MODEL_VERSION } from "../config.js";
 import { log } from "../lib/log.js";
+import { promiseMemo } from "../lib/promiseMemo.js";
 import { clipModel, isModelDownloaded } from "./clipModel.js";
 import { idModel } from "./idModel.js";
 import { warmModels, type Priority, type TextModelSpec } from "./inference.js";
@@ -16,6 +18,7 @@ import {
   userSpeciesIds,
   yourVectorsBySpecies,
 } from "./userIndex.js";
+import { isOpenVectorLicense } from "./licensePolicy.js";
 import { cosineSimilarity, suggestionVectors } from "./vectorCache.js";
 import { CLIP_SPACE, ID_SPACE, type VectorSpace } from "./vectorSpaces.js";
 
@@ -32,26 +35,45 @@ const TIER_SCORE_FACTOR: Partial<Record<string, number>> = {
 const OFF_SEASON_RATIO = 0.05;
 const OFF_SEASON_SCORE_FACTOR = 0.94;
 
+const BAT_ORDER = "Chiroptera";
+
 // Matches against your own photos run hot regardless of species, because one library shares a
 // camera, processing and compression that the embedding partly keys on. This discount offsets that.
 const YOUR_PHOTOS_SCORE_FACTOR = 0.94;
 
+// In open-data rankings, a species with no open reference photo is credited with nearly the best image
+// match any listed species got (this quantile of them), so its name decides rather than its missing photo.
+const IMAGELESS_QUANTILE = 0.99;
+
 // Everything a species can be matched against: your own photos of it (discounted) and its
-// reference and gallery photos. Best match wins.
-export function matchTargets(row: {
-  your_embeddings: ArrayLike<number>[] | null;
-  ref_embedding: ArrayLike<number> | null;
-  gallery_embeddings: ArrayLike<number>[] | null;
-}): Array<{ embedding: ArrayLike<number>; factor: number; source: SpeciesSuggestion["source"] }> {
+// reference and gallery photos. Best match wins. `openOnly` keeps only reference and gallery photos
+// under an open licence (licensePolicy's isOpenVectorLicense), for rankings other apps receive; the
+// ranking then leaves out the tier and seasonality weighting. The requesting user's own photos stay in:
+// they are their own data, used locally for them, and never another user's.
+export function matchTargets(
+  row: {
+    your_embeddings: ArrayLike<number>[] | null;
+    ref_embedding: ArrayLike<number> | null;
+    gallery_embeddings: ArrayLike<number>[] | null;
+    ref_license?: string | null;
+    gallery_licenses?: (string | null)[] | null;
+  },
+  openOnly = false,
+): Array<{ embedding: ArrayLike<number>; factor: number; source: SpeciesSuggestion["source"] }> {
+  const refs = [
+    { embedding: row.ref_embedding, license: row.ref_license },
+    ...(row.gallery_embeddings ?? []).map((embedding, i) => ({ embedding, license: row.gallery_licenses?.[i] })),
+  ];
   return [
     ...(row.your_embeddings ?? []).map((embedding) => ({
       embedding,
       factor: YOUR_PHOTOS_SCORE_FACTOR,
       source: "your_photos" as const,
     })),
-    ...[row.ref_embedding, ...(row.gallery_embeddings ?? [])]
-      .filter((e): e is ArrayLike<number> => e != null)
-      .map((embedding) => ({ embedding, factor: 1, source: "reference_photo" as const })),
+    ...refs
+      .filter((r): r is { embedding: ArrayLike<number>; license: string | null | undefined } => r.embedding != null)
+      .filter((r) => !openOnly || isOpenVectorLicense(r.license))
+      .map(({ embedding }) => ({ embedding, factor: 1, source: "reference_photo" as const })),
   ];
 }
 
@@ -150,6 +172,17 @@ export interface SpeciesSuggestion {
   confident?: boolean;
   /** 0-100, what the user sees instead of the raw score. Absent on a keyword_tag suggestion. */
   matchPercent?: number;
+  /** Only on a top-ranked candidate that isn't confident: the genus (or family) most of the close
+   *  candidates share, the likely answer when the species itself is a toss-up. */
+  probably?: ProbableGroup;
+}
+
+export interface ProbableGroup {
+  rank: "genus" | "family";
+  /** The scientific name of the genus or family. */
+  name: string;
+  /** The catalog's taxon class of the top candidate (e.g. "amphibia"), for a noun like "frog". */
+  taxonClass: string | null;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -160,16 +193,22 @@ export interface SpeciesSuggestion {
 // species plus downloaded packs) reference into it so overlapping regions share. Dropped by
 // invalidateSuggestionCache, refreshed per species by refreshSpeciesVectors, freed when idle.
 
-interface SpeciesVectors {
+export interface SpeciesVectors {
   species_id: string;
   common_name: string | null;
   scientific_name: string;
   ref_embedding: Float32Array | null;
   gallery_embeddings: Float32Array[] | null;
   text_embedding: Float32Array | null;
+  ref_license: string | null;
+  gallery_licenses: (string | null)[] | null;
+  genus?: string | null;
+  family?: string | null;
+  taxon_class?: string | null;
+  taxon_order?: string | null;
 }
 
-interface CandidateEntry {
+export interface CandidateEntry {
   species: SpeciesVectors;
   is_vagrant: boolean | null;
   local_tier: string | null;
@@ -188,13 +227,14 @@ const SUGGESTION_CACHE_TTL_MS = 6 * 60 * 60_000;
 const SUGGESTION_IDLE_MS = 30 * 60_000;
 const spaceKey = (space: VectorSpace) => `${space.modelVersion}|${space.textModelVersion}`;
 const speciesStores = new Map<string, SpeciesStore>();
-const regionCatalogCache = new Map<string, { at: number; entries: Promise<CandidateEntry[] | null> }>();
-let packSpecies: { at: number; ids: Promise<string[]> } | null = null;
+const regionCatalogMemo = promiseMemo<string, CandidateEntry[] | null>(SUGGESTION_CACHE_TTL_MS);
+const regionCatalogCache = regionCatalogMemo.entries;
+const packSpeciesMemo = promiseMemo<"all", string[]>(SUGGESTION_CACHE_TTL_MS);
 
 export function invalidateSuggestionCache(): void {
   regionCatalogCache.clear();
   speciesStores.clear();
-  packSpecies = null;
+  packSpeciesMemo.entries.clear();
 }
 
 // Drops expired region entries, and everything once suggestions have gone unused for a while.
@@ -214,6 +254,14 @@ setInterval(() => {
 }, 60_000).unref();
 
 const toVec = (v: number[] | null): Float32Array | null => (v ? Float32Array.from(v) : null);
+
+// A species' gallery vectors with their photos' licences, aggregated together so the two arrays line up.
+// The identification model's gallery has no licence column; its vectors count as not open.
+const galleryJoin = (space: VectorSpace) =>
+  `LEFT JOIN LATERAL (SELECT array_agg(ge.embedding) AS gallery_embeddings,
+                             array_agg(${space.galleryTable === "species_reference_gallery_embeddings" ? "ge.license" : "NULL::text"}) AS gallery_licenses
+                        FROM ${space.galleryTable} ge
+                       WHERE ge.species_id = s.id AND ge.model_version = $1) g ON true`;
 
 function storeFor(space: VectorSpace): SpeciesStore {
   let store = speciesStores.get(spaceKey(space));
@@ -235,15 +283,21 @@ async function fetchSpeciesVectors(
     scientific_name: string;
     ref_embedding: number[] | null;
     gallery_embeddings: number[][] | null;
+    gallery_licenses: (string | null)[] | null;
+    ref_license: string | null;
     text_embedding: number[] | null;
+    genus: string | null;
+    family: string | null;
+    taxon_class: string | null;
+    taxon_order: string | null;
   }>(
     // Every gallery photo's vector, so a photo at a different angle than the main one still matches.
-    `SELECT s.id AS species_id, s.common_name, s.scientific_name,
-            sre.embedding AS ref_embedding,
-            (SELECT array_agg(ge.embedding) FROM ${space.galleryTable} ge
-               WHERE ge.species_id = s.id AND ge.model_version = $1) AS gallery_embeddings,
+    `SELECT s.id AS species_id, s.common_name, s.scientific_name, s.genus, s.family, s.taxon_class, s.taxon_order,
+            sre.embedding AS ref_embedding, s.reference_license AS ref_license,
+            g.gallery_embeddings, g.gallery_licenses,
             ste.embedding AS text_embedding
        FROM species s
+       ${galleryJoin(space)}
        LEFT JOIN ${space.referenceTable} sre ON sre.species_id = s.id AND sre.model_version = $1
        LEFT JOIN ${space.textTable} ste ON ste.species_id = s.id AND ste.model_version = $2
       WHERE s.id = ANY($3::uuid[])
@@ -261,6 +315,12 @@ async function fetchSpeciesVectors(
         ref_embedding: toVec(r.ref_embedding),
         gallery_embeddings: r.gallery_embeddings?.map((g) => Float32Array.from(g)) ?? null,
         text_embedding: toVec(r.text_embedding),
+        ref_license: r.ref_license,
+        gallery_licenses: r.gallery_licenses,
+        genus: r.genus,
+        family: r.family,
+        taxon_class: r.taxon_class,
+        taxon_order: r.taxon_order,
       },
     ]),
   );
@@ -345,10 +405,7 @@ function regionCandidateSet(
   regionId: string,
   space: VectorSpace,
 ): Promise<CandidateEntry[] | null> {
-  const key = `${spaceKey(space)}|region:${regionId}`;
-  const hit = regionCatalogCache.get(key);
-  if (hit && Date.now() - hit.at < SUGGESTION_CACHE_TTL_MS) return hit.entries;
-  const entries = (async () => {
+  return regionCatalogMemo.get(`${spaceKey(space)}|region:${regionId}`, async () => {
     const regionIds = await checklistRegionIds(pool, regionId);
     if (!regionIds) return null;
     const res = await pool.query<{
@@ -357,21 +414,27 @@ function regionCandidateSet(
       scientific_name: string;
       ref_embedding: number[] | null;
       gallery_embeddings: number[][] | null;
+      gallery_licenses: (string | null)[] | null;
+      ref_license: string | null;
       is_vagrant: boolean | null;
       local_tier: string | null;
-      seasonality: number[] | null;
+      weekly_frequency: number[] | null;
       text_embedding: number[] | null;
+      genus: string | null;
+      family: string | null;
+      taxon_class: string | null;
+      taxon_order: string | null;
     }>(
       // DISTINCT ON: a species in more than one of the regions counts once, keeping a row
       // where it isn't a vagrant if there is one (a resident in either country is no rarity).
-      `SELECT DISTINCT ON (s.id) s.id AS species_id, s.common_name, s.scientific_name,
-              sre.embedding AS ref_embedding,
-              (SELECT array_agg(ge.embedding) FROM ${space.galleryTable} ge
-                 WHERE ge.species_id = s.id AND ge.model_version = $1) AS gallery_embeddings,
-              rs.is_vagrant, rs.local_tier, rs.seasonality,
+      `SELECT DISTINCT ON (s.id) s.id AS species_id, s.common_name, s.scientific_name, s.genus, s.family, s.taxon_class, s.taxon_order,
+              sre.embedding AS ref_embedding, s.reference_license AS ref_license,
+              g.gallery_embeddings, g.gallery_licenses,
+              rs.is_vagrant, rs.local_tier, rs.weekly_frequency,
               ste.embedding AS text_embedding
          FROM region_species rs
          JOIN species s ON s.id = rs.species_id
+         ${galleryJoin(space)}
          LEFT JOIN ${space.referenceTable} sre ON sre.species_id = s.id AND sre.model_version = $1
          LEFT JOIN ${space.textTable} ste ON ste.species_id = s.id AND ste.model_version = $2
         WHERE rs.region_id = ANY($3::uuid[])
@@ -394,33 +457,34 @@ function regionCandidateSet(
           ref_embedding: toVec(r.ref_embedding),
           gallery_embeddings: r.gallery_embeddings?.map((g) => Float32Array.from(g)) ?? null,
           text_embedding: toVec(r.text_embedding),
+          ref_license: r.ref_license,
+          gallery_licenses: r.gallery_licenses,
+          genus: r.genus,
+          family: r.family,
+          taxon_class: r.taxon_class,
+          taxon_order: r.taxon_order,
         };
         store.entries.set(r.species_id, species);
       }
-      out.push({ species, is_vagrant: r.is_vagrant, local_tier: r.local_tier, seasonality: r.seasonality });
+      out.push({
+        species,
+        is_vagrant: r.is_vagrant,
+        local_tier: r.local_tier,
+        seasonality: monthlyFromWeekly(r.weekly_frequency),
+      });
     }
     return out;
-  })();
-  regionCatalogCache.set(key, { at: Date.now(), entries });
-  entries.catch(() => {
-    if (regionCatalogCache.get(key)?.entries === entries) regionCatalogCache.delete(key);
   });
-  return entries;
 }
 
 function packSpeciesIds(pool: Pool | PoolClient): Promise<string[]> {
-  if (packSpecies && Date.now() - packSpecies.at < SUGGESTION_CACHE_TTL_MS) return packSpecies.ids;
-  const ids = pool
-    .query<{ species_id: string }>(
-      `SELECT DISTINCT ps.species_id FROM pack_species ps JOIN downloaded_packs dp ON dp.pack_id = ps.pack_id`,
-    )
-    .then((res) => res.rows.map((r) => r.species_id));
-  const entry = { at: Date.now(), ids };
-  packSpecies = entry;
-  ids.catch(() => {
-    if (packSpecies === entry) packSpecies = null;
-  });
-  return ids;
+  return packSpeciesMemo.get("all", () =>
+    pool
+      .query<{ species_id: string }>(
+        `SELECT DISTINCT ps.species_id FROM pack_species ps JOIN downloaded_packs dp ON dp.pack_id = ps.pack_id`,
+      )
+      .then((res) => res.rows.map((r) => r.species_id)),
+  );
 }
 
 // No region picked: candidates are your own species plus every downloaded pack's.
@@ -467,7 +531,8 @@ export async function rankSpeciesByEmbedding(
 
 /** rankSpeciesByEmbedding against several embeddings (e.g. video frames): each species scores by
  * its best single match, not an average, so blurry frames don't drag it down. `embeddings` must
- * come from the model `space` describes. */
+ * come from the model `space` describes. `excludeSpeciesId` is left out before the ranking is cut
+ * and scored, so a photo's current species doesn't crowd out the alternatives. */
 export async function rankSpeciesByEmbeddings(
   pool: Pool | PoolClient,
   userId: string,
@@ -476,28 +541,90 @@ export async function rankSpeciesByEmbeddings(
   limit = 5,
   takenAt: Date | null = null,
   space: VectorSpace = CLIP_SPACE,
+  excludeSpeciesId: string | null = null,
+  opts: { openOnly?: boolean } = {},
 ): Promise<SpeciesSuggestion[]> {
   if (embeddings.length === 0) return [];
+  const [ranked] = await rankSpeciesBatch(
+    pool,
+    userId,
+    [{ embeddings, takenAt }],
+    regionId,
+    limit,
+    space,
+    excludeSpeciesId,
+    opts,
+  );
+  return ranked;
+}
+
+/** rankSpeciesByEmbeddings for several subjects sharing one region and limit: candidates and the
+ * user's vectors load once, and each item ranks exactly as it would alone. */
+export async function rankSpeciesBatch(
+  pool: Pool | PoolClient,
+  userId: string,
+  items: { embeddings: ArrayLike<number>[]; takenAt: Date | null }[],
+  regionId: string | null,
+  limit = 5,
+  space: VectorSpace = CLIP_SPACE,
+  excludeSpeciesId: string | null = null,
+  opts: { openOnly?: boolean } = {},
+): Promise<SpeciesSuggestion[][]> {
+  if (items.every((i) => i.embeddings.length === 0)) return items.map(() => []);
   noteSuggestionUse();
+  const openOnly = opts.openOnly ?? false;
   const [entries, yours] = await Promise.all([
     candidateEntries(pool, userId, regionId, space),
     yourVectorsBySpecies(pool, userId, space),
   ]);
+  return items.map(({ embeddings, takenAt }) =>
+    embeddings.length === 0
+      ? []
+      : rankCandidates(entries, yours, embeddings, limit, takenAt, space, excludeSpeciesId, openOnly),
+  );
+}
 
+/** Ranks one photo's vectors against loaded candidates (pure; the benchmark calls it too). */
+export function rankCandidates(
+  entries: CandidateEntry[],
+  yours: Map<string, Float32Array[]>,
+  embeddings: ArrayLike<number>[],
+  limit: number,
+  takenAt: Date | null,
+  space: VectorSpace,
+  excludeSpeciesId: string | null,
+  openOnly: boolean,
+  tuning: RankingTuning = RANKING_DEFAULTS,
+): SpeciesSuggestion[] {
   const scored: SpeciesSuggestion[] = [];
+  const bestImageScores: number[] = [];
+  const imageless: Array<{ sp: SpeciesVectors; text: number }> = [];
   for (const entry of entries) {
     const sp = entry.species;
-    if (sp.scientific_name === HUMAN_SCIENTIFIC_NAME) continue;
-    const targets = matchTargets({
-      your_embeddings: yours.get(sp.species_id) ?? null,
-      ref_embedding: sp.ref_embedding,
-      gallery_embeddings: sp.gallery_embeddings,
-    });
-    if (targets.length === 0) continue;
-    const adjustment = occurrenceAdjustment(
-      { isVagrant: entry.is_vagrant, localTier: entry.local_tier, seasonality: entry.seasonality },
-      takenAt,
+    if (sp.scientific_name === HUMAN_SCIENTIFIC_NAME || sp.species_id === excludeSpeciesId) continue;
+    const targets = matchTargets(
+      {
+        your_embeddings: yours.get(sp.species_id) ?? null,
+        ref_embedding: sp.ref_embedding,
+        gallery_embeddings: sp.gallery_embeddings,
+        ref_license: sp.ref_license,
+        gallery_licenses: sp.gallery_licenses,
+      },
+      openOnly,
     );
+    if (targets.length === 0) {
+      if (openOnly && sp.text_embedding) {
+        const text = Math.max(...embeddings.map((e) => cosineSimilarity(e, sp.text_embedding!)));
+        imageless.push({ sp, text });
+      }
+      continue;
+    }
+    const adjustment = openOnly
+      ? 1
+      : occurrenceAdjustment(
+          { isVagrant: entry.is_vagrant, localTier: entry.local_tier, seasonality: entry.seasonality },
+          takenAt,
+        );
     let bestScore = -Infinity;
     let bestFrame = embeddings[0];
     let best = targets[0];
@@ -511,6 +638,7 @@ export async function rankSpeciesByEmbeddings(
         }
       }
     }
+    bestImageScores.push(bestScore);
     scored.push({
       id: sp.species_id,
       common_name: sp.common_name,
@@ -519,11 +647,73 @@ export async function rankSpeciesByEmbeddings(
       source: best.source,
     });
   }
+  // Open data leaves many species with no reference photo at all; rather than drop them, they are judged
+  // by name (see IMAGELESS_QUANTILE).
+  if (imageless.length && bestImageScores.length) {
+    const sorted = bestImageScores.sort((a, b) => a - b);
+    const credit = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * IMAGELESS_QUANTILE))];
+    for (const { sp, text } of imageless)
+      scored.push({
+        id: sp.species_id,
+        common_name: sp.common_name,
+        scientific_name: sp.scientific_name,
+        score: (1 - space.textWeight) * credit + space.textWeight * text,
+        source: "reference_photo",
+      });
+  }
 
   scored.sort((a, b) => b.score - a.score);
   markConfidence(scored, space);
+  // Bat species look too alike in photos for a sure species answer; the genus or family can still be.
+  if (scored[0]?.confident && entries.find((e) => e.species.species_id === scored[0].id)?.species.taxon_order === BAT_ORDER)
+    scored[0].confident = false;
   assignDisplayPercents(scored, space);
+  if (scored[0] && !scored[0].confident) {
+    const taxa = new Map(entries.map((e) => [e.species.species_id, e.species]));
+    const group = probableGroup(scored, taxa, tuning);
+    if (group) scored[0].probably = group;
+  }
   return trimLowRelevance(scored, limit, space);
+}
+
+/** The ranking's knobs the matching benchmark sweeps (data-pipeline benchmark-matching.ts). */
+export interface RankingTuning {
+  /** Candidates whose scores share in the genus or family vote. */
+  groupPool: number;
+  /** How fast a candidate's vote fades with its score gap to the top one (softmax temperature). */
+  groupTemperature: number;
+  /** Share of the vote the top candidate's genus (else family) needs to be offered. */
+  groupShareMin: number;
+}
+
+export const RANKING_DEFAULTS: RankingTuning = { groupPool: 10, groupTemperature: 0.01, groupShareMin: 0.7 };
+
+/** The genus, else the family, of the top candidate when the candidates close behind it mostly
+ *  share it (see SpeciesSuggestion.probably). Expects `scored` sorted descending. */
+export function probableGroup(
+  scored: SpeciesSuggestion[],
+  taxa: Map<string, Pick<SpeciesVectors, "genus" | "family" | "taxon_class">>,
+  tuning: RankingTuning = RANKING_DEFAULTS,
+): ProbableGroup | null {
+  const pool = scored.slice(0, tuning.groupPool);
+  if (pool.length < 2) return null;
+  const weights = pool.map((s) => Math.exp((s.score - pool[0].score) / tuning.groupTemperature));
+  const total = weights.reduce((a, b) => a + b, 0);
+  const top = taxa.get(pool[0].id);
+  for (const rank of ["genus", "family"] as const) {
+    const name = top?.[rank];
+    if (!name) continue;
+    let share = 0;
+    let members = 0;
+    pool.forEach((s, i) => {
+      if (taxa.get(s.id)?.[rank] !== name) return;
+      share += weights[i];
+      members++;
+    });
+    // One member is just the top species again, nothing more general to say.
+    if (members >= 2 && share / total >= tuning.groupShareMin) return { rank, name, taxonClass: top?.taxon_class ?? null };
+  }
+  return null;
 }
 
 // Suggestions use the identification model once it's downloaded and its vectors are installed,
@@ -612,6 +802,9 @@ export async function suggestSpeciesForFrames(
   return rankSpeciesByEmbeddings(pool, userId, embeddings, regionId, limit, takenAt, CLIP_SPACE);
 }
 
+// Warm-up is best effort, but a broken model or database should still show when debugging.
+const warmFailed = (err: unknown) => log.debug({ err }, "Suggestion warm-up failed");
+
 /** Preloads models and the candidate set so the first photo checked doesn't pay for it. Best effort. */
 export async function warmSuggestions(
   pool: Pool,
@@ -624,8 +817,12 @@ export async function warmSuggestions(
   await Promise.all([
     models.length > 0 ? warmModels({ models, detector: true, text }) : Promise.resolve(),
     active
-      ? rankSpeciesByEmbeddings(pool, userId, [new Float32Array(768)], regionId, 1, null, active.space).catch(() => {})
+      ? rankSpeciesByEmbeddings(pool, userId, [new Float32Array(768)], regionId, 1, null, active.space).catch(
+          warmFailed,
+        )
       : Promise.resolve(),
-    isModelDownloaded() ? findNearDuplicate(pool, userId, new Float32Array(768), 2).catch(() => {}) : Promise.resolve(),
+    isModelDownloaded()
+      ? findNearDuplicate(pool, userId, new Float32Array(768), 2).catch(warmFailed)
+      : Promise.resolve(),
   ]);
 }

@@ -22,12 +22,12 @@ const fake = vi.hoisted(() => ({
   access: null as FsCall | null,
   writeFile: null as FsCall | null,
   copyFile: null as FsCall | null,
-  rename: null as FsCall | null,
+  link: null as FsCall | null,
 }));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const real = await importOriginal<typeof import("node:fs/promises")>();
   const swappable =
-    (name: "stat" | "mkdir" | "access" | "writeFile" | "copyFile" | "rename", original: FsCall): FsCall =>
+    (name: "stat" | "mkdir" | "access" | "writeFile" | "copyFile" | "link", original: FsCall): FsCall =>
     (...args) => {
       if (name === "mkdir") fake.calls.mkdir.push(String(args[0]));
       return (fake[name] ?? original)(...args);
@@ -39,7 +39,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     access: swappable("access", real.access as FsCall),
     writeFile: swappable("writeFile", real.writeFile as FsCall),
     copyFile: swappable("copyFile", real.copyFile as FsCall),
-    rename: swappable("rename", real.rename as FsCall),
+    link: swappable("link", real.link as FsCall),
   };
 });
 
@@ -66,7 +66,7 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
   fake.calls.mkdir = [];
-  fake.stat = fake.mkdir = fake.access = fake.writeFile = fake.copyFile = fake.rename = null;
+  fake.stat = fake.mkdir = fake.access = fake.writeFile = fake.copyFile = fake.link = null;
 });
 
 describe("ensureDir", () => {
@@ -223,10 +223,24 @@ describe("copyToNewFile, moveToFolder, uniqueDestination", () => {
     expect(await uniqueDestination(dir, "IMG_0002.CR3")).toBe(path.join(dir, "IMG_0002-3.CR3"));
   });
 
+  it("keeps both photos when two same-named files move into one folder at once", async () => {
+    const a = path.join(root, "a", "IMG_0001.jpg");
+    const b = path.join(root, "b", "IMG_0001.jpg");
+    await ensureDir(path.dirname(a));
+    await ensureDir(path.dirname(b));
+    writeFileSync(a, "first");
+    writeFileSync(b, "second");
+    const dir = path.join(root, "Birds");
+    const dests = await Promise.all([moveToFolder(a, dir), moveToFolder(b, dir)]);
+    expect(new Set(dests).size).toBe(2);
+    expect(dests.map((d) => readFileSync(d, "utf8")).sort()).toEqual(["first", "second"]);
+    expect(existsSync(a) || existsSync(b)).toBe(false);
+  });
+
   it("copies then deletes when the destination is on another drive", async () => {
     const src = path.join(root, "IMG_0003.CR3");
     writeFileSync(src, "raw");
-    fake.rename = () => Promise.reject(fsError("EXDEV"));
+    fake.link = () => Promise.reject(fsError("EXDEV"));
     const dest = await moveToFolder(src, path.join(root, "RAW"), "Osprey.CR3");
     expect(dest).toBe(path.join(root, "RAW", "Osprey.CR3"));
     expect(readFileSync(dest, "utf8")).toBe("raw");

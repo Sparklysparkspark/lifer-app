@@ -28,6 +28,13 @@ export const ID_MODEL_CHECKSUM: ModelChecksum = {
   sha256: "296c69a17140569c8b0763337793a81c4f01458a64198fe9b205ea8ab464ebaa",
 };
 
+// The animal detector, fp32 (the CPU runs it faster than the fp16 export, with the same boxes).
+export const ANIMAL_DETECTOR_CHECKSUM: ModelChecksum = {
+  url: "https://github.com/Sparklysparkspark/lifer-app/releases/download/models/megadetector-v6c-v1.onnx",
+  sha256: "017b4387549f69978579a49afd01e35a92ba0101d73644293b369ec9efd0aa1c",
+};
+export const ANIMAL_DETECTOR_BYTES = 80_245_703;
+
 /** Bundled in packages/core/src/species/models, never downloaded; listed for clients that fetch it. */
 export const YOLO_MODEL_VERSION = "yolov8n";
 export const YOLO_MODEL_SHA256 = "b8de9b74614776b2a004dfef8d5741b2350f3dd82eed336ae8d3999c42630707";
@@ -56,6 +63,7 @@ const BY_URL = new Map(
     ID_MODEL_GPU_CHECKSUM,
     SCENE_MODEL_CHECKSUM,
     SCENE_MODEL_FP32_CHECKSUM,
+    ANIMAL_DETECTOR_CHECKSUM,
   ].map((c) => [c.url, c.sha256]),
 );
 

@@ -152,6 +152,48 @@ export async function fetchFirstTaxonPhoto(taxonId: number): Promise<INaturalist
   return (await fetchTaxonRecord(taxonId))?.taxon_photos?.[0]?.photo ?? null;
 }
 
+interface ObservationPhotos {
+  results: Array<{ taxon: { id: number }; photos: Array<{ url: string; license_code: string | null; attribution: string }> }>;
+}
+
+function isObservationPhotos(v: unknown): v is ObservationPhotos {
+  return (
+    isRecord(v) &&
+    Array.isArray(v.results) &&
+    v.results.every(
+      (o) =>
+        isRecord(o) &&
+        isRecord(o.taxon) &&
+        typeof o.taxon.id === "number" &&
+        Array.isArray(o.photos) &&
+        o.photos.every(
+          (p) => isRecord(p) && typeof p.url === "string" && isOptionalString(p.license_code) && typeof p.attribution === "string",
+        ),
+    )
+  );
+}
+
+/** The first photo of the taxon's most-voted research-grade observations whose photo carries one
+ *  of `licenses`, the taxon itself before its subspecies. For a species whose taxon photos are all
+ *  "all rights reserved" while its observers chose open licenses. Null when iNaturalist answered
+ *  with an error, which says nothing about the photos. */
+export async function fetchObservationPhotos(
+  taxonId: number,
+  licenses: string[],
+  limit: number,
+): Promise<INaturalistPhoto[] | null> {
+  const url =
+    `${INAT_API}/observations?taxon_id=${taxonId}&quality_grade=research&photos=true` +
+    `&photo_license=${licenses.join(",")}&order_by=votes&per_page=${limit * 2}`;
+  const data = await fetchInatJson(url, isObservationPhotos, "observations");
+  if (!data) return null;
+  const ranked = [...data.results].sort((a, b) => Number(b.taxon.id === taxonId) - Number(a.taxon.id === taxonId));
+  return ranked
+    .flatMap((o) => o.photos.slice(0, 1))
+    .slice(0, limit)
+    .map((p) => ({ medium_url: p.url.replace("/square.", "/medium."), license_code: p.license_code, attribution: p.attribution }));
+}
+
 type FoundTaxon = { id: number; defaultPhoto: INaturalistPhoto | null };
 
 // iNaturalist's search ranks by relevance, so only an exact name match counts, or a candidate

@@ -3,12 +3,14 @@
 // one. Checked against computed_at; bounded by a float budget, LRU.
 import type { Pool, PoolClient } from "pg";
 import { EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION } from "../config.js";
+import { promiseMemo } from "../lib/promiseMemo.js";
 import { idModel } from "./idModel.js";
 import type { ImageSource, Priority } from "./inference.js";
 import { photoVector } from "./vectorCache.js";
 import { CLIP_SPACE, ID_SPACE, type VectorSpace } from "./vectorSpaces.js";
 
-type CaptureTable = VectorSpace["captureTable"];
+// Gallery search also reads each photo's background vector (the animal greyed out) this way.
+type CaptureTable = VectorSpace["captureTable"] | "capture_background_embeddings";
 // Your own photos ranked per species: the newest this many.
 const YOUR_PHOTOS_MAX = 20;
 const CAPTURE_VECTOR_BUDGET_FLOATS = (Number(process.env.LIFER_VECTOR_CACHE_MB) || 128) * 262_144;
@@ -92,7 +94,8 @@ interface UserVectorRow {
   computed_at: string;
 }
 const USER_INDEX_TTL_MS = 6 * 60 * 60_000;
-const userIndexes = new Map<string, { at: number; rows: Promise<UserVectorRow[]>; resolved: UserVectorRow[] | null }>();
+const userIndexMemo = promiseMemo<string, UserVectorRow[]>(USER_INDEX_TTL_MS);
+const userIndexes = userIndexMemo.entries;
 const userIndexKey = (userId: string, table: CaptureTable, modelVersion: string) =>
   `${userId}|${table}|${modelVersion}`;
 
@@ -102,47 +105,29 @@ export function userIndex(
   table: CaptureTable,
   modelVersion: string,
 ): Promise<UserVectorRow[]> {
-  const key = userIndexKey(userId, table, modelVersion);
-  const hit = userIndexes.get(key);
-  if (hit && Date.now() - hit.at < USER_INDEX_TTL_MS) return hit.rows;
-  const rows = pool
-    .query<UserVectorRow>(
-      `SELECT ce.capture_id, c.species_id, ce.computed_at::text AS computed_at
+  return userIndexMemo.get(userIndexKey(userId, table, modelVersion), () =>
+    pool
+      .query<UserVectorRow>(
+        `SELECT ce.capture_id, c.species_id, ce.computed_at::text AS computed_at
          FROM ${table} ce JOIN captures c ON c.id = ce.capture_id
         WHERE c.user_id = $1 AND ce.model_version = $2
         ORDER BY ce.computed_at DESC`,
-      [userId, modelVersion],
-    )
-    .then((res) => res.rows);
-  const entry = { at: Date.now(), rows, resolved: null as UserVectorRow[] | null };
-  userIndexes.set(key, entry);
-  rows.then(
-    (r) => (entry.resolved = r),
-    () => {
-      if (userIndexes.get(key) === entry) userIndexes.delete(key);
-    },
+        [userId, modelVersion],
+      )
+      .then((res) => res.rows),
   );
-  return rows;
 }
 
 // The species a user has photographed (the no-region candidate list), same lifetime rules.
-const userSpeciesSets = new Map<string, { at: number; ids: Promise<Set<string>>; resolved: Set<string> | null }>();
+const userSpeciesMemo = promiseMemo<string, Set<string>>(USER_INDEX_TTL_MS);
+const userSpeciesSets = userSpeciesMemo.entries;
 
 export function userSpeciesIds(pool: Pool | PoolClient, userId: string): Promise<Set<string>> {
-  const hit = userSpeciesSets.get(userId);
-  if (hit && Date.now() - hit.at < USER_INDEX_TTL_MS) return hit.ids;
-  const ids = pool
-    .query<{ species_id: string }>(`SELECT species_id FROM user_species WHERE user_id = $1`, [userId])
-    .then((res) => new Set(res.rows.map((r) => r.species_id)));
-  const entry = { at: Date.now(), ids, resolved: null as Set<string> | null };
-  userSpeciesSets.set(userId, entry);
-  ids.then(
-    (s) => (entry.resolved = s),
-    () => {
-      if (userSpeciesSets.get(userId) === entry) userSpeciesSets.delete(userId);
-    },
+  return userSpeciesMemo.get(userId, () =>
+    pool
+      .query<{ species_id: string }>(`SELECT species_id FROM user_species WHERE user_id = $1`, [userId])
+      .then((res) => new Set(res.rows.map((r) => r.species_id))),
   );
-  return ids;
 }
 
 /** Frees every user index and cached capture vector. */

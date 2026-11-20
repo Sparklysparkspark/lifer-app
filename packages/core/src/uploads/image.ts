@@ -22,6 +22,13 @@ const ffmpegPath = require("ffmpeg-static") as string;
 // Uploads are only mp4/mov, so ffmpeg may read local files through the MP4-family demuxer and
 // nothing else: a crafted file can't make it open URLs, playlists or other demuxers.
 const FFMPEG_INPUT_RESTRICTIONS = ["-protocol_whitelist", "file,pipe", "-format_whitelist", "mov,mp4,m4a,3gp,3g2,mj2"];
+// Recordings come as WAV, FLAC, MP3 or M4A, so the demuxers for them join the video ones.
+const AUDIO_INPUT_RESTRICTIONS = [
+  "-protocol_whitelist",
+  "file,pipe",
+  "-format_whitelist",
+  "wav,flac,mp3,mov,mp4,m4a,3gp,3g2,mj2",
+];
 const FRAME_TIMEOUT_MS = 60_000;
 const TRANSCODE_TIMEOUT_MS = 15 * 60_000;
 // Each ffmpeg process can use several cores and a lot of memory; more than two at once starves the API.
@@ -155,9 +162,78 @@ export function parseFfmpegDescription(text: string): { durationSeconds: number 
   };
 }
 
-/** One JPEG frame at a timestamp, for video species suggestions. Not resized: the model resizes
- *  to its own input anyway. */
-export async function extractVideoFrame(filePath: string, atSeconds: number): Promise<Buffer> {
+export interface AudioDerivativePaths extends DerivativePaths {
+  durationSeconds: number | null;
+}
+
+/** Duration from `ffmpeg -i` output, or null when it can't be read. Exported for tests. */
+export function parseAudioDuration(text: string): number | null {
+  if (!/^Input #0, /m.test(text)) throw new Error("ffmpeg couldn't read this recording");
+  const d = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(text);
+  const seconds = d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : 0;
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+}
+
+// A recording's picture is its waveform, sized and saved like a photo's display and thumb images,
+// so every grid and viewer that shows photos shows it without a special case.
+export async function generateAudioDerivatives(filePath: string, photoId: string): Promise<AudioDerivativePaths> {
+  if (!ffmpegPath) throw new Error("ffmpeg binary not found: reinstall dependencies");
+  const displayDir = path.join(APP_DATA_DIR, "display");
+  const thumbDir = path.join(APP_DATA_DIR, "thumb");
+  await ensureDir(displayDir);
+  await ensureDir(thumbDir);
+
+  // With no output file ffmpeg exits with an error after printing the description; that's expected.
+  const description = await runFfmpeg(
+    ["-hide_banner", ...AUDIO_INPUT_RESTRICTIONS, "-i", filePath],
+    FRAME_TIMEOUT_MS,
+  ).then(
+    (r) => String(r.stderr),
+    (err: { stderr?: string | Buffer }) => String(err.stderr ?? ""),
+  );
+  const durationSeconds = parseAudioDuration(description);
+
+  const { stdout: wavePng } = await runFfmpegToBuffer(
+    [
+      "-y",
+      ...AUDIO_INPUT_RESTRICTIONS,
+      "-i",
+      filePath,
+      "-filter_complex",
+      "aformat=channel_layouts=mono,showwavespic=s=1600x900:colors=0x4f6b57",
+      "-frames:v",
+      "1",
+      "-f",
+      "image2pipe",
+      "-vcodec",
+      "png",
+      "-",
+    ],
+    TRANSCODE_TIMEOUT_MS,
+  );
+
+  const displayPath = path.join(displayDir, `${photoId}.webp`);
+  const thumbPath = path.join(thumbDir, `${photoId}.webp`);
+  // The waveform is transparent; the cream background keeps it readable in light and dark.
+  const image = sharp(wavePng).flatten({ background: "#f4efe3" });
+  const displayInfo = await image
+    .clone()
+    .resize({ width: DISPLAY_WIDTH, withoutEnlargement: true })
+    .webp({ quality: 85 })
+    .toFile(displayPath);
+  await image.clone().resize({ width: THUMB_WIDTH, withoutEnlargement: true }).webp({ quality: 80 }).toFile(thumbPath);
+  return {
+    displayPath,
+    thumbPath,
+    width: displayInfo.width ?? null,
+    height: displayInfo.height ?? null,
+    durationSeconds,
+  };
+}
+
+/** One JPEG frame at a timestamp. Not resized. Suggestions take the default quality (the model
+ *  resizes anyway); a saved frame asks for the best the encoder offers. */
+export async function extractVideoFrame(filePath: string, atSeconds: number, bestQuality = false): Promise<Buffer> {
   if (!ffmpegPath) throw new Error("ffmpeg binary not found: reinstall dependencies");
   const { stdout } = await runFfmpegToBuffer(
     [
@@ -169,6 +245,7 @@ export async function extractVideoFrame(filePath: string, atSeconds: number): Pr
       filePath,
       "-frames:v",
       "1",
+      ...(bestQuality ? ["-q:v", "1"] : []),
       "-f",
       "image2pipe",
       "-vcodec",
