@@ -6,6 +6,7 @@ import { useApiRoute } from "../lib/resource";
 import { errorMessage } from "../lib/errorMessage";
 import { useToast } from "../hooks/useToast";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { shortcutLabel } from "../lib/keymap";
 import Button from "./Button";
 
 type Suggestion = ApiResponse<"/captures/version-suggestions">["suggestions"][number];
@@ -54,16 +55,21 @@ export default function VersionSuggestions() {
   };
   useKeyboardShortcuts(
     {
-      versionReviewLinkAll: () =>
+      // Mod chords: the browser's own meaning (find next, a focused button's click) is dropped.
+      versionReviewLinkAll: (e) => {
+        e.preventDefault();
         void decide(
           true,
           list.map((s) => s.captureId),
-        ),
-      versionReviewLink: () => {
+        );
+      },
+      versionReviewLink: (e) => {
+        e.preventDefault();
         const s = focusedRow();
         if (s) void decide(true, [s.captureId]);
       },
-      versionReviewDismiss: () => {
+      versionReviewDismiss: (e) => {
+        e.preventDefault();
         const s = focusedRow();
         if (s) void decide(false, [s.captureId]);
       },
@@ -94,6 +100,7 @@ export default function VersionSuggestions() {
         </div>
         <Button
           size="sm"
+          tooltip={{ label: t("versions.review.linkAll"), shortcut: shortcutLabel("versionReviewLinkAll") }}
           onClick={() =>
             void decide(
               true,
@@ -115,10 +122,20 @@ export default function VersionSuggestions() {
               {[s.groupFileName, s.fileName].filter(Boolean).join(" · ")}
             </p>
             <div className="flex shrink-0 gap-2">
-              <Button size="sm" variant="secondary" onClick={() => void decide(false, [s.captureId])}>
+              <Button
+                size="sm"
+                variant="secondary"
+                tooltip={{ label: t("versions.review.notSame"), shortcut: shortcutLabel("versionReviewDismiss") }}
+                onClick={() => void decide(false, [s.captureId])}
+              >
                 {t("versions.review.notSame")}
               </Button>
-              <Button size="sm" variant="secondary" onClick={() => void decide(true, [s.captureId])}>
+              <Button
+                size="sm"
+                variant="secondary"
+                tooltip={{ label: t("versions.review.link"), shortcut: shortcutLabel("versionReviewLink") }}
+                onClick={() => void decide(true, [s.captureId])}
+              >
                 {t("versions.review.link")}
               </Button>
             </div>

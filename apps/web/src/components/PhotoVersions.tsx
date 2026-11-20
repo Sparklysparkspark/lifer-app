@@ -12,16 +12,20 @@ import {
   versionName,
   type PhotoVersion,
 } from "../lib/photoVersions";
-import { formatBytes } from "../lib/format";
+import { formatBytes, formatDate } from "../lib/format";
 import { errorMessage } from "../lib/errorMessage";
+import { docsUrl } from "../lib/docs";
+import { openExternal } from "../lib/openExternal";
 import { useToast } from "../hooks/useToast";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
-import { matches } from "../lib/keymap";
+import { matches, shortcutLabel } from "../lib/keymap";
 import Modal from "./Modal";
 import Button from "./Button";
 import Menu, { MenuItem, MenuPanel } from "./Menu";
 import PhotoMenu from "./PhotoMenu";
+import SearchInput from "./SearchInput";
+import { Tooltip } from "./Tooltip";
 
 type Group = ApiResponse<"/captures/{id}/versions">;
 type VersionFile = Group["files"][number];
@@ -34,6 +38,7 @@ export function PhotoVersionsHost() {
     <PhotoVersionsPanel
       key={current.captureId}
       captureId={current.captureId}
+      link={current.link}
       onChange={current.onChange}
       onClose={() => photoVersionsPanel.set(null)}
     />
@@ -42,10 +47,12 @@ export function PhotoVersionsHost() {
 
 function PhotoVersionsPanel({
   captureId,
+  link = false,
   onChange,
   onClose,
 }: {
   captureId: string;
+  link?: boolean;
   onChange?: () => void;
   onClose: () => void;
 }) {
@@ -53,10 +60,12 @@ function PhotoVersionsPanel({
   const toast = useToast();
   const group = useApiRoute(apiPath("/captures/{id}/versions", { id: captureId }));
   const menu = useDropdownMenu<string>();
-  const [linking, setLinking] = useState(false);
+  const [linking, setLinking] = useState(link);
   const files = group.data?.files ?? [];
   const groupId = group.data?.groupCaptureId ?? captureId;
   const grouped = new Set(files.map((f) => f.captureId)).size > 1;
+  // A group's own photo can't join another group; split its versions out first.
+  const picking = linking && !grouped;
 
   const changed = async () => {
     await group.reload();
@@ -107,15 +116,24 @@ function PhotoVersionsPanel({
     );
   };
 
-  // Registered so a shortcut can be bound later; the open row's actions, else the shown file's.
+  // The open row's actions, else the shown file's. Mod chords are the browser's too (find next).
   const focused = files.find((f) => f.originalId === menu.openKey) ?? files[0];
   useKeyboardShortcuts(
     {
-      versionUseAsPhoto: () => focused && !focused.shown && showAsPhoto(focused),
-      versionSplitOut: () => focused && !focused.isGroup && splitOut(focused),
-      versionLinkTo: () => !grouped && setLinking(true),
+      versionUseAsPhoto: (e) => {
+        e.preventDefault();
+        if (focused && !focused.shown) showAsPhoto(focused);
+      },
+      versionSplitOut: (e) => {
+        e.preventDefault();
+        if (focused && !focused.isGroup) splitOut(focused);
+      },
+      versionLinkTo: (e) => {
+        e.preventDefault();
+        if (!grouped) setLinking(true);
+      },
     },
-    { enabled: !linking && files.length > 0 },
+    { enabled: !picking && files.length > 0 },
   );
 
   const roleLabel = (f: VersionFile) =>
@@ -140,15 +158,18 @@ function PhotoVersionsPanel({
   return (
     <>
       <Modal
-        open={!linking}
+        open={!picking}
         onClose={onClose}
         size="lg"
         title={t("versions.title")}
         description={grouped ? t("versions.description") : t("versions.single")}
         footerStart={
-          // A group's own photo can't join another group; split its versions out first.
-          !grouped && (group.data?.nearby.length ?? 0) > 0 ? (
-            <Button variant="secondary" onClick={() => setLinking(true)}>
+          group.data && !grouped ? (
+            <Button
+              variant="secondary"
+              tooltip={{ label: t("versions.linkTo"), shortcut: shortcutLabel("versionLinkTo") }}
+              onClick={() => setLinking(true)}
+            >
               {t("versions.linkTo")}
             </Button>
           ) : undefined
@@ -229,38 +250,113 @@ function PhotoVersionsPanel({
             </li>
           ))}
         </ul>
+        {group.data && !grouped && (
+          <p className="mt-2 text-footnote text-muted">
+            {t("versions.singleHint")}{" "}
+            <Button variant="link" size="sm" onClick={() => openExternal(docsUrl("/guides/photo-versions"))}>
+              {t("versions.notice.howItWorks")}
+            </Button>
+          </p>
+        )}
       </Modal>
-      <Modal
-        open={linking}
+      <LinkPicker
+        open={picking}
+        captureId={captureId}
+        nearby={group.data?.nearby ?? []}
+        onPick={linkTo}
         onClose={() => setLinking(false)}
-        size="lg"
-        title={t("versions.linkTitle")}
-        description={t("versions.linkDescription")}
-        footer={
-          <Button variant="secondary" onClick={() => setLinking(false)}>
-            {t("common.cancel")}
-          </Button>
-        }
-      >
-        <ul className="grid grid-cols-[repeat(auto-fill,minmax(7rem,1fr))] gap-2">
-          {group.data?.nearby.map((n) => (
-            <li key={n.captureId}>
-              {/* raw-control: a whole thumbnail is the choice, as on a photo tile. */}
-              <button
-                type="button"
-                onClick={() => linkTo(n.captureId)}
-                aria-label={t("versions.linkToPhoto")}
-                className="block aspect-square w-full overflow-hidden rounded-control bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-              >
+      />
+    </>
+  );
+}
+
+const SEARCH_DELAY_MS = 250;
+
+/** "Link to another photo": photos taken within two minutes, or any photo a search finds by file
+ *  name, species, place or date. */
+function LinkPicker({
+  open,
+  captureId,
+  nearby,
+  onPick,
+  onClose,
+}: {
+  open: boolean;
+  captureId: string;
+  nearby: Group["nearby"];
+  onPick: (captureId: string) => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [query, setQuery] = useState("");
+  const [q, setQ] = useState("");
+  // Searched once typing pauses, not on every key.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQ(query.trim()), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const found = useApiRoute(q ? apiPath("/captures/{id}/versions/candidates", { id: captureId }, { q }) : null);
+  const items = q ? (found.data?.items ?? []) : nearby;
+  const status = q
+    ? found.data && items.length === 0
+      ? t("versions.linkNoMatch")
+      : null
+    : nearby.length > 0
+      ? t("versions.linkNearby")
+      : t("versions.linkNoneNearby");
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title={t("versions.linkTitle")}
+      description={t("versions.linkDescription")}
+      footer={
+        <Button variant="secondary" onClick={onClose}>
+          {t("common.cancel")}
+        </Button>
+      }
+    >
+      <SearchInput
+        value={query}
+        onChange={setQuery}
+        autoFocus
+        size="md"
+        aria-label={t("versions.linkSearch")}
+        placeholder={t("versions.linkSearchPlaceholder")}
+      />
+      {status && (
+        <p role="status" className="mt-2 text-footnote text-muted">
+          {status}
+        </p>
+      )}
+      <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-3">
+        {items.map((n) => (
+          <li key={n.captureId} className="min-w-0">
+            {/* raw-control: a whole thumbnail is the choice, as on a photo tile. */}
+            <button
+              type="button"
+              onClick={() => onPick(n.captureId)}
+              aria-label={t("versions.linkToPhoto", { name: n.fileName ?? n.speciesName ?? "" })}
+              title={n.fileName ?? undefined}
+              className="block w-full min-w-0 rounded-control text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              <span className="block aspect-square overflow-hidden rounded-control bg-surface-muted">
                 {n.photoId && (
                   <img src={`/api/photos/${n.photoId}/thumb`} alt="" className="h-full w-full object-cover" />
                 )}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </Modal>
-    </>
+              </span>
+              {n.fileName && <span className="mt-1 block truncate text-footnote text-ink">{n.fileName}</span>}
+              <span className="block truncate text-caption text-muted">
+                {/* The date first: a long species name truncates, the date never does. */}
+                {[formatDate(n.takenAt), n.speciesName].filter(Boolean).join(" · ")}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Modal>
   );
 }
 
@@ -315,6 +411,20 @@ export function VersionStrip({
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const active = versions.find((v) => v.captureId === activeId);
+  // The version on screen; the panel, once open, takes these keys for its own rows.
+  const panelOpen = photoVersionsPanel.use() != null;
+  useKeyboardShortcuts(
+    {
+      versionUseAsPhoto: () => {
+        if (active && !active.shown) void actions.show(groupCaptureId, active.captureId, versionName(t, active));
+      },
+      versionSplitOut: (e) => {
+        e.preventDefault();
+        if (active && !active.isGroup) void actions.split(groupCaptureId, active.captureId, versionName(t, active));
+      },
+    },
+    { enabled: !panelOpen && renaming === null },
+  );
 
   const saveLabel = async (v: PhotoVersion, label: string | null) => {
     try {
@@ -392,14 +502,19 @@ export function VersionStrip({
           {active.shown ? (
             t("versions.shownEverywhere")
           ) : (
-            // raw-control: a link in the caption, light on the dark backdrop. design-token: as the viewer's links
-            <button
-              type="button"
-              onClick={() => void actions.show(groupCaptureId, active.captureId, versionName(t, active))}
-              className={CAPTION_LINK}
-            >
-              {t("versions.useAsPhoto")}
-            </button>
+            <Tooltip content={{ label: t("versions.useAsPhoto"), shortcut: shortcutLabel("versionUseAsPhoto") }}>
+              {(tip) => (
+                // raw-control: a link in the caption, light on the dark backdrop. design-token: as the viewer's links
+                <button
+                  {...tip}
+                  type="button"
+                  onClick={() => void actions.show(groupCaptureId, active.captureId, versionName(t, active))}
+                  className={CAPTION_LINK}
+                >
+                  {t("versions.useAsPhoto")}
+                </button>
+              )}
+            </Tooltip>
           )}
           {/* design-token: caption separator on the dark surround */}
           <span className="text-white/40"> · </span>

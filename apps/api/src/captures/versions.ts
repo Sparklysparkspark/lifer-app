@@ -7,6 +7,7 @@ import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
 import { IdParams, Nullable, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { jobStatusFields } from "../lib/schema.js";
+import { galleryFiltersFor, searchGallery } from "../gallery/routes.js";
 import {
   DEFAULT_VERSION_FOLDERS,
   linkVersionTx,
@@ -21,6 +22,8 @@ import {
 const MAX_BATCH = 500;
 const NEARBY_SECONDS = 120;
 const NEARBY_LIMIT = 24;
+const CANDIDATE_LIMIT = 60;
+const SEARCH_MAX = 200;
 const LABEL_MAX = 80;
 const FOLDER_NAME_MAX = 60;
 const FOLDER_NAMES_MAX = 50;
@@ -62,14 +65,22 @@ const VersionFile = Type.Object({
   evidence: Evidence,
 });
 
+const LinkCandidate = Type.Object({
+  captureId: Uuid(),
+  photoId: Nullable(Uuid()),
+  takenAt: Nullable(Type.String()),
+  fileName: Nullable(Type.String()),
+  speciesName: Nullable(Type.String()),
+});
+
 const VersionGroup = Type.Object({
   groupCaptureId: Uuid(),
   files: Type.Array(VersionFile, { description: "The shown photo's files first" }),
   versions: Type.Array(Version, {
     description: "One per photo of the group, the original first, in a steady order for a switcher",
   }),
-  nearby: Type.Array(Type.Object({ captureId: Uuid(), photoId: Nullable(Uuid()), takenAt: Nullable(Type.String()) }), {
-    description: "Photos taken within two minutes, to link to",
+  nearby: Type.Array(LinkCandidate, {
+    description: "Photos taken within two minutes, to link to; /versions/candidates searches the rest",
   }),
 });
 
@@ -97,6 +108,35 @@ async function groupOf(userId: string, captureId: string): Promise<string | null
     [captureId, userId],
   );
   return res.rows[0]?.head ?? null;
+}
+
+/** What the link picker shows of `ids`, in their order. Leaves out `groupId` itself, photos with
+ *  versions of their own (linkVersionTx refuses nesting) and anything that isn't a still photo. */
+async function describeCandidates(userId: string, groupId: string, ids: string[]) {
+  const res = await pool.query<{
+    id: string;
+    current_photo_id: string | null;
+    taken_at: Date | null;
+    species: string | null;
+    ref: string | null;
+  }>(
+    `SELECT c.id, c.current_photo_id, c.taken_at, COALESCE(s.common_name, s.scientific_name) AS species,
+            (SELECT o.ref FROM originals o WHERE o.capture_id = c.id ORDER BY o.kind = 'raw' LIMIT 1) AS ref
+     FROM captures c
+     JOIN photos p ON p.id = c.current_photo_id AND COALESCE(p.kind, 'image') = 'image'
+     LEFT JOIN species s ON s.id = c.species_id
+     WHERE c.id = ANY($1::uuid[]) AND c.user_id = $2 AND c.id <> $3
+       AND NOT EXISTS (SELECT 1 FROM capture_versions v WHERE v.group_capture_id = c.id AND v.state = 'linked')
+     ORDER BY array_position($1::uuid[], c.id)`,
+    [ids, userId, groupId],
+  );
+  return res.rows.map((r) => ({
+    captureId: r.id,
+    photoId: r.current_photo_id,
+    takenAt: r.taken_at?.toISOString() ?? null,
+    fileName: r.ref ? path.basename(r.ref.replace(/\\/g, "/")) : null,
+    speciesName: r.species,
+  }));
 }
 
 export async function captureVersionRoutes(fastify: FastifyInstance): Promise<void> {
@@ -191,8 +231,8 @@ export async function captureVersionRoutes(fastify: FastifyInstance): Promise<vo
         if (!seen || (seen.kind === "raw" && f.kind !== "raw")) versions.set(f.captureId, f);
       }
 
-      const nearby = await pool.query<{ id: string; current_photo_id: string | null; taken_at: Date | null }>(
-        `SELECT c.id, c.current_photo_id, c.taken_at FROM captures c, captures_all g
+      const nearby = await pool.query<{ id: string }>(
+        `SELECT c.id FROM captures c, captures_all g
          WHERE g.id = $1 AND c.user_id = $2 AND c.id <> g.id AND g.taken_at IS NOT NULL
            AND c.taken_at BETWEEN g.taken_at - make_interval(secs => $3) AND g.taken_at + make_interval(secs => $3)
            AND NOT EXISTS (SELECT 1 FROM capture_versions v WHERE v.group_capture_id = c.id AND v.state = 'linked')
@@ -218,12 +258,48 @@ export async function captureVersionRoutes(fastify: FastifyInstance): Promise<vo
             shown: f.shown,
           };
         }),
-        nearby: nearby.rows.map((r) => ({
-          captureId: r.id,
-          photoId: r.current_photo_id,
-          takenAt: r.taken_at?.toISOString() ?? null,
-        })),
+        nearby: await describeCandidates(
+          userId,
+          groupId,
+          nearby.rows.map((r) => r.id),
+        ),
       };
+    },
+  );
+
+  // The link picker's search: any photo whose file name matches, then what the Gallery's search
+  // finds (species, places, months and years). The time window only shapes the unsearched list.
+  app.get(
+    "/captures/:id/versions/candidates",
+    {
+      preValidation: requireAuth,
+      config: notFoundOnInvalidId("Capture not found"),
+      schema: {
+        params: IdParams,
+        querystring: Type.Object({ q: Type.String({ minLength: 1, maxLength: SEARCH_MAX }) }),
+        response: replies(Type.Object({ items: Type.Array(LinkCandidate) })),
+      },
+    },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const groupId = await groupOf(userId, request.params.id);
+      if (!groupId) return reply.code(404).send({ error: "Capture not found" });
+      const q = request.query.q.trim();
+      if (!q) return { items: [] };
+      const byName = await pool.query<{ capture_id: string }>(
+        `SELECT o.capture_id FROM originals o JOIN captures c ON c.id = o.capture_id
+         WHERE o.user_id = $1 AND regexp_replace(o.ref, '^.*[/\\\\]', '') ILIKE $2 ESCAPE '\\'
+         GROUP BY o.capture_id ORDER BY max(c.taken_at) DESC NULLS LAST LIMIT $3`,
+        [userId, `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`, CANDIDATE_LIMIT],
+      );
+      const filters = await galleryFiltersFor({ excludeVideo: "1" }, userId);
+      const found = "error" in filters ? null : await searchGallery(userId, q, filters, { quick: true });
+      const ids = [
+        ...new Set([...byName.rows.map((r) => r.capture_id), ...(found?.items ?? []).map((i) => i.row.capture_id)]),
+      ];
+      // Over-fetched, since a group or this photo itself drops out.
+      const items = await describeCandidates(userId, groupId, ids.slice(0, CANDIDATE_LIMIT * 2));
+      return { items: items.slice(0, CANDIDATE_LIMIT) };
     },
   );
 

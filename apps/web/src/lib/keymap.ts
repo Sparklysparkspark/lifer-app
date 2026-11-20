@@ -162,17 +162,19 @@ export const KEYMAP: Record<KeyAction, Entry> = {
   reviewNotSure: { scope: "review", chords: ["S"] },
   reviewNext: { scope: "review", chords: ["ArrowDown"] },
   reviewPrevious: { scope: "review", chords: ["ArrowUp"] },
-  // Photo versions (components/PhotoVersions.tsx, VersionSuggestions.tsx): registered, keys not chosen yet.
-  versionsShow: { scope: "photo", chords: [] },
+  // Photo versions (components/PhotoVersions.tsx, VersionSuggestions.tsx), on Lightroom's stack
+  // keys: Mod+G groups (links), Mod+Shift+G unstacks (splits out, keeps apart), Shift+S moves to
+  // the top of the stack. Lightroom's S (expand a stack) is Change species here, so Shift+G.
+  versionsShow: { scope: "photo", chords: ["Shift+G"] },
   // Left and Right page photos, and [ ] are the encounter keys the culling app shares.
   versionPrevious: { scope: "photo", chords: ["Alt+ArrowLeft"] },
   versionNext: { scope: "photo", chords: ["Alt+ArrowRight"] },
-  versionUseAsPhoto: { scope: "photo", chords: [] },
-  versionSplitOut: { scope: "photo", chords: [] },
-  versionLinkTo: { scope: "photo", chords: [] },
-  versionReviewLinkAll: { scope: "import", chords: [] },
-  versionReviewLink: { scope: "import", chords: [] },
-  versionReviewDismiss: { scope: "import", chords: [] },
+  versionUseAsPhoto: { scope: "photo", chords: ["Shift+S"] },
+  versionSplitOut: { scope: "photo", chords: ["Mod+Shift+G"] },
+  versionLinkTo: { scope: "photo", chords: ["Mod+G"] },
+  versionReviewLinkAll: { scope: "import", chords: ["Mod+Enter"] },
+  versionReviewLink: { scope: "import", chords: ["Mod+G"] },
+  versionReviewDismiss: { scope: "import", chords: ["Mod+Shift+G"] },
   // Import compare mode (importReview/ImportCompareView.tsx); inside it Left and Right page the
   // species' photos, Up and Down move between your photos, Z toggles Fit and Subject.
   compareImport: { scope: "import", chords: ["C"] },

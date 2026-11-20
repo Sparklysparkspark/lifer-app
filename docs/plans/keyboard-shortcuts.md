@@ -51,6 +51,12 @@ which is the single source of truth: no component listens for its own keys.
 | Not wildlife: leave the photo out (import review and compare) | Cmd+Backspace | Ctrl+Backspace | Import review, compare | Lifer (not S: in compare a letter starts the species search) |
 | Full screen photo | F | F | Lightbox only. Change: also Compare | Lightroom |
 | Previous, next version of the photo (prints, edits, exports) | Option+Left, Option+Right | Alt+Left, Alt+Right | Lightbox (V-18). Left and Right page photos and `[` `]` are the encounter keys, so neither fits; free in Lifer, the culling app and Lightroom | Lifer |
+| Manage versions (the Versions panel) | Shift+G | Shift+G | Lightbox, any still photo | Lifer (Lightroom's S expands a stack; S is Change species) |
+| Use the version on screen as the photo | Shift+S | Shift+S | Lightbox version strip, Versions panel | Lightroom (move to top of stack) |
+| Link to another photo (as a version of it) | Cmd+G | Ctrl+G | Lightbox (opens the picker), Versions panel | Lightroom (group into stack) |
+| Split out a version | Cmd+Shift+G | Ctrl+Shift+G | Lightbox version strip, Versions panel | Lightroom (unstack) |
+| Link the focused suggested version; keep it apart | Cmd+G; Cmd+Shift+G | Ctrl+G; Ctrl+Shift+G | Import page version suggestions | Lightroom (group, unstack) |
+| Link all suggested versions | Cmd+Enter | Ctrl+Enter | Import page version suggestions | Lifer |
 | Show or hide info | I (also Mod+I) | I (also Ctrl+I) | None. Change: add | Lightroom (I), Apple Photos (Cmd+I) |
 | Close, back, clear selection | Esc | Esc | Dialogs, menus, Lightbox, Compare, Gallery select mode | Platform |
 | Show or hide sidebar | Ctrl+Cmd+S | Ctrl+Alt+S | Desktop menu | macOS Mail and Finder |

@@ -64,12 +64,13 @@ export const TIPS: Record<TipId, TipDef> = {
   "smart-album": { steps: [{ keys: [], text: "tips.smartAlbum.rules" }] },
   "trip-dates": { steps: [{ keys: [], text: "tips.trip.dates" }] },
   "first-map": { steps: [{ keys: [], text: "tips.map.pins" }] },
+  // Shown before any photo has versions: switching shows on screen, linking doesn't.
   "photo-versions": {
     steps: [
       { keys: [], text: "tips.photoVersions.badge" },
-      { keys: ["versionPrevious", "versionNext"], text: "tips.photoVersions.switch" },
+      { keys: ["versionLinkTo"], text: "tips.photoVersions.link" },
     ],
-    learn: ["versionPrevious", "versionNext"],
+    learn: ["versionLinkTo"],
   },
 };
 

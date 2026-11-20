@@ -4,11 +4,14 @@ import type { TFunction } from "i18next";
 import type { ApiResponse } from "../api/client";
 import { createCachedRoute, createStore } from "./resource";
 
-export const photoVersionsPanel = createStore<{ captureId: string; onChange?: () => void } | null>(null);
+export const photoVersionsPanel = createStore<{ captureId: string; onChange?: () => void; link?: boolean } | null>(
+  null,
+);
 
-/** Opens the Versions panel for a photo. `onChange` runs after each change so the page reloads. */
-export function openPhotoVersions(captureId: string, onChange?: () => void): void {
-  photoVersionsPanel.set({ captureId, onChange });
+/** Opens the Versions panel for a photo. `onChange` runs after each change so the page reloads;
+ *  `link` opens straight to "Link to another photo". */
+export function openPhotoVersions(captureId: string, onChange?: () => void, link = false): void {
+  photoVersionsPanel.set({ captureId, onChange, link });
 }
 
 /** Whether the panel is open, so the photo menus inside it leave out "Versions". */

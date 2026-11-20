@@ -179,16 +179,19 @@ async function swapPhotos(client: PoolClient, groupId: string, versionId: string
      WHERE id = ANY(ARRAY[$1, $2]::uuid[])`,
     [groupId, versionId, other, shown],
   );
-  // The group's card and album covers follow it to the newly shown photo.
+  // The group's card and album covers follow it to the newly shown photo. Only the group's own
+  // species: a version linked from another species keeps that species' hand-picked cover.
   await client.query(`UPDATE albums SET cover_photo_id = $2 WHERE cover_photo_id = $1`, [shown, other]);
-  await client.query(`UPDATE user_species SET cover_chosen_photo_id = $2 WHERE cover_chosen_photo_id = $1`, [
-    shown,
-    other,
-  ]);
+  const ownSpecies = `species_id IN (SELECT species_id FROM captures_all WHERE id = $3
+                      UNION SELECT species_id FROM capture_species WHERE capture_id = $3)`;
+  await client.query(
+    `UPDATE user_species SET cover_chosen_photo_id = $2 WHERE cover_chosen_photo_id = $1 AND ${ownSpecies}`,
+    [shown, other, groupId],
+  );
   const covers = await client.query<{ species_id: string }>(
     `UPDATE user_species SET cover_photo_id = $2, card_crop_x = NULL, card_crop_y = NULL, card_crop_size = NULL
-     WHERE cover_photo_id = $1 RETURNING species_id`,
-    [shown, other],
+     WHERE cover_photo_id = $1 AND ${ownSpecies} RETURNING species_id`,
+    [shown, other, groupId],
   );
   return covers.rows.map((r) => r.species_id);
 }
@@ -236,7 +239,20 @@ export async function splitVersionTx(
     `UPDATE capture_versions SET state = 'dismissed', displayed = false, decided_at = now() WHERE capture_id = $1`,
     [versionId],
   );
-  if (row.hid_capture) await unhideCapturesTx(client, userId, [versionId], after.species);
+  if (row.hid_capture) {
+    await unhideCapturesTx(client, userId, [versionId], after.species);
+    // Linking moved a hand-picked featured photo off it; it comes back with the photo.
+    const covers = await client.query<{ species_id: string }>(
+      `UPDATE user_species us SET cover_photo_id = us.cover_chosen_photo_id,
+         card_crop_x = NULL, card_crop_y = NULL, card_crop_size = NULL
+       FROM photos p
+       WHERE us.user_id = $1 AND p.id = us.cover_chosen_photo_id AND p.capture_id = $2
+         AND us.cover_photo_id IS DISTINCT FROM us.cover_chosen_photo_id
+       RETURNING us.species_id`,
+      [userId, versionId],
+    );
+    after.recrop.push(...covers.rows.map((r) => r.species_id));
+  }
   return row.group_capture_id;
 }
 

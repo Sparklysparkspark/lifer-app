@@ -43,6 +43,13 @@ export const SETUP_TIPS: SetupTip[] = [
   },
   { id: "map", title: "tour.map.title", body: "tour.map.body", icon: "map", guide: "/guides/photo-map" },
   {
+    id: "versions",
+    title: "setupTips.versions.title",
+    body: "setupTips.versions.body",
+    icon: "gallery",
+    guide: "/guides/photo-versions",
+  },
+  {
     id: "keys",
     title: "tour.search.title",
     body: "tour.search.body",

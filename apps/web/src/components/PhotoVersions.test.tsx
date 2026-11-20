@@ -22,6 +22,8 @@ const { default: PhotoTile } = await import("./PhotoTile");
 const { default: Lightbox } = await import("./Lightbox");
 const { PhotoViewMenu } = await import("./PhotoGridControls");
 const { default: VersionNotice, useVersionNotice } = await import("./VersionNotice");
+const { PhotoVersionsHost } = await import("./PhotoVersions");
+const { openPhotoVersions, photoVersionsPanel } = await import("../lib/photoVersions");
 
 const toast: ToastApi = { success: vi.fn(), error: vi.fn(), info: vi.fn(), show: vi.fn(), dismiss: vi.fn() };
 
@@ -147,6 +149,53 @@ describe("the viewer's version switcher", () => {
     fireEvent.click(screen.getByRole("button", { name: "Use this as the photo" }));
     await waitFor(() => expect(post).toHaveBeenCalledWith("/captures/g1/versions/show", { captureId: "v2" }));
     expect(toast.show).toHaveBeenCalled();
+  });
+
+  it("uses the version on screen as the photo, or splits it out, from the keys", async () => {
+    openViewer();
+    fireEvent.click(await screen.findByRole("radio", { name: "Black and white" }));
+    fireEvent.keyDown(window, { key: "S", code: "KeyS", shiftKey: true });
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/captures/g1/versions/show", { captureId: "v2" }));
+    fireEvent.keyDown(window, { key: "G", code: "KeyG", shiftKey: true, ctrlKey: true });
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/captures/v2/versions/split"));
+  });
+});
+
+describe("linking to any photo", () => {
+  it("explains the two-minute list, searches the rest and links with Undo", async () => {
+    get.mockImplementation(async (path: string) => {
+      if (path.includes("/versions/candidates"))
+        return {
+          items: [
+            {
+              captureId: "far",
+              photoId: "p9",
+              takenAt: "2019-01-02T10:00:00Z",
+              fileName: "IMG_9.jpg",
+              speciesName: "Moose",
+            },
+          ],
+        };
+      if (path.includes("/versions")) return { groupCaptureId: "solo", files: [], versions: [], nearby: [] };
+      return {};
+    });
+    post.mockResolvedValue({ groupCaptureId: "far" });
+    wrap(<PhotoVersionsHost />);
+    openPhotoVersions("solo", undefined, true);
+    expect(
+      await screen.findByText("No photos were taken within two minutes. Search to find any other photo."),
+    ).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search photos" }), { target: { value: "IMG_9" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Link to IMG_9.jpg" }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/captures/solo/versions/link", { groupCaptureId: "far" }));
+    expect(get).toHaveBeenCalledWith(
+      expect.stringContaining("/captures/solo/versions/candidates?q=IMG_9"),
+      expect.anything(),
+    );
+    const undo = vi.mocked(toast.show).mock.calls.at(-1)![1]!.actions![0]!;
+    undo.onClick();
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/captures/solo/versions/split"));
+    photoVersionsPanel.set(null);
   });
 });
 

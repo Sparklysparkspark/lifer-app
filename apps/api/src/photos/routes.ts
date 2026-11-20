@@ -206,10 +206,15 @@ export async function resolveOriginal(
     volume_id: string | null;
     volume_relative_path: string | null;
   }>(
+    // "Use this as the photo" swaps photo rows between a group and its shown version
+    // (uploads/versionGrouping.ts), so a swapped photo's files are on the other capture.
     `SELECT o.ref, o.volume_id, o.volume_relative_path
      FROM photos p
      JOIN captures_all c ON c.id = p.capture_id
-     JOIN originals o ON o.capture_id = c.id
+     JOIN originals o ON o.capture_id = COALESCE(
+       (SELECT cv.capture_id FROM capture_versions cv WHERE cv.group_capture_id = c.id AND cv.state = 'linked' AND cv.displayed),
+       (SELECT cv.group_capture_id FROM capture_versions cv WHERE cv.capture_id = c.id AND cv.state = 'linked' AND cv.displayed),
+       c.id)
      WHERE p.id = $1 AND c.user_id = $2 AND o.kind = $3`,
     [photoId, userId, kind],
   );

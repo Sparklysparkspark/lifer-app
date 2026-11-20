@@ -58,7 +58,27 @@ Open the photo, and the viewer lists its versions by name under the photo. Click
 
 - **Rename**: double-click a version's name, or click **Rename**, type a name like "Gallery print" and press <kbd>Enter</kbd>. <kbd>Esc</kbd> cancels. Clear the name to go back to the one Lifer chose.
 - **Use this as the photo**: shows that version everywhere the photo appears: grids, the species card and albums. Undo is in the message that follows.
-- **Manage versions**: the button at the top of the viewer lists every file with its size and format, and why it was grouped. From there you can **Split out** a version that isn't the same photo (it becomes a photo of its own again, and Lifer won't group it again), or **Link to another photo** taken within two minutes.
+- **Manage versions**: the button at the top of the viewer lists every file with its size and format, and why it was grouped. From there you can **Split out** a version that isn't the same photo (it becomes a photo of its own again, and Lifer won't group it again).
+
+## Link a version yourself
+
+When Lifer didn't group a file, open it and choose **Versions** in its **⋯** menu, then **Link to another photo** (or press <kbd>Cmd</kbd>+<kbd>G</kbd> in the viewer). Lifer first shows photos taken within two minutes. To link a print scanned years later, or a file whose date was lost, search by file name, species, place or date.
+
+A linked version counts under the original's species and date. Its own species and date are kept, so **Split out** gives them back. Every link and split offers **Undo**. A photo that already has versions of its own can't be linked to another; split its versions out first.
+
+## Keyboard shortcuts
+
+| Key | What it does |
+| --- | --- |
+| <kbd>Option</kbd>+<kbd>←</kbd> <kbd>→</kbd> | Previous or next version in the viewer |
+| <kbd>Shift</kbd>+<kbd>G</kbd> | Manage versions |
+| <kbd>Shift</kbd>+<kbd>S</kbd> | Use the version on screen as the photo |
+| <kbd>Cmd</kbd>+<kbd>G</kbd> | Link to another photo |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | Split out the version on screen |
+| <kbd>Cmd</kbd>+<kbd>G</kbd>, <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | On the **Import photos** page: link the suggestion you're on, or keep it apart |
+| <kbd>Cmd</kbd>+<kbd>Enter</kbd> | On the **Import photos** page: link all suggestions |
+
+On Windows and Linux, use <kbd>Alt</kbd> for <kbd>Option</kbd> and <kbd>Ctrl</kbd> for <kbd>Cmd</kbd>. These follow Lightroom's stack keys.
 
 ## How counts work
 
