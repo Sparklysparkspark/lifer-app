@@ -801,6 +801,10 @@ export interface paths {
                   ("red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray" | "black" | "white") | null;
                 /** @description Imported hidden because a culling app rejected it */
                 hidden: boolean;
+                lifeStage: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult") | null;
+                sex: ("male" | "female" | "unknown") | null;
+                plumage: string | null;
+                morph: string | null;
                 isFeatured: boolean | null;
                 hasRawOriginal: boolean;
                 inatStatus: ("pending" | "completed") | null;
@@ -1596,6 +1600,10 @@ export interface paths {
                   ("red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray" | "black" | "white") | null;
                 /** @description Imported hidden because a culling app rejected it */
                 hidden: boolean;
+                lifeStage: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult") | null;
+                sex: ("male" | "female" | "unknown") | null;
+                plumage: string | null;
+                morph: string | null;
                 isFeatured: boolean | null;
                 hasRawOriginal: boolean;
                 inatStatus: ("pending" | "completed") | null;
@@ -4122,7 +4130,7 @@ export interface paths {
     };
     /**
      * Photo feed for syncing
-     * @description Every photo in the library, ordered by last change. Page with `cursor` until `nextCursor` is null; store the last item's `updatedAt` and pass it as `since` next time to get only new and edited photos. Photos deleted permanently simply stop appearing, so run an occasional full sync if you mirror deletions.
+     * @description Every photo in the library, ordered by last change. Page with `cursor` until `nextCursor` is null; store the last item's `updatedAt` and pass it as `since` next time to get only new and edited photos. `lifeStage`, `sex`, `plumage` and `morph` say how the animal looks, null when not set. Photos deleted permanently simply stop appearing, so run an occasional full sync if you mirror deletions.
      */
     get: {
       parameters: {
@@ -4188,6 +4196,10 @@ export interface paths {
                 };
                 rating: number | null;
                 tags: string[];
+                lifeStage: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult") | null;
+                sex: ("male" | "female" | "unknown") | null;
+                plumage: string | null;
+                morph: string | null;
                 /** @enum {unknown} */
                 kind: "image" | "video" | "audio";
                 width: number | null;
@@ -5070,12 +5082,90 @@ export interface paths {
                 isGroup: boolean;
                 shown: boolean;
               }[];
-              /** @description Photos taken within two minutes, to link to */
+              /** @description Photos taken within two minutes, to link to; /versions/candidates searches the rest */
               nearby: {
                 /** Format: uuid */
                 captureId: string;
                 photoId: string | null;
                 takenAt: string | null;
+                fileName: string | null;
+                speciesName: string | null;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/{id}/versions/candidates": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /captures/{id}/versions/candidates */
+    get: {
+      parameters: {
+        query: {
+          q: string;
+        };
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: {
+                /** Format: uuid */
+                captureId: string;
+                photoId: string | null;
+                takenAt: string | null;
+                fileName: string | null;
+                speciesName: string | null;
               }[];
             };
           };
@@ -5386,6 +5476,84 @@ export interface paths {
           };
         };
         /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/captures/appearance": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Set how the animal looks: life stage, sex, plumage and morph
+     * @description For one photo or many (`captureIds`). `lifeStage` is one of egg, larva, nymph, pupa, juvenile, subadult or adult; `sex` is male, female or unknown (looked at and can't tell). `plumage` and `morph` are free text up to 100 characters. A field left out stays as it is; null clears it. `updated` counts the photos changed.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+            lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult") | null;
+            sex?: ("male" | "female" | "unknown") | null;
+            plumage?: string | null;
+            morph?: string | null;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              updated: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
         401: {
           headers: {
             [name: string]: unknown;
@@ -8444,6 +8612,10 @@ export interface paths {
                   ("red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray" | "black" | "white") | null;
                 /** @description Imported hidden because a culling app rejected it */
                 hidden: boolean;
+                lifeStage: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult") | null;
+                sex: ("male" | "female" | "unknown") | null;
+                plumage: string | null;
+                morph: string | null;
                 isFeatured: boolean | null;
                 hasRawOriginal: boolean;
                 inatStatus: ("pending" | "completed") | null;
@@ -10627,6 +10799,10 @@ export interface paths {
                   ("red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray" | "black" | "white") | null;
                 /** @description Imported hidden because a culling app rejected it */
                 hidden: boolean;
+                lifeStage: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult") | null;
+                sex: ("male" | "female" | "unknown") | null;
+                plumage: string | null;
+                morph: string | null;
                 isFeatured: boolean | null;
                 hasRawOriginal: boolean;
                 inatStatus: ("pending" | "completed") | null;
@@ -11650,6 +11826,10 @@ export interface paths {
                   ("red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray" | "black" | "white") | null;
                 /** @description Imported hidden because a culling app rejected it */
                 hidden: boolean;
+                lifeStage: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult") | null;
+                sex: ("male" | "female" | "unknown") | null;
+                plumage: string | null;
+                morph: string | null;
                 isFeatured: boolean | null;
                 hasRawOriginal: boolean;
                 inatStatus: ("pending" | "completed") | null;
@@ -14369,7 +14549,7 @@ export interface paths {
           content: {
             "application/json": {
               unlinked: number;
-              /** @description Photos whose location or date changed since, left as they are */
+              /** @description Photos whose location, date, life stage or sex changed since, left as they are */
               kept: number;
             } & {
               [key: string]: unknown;
@@ -16144,7 +16324,7 @@ export interface paths {
     };
     /**
      * Life list
-     * @description One row per species you've photographed, oldest first. `include=seen` adds species marked seen without a photo.
+     * @description One row per species you've photographed, oldest first. `years` lists the calendar years with a dated photo of the species, by the camera's clock. `include=seen` adds species marked seen without a photo.
      */
     get: {
       parameters: {
@@ -16179,6 +16359,8 @@ export interface paths {
                 firstCollected: string | null;
                 lastPhotographed: string | null;
                 photoCount: number;
+                /** @description Calendar years with at least one dated photo of the species (the camera's clock), oldest first */
+                years: number[];
                 /** @description True while every photo of the species was filed by Lifer and none is confirmed yet */
                 suggested: boolean;
                 bestRating: number | null;
@@ -17528,7 +17710,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** GET /moved-photos/status */
+    /** Whether photos moved on disk were found again, and what needs review */
     get: {
       parameters: {
         query?: never;
@@ -19829,7 +20011,7 @@ export interface paths {
     put?: never;
     /**
      * Lifer's names for scientific names
-     * @description Send up to 2000 `scientificNames`; each one Lifer knows, directly or as a superseded name, comes back with its `canonicalScientificName`, `commonName`, `ebirdCode` and `abaCode`. Names Lifer doesn't know are left out. No user data.
+     * @description Send up to 2000 `scientificNames`; each one Lifer knows, directly or as a superseded name, comes back with its `speciesId`, `gbifKey`, `canonicalScientificName`, `commonName`, `ebirdCode` and `abaCode`. Names Lifer doesn't know are left out. No user data.
      */
     post: {
       parameters: {
@@ -19856,6 +20038,13 @@ export interface paths {
               names: ({
                 /** @description The name asked for */
                 scientificName: string;
+                /**
+                 * Format: uuid
+                 * @description Lifer's id for the species
+                 */
+                speciesId: string;
+                /** @description GBIF backbone taxon key */
+                gbifKey: number;
                 /** @description Lifer's current scientific name (differs for a synonym) */
                 canonicalScientificName: string;
                 commonName: string | null;
@@ -31053,7 +31242,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Search species by name, alias, old scientific name, code, genus or family (accents ignored) */
+    /**
+     * Search species by name, alias, old scientific name, code, genus or family (accents ignored)
+     * @description Each hit carries `gbif_key`, `inat_taxon_id` and `taxon_class` for matching it in other sources.
+     */
     get: {
       parameters: {
         query?: {
@@ -31082,6 +31274,10 @@ export interface paths {
                 common_name: string | null;
                 aba_code?: string | null;
                 ebird_code?: string | null;
+                /** @description GBIF backbone taxon key */
+                gbif_key?: number;
+                inat_taxon_id?: number | null;
+                taxon_class?: string | null;
                 /** @description Higher is better */
                 rank?: number;
               }[];
@@ -31160,6 +31356,8 @@ export interface paths {
                 scientific_name: string;
                 common_name: string | null;
                 inat_taxon_id: number | null;
+                /** @description GBIF backbone taxon key */
+                gbif_key: number;
                 ebird_code: string | null;
                 aba_code: string | null;
                 taxon_class: string | null;
@@ -31251,6 +31449,10 @@ export interface paths {
                 iso: number | null;
                 quality_rating: number | null;
                 tags: string[];
+                life_stage: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult") | null;
+                sex: ("male" | "female" | "unknown") | null;
+                plumage: string | null;
+                morph: string | null;
                 photo_kind: ("image" | "video" | "audio") | null;
                 duration_seconds: number | null;
                 original_ref: string | null;
@@ -33137,6 +33339,88 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/species/merges": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Species folded into others by catalog updates
+     * @description Each `oldSpeciesId` with the `newSpeciesId` it now lives on (after any later merges), its `oldScientificName` and `mergedAt`. Pass a `mergedAt` back as `since` to get only newer merges. Small; no user data.
+     */
+    get: {
+      parameters: {
+        query?: {
+          /** @description Only merges applied after this time */
+          since?: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              merges: {
+                /** Format: uuid */
+                oldSpeciesId: string;
+                /**
+                 * Format: uuid
+                 * @description The species it is now, after any later merges
+                 */
+                newSpeciesId: string;
+                oldScientificName: string;
+                /** Format: date-time */
+                mergedAt: string;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the species.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/species/other-taxa": {
     parameters: {
       query?: never;
@@ -33958,7 +34242,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** GET /stats/exif-bucket */
+    /** Every photo behind one EXIF chart bar */
     get: {
       parameters: {
         query: {
@@ -33966,6 +34250,7 @@ export interface paths {
           filter?: "all" | "featured" | "topRated";
           /** @description 0 to leave out photos whose only original is a RAW (default 1) */
           includeRaw?: "0" | "1";
+          /** @description The EXIF chart */
           dim: "focalLength" | "iso" | "aperture" | "shutter";
           /** @description The bar, 1 for the first */
           bucket: number;
@@ -35325,6 +35610,10 @@ export interface paths {
                 cullVerdict: ("pick" | "reject") | null;
                 cullLabel: string | null;
                 tripId?: string | null;
+                lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult") | null;
+                sex?: ("male" | "female" | "unknown") | null;
+                plumage?: string | null;
+                morph?: string | null;
                 /** Format: date-time */
                 updatedAt: string;
                 photo: {
@@ -35878,6 +36167,10 @@ export interface paths {
               cullVerdict: ("pick" | "reject") | null;
               cullLabel: string | null;
               tripId?: string | null;
+              lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult") | null;
+              sex?: ("male" | "female" | "unknown") | null;
+              plumage?: string | null;
+              morph?: string | null;
               baseUpdatedAt: string | null;
             }[];
             albums?: {
@@ -36060,6 +36353,10 @@ export interface paths {
                       cullVerdict: ("pick" | "reject") | null;
                       cullLabel: string | null;
                       tripId?: string | null;
+                      lifeStage?: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult") | null;
+                      sex?: ("male" | "female" | "unknown") | null;
+                      plumage?: string | null;
+                      morph?: string | null;
                       /** Format: date-time */
                       updatedAt: string;
                       photo: {

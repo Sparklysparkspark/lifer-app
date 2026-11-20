@@ -986,6 +986,10 @@
                           "cullVerdict",
                           "cullLabel",
                           "hidden",
+                          "lifeStage",
+                          "sex",
+                          "plumage",
+                          "morph",
                           "isFeatured",
                           "hasRawOriginal",
                           "inatStatus",
@@ -1055,6 +1059,28 @@
                           "hidden": {
                             "type": "boolean",
                             "description": "Imported hidden because a culling app rejected it"
+                          },
+                          "lifeStage": {
+                            "anyOf": [
+                              { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+                              { "type": "null" }
+                            ]
+                          },
+                          "sex": {
+                            "anyOf": [
+                              {
+                                "enum": ["male", "female", "unknown"],
+                                "description": "unknown: looked at and can't tell"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "plumage": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "morph": {
+                            "anyOf": [
+                              { "type": "string", "description": "Colour morph, e.g. dark morph" },
+                              { "type": "null" }
+                            ]
                           },
                           "isFeatured": {
                             "anyOf": [
@@ -1885,6 +1911,10 @@
                           "cullVerdict",
                           "cullLabel",
                           "hidden",
+                          "lifeStage",
+                          "sex",
+                          "plumage",
+                          "morph",
                           "isFeatured",
                           "hasRawOriginal",
                           "inatStatus",
@@ -1954,6 +1984,28 @@
                           "hidden": {
                             "type": "boolean",
                             "description": "Imported hidden because a culling app rejected it"
+                          },
+                          "lifeStage": {
+                            "anyOf": [
+                              { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+                              { "type": "null" }
+                            ]
+                          },
+                          "sex": {
+                            "anyOf": [
+                              {
+                                "enum": ["male", "female", "unknown"],
+                                "description": "unknown: looked at and can't tell"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "plumage": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "morph": {
+                            "anyOf": [
+                              { "type": "string", "description": "Colour morph, e.g. dark morph" },
+                              { "type": "null" }
+                            ]
                           },
                           "isFeatured": {
                             "anyOf": [
@@ -4008,7 +4060,7 @@
     "/captures": {
       "get": {
         "summary": "Photo feed for syncing",
-        "description": "Every photo in the library, ordered by last change. Page with `cursor` until `nextCursor` is null; store the last item's `updatedAt` and pass it as `since` next time to get only new and edited photos. Photos deleted permanently simply stop appearing, so run an occasional full sync if you mirror deletions.",
+        "description": "Every photo in the library, ordered by last change. Page with `cursor` until `nextCursor` is null; store the last item's `updatedAt` and pass it as `since` next time to get only new and edited photos. `lifeStage`, `sex`, `plumage` and `morph` say how the animal looks, null when not set. Photos deleted permanently simply stop appearing, so run an occasional full sync if you mirror deletions.",
         "tags": ["photos"],
         "security": [{ "apiKey": [] }],
         "x-required-scope": "photos.read",
@@ -4083,6 +4135,10 @@
                           "camera",
                           "rating",
                           "tags",
+                          "lifeStage",
+                          "sex",
+                          "plumage",
+                          "morph",
                           "kind",
                           "width",
                           "height",
@@ -4152,6 +4208,28 @@
                           },
                           "rating": { "anyOf": [{ "type": "integer", "description": "1-5" }, { "type": "null" }] },
                           "tags": { "type": "array", "items": { "type": "string" } },
+                          "lifeStage": {
+                            "anyOf": [
+                              { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+                              { "type": "null" }
+                            ]
+                          },
+                          "sex": {
+                            "anyOf": [
+                              {
+                                "enum": ["male", "female", "unknown"],
+                                "description": "unknown: looked at and can't tell"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "plumage": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "morph": {
+                            "anyOf": [
+                              { "type": "string", "description": "Colour morph, e.g. dark morph" },
+                              { "type": "null" }
+                            ]
+                          },
                           "kind": { "enum": ["image", "video", "audio"] },
                           "width": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
                           "height": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
@@ -4877,14 +4955,72 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "required": ["captureId", "photoId", "takenAt"],
+                        "required": ["captureId", "photoId", "takenAt", "fileName", "speciesName"],
                         "properties": {
                           "captureId": { "type": "string", "format": "uuid" },
                           "photoId": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] },
-                          "takenAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                          "takenAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "fileName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "speciesName": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
                         }
                       },
-                      "description": "Photos taken within two minutes, to link to"
+                      "description": "Photos taken within two minutes, to link to; /versions/candidates searches the rest"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/captures/{id}/versions/candidates": {
+      "get": {
+        "summary": "GET /captures/{id}/versions/candidates",
+        "tags": ["captures"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 200 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["items"],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["captureId", "photoId", "takenAt", "fileName", "speciesName"],
+                        "properties": {
+                          "captureId": { "type": "string", "format": "uuid" },
+                          "photoId": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] },
+                          "takenAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "fileName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "speciesName": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                        }
+                      }
                     }
                   }
                 }
@@ -5078,6 +5214,71 @@
           },
           "401": {
             "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/captures/appearance": {
+      "post": {
+        "summary": "Set how the animal looks: life stage, sex, plumage and morph",
+        "description": "For one photo or many (`captureIds`). `lifeStage` is one of egg, larva, nymph, pupa, juvenile, subadult or adult; `sex` is male, female or unknown (looked at and can't tell). `plumage` and `morph` are free text up to 100 characters. A field left out stays as it is; null clears it. `updated` counts the photos changed.",
+        "tags": ["photos"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "photos.write",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["captureIds"],
+                "properties": {
+                  "captureIds": {
+                    "type": "array",
+                    "items": { "type": "string", "format": "uuid" },
+                    "minItems": 1,
+                    "maxItems": 5000
+                  },
+                  "lifeStage": {
+                    "anyOf": [
+                      { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+                      { "type": "null" }
+                    ]
+                  },
+                  "sex": { "anyOf": [{ "enum": ["male", "female", "unknown"] }, { "type": "null" }] },
+                  "plumage": { "anyOf": [{ "type": "string", "maxLength": 100 }, { "type": "null" }] },
+                  "morph": { "anyOf": [{ "type": "string", "maxLength": 100 }, { "type": "null" }] }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["updated"],
+                  "properties": { "updated": { "type": "integer" } }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the photos.write scope",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           },
           "default": {
@@ -7474,6 +7675,10 @@
                           "cullVerdict",
                           "cullLabel",
                           "hidden",
+                          "lifeStage",
+                          "sex",
+                          "plumage",
+                          "morph",
                           "isFeatured",
                           "hasRawOriginal",
                           "inatStatus",
@@ -7543,6 +7748,28 @@
                           "hidden": {
                             "type": "boolean",
                             "description": "Imported hidden because a culling app rejected it"
+                          },
+                          "lifeStage": {
+                            "anyOf": [
+                              { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+                              { "type": "null" }
+                            ]
+                          },
+                          "sex": {
+                            "anyOf": [
+                              {
+                                "enum": ["male", "female", "unknown"],
+                                "description": "unknown: looked at and can't tell"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "plumage": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "morph": {
+                            "anyOf": [
+                              { "type": "string", "description": "Colour morph, e.g. dark morph" },
+                              { "type": "null" }
+                            ]
                           },
                           "isFeatured": {
                             "anyOf": [
@@ -9504,6 +9731,10 @@
                           "cullVerdict",
                           "cullLabel",
                           "hidden",
+                          "lifeStage",
+                          "sex",
+                          "plumage",
+                          "morph",
                           "isFeatured",
                           "hasRawOriginal",
                           "inatStatus",
@@ -9573,6 +9804,28 @@
                           "hidden": {
                             "type": "boolean",
                             "description": "Imported hidden because a culling app rejected it"
+                          },
+                          "lifeStage": {
+                            "anyOf": [
+                              { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+                              { "type": "null" }
+                            ]
+                          },
+                          "sex": {
+                            "anyOf": [
+                              {
+                                "enum": ["male", "female", "unknown"],
+                                "description": "unknown: looked at and can't tell"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "plumage": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "morph": {
+                            "anyOf": [
+                              { "type": "string", "description": "Colour morph, e.g. dark morph" },
+                              { "type": "null" }
+                            ]
                           },
                           "isFeatured": {
                             "anyOf": [
@@ -11563,6 +11816,10 @@
                           "cullVerdict",
                           "cullLabel",
                           "hidden",
+                          "lifeStage",
+                          "sex",
+                          "plumage",
+                          "morph",
                           "isFeatured",
                           "hasRawOriginal",
                           "inatStatus",
@@ -11632,6 +11889,28 @@
                           "hidden": {
                             "type": "boolean",
                             "description": "Imported hidden because a culling app rejected it"
+                          },
+                          "lifeStage": {
+                            "anyOf": [
+                              { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+                              { "type": "null" }
+                            ]
+                          },
+                          "sex": {
+                            "anyOf": [
+                              {
+                                "enum": ["male", "female", "unknown"],
+                                "description": "unknown: looked at and can't tell"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "plumage": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "morph": {
+                            "anyOf": [
+                              { "type": "string", "description": "Colour morph, e.g. dark morph" },
+                              { "type": "null" }
+                            ]
                           },
                           "isFeatured": {
                             "anyOf": [
@@ -13937,7 +14216,7 @@
                     "unlinked": { "type": "integer" },
                     "kept": {
                       "type": "integer",
-                      "description": "Photos whose location or date changed since, left as they are"
+                      "description": "Photos whose location, date, life stage or sex changed since, left as they are"
                     }
                   },
                   "additionalProperties": true
@@ -15090,7 +15369,7 @@
     "/life-list": {
       "get": {
         "summary": "Life list",
-        "description": "One row per species you've photographed, oldest first. `include=seen` adds species marked seen without a photo.",
+        "description": "One row per species you've photographed, oldest first. `years` lists the calendar years with a dated photo of the species, by the camera's clock. `include=seen` adds species marked seen without a photo.",
         "tags": ["collection"],
         "security": [{ "apiKey": [] }],
         "x-required-scope": "collection.read",
@@ -15133,6 +15412,7 @@
                           "firstCollected",
                           "lastPhotographed",
                           "photoCount",
+                          "years",
                           "suggested",
                           "bestRating",
                           "coverPhotoId",
@@ -15148,6 +15428,11 @@
                           "firstCollected": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "lastPhotographed": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "photoCount": { "type": "integer" },
+                          "years": {
+                            "type": "array",
+                            "items": { "type": "integer" },
+                            "description": "Calendar years with at least one dated photo of the species (the camera's clock), oldest first"
+                          },
                           "suggested": {
                             "type": "boolean",
                             "description": "True while every photo of the species was filed by Lifer and none is confirmed yet"
@@ -16042,7 +16327,7 @@
     },
     "/moved-photos/status": {
       "get": {
-        "summary": "GET /moved-photos/status",
+        "summary": "Whether photos moved on disk were found again, and what needs review",
         "tags": ["photos"],
         "security": [{ "apiKey": [] }],
         "x-required-scope": "photos.read",
@@ -17942,7 +18227,7 @@
     "/opendata/v1/species/names": {
       "post": {
         "summary": "Lifer's names for scientific names",
-        "description": "Send up to 2000 `scientificNames`; each one Lifer knows, directly or as a superseded name, comes back with its `canonicalScientificName`, `commonName`, `ebirdCode` and `abaCode`. Names Lifer doesn't know are left out. No user data.",
+        "description": "Send up to 2000 `scientificNames`; each one Lifer knows, directly or as a superseded name, comes back with its `speciesId`, `gbifKey`, `canonicalScientificName`, `commonName`, `ebirdCode` and `abaCode`. Names Lifer doesn't know are left out. No user data.",
         "tags": ["opendata"],
         "security": [{ "apiKey": [] }],
         "x-required-scope": "opendata.read",
@@ -17979,9 +18264,23 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "required": ["scientificName", "canonicalScientificName", "commonName", "ebirdCode", "abaCode"],
+                        "required": [
+                          "scientificName",
+                          "speciesId",
+                          "gbifKey",
+                          "canonicalScientificName",
+                          "commonName",
+                          "ebirdCode",
+                          "abaCode"
+                        ],
                         "properties": {
                           "scientificName": { "type": "string", "description": "The name asked for" },
+                          "speciesId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "description": "Lifer's id for the species"
+                          },
+                          "gbifKey": { "type": "integer", "description": "GBIF backbone taxon key" },
                           "canonicalScientificName": {
                             "type": "string",
                             "description": "Lifer's current scientific name (differs for a synonym)"
@@ -26216,6 +26515,7 @@
     "/species": {
       "get": {
         "summary": "Search species by name, alias, old scientific name, code, genus or family (accents ignored)",
+        "description": "Each hit carries `gbif_key`, `inat_taxon_id` and `taxon_class` for matching it in other sources.",
         "tags": ["species"],
         "security": [{ "apiKey": [] }],
         "x-required-scope": "species.read",
@@ -26255,6 +26555,9 @@
                           "common_name": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "aba_code": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "ebird_code": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "gbif_key": { "type": "integer", "description": "GBIF backbone taxon key" },
+                          "inat_taxon_id": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
+                          "taxon_class": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "rank": { "type": "number", "description": "Higher is better" }
                         }
                       }
@@ -26327,6 +26630,7 @@
                         "scientific_name",
                         "common_name",
                         "inat_taxon_id",
+                        "gbif_key",
                         "ebird_code",
                         "aba_code",
                         "taxon_class",
@@ -26361,6 +26665,7 @@
                         "scientific_name": { "type": "string" },
                         "common_name": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                         "inat_taxon_id": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
+                        "gbif_key": { "type": "integer", "description": "GBIF backbone taxon key" },
                         "ebird_code": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                         "aba_code": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                         "taxon_class": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
@@ -26495,6 +26800,10 @@
                           "iso",
                           "quality_rating",
                           "tags",
+                          "life_stage",
+                          "sex",
+                          "plumage",
+                          "morph",
                           "photo_kind",
                           "duration_seconds",
                           "original_ref",
@@ -26526,6 +26835,15 @@
                           "iso": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
                           "quality_rating": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
                           "tags": { "type": "array", "items": { "type": "string" } },
+                          "life_stage": {
+                            "anyOf": [
+                              { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+                              { "type": "null" }
+                            ]
+                          },
+                          "sex": { "anyOf": [{ "enum": ["male", "female", "unknown"] }, { "type": "null" }] },
+                          "plumage": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "morph": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "photo_kind": { "anyOf": [{ "enum": ["image", "video", "audio"] }, { "type": "null" }] },
                           "duration_seconds": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
                           "original_ref": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
@@ -27703,6 +28021,68 @@
         }
       }
     },
+    "/species/merges": {
+      "get": {
+        "summary": "Species folded into others by catalog updates",
+        "description": "Each `oldSpeciesId` with the `newSpeciesId` it now lives on (after any later merges), its `oldScientificName` and `mergedAt`. Pass a `mergedAt` back as `since` to get only newer merges. Small; no user data.",
+        "tags": ["species"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "species.read",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "description": "Only merges applied after this time",
+            "schema": { "type": "string", "format": "date-time" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["merges"],
+                  "properties": {
+                    "merges": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["oldSpeciesId", "newSpeciesId", "oldScientificName", "mergedAt"],
+                        "properties": {
+                          "oldSpeciesId": { "type": "string", "format": "uuid" },
+                          "newSpeciesId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "description": "The species it is now, after any later merges"
+                          },
+                          "oldScientificName": { "type": "string" },
+                          "mergedAt": { "type": "string", "format": "date-time" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the species.read scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
     "/species/other-taxa": {
       "post": {
         "summary": "POST /species/other-taxa",
@@ -28350,7 +28730,7 @@
     },
     "/stats/exif-bucket": {
       "get": {
-        "summary": "GET /stats/exif-bucket",
+        "summary": "Every photo behind one EXIF chart bar",
         "tags": ["stats"],
         "security": [{ "apiKey": [] }],
         "x-required-scope": "stats.read",
@@ -28373,6 +28753,7 @@
             "name": "dim",
             "in": "query",
             "required": true,
+            "description": "The EXIF chart",
             "schema": { "enum": ["focalLength", "iso", "aperture", "shutter"] }
           },
           {
@@ -29625,6 +30006,19 @@
                           },
                           "cullLabel": { "anyOf": [{ "type": "string", "maxLength": 2000 }, { "type": "null" }] },
                           "tripId": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] },
+                          "lifeStage": {
+                            "anyOf": [
+                              { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+                              { "type": "null" }
+                            ]
+                          },
+                          "sex": { "anyOf": [{ "enum": ["male", "female", "unknown"] }, { "type": "null" }] },
+                          "plumage": {
+                            "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 100 }, { "type": "null" }]
+                          },
+                          "morph": {
+                            "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 100 }, { "type": "null" }]
+                          },
                           "updatedAt": { "type": "string", "format": "date-time" },
                           "photo": {
                             "anyOf": [
@@ -30083,6 +30477,19 @@
                         },
                         "cullLabel": { "anyOf": [{ "type": "string", "maxLength": 2000 }, { "type": "null" }] },
                         "tripId": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] },
+                        "lifeStage": {
+                          "anyOf": [
+                            { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+                            { "type": "null" }
+                          ]
+                        },
+                        "sex": { "anyOf": [{ "enum": ["male", "female", "unknown"] }, { "type": "null" }] },
+                        "plumage": {
+                          "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 100 }, { "type": "null" }]
+                        },
+                        "morph": {
+                          "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 100 }, { "type": "null" }]
+                        },
                         "baseUpdatedAt": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] }
                       }
                     },
@@ -30573,6 +30980,29 @@
                                       },
                                       "tripId": {
                                         "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }]
+                                      },
+                                      "lifeStage": {
+                                        "anyOf": [
+                                          {
+                                            "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"]
+                                          },
+                                          { "type": "null" }
+                                        ]
+                                      },
+                                      "sex": {
+                                        "anyOf": [{ "enum": ["male", "female", "unknown"] }, { "type": "null" }]
+                                      },
+                                      "plumage": {
+                                        "anyOf": [
+                                          { "type": "string", "minLength": 1, "maxLength": 100 },
+                                          { "type": "null" }
+                                        ]
+                                      },
+                                      "morph": {
+                                        "anyOf": [
+                                          { "type": "string", "minLength": 1, "maxLength": 100 },
+                                          { "type": "null" }
+                                        ]
                                       },
                                       "updatedAt": { "type": "string", "format": "date-time" },
                                       "photo": {
