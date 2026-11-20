@@ -65,6 +65,10 @@ describe("upload queue duplicate prompts", () => {
     expect(imports.map(([, form]) => (form as FormData).get("uploadId")).sort()).toEqual(["u_a.jpg", "u_c.jpg"]);
     expect(imports.every(([, form]) => !(form as FormData).has("file"))).toBe(true);
     expect(getUploadQueueState().pendingDuplicates).toEqual([]);
+
+    // The banner's closing message counts what was imported; the skipped file isn't.
+    await waitFor(() => getUploadQueueState().jobs.length === 0);
+    expect(getUploadQueueState().finished).toEqual({ imported: 2, species: 1, failed: 0 });
   });
 });
 

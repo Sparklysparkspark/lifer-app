@@ -5,19 +5,25 @@ import Button from "./Button";
 /** The one way to add files: a drop area with Choose files / Choose a folder. `onFiles` gets
  *  whether the files came from a folder pick, for callers that treat the two differently.
  *  `compact` is a single row for a secondary drop target, so it doesn't read as a second copy of
- *  the page's main one. */
+ *  the page's main one. `single` takes one file and has no folder choice (a CSV import). */
 export default function FilePickArea({
   prompt,
   hint,
   accept,
   onFiles,
+  onChooseFolder,
   compact = false,
+  single = false,
 }: {
   prompt: string;
   hint?: string;
   accept?: string;
   onFiles: (files: FileList, fromFolder: boolean) => void;
+  /** Takes over Choose a folder (the desktop's own dialog, which knows the folder's path). Resolves
+   *  false to fall back to the standard folder picker. */
+  onChooseFolder?: () => Promise<boolean>;
   compact?: boolean;
+  single?: boolean;
 }) {
   const { t } = useTranslation();
   const filesRef = useRef<HTMLInputElement>(null);
@@ -38,7 +44,7 @@ export default function FilePickArea({
       <input
         ref={filesRef}
         type="file"
-        multiple
+        multiple={!single}
         accept={accept}
         className="hidden"
         onChange={(e) => take(e.target, false)}
@@ -83,11 +89,11 @@ export default function FilePickArea({
       >
         {compact ? (
           <div className="min-w-0 flex-1">
-            <p className="text-sm text-ink">{prompt}</p>
-            {hint && <p className="mt-0.5 max-w-prose text-xs text-muted">{hint}</p>}
+            <p className="text-callout text-ink">{prompt}</p>
+            {hint && <p className="mt-0.5 max-w-prose text-footnote text-muted">{hint}</p>}
           </div>
         ) : (
-          <p className="text-sm text-muted">{prompt}</p>
+          <p className="text-callout text-muted">{prompt}</p>
         )}
         <div className={compact ? "flex shrink-0 gap-2" : "mt-3 flex justify-center gap-2"}>
           <Button
@@ -98,20 +104,23 @@ export default function FilePickArea({
               filesRef.current?.click();
             }}
           >
-            {t("upload.pick.chooseFiles")}
+            {single ? t("upload.pick.chooseFile") : t("upload.pick.chooseFiles")}
           </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              folderRef.current?.click();
-            }}
-          >
-            {t("upload.pick.chooseFolder")}
-          </Button>
+          {!single && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!onChooseFolder) folderRef.current?.click();
+                else void onChooseFolder().then((handled) => handled || folderRef.current?.click());
+              }}
+            >
+              {t("upload.pick.chooseFolder")}
+            </Button>
+          )}
         </div>
-        {!compact && hint && <p className="mx-auto mt-3 max-w-prose text-xs text-muted">{hint}</p>}
+        {!compact && hint && <p className="mx-auto mt-3 max-w-prose text-footnote text-muted">{hint}</p>}
       </div>
     </>
   );

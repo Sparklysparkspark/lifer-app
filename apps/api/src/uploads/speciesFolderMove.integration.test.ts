@@ -97,8 +97,8 @@ describe.skipIf(!url)("moving managed files between species folders", () => {
     db = new pg.Pool({ connectionString: url });
     await cleanup();
     await db.query(
-      `INSERT INTO users (id, email, password_hash, organize_originals_by_year, organize_originals_by_location)
-       VALUES ($1, 'species-move@test', 'x', true, true)`,
+      `INSERT INTO users (id, email, password_hash, folder_layout)
+       VALUES ($1, 'species-move@test', 'x', '{country,province,place,wildlifeYear,group,species}')`,
       [USER],
     );
     const { hashToken } = await import("../auth/session.js");
@@ -176,7 +176,7 @@ describe.skipIf(!url)("moving managed files between species folders", () => {
   }, 60_000);
 
   it("Reorganize re-files each file under its own folder, keeping drive and location", async () => {
-    await db.query(`UPDATE users SET organize_originals_by_year = false WHERE id = $1`, [USER]);
+    await db.query(`UPDATE users SET folder_layout = '{country,province,place,group,species}' WHERE id = $1`, [USER]);
     const res = await app.inject({
       method: "POST",
       url: "/api/settings/reorganize-originals",

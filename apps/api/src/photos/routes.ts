@@ -2,7 +2,7 @@
 // mount; every request is checked against ownership here.
 import { createReadStream, existsSync, type Stats } from "node:fs";
 import path from "node:path";
-import { rename } from "node:fs/promises";
+import { readdir, rename, rm } from "node:fs/promises";
 import sharp from "sharp";
 import { contentDisposition, parseRange } from "../lib/httpFile.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -18,21 +18,28 @@ import { ensureDefaultCardCrop } from "../collection/defaultCardCrop.js";
 import { ensureDir } from "@lifer/core/lib/safeFs.js";
 import { applyFileValidators, rangeStillValid, sendCachedImage, statFile } from "../lib/cachedFile.js";
 import { log } from "@lifer/core/lib/log.js";
+import { fullRender, isJpegPath } from "./fullRender.js";
+import { reportMissingFile } from "../movedPhotos/relink.js";
 
-// A 1,024px copy for grid tiles: the thumbnail is soft on dense screens and the display image is
-// too big. Made from the display image on first request and kept in APP_DATA_DIR/medium, rebuilt
-// when the display image is newer. At most two are made at once.
-const MEDIUM_WIDTH = 1024;
+// Smaller copies of the display image: a 1,024px one for grid tiles (the thumbnail is soft on dense
+// screens, the display image too big) and a 2,048px long-edge one for a phone's full screen. Made
+// from the display image on first request and kept in APP_DATA_DIR/<kind>, rebuilt when the
+// display image is newer. At most two are made at once.
+const COPIES = {
+  medium: { width: 1024 },
+  phone: { width: 2048, height: 2048, fit: "inside" },
+} as const;
+type CopyKind = keyof typeof COPIES;
 let mediumSlots = 2;
 const mediumQueue: Array<() => void> = [];
 const mediumInFlight = new Map<string, Promise<string>>();
-const mediumPath = (photoId: string) => path.join(APP_DATA_DIR, "medium", `${photoId}.webp`);
+const copyPath = (kind: CopyKind, photoId: string) => path.join(APP_DATA_DIR, kind, `${photoId}.webp`);
 
-async function mediumDerivative(photoId: string, displayPath: string): Promise<string> {
-  const target = mediumPath(photoId);
+async function mediumDerivative(kind: CopyKind, photoId: string, displayPath: string): Promise<string> {
+  const target = copyPath(kind, photoId);
   const [tst, dst] = await Promise.all([statFile(target), statFile(displayPath)]);
   if (tst && dst && tst.mtimeMs >= dst.mtimeMs) return target;
-  const pending = mediumInFlight.get(photoId);
+  const pending = mediumInFlight.get(target);
   if (pending) return pending;
   const job = (async () => {
     if (mediumSlots === 0) await new Promise<void>((resolve) => mediumQueue.push(resolve));
@@ -41,7 +48,7 @@ async function mediumDerivative(photoId: string, displayPath: string): Promise<s
       await ensureDir(path.dirname(target));
       const tmp = `${target}.${process.pid}.tmp`;
       await sharp(displayPath)
-        .resize({ width: MEDIUM_WIDTH, withoutEnlargement: true })
+        .resize({ ...COPIES[kind], withoutEnlargement: true })
         .webp({ quality: 80 })
         .toFile(tmp);
       await rename(tmp, target);
@@ -52,8 +59,68 @@ async function mediumDerivative(photoId: string, displayPath: string): Promise<s
       mediumSlots++;
       mediumQueue.shift()?.();
     }
-  })().finally(() => mediumInFlight.delete(photoId));
-  mediumInFlight.set(photoId, job);
+  })().finally(() => mediumInFlight.delete(target));
+  mediumInFlight.set(target, job);
+  return job;
+}
+
+// A species card's square, cut to its crop on the server: drawing a zoomed-in crop of a large
+// image in each card kept hundreds of megabytes decoded, which WebKit frees and redraws blank.
+// One file per photo, crop and size under APP_DATA_DIR/card; a new crop replaces the old files.
+// shortcut: a deleted photo's card file stays until the derivative folders are cleared.
+const CARD_MAX_SIDE = 640;
+const cardInFlight = new Map<string, Promise<string | null>>();
+const cardDir = () => path.join(APP_DATA_DIR, "card");
+const cropPrefix = (photoId: string, x: number, y: number, size: number) =>
+  `${photoId}_${x.toFixed(3)}_${y.toFixed(3)}_${size.toFixed(3)}_`;
+
+/** Crop values are percentages of the photo's width, as the web app draws them; `side` is the
+ *  square's width in pixels, for the card size the user picked. */
+export async function cardImage(
+  photoId: string,
+  displayPath: string,
+  x: number,
+  y: number,
+  size: number,
+  side: number,
+) {
+  const crop = cropPrefix(photoId, x, y, size);
+  const target = path.join(cardDir(), `${crop}${side}.webp`);
+  const [tst, dst] = await Promise.all([statFile(target), statFile(displayPath)]);
+  if (tst && dst && tst.mtimeMs >= dst.mtimeMs) return target;
+  const pending = cardInFlight.get(target);
+  if (pending) return pending;
+  const job = (async () => {
+    if (mediumSlots === 0) await new Promise<void>((resolve) => mediumQueue.push(resolve));
+    mediumSlots--;
+    try {
+      const { width = 0, height = 0 } = await sharp(displayPath).metadata();
+      if (!width || !height) return null;
+      const cut = Math.max(1, Math.min(Math.round((size / 100) * width), width, height));
+      const left = Math.min(Math.max(0, Math.round((x / 100) * width)), width - cut);
+      const top = Math.min(Math.max(0, Math.round((y / 100) * width)), height - cut);
+      await ensureDir(cardDir());
+      const tmp = `${target}.${process.pid}.tmp`;
+      await sharp(displayPath)
+        .extract({ left, top, width: cut, height: cut })
+        .resize({ width: side, height: side, withoutEnlargement: true })
+        .webp({ quality: 82 })
+        .toFile(tmp);
+      await rename(tmp, target);
+      // The photo's earlier crops are no longer shown; other sizes of this crop still are.
+      const others = (await readdir(cardDir())).filter(
+        (f) => f.startsWith(`${photoId}_`) && !f.startsWith(crop) && !f.endsWith(".tmp"),
+      );
+      await Promise.all(others.map((f) => rm(path.join(cardDir(), f), { force: true })));
+      return target;
+    } catch {
+      return null;
+    } finally {
+      mediumSlots++;
+      mediumQueue.shift()?.();
+    }
+  })().finally(() => cardInFlight.delete(target));
+  cardInFlight.set(target, job);
   return job;
 }
 
@@ -61,15 +128,16 @@ async function mediumDerivative(photoId: string, displayPath: string): Promise<s
 // being made in the background while the caller serves the display image this once.
 const MEDIUM_WAIT_MS = 1000;
 async function mediumIfReady(
+  kind: CopyKind,
   photoId: string,
   displayPath: string,
   displaySt: Stats,
 ): Promise<{ path: string; st: Stats } | null> {
-  const current = await statFile(mediumPath(photoId));
-  if (current && current.mtimeMs >= displaySt.mtimeMs) return { path: mediumPath(photoId), st: current };
+  const current = await statFile(copyPath(kind, photoId));
+  if (current && current.mtimeMs >= displaySt.mtimeMs) return { path: copyPath(kind, photoId), st: current };
   let timer: NodeJS.Timeout | undefined;
   const made = await Promise.race([
-    mediumDerivative(photoId, displayPath),
+    mediumDerivative(kind, photoId, displayPath),
     new Promise<null>((resolve) => {
       timer = setTimeout(() => resolve(null), MEDIUM_WAIT_MS);
     }),
@@ -108,7 +176,7 @@ async function siblingRendition(
 // The file routes below look photos up in captures_all, not the `captures` view: the view leaves
 // out hidden and trashed photos, which their owner still sees in the Gallery's Hidden filter and
 // on the Trash page. Ownership (user_id) is still checked on every lookup.
-async function resolvePhotoPath(photoId: string, userId: string, kind: "display" | "thumb"): Promise<string | null> {
+export async function resolvePhotoPath(photoId: string, userId: string, kind: "display" | "thumb"): Promise<string | null> {
   const column = kind === "display" ? "p.display_path" : "p.thumb_path";
   const res = await pool.query<{ path: string }>(
     // captures_all (see ownedCaptures), so hidden and trashed photos still show to their owner.
@@ -127,10 +195,10 @@ interface ResolvedOriginalRef {
   volumeLabel?: string;
 }
 
-async function resolveOriginal(
+export async function resolveOriginal(
   photoId: string,
   userId: string,
-  kind: "jpeg" | "raw" | "video" = "jpeg",
+  kind: "jpeg" | "raw" | "video" | "audio" = "jpeg",
 ): Promise<ResolvedOriginalRef | null> {
   // photos.id -> captures.id -> originals.capture_id: a capture has at most one original per kind.
   const res = await pool.query<{
@@ -183,7 +251,7 @@ async function healDerivatives(photoId: string, userId: string): Promise<boolean
       `SELECT p.kind FROM photos p JOIN captures_all c ON c.id = p.capture_id WHERE p.id = $1 AND c.user_id = $2`,
       [photoId, userId],
     );
-    if (kindRes.rows[0]?.kind === "video") return false;
+    if (kindRes.rows[0]?.kind === "video" || kindRes.rows[0]?.kind === "audio") return false;
     const original = await resolveOriginal(photoId, userId, "jpeg");
     if (!original || !original.connected || !original.ref || !existsSync(original.ref)) return false;
     try {
@@ -233,6 +301,13 @@ async function replaceUnshowableCover(photoId: string, userId: string): Promise<
   }
 }
 
+const AUDIO_TYPES: Record<string, string> = {
+  ".wav": "audio/wav",
+  ".flac": "audio/flac",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+};
+
 async function resolveVideoPreviewPath(photoId: string, userId: string): Promise<string | null> {
   const res = await pool.query<{ preview_path: string | null }>(
     `SELECT p.preview_path
@@ -247,7 +322,7 @@ async function resolveVideoPreviewPath(photoId: string, userId: string): Promise
 // Streams a file with Range support (206), which video seeking needs.
 // Every branch must return reply.send(...): an async handler that doesn't return it races the
 // stream and Fastify sends an empty response.
-function sendRangeableFile(
+export function sendRangeableFile(
   request: FastifyRequest,
   reply: FastifyReply,
   filePath: string,
@@ -285,19 +360,62 @@ const DownloadQuery = Type.Object({
   download: Type.Optional(Type.Enum(["0", "1"], { description: "1 to set Content-Disposition: attachment" })),
 });
 
+// A paired phone gets display copies only; its key never reads the files the library keeps.
+const DEVICE_NO_ORIGINALS = "A phone can't download originals";
+
+// What /phone answers, so a paired phone's full-screen viewer always gets a picture when the hub can
+// make one: the 2,048px copy of the display image, else the display image rebuilt or the copy made
+// from the original (JPEG, HEIC, PNG, TIFF, or a RAW's embedded preview). The thumbnail is never
+// sent as a stand-in, the phone keeps what it gets. Otherwise 409 (drive away) or 404, each with an
+// X-Lifer-Reason header the phone can show.
+async function phoneImage(request: FastifyRequest, reply: FastifyReply, photoId: string, userId: string) {
+  const refuse = (code: 404 | 409, reason: string, error: string, extra: object = {}) =>
+    reply.code(code).header("X-Lifer-Reason", reason).send({ error, ...extra });
+  const display = async () => {
+    const p = await resolvePhotoPath(photoId, userId, "display");
+    const st = p ? await statFile(p) : null;
+    return p && st ? { path: p, st } : null;
+  };
+  let shown = await display();
+  if (!shown && (await healDerivatives(photoId, userId))) shown = await display();
+  if (shown) {
+    const copy = await mediumIfReady("phone", photoId, shown.path, shown.st);
+    return sendCachedImage(request, reply, copy?.path ?? shown.path, copy?.st ?? shown.st, { standIn: !copy });
+  }
+  let away: string | undefined;
+  for (const kind of ["jpeg", "raw"] as const) {
+    const original = await resolveOriginal(photoId, userId, kind);
+    if (!original) continue;
+    if (!original.connected) {
+      away ??= original.volumeLabel ?? "";
+      continue;
+    }
+    const st = original.ref ? await statFile(original.ref) : null;
+    if (!original.ref || !st) continue;
+    const full = await fullRender(photoId, original.ref, kind === "raw");
+    const made = full ? await mediumDerivative("phone", photoId, full) : null;
+    const madeSt = made === copyPath("phone", photoId) ? await statFile(made) : null;
+    if (madeSt) return sendCachedImage(request, reply, copyPath("phone", photoId), madeSt, { standIn: false });
+  }
+  if (away !== undefined)
+    return refuse(409, "drive-disconnected", "This photo's drive isn't connected right now", { volumeLabel: away });
+  return refuse(404, "no-image", "Photo not found");
+}
+
 export async function photoRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
-  for (const kind of ["display", "medium", "thumb"] as const) {
+  for (const kind of ["display", "medium", "phone", "thumb"] as const) {
     app.get(
       `/photos/:id/${kind}`,
       {
-        preValidation: requireScope("photos.read"),
+        preValidation: requireScope("photos.read", ["companion"]),
         config: notFoundOnInvalidId("Photo not found"),
         schema: { params: IdParams },
       },
       async (request, reply) => {
         const userId = request.user!.id;
         const photoId = request.params.id;
+        if (kind === "phone") return phoneImage(request, reply, photoId, userId);
         const sourceKind = kind === "medium" ? "display" : kind;
         let filePath = await resolvePhotoPath(photoId, userId, sourceKind);
         let st = filePath ? await statFile(filePath) : null;
@@ -323,7 +441,7 @@ export async function photoRoutes(fastify: FastifyInstance): Promise<void> {
           return reply.code(404).send({ error: "Photo not found" });
         }
         if (kind === "medium" && !standIn) {
-          const medium = await mediumIfReady(photoId, filePath, st);
+          const medium = await mediumIfReady(kind, photoId, filePath, st);
           if (medium) ({ path: filePath, st } = medium);
           else standIn = true;
         }
@@ -331,6 +449,33 @@ export async function photoRoutes(fastify: FastifyInstance): Promise<void> {
       },
     );
   }
+
+  app.get(
+    "/photos/:id/card",
+    {
+      preValidation: requireScope("photos.read"),
+      config: notFoundOnInvalidId("Photo not found"),
+      schema: {
+        params: IdParams,
+        querystring: Type.Object({
+          x: Type.Number({ minimum: 0, maximum: 100, description: "Left edge, percent of the photo's width" }),
+          y: Type.Number({ minimum: 0, maximum: 100, description: "Top edge, percent of the photo's width" }),
+          size: Type.Number({ exclusiveMinimum: 0, maximum: 100, description: "Side, percent of the photo's width" }),
+          w: Type.Optional(Type.Integer({ minimum: 64, maximum: CARD_MAX_SIDE, description: "Square side in pixels" })),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const { x, y, size, w = CARD_MAX_SIDE } = request.query;
+      const displayPath = await resolvePhotoPath(request.params.id, request.user!.id, "display");
+      if (!displayPath || !(await statFile(displayPath))) return reply.code(404).send({ error: "Photo not found" });
+      const made = await cardImage(request.params.id, displayPath, x, y, size, w);
+      const st = made ? await statFile(made) : null;
+      // Can't cut one: the display image still shows (the card crops it as before).
+      if (!made || !st) return reply.code(404).send({ error: "Photo not found" });
+      return sendCachedImage(request, reply, made, st, { standIn: false });
+    },
+  );
 
   // Inline by default (usable directly as an <img src> for the lightbox/crop editor);
   // ?download=1 adds Content-Disposition so it saves instead of navigating in-browser.
@@ -342,6 +487,7 @@ export async function photoRoutes(fastify: FastifyInstance): Promise<void> {
       schema: { params: IdParams, querystring: DownloadQuery },
     },
     async (request, reply) => {
+      if (request.deviceKey) return reply.code(403).send({ error: DEVICE_NO_ORIGINALS });
       const original = await resolveOriginal(request.params.id, request.user!.id, "jpeg");
       if (!original) return reply.code(404).send({ error: "Original not found" });
 
@@ -353,6 +499,7 @@ export async function photoRoutes(fastify: FastifyInstance): Promise<void> {
       }
       const st = original.ref ? await statFile(original.ref) : null;
       if (!original.ref || !st) {
+        reportMissingFile(request.user!.id);
         return reply.code(404).send({ error: "Original not found" });
       }
       if (request.query.download === "1") {
@@ -371,6 +518,45 @@ export async function photoRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  // A full-resolution JPEG for "View full size": the JPEG original as it is, else a render of the
+  // other original (or of a RAW's preview) kept for an hour. 404 when there is nothing to render,
+  // 409 when its drive isn't connected: the caller keeps showing the display copy.
+  app.get(
+    "/photos/:id/full",
+    {
+      preValidation: requireScope("photos.read", ["companion"]),
+      config: notFoundOnInvalidId("Original not found"),
+      schema: { params: IdParams },
+    },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const photoId = request.params.id;
+      for (const kind of ["jpeg", "raw"] as const) {
+        const original = await resolveOriginal(photoId, userId, kind);
+        if (!original) continue;
+        if (!original.connected) {
+          return reply
+            .code(409)
+            .send({ error: "This photo's drive isn't connected right now", volumeLabel: original.volumeLabel });
+        }
+        const st = original.ref ? await statFile(original.ref) : null;
+        if (!original.ref || !st) continue;
+        if (kind === "jpeg" && isJpegPath(original.ref)) {
+          return sendOriginalFile(request, reply, original.ref, st, "image/jpeg");
+        }
+        const made = await fullRender(photoId, original.ref, kind === "raw");
+        const madeSt = made ? await statFile(made) : null;
+        if (made && madeSt) {
+          if (applyFileValidators(request, reply, madeSt, { weak: false }).notModified) return reply.code(304).send();
+          reply.header("Content-Type", "image/jpeg");
+          reply.header("Content-Length", madeSt.size);
+          return reply.send(createReadStream(made));
+        }
+      }
+      return reply.code(404).send({ error: "Original not found" });
+    },
+  );
+
   // Same as the JPEG route above, for the capture's 'raw' original.
   app.get(
     "/photos/:id/original-raw",
@@ -380,6 +566,7 @@ export async function photoRoutes(fastify: FastifyInstance): Promise<void> {
       schema: { params: IdParams, querystring: DownloadQuery },
     },
     async (request, reply) => {
+      if (request.deviceKey) return reply.code(403).send({ error: DEVICE_NO_ORIGINALS });
       const original = await resolveOriginal(request.params.id, request.user!.id, "raw");
       if (!original) return reply.code(404).send({ error: "No RAW original for this photo" });
 
@@ -427,6 +614,29 @@ export async function photoRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.code(404).send({ error: "Video not found" });
       }
       const contentType = original.ref.toLowerCase().endsWith(".mov") ? "video/quicktime" : "video/mp4";
+      return sendRangeableFile(request, reply, original.ref, st, contentType);
+    },
+  );
+
+  // A recording plays from its original, with Range so the player can seek.
+  app.get(
+    "/photos/:id/audio",
+    {
+      preValidation: requireScope("photos.read"),
+      config: notFoundOnInvalidId("No recording for this photo"),
+      schema: { params: IdParams },
+    },
+    async (request, reply) => {
+      const original = await resolveOriginal(request.params.id, request.user!.id, "audio");
+      if (!original) return reply.code(404).send({ error: "No recording for this photo" });
+      if (!original.connected) {
+        return reply
+          .code(409)
+          .send({ error: "This recording's drive isn't connected right now", volumeLabel: original.volumeLabel });
+      }
+      const st = original.ref ? await statFile(original.ref) : null;
+      if (!original.ref || !st) return reply.code(404).send({ error: "Recording not found" });
+      const contentType = AUDIO_TYPES[path.extname(original.ref).toLowerCase()] ?? "application/octet-stream";
       return sendRangeableFile(request, reply, original.ref, st, contentType);
     },
   );

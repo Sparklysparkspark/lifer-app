@@ -347,6 +347,17 @@ describe("storage routes", () => {
     expect(statSync(to).isDirectory()).toBe(true);
   });
 
+  it("points stored paths at the folder's new place when the old folder went missing", async () => {
+    mkdirSync(to);
+    writeFileSync(path.join(to, "osprey.jpg"), "osprey");
+    rmSync(from, { recursive: true });
+    const res = await put(to);
+    expect(res.json()).toEqual({ dataDir: to, previousDataDir: from, filesMoved: false, restartRequired: true });
+    expect(readFileSync(path.join(to, "osprey.jpg"), "utf8")).toBe("osprey");
+    expect(db.relinks.length).toBeGreaterThan(0);
+    expect(db.relinks.every((params) => params[0] === from && params[1] === to)).toBe(true);
+  });
+
   it("asks for a restart before a second move, since DATA_DIR still names the old folder", async () => {
     expect((await put(to)).statusCode).toBe(200);
     const res = await put(path.join(root, "third"));

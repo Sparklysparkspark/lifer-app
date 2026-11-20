@@ -35,7 +35,7 @@ function readIn(tz: string, exifDate: string): Reading {
     const fp = fingerprintFromTags(tags);
     const iso = dt.toDate().toISOString();
     const hash = (parts) => createHash("sha256").update(parts.join("|")).digest("hex");
-    const folder = originalsFolder("/lib", { organizeByYear: true, speciesFolderName: "Mallard", taxonClass: null, takenAt: time.takenAt, takenAtWallClock: time.wallClock, subfolder: "Adjusted" });
+    const folder = originalsFolder("/lib", { layout: ["wildlifeYear", "group", "species"], speciesFolderName: "Mallard", taxonClass: null, takenAt: time.takenAt, takenAtWallClock: time.wallClock, subfolder: "Adjusted" });
     console.log(JSON.stringify({
       takenAt: time.takenAt.toISOString(), wallClock: time.wallClock, legacyTakenAt: time.legacyTakenAt?.toISOString() ?? null,
       strict: fp.strict, loose: fp.loose, legacy: fp.legacy ?? null,

@@ -1,7 +1,7 @@
 // POST|PATCH|HEAD|DELETE|OPTIONS /uploads/tus[/:id]: resumable uploads (lib/tusUploads.ts). Each
 // request is authenticated like any other upload (session cookie or an x-api-key with
-// photos.write; the cross-site guard in index.ts runs first), checked against the upload id's
-// owner, then handed to the tus server with the raw request stream untouched.
+// photos.write, imports.write or a phone's companion; the cross-site guard in index.ts runs
+// first), checked against the upload id's owner, then handed to the tus server untouched.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { Type } from "typebox";
 import { requireScope } from "../auth/session.js";
@@ -40,7 +40,7 @@ export async function tusUploadRoutes(parent: FastifyInstance): Promise<void> {
     // Only the path is checked here. Headers and the body are the tus server's: it answers a
     // missing Tus-Resumable or a bad Upload-Offset with the protocol's own status codes. Any id
     // string is accepted so an unknown one still gets the tus-style 404 above.
-    const auth = { preValidation: requireScope("photos.write") };
+    const auth = { preValidation: requireScope("photos.write", ["imports.write", "companion"]) };
     const params = Type.Object({ id: Type.String({ minLength: 1 }) });
     app.post("/uploads/tus", { ...auth, schema: {} }, handler);
     app.options("/uploads/tus", { ...auth, schema: {} }, handler);

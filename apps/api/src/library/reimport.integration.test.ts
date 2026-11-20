@@ -162,4 +162,47 @@ describe.skipIf(!url)("library reimport of TIFF, RAW and HEIC", () => {
     },
     60_000,
   );
+
+  it("imports a photo nothing matched as the species the user confirmed", async () => {
+    const untagged = path.join(dataDir, "Misc", "untagged.jpg");
+    mkdirSync(path.dirname(untagged), { recursive: true });
+    await sharp({ create: { width: 32, height: 32, channels: 3, background: "#456" } })
+      .jpeg()
+      .toFile(untagged);
+    expect(await reimport.recoverJpeg(USER, untagged)).toMatchObject({ status: "unrecognized" });
+    const outcome = await reimport.recoverJpeg(USER, untagged, null, false, true, { option: "ignore" }, SPECIES);
+    expect(outcome).toMatchObject({ status: "recovered", scientificName: "Testus reimportensis" });
+  }, 60_000);
+
+  it("brings back the place name Lifer wrote into the file", async () => {
+    const { writeCaptureMetadata } = await import("../uploads/exif.js");
+    const labelled = path.join(dataDir, "Birds", COMMON, "Adjusted", "labelled.jpg");
+    await sharp({ create: { width: 32, height: 32, channels: 3, background: "#654" } })
+      .jpeg()
+      .toFile(labelled);
+    await writeCaptureMetadata(labelled, {
+      species: [{ commonName: COMMON, scientificName: "Testus reimportensis", taxonClass: "aves", family: null }],
+      namingStyles: [],
+      rating: null,
+      isCover: false,
+      takenAt: null,
+      lat: null,
+      lon: null,
+      cameraModel: null,
+      lens: null,
+      focalLengthMm: null,
+      aperture: null,
+      shutter: null,
+      iso: null,
+      locationLabel: "Pigeon Lake",
+    });
+    const outcome = await reimport.recoverJpeg(USER, labelled);
+    expect(outcome).toMatchObject({ status: "recovered" });
+    if (outcome.status !== "recovered") return;
+    const capture = await db.query<{ location_label: string | null }>(
+      `SELECT location_label FROM captures WHERE id = $1`,
+      [outcome.captureId],
+    );
+    expect(capture.rows[0].location_label).toBe("Pigeon Lake");
+  }, 60_000);
 });

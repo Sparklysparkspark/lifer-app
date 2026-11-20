@@ -8,6 +8,7 @@ import { statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pool } from "@lifer/core/db.js";
+import { log } from "@lifer/core/lib/log.js";
 import { APP_DATA_DIR } from "@lifer/core/config.js";
 import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { generateDerivatives } from "@lifer/core/uploads/image.js";
@@ -17,6 +18,7 @@ import {
   extractExif,
   extractKeywordsWithSidecar,
   extractLiferTags,
+  extractLocationLabel,
   readExifTags,
   type ExifTags,
 } from "../uploads/exif.js";
@@ -32,6 +34,7 @@ import {
 import { matchSpeciesFromFilename } from "../species/matchByFilename.js";
 import { derivativeFiles, fileIntoMainLibrary, removeFiles } from "../uploads/common.js";
 import { insertCapture, insertOriginal } from "../uploads/captureRows.js";
+import { proposeIdentificationForFile } from "../captures/identification.js";
 import { recoverAlbumMembership } from "../albums/albumIndex.js";
 import { tagWithRegisteredVolume, type VolumeTag } from "../storageVolumes/resolve.js";
 import { markCollected } from "../lib/userSpecies.js";
@@ -75,6 +78,8 @@ interface SpeciesRow {
 export type JpegOutcome =
   | { status: "recovered"; captureId: string; photoId: string; scientificName: string; hidden?: boolean }
   | { status: "already-known" }
+  /** Already imported in place from this folder, and now moved into the library (consolidate). */
+  | { status: "moved" }
   | { status: "relinked" }
   | { status: "ignored" }
   /** Rejected in a culling app, and the reimport was set to skip those. */
@@ -83,7 +88,7 @@ export type JpegOutcome =
   | { status: "ambiguous"; scientificNames: string[]; contentHash: string };
 
 // "Don't ask about this file again", keyed by content hash so it survives moves and renames.
-export async function isIgnoredLibraryFile(userId: string, contentHash: string): Promise<boolean> {
+async function isIgnoredLibraryFile(userId: string, contentHash: string): Promise<boolean> {
   const res = await pool.query(`SELECT 1 FROM ignored_library_files WHERE user_id = $1 AND content_hash = $2`, [
     userId,
     contentHash,
@@ -123,6 +128,30 @@ async function recoveredVolumeTag(
     return { volumeId: volumeContext.volumeId, volumeRelativePath: absolutePath.slice(volumeContext.mountPath.length) };
   if (foreign) return tagWithRegisteredVolume(userId, absolutePath);
   return { volumeId: null, volumeRelativePath: null };
+}
+
+/** An import that moves files in (organize) also moves the ones an earlier import of the same
+ *  folder left in place: consolidating a library imported in place is the same import again
+ *  with "move into my library". Only a file left in place, at this exact path. */
+async function moveInIfLeftInPlace(
+  userId: string,
+  originalId: string,
+  absolutePath: string,
+  kind: "jpeg" | "raw",
+): Promise<boolean> {
+  const res = await pool.query<{ ref: string; managed: boolean; species_id: string | null; taken_at: Date | null }>(
+    `SELECT o.ref, o.managed, COALESCE(c.species_id, o.species_id) AS species_id, c.taken_at
+       FROM originals o LEFT JOIN captures_all c ON c.id = o.capture_id WHERE o.id = $1`,
+    [originalId],
+  );
+  const row = res.rows[0];
+  if (!row || row.managed || !row.species_id || path.resolve(row.ref) !== path.resolve(absolutePath)) return false;
+  const dest = await fileIntoMainLibrary(absolutePath, true, userId, row.species_id, kind, row.taken_at);
+  await pool.query(
+    `UPDATE originals SET ref = $2, managed = true, volume_id = NULL, volume_relative_path = NULL WHERE id = $1`,
+    [originalId, dest],
+  );
+  return true;
 }
 
 // A file whose bytes are already known may still have a stale `ref` (a drive remounted under a
@@ -166,22 +195,35 @@ export interface ReimportCullHandling {
 }
 
 // `organize` moves an imported library into Lifer's species folders in the main library.
+async function forcedSpecies(speciesId: string): Promise<KeywordMatchedSpecies[]> {
+  const res = await pool.query(
+    `SELECT id, scientific_name, common_name, taxon_class, family FROM species WHERE id = $1`,
+    [speciesId],
+  );
+  return res.rows as KeywordMatchedSpecies[];
+}
+
 export async function recoverJpeg(
   userId: string,
   absolutePath: string,
   volumeContext: VolumeContext | null = null,
   organize = false,
-  organizeByYear = false,
   foreign = false,
   cull: ReimportCullHandling = { option: "ignore" },
+  /** The species the user confirmed for an unmatched photo (the review list); skips matching. */
+  forcedSpeciesId: string | null = null,
 ): Promise<JpegOutcome> {
   const contentHash = await computeContentHash(absolutePath);
   const known = await pool.query<{ id: string; ref: string; volume_id: string | null }>(
-    `SELECT id, ref, volume_id FROM originals WHERE content_hash = $1 AND user_id = $2 LIMIT 1`,
-    [contentHash, userId],
+    // Two originals can share bytes: the one at this very path first.
+    `SELECT id, ref, volume_id FROM originals WHERE content_hash = $1 AND user_id = $2
+      ORDER BY (ref = $3) DESC LIMIT 1`,
+    [contentHash, userId, absolutePath],
   );
   if (known.rows.length > 0) {
     const row = known.rows[0];
+    if (organize && foreign && (await moveInIfLeftInPlace(userId, row.id, absolutePath, "jpeg")))
+      return { status: "moved" };
     const repaired = await repairIfStale(row.id, row.ref, row.volume_id, absolutePath, volumeContext);
     return { status: repaired ? "relinked" : "already-known" };
   }
@@ -204,17 +246,29 @@ export async function recoverJpeg(
   const tags: ExifTags = await readExifTags(absolutePath);
   // Embedded tags, unioned with an XMP sidecar's tags when one exists.
   const candidates = await extractKeywordsWithSidecar(absolutePath, tags);
-  const keywordMatches = candidates.length > 0 ? await matchSpeciesByKeywords(pool, candidates) : [];
+  const keywordMatches = forcedSpeciesId
+    ? await forcedSpecies(forcedSpeciesId)
+    : candidates.length > 0
+      ? await matchSpeciesByKeywords(pool, candidates)
+      : [];
 
   // The file name is always tried too: it can corroborate the tags, or name a different species
   // and flag a real ambiguity.
   const fileStem = path.basename(absolutePath, path.extname(absolutePath));
   const parentFolder = path.basename(path.dirname(absolutePath));
-  const filenameMatches = await matchSpeciesFromFilename(pool, `${fileStem} ${parentFolder}`);
+  const filenameMatches = forcedSpeciesId ? [] : await matchSpeciesFromFilename(pool, `${fileStem} ${parentFolder}`);
 
   const matchedById = new Map<string, KeywordMatchedSpecies>();
   for (const row of [...keywordMatches, ...filenameMatches]) matchedById.set(row.id, row);
-  const matchedRows = [...matchedById.values()];
+  let matchedRows = [...matchedById.values()];
+  // Nothing in its name or tags: a confident match from its own region's checklist files it as
+  // "suggested", for the user to confirm later; anything less waits in the unrecognized list.
+  let filing: Awaited<ReturnType<typeof proposeIdentificationForFile>> = null;
+  if (matchedRows.length === 0 && !forcedSpeciesId) {
+    const gps = await extractExif(absolutePath, tags);
+    filing = await proposeIdentificationForFile(userId, absolutePath, gps.lat, gps.lon, gps.takenAt);
+    if (filing) matchedRows = await forcedSpecies(filing.speciesId);
+  }
   if (matchedRows.length === 0) return { status: "unrecognized", candidates, contentHash };
 
   const byName = groupByScientificName(matchedRows);
@@ -246,7 +300,6 @@ export async function recoverJpeg(
         userId,
         species.id,
         "jpeg",
-        organizeByYear,
         exif.takenAt,
         // The camera's own year, so the folder doesn't depend on the server's zone.
         captureTimeFromTags(tags)?.wallClock ?? null,
@@ -283,8 +336,15 @@ export async function recoverJpeg(
       exif,
       // The photo tags Lifer wrote into the file, if it did.
       tags: extractLiferTags(tags),
+      // Its place name, from the file's IPTC Sublocation (Lifer's, or one typed in Lightroom).
+      locationLabel: extractLocationLabel(tags),
       // Kept as the culling app left them, whatever the reimport did with them.
       cull: marks,
+      ...(filing && {
+        regionId: filing.regionId,
+        identificationState: "suggested" as const,
+        suggestionPercent: filing.matchPercent,
+      }),
     });
 
     await client.query(
@@ -325,13 +385,19 @@ export async function recoverJpeg(
   // This photo may just have become the species' cover: frame the card on the animal.
   if (!hidden) ensureDefaultCardCropLater(userId, species.id);
   // Best-effort: a missing or unreadable manifest never fails the recovery.
-  await recoverAlbumMembership(userId, finalPath, captureId).catch(() => {});
+  await recoverAlbumMembership(userId, finalPath, captureId).catch((err: unknown) =>
+    log.warn(
+      { captureId, err: err instanceof Error ? err.message : err },
+      "Couldn't restore album membership from the recovery index",
+    ),
+  );
   return { status: "recovered", captureId, photoId, scientificName: species.scientific_name, hidden };
 }
 
 export type RawOutcome =
   | { status: "recovered"; captureId: string }
   | { status: "already-known" }
+  | { status: "moved" }
   | { status: "relinked" }
   | { status: "unmatched" };
 
@@ -346,16 +412,19 @@ export async function recoverRaw(
   absolutePath: string,
   volumeContext: VolumeContext | null = null,
   organize = false,
-  organizeByYear = false,
   foreign = false,
 ): Promise<RawOutcome> {
   const contentHash = await computeContentHash(absolutePath);
   const known = await pool.query<{ id: string; ref: string; volume_id: string | null }>(
-    `SELECT id, ref, volume_id FROM originals WHERE content_hash = $1 AND user_id = $2 LIMIT 1`,
-    [contentHash, userId],
+    // Two originals can share bytes: the one at this very path first.
+    `SELECT id, ref, volume_id FROM originals WHERE content_hash = $1 AND user_id = $2
+      ORDER BY (ref = $3) DESC LIMIT 1`,
+    [contentHash, userId, absolutePath],
   );
   if (known.rows.length > 0) {
     const row = known.rows[0];
+    if (organize && foreign && (await moveInIfLeftInPlace(userId, row.id, absolutePath, "raw")))
+      return { status: "moved" };
     const repaired = await repairIfStale(row.id, row.ref, row.volume_id, absolutePath, volumeContext);
     return { status: repaired ? "relinked" : "already-known" };
   }
@@ -395,7 +464,6 @@ export async function recoverRaw(
         userId,
         match.species_id,
         "raw",
-        organizeByYear,
         exif.takenAt,
         captureTimeFromTags(tags)?.wallClock ?? null,
       )

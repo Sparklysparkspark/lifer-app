@@ -1,10 +1,11 @@
 // Where an upload's bytes come from: a multipart part, a photo kept by /uploads/inspect
 // (stagedId), or a finished resumable upload (uploadId). Each becomes a file on disk with its sha256.
 import { existsSync } from "node:fs";
-import { rm, stat } from "node:fs/promises";
+import { copyFile, rm, stat } from "node:fs/promises";
 import { claimStagedUpload, receiveToFile, stageUpload } from "../lib/stagedUploads.js";
 import { claimTusUpload, removeTusUpload, TusClaimError } from "../lib/tusUploads.js";
 import { uploadTempPath } from "./common.js";
+import { sidecarPathFor } from "./exif.js";
 
 export interface ReceivedFile {
   /** Where the bytes are now. Moving the file away (into the library) is expected. */
@@ -107,4 +108,16 @@ export async function claimUploadById(userId: string, uploadId: string): Promise
 
 export function isUploadSourceError(err: unknown): err is UploadSourceError {
   return err instanceof UploadSourceError;
+}
+
+/** Puts an uploaded XMP beside the file as its sidecar, where the mark and rating readers look
+ *  (cullMarks.ts, exif.ts), exactly as for a file on disk. The copy goes when the file's hold ends. */
+export async function attachSidecar(file: ReceivedFile, xmp: ReceivedFile): Promise<void> {
+  const sidecar = sidecarPathFor(file.path);
+  await copyFile(xmp.path, sidecar);
+  const finish = file.finish;
+  file.finish = async (ok) => {
+    await rm(sidecar, { force: true });
+    await finish(ok);
+  };
 }

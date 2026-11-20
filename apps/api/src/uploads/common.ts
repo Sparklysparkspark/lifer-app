@@ -19,10 +19,16 @@ import {
 import { idModel } from "@lifer/core/species/idModel.js";
 import { storeCaptureScene } from "@lifer/core/species/sceneModel.js";
 import type { ImageSource } from "@lifer/core/species/inference.js";
+import { storeSubjectCount } from "../species/detectAndCrop.js";
+import { storeCaptureFrame } from "../species/frames.js";
 import type { CaptureTime } from "./exif.js";
 import { stripForbiddenNameChars } from "./speciesFolderName.js";
 import { speciesFolder } from "./managedFolders.js";
-import { getUserFileSettings } from "../lib/userFileSettings.js";
+import { keepsOriginalName } from "@lifer/shared";
+import { log } from "@lifer/core/lib/log.js";
+import { getFileNameTemplate } from "../settings/metadataSettings.js";
+import { preserveFileName } from "./exif.js";
+import { templatedFileName, templateValues, type PhotoFacts } from "./templateVars.js";
 
 export type ChosenVolume = { baseDir: string; mountPath: string; volumeId: string };
 
@@ -95,6 +101,36 @@ export function originalFilename(uploadedName: string | null, time: CaptureTime 
   return `${datePart}-${randomUUID().slice(0, 8)}${extension}`;
 }
 
+/** moveIntoLibrary under the name the user's file name template gives it (originalFilename when
+ *  files keep the camera's name). `companionOf` is a file of the same photo already filed (its
+ *  JPEG, for a RAW): this one takes its name, so the pair still sort and match together. A renamed
+ *  file records its camera name in its metadata, for {original}. */
+export async function moveIntoLibraryNamed(
+  userId: string,
+  source: string,
+  dir: string,
+  photo: { facts: Omit<PhotoFacts, "original">; uploadedName: string | null; time: CaptureTime | null },
+  extension: string,
+  companionOf?: string | null,
+): Promise<string> {
+  const template = await getFileNameTemplate(userId);
+  const original = photo.uploadedName
+    ? sanitizeUploadName(path.basename(photo.uploadedName, path.extname(photo.uploadedName)))
+    : null;
+  let name: string | null = null;
+  if (!keepsOriginalName(template)) {
+    name = companionOf
+      ? `${path.basename(companionOf, path.extname(companionOf))}${extension}`
+      : await templatedFileName(template, dir, await templateValues({ ...photo.facts, original }), extension);
+  }
+  const dest = await moveIntoLibrary(source, dir, name ?? originalFilename(photo.uploadedName, photo.time, extension));
+  if (name && photo.uploadedName)
+    void preserveFileName(dest, path.basename(photo.uploadedName)).catch((err: unknown) =>
+      log.warn({ ref: dest, err: err instanceof Error ? err.message : err }, "Couldn't record a file's camera name"),
+    );
+  return dest;
+}
+
 // Vectors for a just-imported photo are computed after the response, a few at a time. Waiting
 // jobs hold a file path rather than bytes where they can, so a big import stays out of memory.
 const COMMIT_VECTOR_CONCURRENCY = 2;
@@ -116,7 +152,7 @@ export function queueCaptureVectors(
   const heldBytes = "path" in image ? 0 : image.byteLength;
   if (heldBytes > 0 && bufferedCommitBytes + heldBytes > MAX_BUFFERED_COMMIT_BYTES) {
     // Left for the next backfill (server start or model download), like a failed computation.
-    onError(new Error("Too many imported photos are waiting for species-matching vectors"));
+    onError(new Error("Too many imported photos are waiting for species recognition"));
     onDone?.();
     return;
   }
@@ -125,10 +161,14 @@ export function queueCaptureVectors(
     try {
       const kinds: PhotoVectorKind[] = idModel.isDownloaded() ? ["clip", "id-crop"] : ["clip"];
       // Both in one job (one read and decode); storeIdCaptureEmbedding then reuses the second.
-      const { vectors } = photoVectors(image, { kinds, key, priority: "commit" });
+      // The animal count comes from the same job's detection pass.
+      const { vectors, presence } = photoVectors(image, { kinds, key, presence: true, priority: "commit" });
+      await storeSubjectCount(captureId, await presence);
       await storeCaptureEmbedding(pool, captureId, await vectors.clip);
       await storeIdCaptureEmbedding(pool, captureId, image, { key, priority: "commit" });
       if (photoId) await storeCaptureScene(pool, captureId, photoId, image, { priority: "commit" });
+      // Reuses the detection above by content hash; the background vector is one more CLIP pass.
+      if (photoId) await storeCaptureFrame(captureId, photoId, image, { key, priority: "commit" });
     } finally {
       bufferedCommitBytes -= heldBytes;
     }
@@ -147,19 +187,17 @@ export async function fileIntoMainLibrary(
   userId: string,
   speciesId: string,
   kind: "raw" | "jpeg",
-  organizeByYear: boolean,
   takenAt: Date | null,
   /** The file's own wall-clock capture time when known (see originalsFolder). */
   takenAtWallClock: string | null = null,
 ): Promise<string> {
   if (!managed || !existsSync(currentRef)) return currentRef;
-  const folder = await speciesFolder(
-    userId,
-    speciesId,
-    ORIGINALS_DIR,
-    { subfolder: kind === "raw" ? "RAW" : "Adjusted", takenAt, wallClock: takenAtWallClock, allowLocation: false },
-    { ...(await getUserFileSettings(userId)), organizeByYear },
-  );
+  const folder = await speciesFolder(userId, speciesId, ORIGINALS_DIR, {
+    subfolder: kind === "raw" ? "RAW" : "Adjusted",
+    takenAt,
+    wallClock: takenAtWallClock,
+    allowLocation: false,
+  });
   const sourceDir = path.dirname(currentRef);
   // Already filed in the right folder: moving it would only rename it to "-2".
   if (path.resolve(sourceDir) === path.resolve(folder)) return currentRef;

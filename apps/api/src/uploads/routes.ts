@@ -4,6 +4,7 @@ import { rawUploadRoutes } from "./raw.js";
 import { photoUploadRoutes } from "./photo.js";
 import { videoUploadRoutes } from "./video.js";
 import { tusUploadRoutes } from "./tus.js";
+import { videoFrameRoutes } from "./videoFrame.js";
 
 // Re-exported for captures/routes.ts.
 export { moveManagedOriginalToSpeciesFolder } from "./managedFolders.js";
@@ -13,5 +14,6 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
   await rawUploadRoutes(app);
   await photoUploadRoutes(app);
   await videoUploadRoutes(app);
+  await videoFrameRoutes(app);
   await tusUploadRoutes(app);
 }

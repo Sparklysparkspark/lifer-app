@@ -40,7 +40,7 @@ export default function UploadDropzone({
     // The whole dashed box opens the file picker, not just the "Choose photos" text.
     <div
       onClick={() => fileInputRef.current?.click()}
-      className="cursor-pointer rounded-lg border-2 border-dashed border-line p-6 text-center transition-colors hover:bg-surface-muted"
+      className="cursor-pointer rounded-panel border-2 border-dashed border-line p-6 text-center transition-colors hover:bg-surface-muted"
     >
       <input
         ref={fileInputRef}
@@ -51,7 +51,7 @@ export default function UploadDropzone({
         id="upload-input"
         onChange={(e) => handleUpload(Array.from(e.target.files ?? []))}
       />
-      <span className="text-sm text-muted hover:underline">{t("upload.choosePhotosOrVideos")}</span>
+      <span className="text-callout text-muted hover:underline">{t("upload.choosePhotosOrVideos")}</span>
     </div>
   );
 }

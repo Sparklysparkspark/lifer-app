@@ -4,6 +4,7 @@ import { Upload, type DetailedError, type PreviousUpload } from "tus-js-client";
 import { CLIENT_HEADER } from "../api/client";
 import { formatBytes } from "./format";
 import { ignore } from "./ignore";
+import { MAX_RATE_LIMIT_WAITS, waitForRateLimit } from "./rateLimitWait";
 
 const ENDPOINT = "/api/uploads/tus";
 export const INITIAL_CHUNK_SIZE = 8 * 1024 * 1024;
@@ -114,6 +115,7 @@ export function uploadFile(
   return new Promise<string>((resolve, reject) => {
     let chunkSize = sessionChunkSize;
     let restarts = 0;
+    let rateLimitWaits = 0;
     let current: Upload | null = null;
     let settled = false;
 
@@ -149,10 +151,11 @@ export function uploadFile(
         storeFingerprintForResuming: true,
         removeFingerprintOnSuccess: true,
         // tus-js-client's own rule (retry 5xx, network errors, 409 and 423), except a PATCH 413,
-        // which retrying at the same size can't fix.
+        // which retrying at the same size can't fix. A 429 goes to handleError, which waits as
+        // long as the server's Retry-After asks rather than these short fixed delays.
         onShouldRetry: (err) => {
           const status = err.originalResponse?.getStatus() ?? 0;
-          if (status === 413) return false;
+          if (status === 413 || status === 429) return false;
           const retryable = status < 400 || status >= 500 || status === 409 || status === 423;
           return retryable && (typeof navigator === "undefined" || navigator.onLine !== false);
         },
@@ -188,6 +191,13 @@ export function uploadFile(
       const status = err.originalResponse?.getStatus() || null;
       const kind = classifyFailure(method, status, typeof navigator === "undefined" || navigator.onLine !== false);
       if (upload.url) activeUrls.delete(upload.url);
+      if (status === 429 && rateLimitWaits < MAX_RATE_LIMIT_WAITS) {
+        rateLimitWaits++;
+        await waitForRateLimit(err.originalResponse?.getHeader("Retry-After"), opts.signal);
+        // Resumes the same upload (tus asks the server how much it has), or creates it again.
+        if (!settled) return start(upload.url, false);
+        return;
+      }
       if (kind === "shrink" && upload.url) {
         const next = nextChunkSize(chunkSize, sessionChunkSize);
         if (next) {

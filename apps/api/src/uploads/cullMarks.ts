@@ -3,7 +3,7 @@
 // ".xmp" sidecar, and for a RAW+JPEG pair from both files. Reading only: Lifer never changes or
 // deletes a file because of a mark. Which app writes which field is in
 // docs/docs/guides/culling-with-other-apps.md.
-import { CULL_LABELS, type CullLabel, type CullMarks, type CullMarksOption, type CullVerdict } from "@lifer/shared";
+import type { CullLabel, CullMarks, CullMarksOption, CullVerdict } from "@lifer/shared";
 import { findSidecarPath, readCullTags } from "./exif.js";
 
 export const NO_CULL_MARKS: CullMarks = Object.freeze({ verdict: null, label: null });
@@ -133,7 +133,7 @@ async function marksOf(filePath: string): Promise<CullMarks> {
 /** One file's marks: its own metadata and its ".xmp" sidecar (the sidecar's label first, since
  *  that's where Lightroom and others write for a RAW). */
 export async function readCullMarks(filePath: string): Promise<CullMarks> {
-  const sidecar = findSidecarPath(filePath);
+  const sidecar = await findSidecarPath(filePath);
   const own = await marksOf(filePath);
   return sidecar ? mergeCullMarks(await marksOf(sidecar), own) : own;
 }
@@ -148,8 +148,4 @@ export async function readPairCullMarks(photoPath: string, rawPath: string | nul
 export function cullDecision(marks: CullMarks, option: CullMarksOption): "import" | "hide" | "skip" {
   if (marks.verdict !== "reject" || option === "ignore") return "import";
   return option;
-}
-
-export function isCullLabel(value: unknown): value is CullLabel {
-  return typeof value === "string" && (CULL_LABELS as readonly string[]).includes(value);
 }

@@ -1,5 +1,5 @@
-import { existsSync, readdirSync } from "node:fs";
-import { cp, mkdir, rename, rm } from "node:fs/promises";
+import { dirSizeBytes, ensureRoom } from "@lifer/core/lib/freeSpace.js";
+import { cp, mkdir, opendir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { PoolClient } from "pg";
@@ -13,6 +13,17 @@ import { log } from "@lifer/core/lib/log.js";
 import { Flag, replies, withSchemas } from "../lib/schema.js";
 import { desktopOnly } from "./requireDesktopMode.js";
 import { AnyJobStatus, StorageLocation, StorageMoveOutcome } from "./responses.js";
+
+// Reads one entry, not the whole listing: the folder may be a large library on a NAS.
+async function hasEntries(dir: string): Promise<boolean> {
+  const handle = await opendir(dir).catch(() => null);
+  if (!handle) return false;
+  try {
+    return (await handle.read()) !== null;
+  } finally {
+    await handle.close();
+  }
+}
 
 interface StorageMoveResult {
   dataDir: string;
@@ -28,6 +39,7 @@ export async function moveDirectoryContents(oldDir: string, newDir: string, onCo
   try {
     await rename(oldDir, newDir);
   } catch {
+    await ensureRoom(newDir, await dirSizeBytes(oldDir));
     try {
       await cp(oldDir, newDir, { recursive: true, preserveTimestamps: true });
     } catch (err) {
@@ -75,7 +87,7 @@ export async function recoverInterruptedStorageMigration(): Promise<void> {
   if (!migration) return;
   const { from, to } = migration;
 
-  const moveNeverCompleted = !migration.copied && existsSync(from) && readdirSync(from).length > 0;
+  const moveNeverCompleted = !migration.copied && (await hasEntries(from));
   if (moveNeverCompleted) {
     await rm(to, { recursive: true, force: true });
     writeLocalSettings({ dataDir: from, migration: undefined });
@@ -115,6 +127,7 @@ export async function storageMoveRoutes(fastify: FastifyInstance): Promise<void>
     oldDir: string,
     dataDir: string,
     hadExistingContent: boolean,
+    oldMissing: boolean,
   ): Promise<StorageMoveResult> {
     if (hadExistingContent) {
       // Recorded before a single file moves, so a crash from here on is recoverable at startup.
@@ -135,6 +148,8 @@ export async function storageMoveRoutes(fastify: FastifyInstance): Promise<void>
       await withTransaction((client) => relinkAbsolutePaths(client, oldDir, dataDir));
     } else {
       await mkdir(dataDir, { recursive: true });
+      // The old folder is gone, so this is the person pointing Lifer at where they moved it.
+      if (oldMissing) await withTransaction((client) => relinkAbsolutePaths(client, oldDir, dataDir));
     }
 
     writeLocalSettings({ dataDir, migration: undefined });
@@ -173,15 +188,19 @@ export async function storageMoveRoutes(fastify: FastifyInstance): Promise<void>
       }
 
       const oldDir = DATA_DIR;
-      const hadExistingContent = existsSync(oldDir) && readdirSync(oldDir).length > 0;
-      if (hadExistingContent && existsSync(dataDir) && readdirSync(dataDir).length > 0) {
+      const hadExistingContent = await hasEntries(oldDir);
+      const oldMissing = await stat(oldDir).then(
+        () => false,
+        () => true,
+      );
+      if (hadExistingContent && (await hasEntries(dataDir))) {
         return reply
           .code(400)
           .send({ error: "That folder isn't empty. Choose an empty folder to move your library into" });
       }
 
       if (
-        !storageMoveJob.start((ctx) => runStorageMove(ctx, oldDir, dataDir, hadExistingContent), {
+        !storageMoveJob.start((ctx) => runStorageMove(ctx, oldDir, dataDir, hadExistingContent, oldMissing), {
           phase: "preparing",
           currentItem: dataDir,
         })

@@ -3,6 +3,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { ExifTool } from "exiftool-vendored";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 // keywordsToKeep asks the catalog which existing keywords are species names; answer for the one
@@ -79,6 +80,53 @@ describe("writeCaptureMetadata", () => {
     await writeCaptureMetadata(file, data);
     await writeCaptureMetadata(file, { ...data, rating: null });
     expect((await extractExif(file)).rating).toBeNull();
+  });
+
+  it("writes a date set in Lifer into a JPEG without one, follows a correction, and never writes over the camera's", async () => {
+    const file = path.join(dir, "undated.jpg");
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#888" } })
+      .jpeg()
+      .toFile(file);
+    await writeCaptureMetadata(file, { ...data, takenAt: new Date("2023-07-04T15:30:00Z") });
+    expect((await extractExif(file)).takenAt).toEqual(new Date("2023-07-04T15:30:00Z"));
+    const corrected = new Date("2023-07-05T15:30:00Z");
+    await writeCaptureMetadata(file, { ...data, takenAt: corrected });
+    expect((await extractExif(file)).takenAt).toEqual(corrected);
+
+    // A camera writes CreateDate too: that date is the camera's and stays.
+    const camera = path.join(dir, "camera.jpg");
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#888" } })
+      .jpeg()
+      .toFile(camera);
+    const tool = new ExifTool();
+    try {
+      await tool.write(
+        camera,
+        { DateTimeOriginal: "2023:07:04 15:30:00", CreateDate: "2023:07:04 15:30:00" },
+        { writeArgs: ["-overwrite_original"] },
+      );
+    } finally {
+      await tool.end();
+    }
+    await writeCaptureMetadata(camera, { ...data, takenAt: corrected });
+    expect((await extractExif(camera)).takenAt).toEqual(new Date("2023-07-04T15:30:00Z"));
+  });
+
+  it("keeps the camera's own clock for the month, whatever its time zone", async () => {
+    const { exiftool } = await import("exiftool-vendored");
+    const file = path.join(dir, "new-years-eve.jpg");
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#888" } })
+      .jpeg()
+      .toFile(file);
+    await exiftool.write(
+      file,
+      { DateTimeOriginal: "2024:12:31 23:30:00", OffsetTimeOriginal: "-08:00" },
+      { writeArgs: ["-overwrite_original"] },
+    );
+    const exif = await extractExif(file);
+    expect(exif.takenAt?.toISOString()).toBe("2025-01-01T07:30:00.000Z");
+    // Late on New Year's Eve where it was taken: December, not January.
+    expect(exif.localTakenAt?.getUTCMonth()).toBe(11);
   });
 
   it("writes a RAW's tags to a sidecar without copying camera fields", async () => {
@@ -182,6 +230,42 @@ describe("writeCaptureMetadata: the photo's place", () => {
     await writeCaptureMetadata(raw, { ...data, place });
     const sidecar = (await readExifTags(path.join(dir, "place.xmp"))) as unknown as Record<string, unknown>;
     expect([sidecar.State, sidecar.Country, sidecar.CountryCode]).toEqual(["British Columbia", "Canada", "CA"]);
+  });
+});
+
+describe("writeCaptureMetadata: the place name", () => {
+  const blankJpeg = async (name: string) => {
+    const file = path.join(dir, name);
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: "#888" } })
+      .jpeg()
+      .toFile(file);
+    return file;
+  };
+
+  it("writes it as IPTC Sublocation and reads it back, then follows a rename and a removal", async () => {
+    const { extractLocationLabel } = await import("./exif.js");
+    const file = await blankJpeg("label.jpg");
+    await writeCaptureMetadata(file, { ...data, locationLabel: "Pigeon Lake" });
+    let tags = (await readExifTags(file)) as unknown as Record<string, unknown>;
+    expect([tags.Location, tags["Sub-location"]]).toEqual(["Pigeon Lake", "Pigeon Lake"]);
+    expect(extractLocationLabel(tags)).toBe("Pigeon Lake");
+
+    await writeCaptureMetadata(file, { ...data, locationLabel: "Île Bizard" });
+    expect(extractLocationLabel(await readExifTags(file))).toBe("Île Bizard");
+    // Left out: the file keeps the name it has.
+    await writeCaptureMetadata(file, data);
+    expect(extractLocationLabel(await readExifTags(file))).toBe("Île Bizard");
+    await writeCaptureMetadata(file, { ...data, locationLabel: null });
+    tags = (await readExifTags(file)) as unknown as Record<string, unknown>;
+    expect([tags.Location, tags["Sub-location"]]).toEqual([undefined, undefined]);
+  });
+
+  it("puts a RAW's place name in its sidecar", async () => {
+    const { extractLocationLabel } = await import("./exif.js");
+    const raw = path.join(dir, "label.nef");
+    writeFileSync(raw, "not really a raw");
+    await writeCaptureMetadata(raw, { ...data, locationLabel: "Pigeon Lake" });
+    expect(extractLocationLabel(await readExifTags(path.join(dir, "label.xmp")))).toBe("Pigeon Lake");
   });
 });
 

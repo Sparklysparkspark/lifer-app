@@ -178,6 +178,22 @@ describe.skipIf(!url)("large files and new formats", () => {
     expect(again.statusCode).toBe(410);
   }, 60_000);
 
+  it("trusts the finish-time hash while the file is untouched, and re-hashes once it changes", async () => {
+    const bytes = await jpeg(21, { width: 300, height: 200 });
+    const { id } = await tusUpload(app, bytes, { headers: API, filename: "IMG_1001.jpg", filetype: "image/jpeg" });
+    const { claimTusUpload } = await import("../lib/tusUploads.js");
+    const recordPath = path.join(tusDir(), "finished", `${id}.json`);
+    const record = JSON.parse(readFileSync(recordPath, "utf8"));
+    // A wrong recorded hash goes unnoticed while the file's times match: no second full read.
+    writeFileSync(recordPath, JSON.stringify({ ...record, sha256: "0".repeat(64) }));
+    (await claimTusUpload(USER, id)).release();
+    writeFileSync(recordPath, JSON.stringify(record));
+    // Same size, other bytes: the times moved, so it's hashed and refused.
+    const filePath = path.join(tusDir(), "files", id);
+    writeFileSync(filePath, Buffer.from(bytes).fill(0));
+    await expect(claimTusUpload(USER, id)).rejects.toMatchObject({ statusCode: 410 });
+  }, 60_000);
+
   it("resumes after an interrupted PATCH from the offset HEAD reports", async () => {
     // Noise, so the file is big enough for several chunks.
     const bytes = await sharp({

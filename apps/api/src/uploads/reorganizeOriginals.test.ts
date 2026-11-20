@@ -1,15 +1,23 @@
 // moveOriginalFile: a reorganized file ends up either moved with its new path saved, or back where
 // it was with nothing saved; never moved with the old path still stored.
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const renameFails = { next: false };
+const copyFillsDisk = { next: false };
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
     ...actual,
+    // A drive that fills up part way through the copy.
+    copyFile: vi.fn(async (from: string, to: string) => {
+      if (!copyFillsDisk.next) return actual.copyFile(from, to);
+      copyFillsDisk.next = false;
+      await actual.writeFile(to, "pho");
+      throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
+    }),
     // Simulates a move across drives, where a rename can't work and the file is copied instead.
     rename: vi.fn(async (from: string, to: string) => {
       if (renameFails.next) {
@@ -32,6 +40,7 @@ beforeEach(() => {
   dest = path.join(dir, "IMG_0001-moved.jpg");
   writeFileSync(current, "photo");
   renameFails.next = false;
+  copyFillsDisk.next = false;
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -68,6 +77,15 @@ describe("moveOriginalFile", () => {
     expect(readFileSync(dest, "utf8")).toBe("photo");
   });
 
+  it("keeps the file's modification time when it copies across drives", async () => {
+    const { moveOriginalFile } = await import("./reorganizeOriginals.js");
+    const taken = new Date("2021-05-04T10:00:00Z");
+    utimesSync(current, taken, taken);
+    renameFails.next = true;
+    await moveOriginalFile(current, dest, async () => {});
+    expect(statSync(dest).mtime.getTime()).toBe(taken.getTime());
+  });
+
   it("removes the copy and keeps the source when saving fails after a copy", async () => {
     const { moveOriginalFile } = await import("./reorganizeOriginals.js");
     renameFails.next = true;
@@ -86,6 +104,18 @@ describe("moveOriginalFile", () => {
     const saveRef = vi.fn(async () => {});
     await expect(moveOriginalFile(current, path.join(dir, "missing", "x.jpg"), saveRef)).rejects.toThrow();
     expect(saveRef).not.toHaveBeenCalled();
+    expect(readFileSync(current, "utf8")).toBe("photo");
+  });
+
+  it("stops with a disk-full error and removes the partial copy when the drive fills up", async () => {
+    const { moveOriginalFile } = await import("./reorganizeOriginals.js");
+    const { DiskFullError } = await import("@lifer/core/lib/freeSpace.js");
+    renameFails.next = true;
+    copyFillsDisk.next = true;
+    const saveRef = vi.fn(async () => {});
+    await expect(moveOriginalFile(current, dest, saveRef)).rejects.toBeInstanceOf(DiskFullError);
+    expect(saveRef).not.toHaveBeenCalled();
+    expect(existsSync(dest)).toBe(false);
     expect(readFileSync(current, "utf8")).toBe("photo");
   });
 });

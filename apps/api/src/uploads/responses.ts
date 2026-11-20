@@ -14,6 +14,20 @@ export const SpeciesSuggestion = Open({
   source: Type.String({ description: "your_photos, reference_photo or keyword_tag" }),
   confident: Type.Optional(Type.Boolean()),
   matchPercent: Type.Optional(Type.Number()),
+  probably: Type.Optional(
+    Type.Object(
+      {
+        rank: Type.Enum(["genus", "family"]),
+        name: Type.String({ description: "Scientific name of the genus or family" }),
+        taxonClass: Nullable(Type.String({ description: "The top candidate's catalog class, e.g. amphibia" })),
+      },
+      {
+        additionalProperties: true,
+        description:
+          "Only on a top suggestion that isn't confident: the genus (else family) most close candidates share, e.g. 'Probably a Lithobates frog'",
+      },
+    ),
+  ),
 });
 
 /** What a culling app marked a photo with (CullMarks in @lifer/shared). */
@@ -25,11 +39,18 @@ export const CullMarks = Open({
 /** A photo with nothing wild in it, and what it looks like instead. */
 export const NotWildlife = Nullable(Open({ looksLike: Type.String() }));
 
+/** Probably not wildlife, short of a flag: the import asks instead of leaving it out. `share` (0 to 1)
+ *  is how much of the photo's reading went to the scene. */
+export const MaybeNotWildlife = Nullable(Open({ looksLike: Type.String(), share: Type.Number() }));
+
 /** An insect, spider or the like, which regional checklists rarely cover, e.g. "a bee". */
 export const Invertebrate = Nullable(Open({ looksLike: Type.String() }));
 
 export const UploadInspection = Open({
   takenAt: Nullable(DateTime()),
+  cameraTime: Nullable(
+    Type.String({ description: "The camera's own clock, YYYY-MM-DDTHH:MM:SS with no time zone, for grouping" }),
+  ),
   keywords: Type.Array(Type.String()),
   cull: CullMarks,
   possibleDuplicate: Nullable(
@@ -51,6 +72,7 @@ export const UploadInspection = Open({
   stagedId: Nullable(Type.String()),
   uploadId: Nullable(Type.String()),
   notWildlife: NotWildlife,
+  maybeNotWildlife: Type.Optional(MaybeNotWildlife),
   invertebrate: Invertebrate,
   /** A RAW whose JPEG is already imported: the import files it with that photo, under its species. */
   rawMatch: Nullable(
@@ -62,6 +84,17 @@ export const UploadInspection = Open({
       commonName: Nullable(Type.String()),
     }),
   ),
+  /** The animal's box in percent of the upright photo (the preview shown), when matching located it. */
+  subject: Nullable(Open({ x: Type.Number(), y: Type.Number(), w: Type.Number(), h: Type.Number() })),
+  /** The camera's GPS point, with the most specific region holding it and the nearest town. */
+  gps: Nullable(
+    Open({
+      lat: Type.Number(),
+      lon: Type.Number(),
+      regionId: Nullable(Uuid()),
+      town: Nullable(Type.String({ description: "The nearest town within 25 km, from the offline town list" })),
+    }),
+  ),
 });
 
 /** POST /uploads: 201 with the new photo, or 200 for a duplicate or a skipped reject. */
@@ -71,11 +104,14 @@ export const UploadResponses = {
     photoId: Type.Optional(Nullable(Uuid())),
     duplicate: Type.Optional(Type.Boolean()),
     skipped: Type.Optional(Type.Literal("rejected")),
+    sha256: Type.Optional(Type.String({ description: "sha256 of the file you already have (duplicate)" })),
   }),
   201: Open({
     captureId: Uuid(),
     photoId: Nullable(Uuid({ description: "Null when a RAW was linked to a photo you already had" })),
     hidden: Type.Boolean(),
     linkedExisting: Type.Optional(Type.Boolean()),
+    sha256: Type.String({ description: "sha256 (hex) of the stored file's bytes, to verify the upload" }),
+    rawSha256: Type.Optional(Type.String({ description: "sha256 of the RAW sent with the photo, when one was" })),
   }),
 };

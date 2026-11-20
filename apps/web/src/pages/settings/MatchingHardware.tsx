@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import Button from "../../components/Button";
 import FormMessage from "../../components/FormMessage";
@@ -19,6 +20,7 @@ const POLL_MS = 2000;
 
 /** Where species matching runs (the CPU or a GPU the self-test chose) and how fast. */
 export default function MatchingHardware() {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<HardwareStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -54,7 +56,7 @@ export default function MatchingHardware() {
     try {
       setStatus(await api.post<HardwareStatus>("/species/matching-hardware/retest"));
     } catch (err) {
-      setError(errorMessage(err, "Couldn't start the hardware test"));
+      setError(errorMessage(err, t("settings.matchingHardware.retestFailed")));
     } finally {
       setStarting(false);
     }
@@ -64,34 +66,38 @@ export default function MatchingHardware() {
   // The identification model is the slow one, so it stands for the whole.
   const main = status.models.find((m) => m.family === "id") ?? status.models[0];
   const onGpu = status.models.some((m) => m.backend !== "cpu");
+  const step = status.message ?? t("settings.matchingHardware.checking");
+  const progress = status.progress && status.progress.done > 0 ? status.progress : null;
 
   return (
     <SettingRow
-      label="Hardware"
+      label={t("settings.matchingHardware.label")}
       description={
-        busy ? (
-          <>
-            {status.message ?? "Checking this computer's hardware"}
-            {status.progress && status.progress.done > 0 && (
-              <>
-                {": "}
-                {formatBytes(status.progress.done)}
-                {status.progress.total ? ` of ${formatBytes(status.progress.total)}` : ""}
-              </>
-            )}
-            . Matching keeps working on the CPU meanwhile.
-          </>
-        ) : status.state === "failed" ? (
-          `${status.message} Matching runs on the CPU.`
-        ) : onGpu && main ? (
-          `Matching runs on ${status.device ?? "the GPU"}: about ${Math.round(main.ms)} ms a photo, ${Math.max(1, main.cpuMs / main.ms).toFixed(1)}x faster than the CPU.`
-        ) : (
-          `Matching runs on the CPU${status.models.length > 0 ? ": no faster GPU was found." : "."}`
-        )
+        busy
+          ? t("settings.matchingHardware.busy", {
+              step: !progress
+                ? step
+                : progress.total
+                  ? t("settings.matchingHardware.progressOf", {
+                      step,
+                      done: formatBytes(progress.done),
+                      total: formatBytes(progress.total),
+                    })
+                  : t("settings.matchingHardware.progress", { step, done: formatBytes(progress.done) }),
+            })
+          : status.state === "failed"
+            ? t("settings.matchingHardware.failed", { message: status.message })
+            : onGpu && main
+              ? t(status.device ? "settings.matchingHardware.gpu" : "settings.matchingHardware.gpuUnnamed", {
+                  device: status.device,
+                  ms: Math.round(main.ms),
+                  speedup: Math.max(1, main.cpuMs / main.ms).toFixed(1),
+                })
+              : t(status.models.length > 0 ? "settings.matchingHardware.cpuNoGpu" : "settings.matchingHardware.cpu")
       }
       control={
         <Button variant="secondary" size="sm" onClick={retest} loading={starting} disabled={busy}>
-          Test again
+          {t("settings.matchingHardware.retest")}
         </Button>
       }
     >

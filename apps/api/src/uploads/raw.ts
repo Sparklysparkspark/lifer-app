@@ -40,6 +40,7 @@ import {
   UPLOAD_TX_TIMEOUTS,
   derivativeFiles,
   moveIntoLibrary,
+  moveIntoLibraryNamed,
   originalFilename,
   queueCaptureVectors,
   removeFiles,
@@ -89,13 +90,37 @@ async function fileRawWithCapture(
       takenAt: exif.takenAt,
       wallClock: time?.wallClock,
       locationLabel: match.location_label,
+      regionId: match.region_id,
+      tripId: match.trip_id,
       allowLocation: !match.trip_folder,
     },
   );
-  const dest = await moveIntoLibrary(
+  // Named after the capture's own file when the user names files by template.
+  const companion = await pool.query<{ ref: string }>(
+    `SELECT ref FROM originals WHERE capture_id = $1 AND kind <> 'raw' AND managed = true LIMIT 1`,
+    [match.id],
+  );
+  const dest = await moveIntoLibraryNamed(
+    userId,
     file.path,
     folder,
-    originalFilename(rawFileName, time, path.extname(rawFileName).toLowerCase()),
+    {
+      facts: {
+        speciesId: match.species_id,
+        takenAt: exif.takenAt,
+        wallClock: time?.wallClock,
+        locationLabel: match.location_label,
+        regionId: match.region_id,
+        tripId: match.trip_id,
+        camera: exif.cameraModel,
+        lens: exif.lens,
+        rating: exif.rating,
+      },
+      uploadedName: rawFileName,
+      time,
+    },
+    path.extname(rawFileName).toLowerCase(),
+    companion.rows[0]?.ref ?? null,
   );
   const volumeRelativePath = chosenVolume ? dest.slice(chosenVolume.mountPath.length) : null;
   try {
@@ -279,7 +304,10 @@ export async function handleRawPrimaryUpload(
       const photoId = randomUUID();
       written.push(...derivativeFiles(photoId));
       // An unreadable preview (some sensor-data TIFFs carry a stub) just means no photo yet.
-      const d = await generateDerivatives(previewBuffer, photoId).catch(() => null);
+      const d = await generateDerivatives(previewBuffer, photoId).catch((err: unknown) => {
+        log.warn({ file: rawFileName, err: err instanceof Error ? err.message : err }, "RAW preview unreadable");
+        return null;
+      });
       if (d) photo = { id: photoId, ...d };
       else previewBuffer = null;
     }
@@ -288,12 +316,30 @@ export async function handleRawPrimaryUpload(
       takenAt: exif.takenAt,
       wallClock: time?.wallClock,
       locationLabel: place.locationLabel,
+      regionId: place.regionId,
+      tripId,
       allowLocation: !tripBaseDir,
     });
-    dest = await moveIntoLibrary(
+    dest = await moveIntoLibraryNamed(
+      userId,
       file.path,
       folder,
-      originalFilename(rawFileName, time, path.extname(rawFileName).toLowerCase()),
+      {
+        facts: {
+          speciesId: species.id,
+          takenAt: exif.takenAt,
+          wallClock: time?.wallClock,
+          locationLabel: place.locationLabel,
+          regionId: place.regionId,
+          tripId,
+          camera: exif.cameraModel,
+          lens: exif.lens,
+          rating: exif.rating,
+        },
+        uploadedName: rawFileName,
+        time,
+      },
+      path.extname(rawFileName).toLowerCase(),
     );
   } catch (err) {
     removeFiles(written);

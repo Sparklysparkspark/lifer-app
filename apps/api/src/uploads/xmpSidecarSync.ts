@@ -1,16 +1,42 @@
 // Runs writeCaptureMetadata (exif.ts) on every managed original of a capture whenever its
-// species, rating, cover status or tags change.
+// species, rating, cover status, tags or place name change.
 import { pool } from "@lifer/core/db.js";
 import { log } from "@lifer/core/lib/log.js";
-import { writeCaptureMetadata, type SpeciesMetadata } from "./exif.js";
+import { renderTemplate, type MetadataTemplate } from "@lifer/shared";
+import { writeCaptureMetadata, type PhotoCredits, type SpeciesMetadata } from "./exif.js";
 import { photoPlaceForRegion } from "../regions/photoPlace.js";
+import { getMetadataTemplate } from "../settings/metadataSettings.js";
+import { captureFacts, templateValues } from "./templateVars.js";
+
+/** The user's copyright and caption template filled for this capture, or undefined when they set
+ *  none, so a write leaves those fields alone. */
+export async function captureCredits(
+  userId: string,
+  captureId: string,
+  template?: MetadataTemplate,
+): Promise<PhotoCredits | undefined> {
+  const t = template ?? (await getMetadataTemplate(userId));
+  if (!t.creator && !t.copyright && !t.credit && !t.usageTerms && !t.caption) return undefined;
+  const facts = await captureFacts(captureId);
+  if (!facts) return undefined;
+  const values = await templateValues(facts);
+  return {
+    creator: renderTemplate(t.creator, values),
+    copyright: renderTemplate(t.copyright, values),
+    credit: renderTemplate(t.credit, values),
+    usageTerms: renderTemplate(t.usageTerms, values),
+    caption: renderTemplate(t.caption, values),
+    replaceExisting: t.replaceExisting,
+  };
+}
 
 /** `replacePlace`: the capture's region was just changed in Lifer, so the files' location fields
- *  are rewritten to match instead of only filled where empty. */
+ *  are rewritten to match instead of only filled where empty. `replaceLabel`: the place name was
+ *  just changed or removed, so a file's Sublocation is cleared when the capture has none. */
 export async function syncCaptureXmpSidecars(
   userId: string,
   captureId: string,
-  opts: { replacePlace?: boolean } = {},
+  opts: { replacePlace?: boolean; replaceLabel?: boolean; replaceGps?: boolean } = {},
 ): Promise<void> {
   const originalsRes = await pool.query<{ ref: string }>(
     `SELECT ref FROM originals WHERE capture_id = $1 AND managed = true`,
@@ -34,9 +60,10 @@ export async function syncCaptureXmpSidecars(
     cover_photo_id: string | null;
     tags: string[];
     region_id: string | null;
+    location_label: string | null;
   }>(
     `SELECT c.quality_rating, c.cull_verdict, c.taken_at, c.lat, c.lon, c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso,
-            c.species_id, us.cover_photo_id, c.tags, c.region_id
+            c.species_id, us.cover_photo_id, c.tags, c.region_id, c.location_label
      FROM captures_all c
      LEFT JOIN user_species us ON us.user_id = c.user_id AND us.species_id = c.species_id
      -- Hidden photos included: their files carry Lifer's tags like any other.
@@ -74,8 +101,9 @@ export async function syncCaptureXmpSidecars(
     rating: capture.quality_rating ?? (capture.cull_verdict === "reject" ? undefined : null),
     isCover,
     takenAt: capture.taken_at,
-    lat: capture.lat,
-    lon: capture.lon,
+    // numeric arrives as a string.
+    lat: capture.lat != null ? Number(capture.lat) : null,
+    lon: capture.lon != null ? Number(capture.lon) : null,
     cameraModel: capture.camera_model,
     lens: capture.lens,
     focalLengthMm: capture.focal_length_mm != null ? Number(capture.focal_length_mm) : null,
@@ -87,6 +115,11 @@ export async function syncCaptureXmpSidecars(
     tags: capture.tags,
     place: await photoPlaceForRegion(pool, capture.region_id),
     replacePlace: opts.replacePlace,
+    replaceGps: opts.replaceGps,
+    // Without a name of its own in Lifer, a file's Sublocation (typed in Lightroom) stays.
+    locationLabel: capture.location_label ?? (opts.replaceLabel ? null : undefined),
+    // The caption follows species and place changes, since every change comes through here.
+    credits: await captureCredits(userId, captureId),
   };
 
   // One file failing (read-only, removed meanwhile) mustn't stop the others being written.
@@ -107,7 +140,7 @@ export async function syncCaptureXmpSidecars(
 export async function syncCaptureXmpSidecarsLogged(
   userId: string,
   captureId: string,
-  opts: { replacePlace?: boolean } = {},
+  opts: { replacePlace?: boolean; replaceLabel?: boolean; replaceGps?: boolean } = {},
 ): Promise<void> {
   try {
     await syncCaptureXmpSidecars(userId, captureId, opts);

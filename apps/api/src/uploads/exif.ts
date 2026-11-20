@@ -1,8 +1,8 @@
 // Photo metadata via exiftool-vendored, which bundles its own exiftool binary. Metadata only:
 // the image itself is never decoded here.
-import { availableParallelism } from "node:os";
+import { availableParallelism, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { copyFile, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { ExifTool } from "exiftool-vendored";
 import sharp from "sharp";
@@ -16,6 +16,12 @@ const exiftool = new ExifTool({ maxProcs: Math.max(1, availableParallelism()) })
 
 export interface ExtractedExif {
   takenAt: Date | null;
+  /** The camera's own clock reading as a UTC date, for anything that goes by local month or
+   *  hour (species seasonality): takenAt is the instant, which a time zone can move a day. */
+  localTakenAt: Date | null;
+  /** Whether the file said which time zone the time is in. Without one the wall clock is read as
+   *  UTC, so the sun's position from it can be hours off. Absent: not known. */
+  takenAtZoned?: boolean | null;
   lat: number | null;
   lon: number | null;
   cameraModel: string | null;
@@ -56,8 +62,27 @@ const CULL_TAGS = [
   "-XMP-photomech:Prefs",
 ];
 
+// exiftool's typed Tags, read by name: only for tags the typed shape doesn't declare.
+const asTagRecord = (tags: object) => tags as Record<string, unknown>;
+
+// What photo versions are grouped by (uploads/versionGrouping.ts): the XMP document lineage
+// Lightroom and Photoshop write, and the shutter press it came from.
+const VERSION_TAGS = [
+  "-XMP-xmpMM:DocumentID",
+  "-XMP-xmpMM:OriginalDocumentID",
+  "-XMP-xmpMM:DerivedFromDocumentID",
+  "-XMP-xmpMM:DerivedFromOriginalDocumentID",
+  "-SubSecTimeOriginal",
+  "-SerialNumber",
+  "-Software",
+];
+
+export async function readVersionTags(filePath: string): Promise<Record<string, unknown>> {
+  return asTagRecord(await exiftool.read(filePath, { readArgs: VERSION_TAGS }));
+}
+
 export async function readCullTags(filePath: string): Promise<Record<string, unknown>> {
-  return (await exiftool.read(filePath, { readArgs: CULL_TAGS })) as unknown as Record<string, unknown>;
+  return asTagRecord(await exiftool.read(filePath, { readArgs: CULL_TAGS }));
 }
 
 // What exiftool-vendored hands back for DateTimeOriginal (an ExifDateTime).
@@ -94,6 +119,8 @@ export interface CaptureTime {
   wallClock: string;
   /** The time read in the server's own zone, only when that differs: older rows carry it. */
   legacyTakenAt: Date | null;
+  /** The file gave the time zone (see captureInstant). */
+  zoned: boolean;
 }
 
 const pad = (n: number, width = 2) => String(n).padStart(width, "0");
@@ -108,19 +135,28 @@ export function captureTimeFromTags(tags: ExifTags | Record<string, unknown>): C
     dt.year != null && dt.month != null && dt.day != null
       ? `${pad(dt.year, 4)}-${pad(dt.month)}-${pad(dt.day)}T${pad(dt.hour ?? 0)}:${pad(dt.minute ?? 0)}:${pad(dt.second ?? 0)}`
       : takenAt.toISOString().slice(0, 19);
-  return { takenAt, wallClock, legacyTakenAt: legacy.getTime() === takenAt.getTime() ? null : legacy };
+  return {
+    takenAt,
+    wallClock,
+    legacyTakenAt: legacy.getTime() === takenAt.getTime() ? null : legacy,
+    zoned: !!dt.hasZone,
+  };
 }
 
 export async function extractExif(filePath: string, tags?: ExifTags): Promise<ExtractedExif> {
   tags ??= await exiftool.read(filePath);
 
-  const takenAt = captureTimeFromTags(tags)?.takenAt ?? null;
+  const time = captureTimeFromTags(tags);
+  const takenAt = time?.takenAt ?? null;
+  const localTakenAt = time ? new Date(`${time.wallClock}Z`) : null;
 
   // FocalLength comes back as a string like "400.0 mm", not a number.
   const focalLengthMm = typeof tags.FocalLength === "string" ? parseFloat(tags.FocalLength) : null;
 
   return {
     takenAt,
+    localTakenAt: localTakenAt && !Number.isNaN(localTakenAt.getTime()) ? localTakenAt : takenAt,
+    takenAtZoned: time ? time.zoned : null,
     lat: typeof tags.GPSLatitude === "number" ? tags.GPSLatitude : null,
     lon: typeof tags.GPSLongitude === "number" ? tags.GPSLongitude : null,
     cameraModel: tags.Model ?? null,
@@ -129,15 +165,15 @@ export async function extractExif(filePath: string, tags?: ExifTags): Promise<Ex
     aperture: typeof tags.FNumber === "number" ? tags.FNumber : null,
     shutter: tags.ShutterSpeed != null ? String(tags.ShutterSpeed) : null,
     iso: typeof tags.ISO === "number" ? tags.ISO : null,
-    rating: ratingOf(tags as unknown as Record<string, unknown>) ?? (await sidecarRating(filePath)),
+    rating: ratingOf(asTagRecord(tags)) ?? (await sidecarRating(filePath)),
   };
 }
 
 async function sidecarRating(filePath: string): Promise<number | null> {
-  const sidecar = findSidecarPath(filePath);
+  const sidecar = await findSidecarPath(filePath);
   if (!sidecar) return null;
   try {
-    return ratingOf((await exiftool.read(sidecar)) as unknown as Record<string, unknown>);
+    return ratingOf(asTagRecord(await exiftool.read(sidecar)));
   } catch {
     return null; // an unreadable sidecar just means no rating
   }
@@ -147,7 +183,7 @@ async function sidecarRating(filePath: string): Promise<number | null> {
 // Lightroom's HierarchicalSubject paths ("Birds/Waterfowl/Mallard", "Birds|Waterfowl|Mallard"),
 // of which only the leaf is kept. Read from the raw tags, since these aren't in the typed Tags.
 export async function extractKeywords(filePath: string, tags?: ExifTags): Promise<string[]> {
-  const rawTags = (tags ?? (await exiftool.read(filePath))) as unknown as Record<string, unknown>;
+  const rawTags = asTagRecord(tags ?? (await exiftool.read(filePath)));
   const asStrings = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : typeof v === "string" ? [v] : []);
 
   const all = [
@@ -163,21 +199,27 @@ export async function extractKeywords(filePath: string, tags?: ExifTags): Promis
 
 // A ".xmp" sidecar next to the image (common for RAWs). "IMG_0001.xmp" is checked before
 // "IMG_0001.CR2.xmp" since it's the Lightroom and digiKam default.
-export function findSidecarPath(imagePath: string): string | null {
+export async function findSidecarPath(imagePath: string): Promise<string | null> {
   const dir = path.dirname(imagePath);
   const ext = path.extname(imagePath);
   const stem = path.basename(imagePath, ext);
   const bareStemSidecar = path.join(dir, `${stem}.xmp`);
-  if (existsSync(bareStemSidecar)) return bareStemSidecar;
+  if (await exists(bareStemSidecar)) return bareStemSidecar;
   const fullNameSidecar = path.join(dir, `${path.basename(imagePath)}.xmp`);
-  if (existsSync(fullNameSidecar)) return fullNameSidecar;
+  if (await exists(fullNameSidecar)) return fullNameSidecar;
   return null;
 }
+
+const exists = (p: string) =>
+  stat(p).then(
+    () => true,
+    () => false,
+  );
 
 // extractKeywords plus the sidecar's keywords, for photos tagged only in their sidecar.
 export async function extractKeywordsWithSidecar(filePath: string, tags?: ExifTags): Promise<string[]> {
   const own = await extractKeywords(filePath, tags);
-  const sidecarPath = findSidecarPath(filePath);
+  const sidecarPath = await findSidecarPath(filePath);
   if (!sidecarPath) return own;
   try {
     const sidecarKeywords = await extractKeywords(sidecarPath);
@@ -325,6 +367,24 @@ export interface XmpSidecarData {
   place?: PhotoPlace | null;
   /** True when the region was just changed in Lifer: the file's location follows it. */
   replacePlace?: boolean;
+  /** True when coordinates were just typed or cleared in Lifer: the file's GPS follows them,
+   *  inside a JPEG too, where the camera's own GPS is otherwise never touched. */
+  replaceGps?: boolean;
+  /** The place name, as IPTC Sublocation. undefined leaves the file's as it is; null clears it. */
+  locationLabel?: string | null;
+  /** The user's copyright and caption template, filled for this photo. */
+  credits?: PhotoCredits;
+}
+
+/** Creator, rights and caption as written into a file. Empty strings write nothing. */
+export interface PhotoCredits {
+  creator: string;
+  copyright: string;
+  credit: string;
+  usageTerms: string;
+  caption: string;
+  /** Write over a creator, copyright, credit or usage terms the file already has. */
+  replaceExisting: boolean;
 }
 
 // A standalone ".xmp" sidecar (created fresh if it doesn't exist) carrying what Lifer knows about
@@ -343,6 +403,57 @@ export async function writeCaptureMetadata(imagePath: string, data: XmpSidecarDa
   else await writeXmpSidecar(imagePath, data);
 }
 
+// Every capture-time tag a camera or Lightroom may have put in a JPEG/TIFF/DNG. Each moves by the
+// same amount, so the file's zone (OffsetTimeOriginal) still describes it.
+const CAPTURE_TIME_TAGS = [
+  "EXIF:DateTimeOriginal",
+  "EXIF:CreateDate",
+  "XMP-exif:DateTimeOriginal",
+  "XMP-xmp:CreateDate",
+  "XMP-photoshop:DateCreated",
+];
+
+/** Moves the capture time where other tools read it, by `minutes` (negative moves it earlier): in
+ *  the file for a JPEG/TIFF/DNG, in the sidecar for a RAW or video, never inside the RAW itself.
+ *  A file with no capture time is left as it is. Shifting back by the same amount undoes it. */
+export function shiftCaptureTime(imagePath: string, minutes: number): Promise<void> {
+  const shift = `${minutes < 0 ? "-" : "+"}0:0:0 0:${Math.abs(minutes)}:0`;
+  if (metadataGoesInFile(imagePath)) {
+    return queuedWrite(imagePath, async () => {
+      await exiftool.write(
+        imagePath,
+        {},
+        {
+          writeArgs: [
+            "-globalTimeShift",
+            shift,
+            "-tagsFromFile",
+            "@",
+            ...CAPTURE_TIME_TAGS.map((t) => `-${t}<${t}`),
+            "-overwrite_original",
+          ],
+        },
+      );
+    });
+  }
+  const sidecar = sidecarPathFor(imagePath);
+  return queuedWrite(sidecar, async () => {
+    // A sidecar that already carries a time (an earlier shift) moves that one, so a shift back
+    // returns it exactly; otherwise it starts from the camera's own time.
+    const shifted = async (file: string) => {
+      if (!(await exists(file))) return null;
+      const dt = asTagRecord(await exiftool.read(file, { readArgs: ["-globalTimeShift", shift] })).DateTimeOriginal;
+      if (typeof dt === "string") return dt;
+      return dt && typeof dt === "object" && "rawValue" in dt ? String(dt.rawValue) : null;
+    };
+    const value = (await shifted(sidecar)) ?? (await shifted(imagePath));
+    if (value) {
+      const tags: Record<string, unknown> = { "XMP-exif:DateTimeOriginal": value };
+      await exiftool.write(sidecar, tags, { writeArgs: ["-overwrite_original"] });
+    }
+  });
+}
+
 interface LiferTags {
   species: SpeciesMetadata[];
   namingStyles: string[];
@@ -356,6 +467,12 @@ interface LiferTags {
   place?: PhotoPlace | null;
   /** Write `place` over the file's location fields, not only into empty ones. */
   replacePlace?: boolean;
+  /** Write lat/lon (null removes them) into every GPS field, embedded files included. */
+  replaceGps?: boolean;
+  locationLabel?: string | null;
+  /** Written only into a file with no capture time of its own (a date set in Lifer). */
+  takenAt?: Date | null;
+  credits?: PhotoCredits;
 }
 
 /** Where a photo was taken, as names: the photo's region's province or state, and country. */
@@ -382,8 +499,12 @@ const tagMarker = (tag: string) => `${TAGS_ROOT}|${tag.replaceAll("|", "/")}`;
 const fileWriteQueues = new Map<string, Promise<void>>();
 
 function writeLiferMetadata(target: string, data: LiferTags, mode: "embedded" | "sidecar"): Promise<void> {
+  return queuedWrite(target, () => writeLiferMetadataNow(target, data, mode));
+}
+
+function queuedWrite(target: string, write: () => Promise<void>): Promise<void> {
   const prior = fileWriteQueues.get(target) ?? Promise.resolve();
-  const next = prior.catch(() => {}).then(() => writeLiferMetadataNow(target, data, mode));
+  const next = prior.catch(() => {}).then(write);
   fileWriteQueues.set(target, next);
   next
     .finally(() => {
@@ -455,8 +576,33 @@ async function writeLiferMetadataNow(target: string, data: LiferTags, mode: "emb
       if (mode === "embedded" && p.countryCode3) tags["IPTC:Country-PrimaryLocationCode"] = p.countryCode3;
     }
   }
+  // The place name is Lifer's to set, like its tags: written over whatever the file had.
+  if (data.locationLabel !== undefined) {
+    tags["XMP-iptcCore:Location"] = data.locationLabel; // null deletes it
+    if (mode === "embedded") tags["IPTC:Sub-location"] = data.locationLabel;
+  }
+  // shortcut: embedded files only, since a RAW sidecar's capture time overrides the RAW's in
+  // Lightroom; add sidecars if undated RAW-only photos turn up.
+  if (mode === "embedded" && data.takenAt && !kept.cameraDated) {
+    // UTC wall clock with no zone: how captureTimeFromTags reads an unzoned date back.
+    tags["EXIF:DateTimeOriginal"] = data.takenAt.toISOString().slice(0, 19).replace("T", " ").replace(/-/g, ":");
+  }
+  if (data.credits) Object.assign(tags, creditTags(kept.credits, data.credits, mode));
   if (data.rating !== undefined) tags["XMP-xmp:Rating"] = data.rating; // null deletes it
-  if (mode === "sidecar") {
+  if (data.replaceGps) {
+    // null deletes. EXIF keeps the hemisphere in a separate Ref; XMP takes the signed value.
+    const lat = data.lat ?? null;
+    const lon = data.lon ?? null;
+    Object.assign(tags, { "XMP-exif:GPSLatitude": lat, "XMP-exif:GPSLongitude": lon });
+    if (mode === "embedded") {
+      Object.assign(tags, {
+        "EXIF:GPSLatitude": lat == null ? null : Math.abs(lat),
+        "EXIF:GPSLatitudeRef": lat == null ? null : lat < 0 ? "S" : "N",
+        "EXIF:GPSLongitude": lon == null ? null : Math.abs(lon),
+        "EXIF:GPSLongitudeRef": lon == null ? null : lon < 0 ? "W" : "E",
+      });
+    }
+  } else if (mode === "sidecar") {
     if (data.lat != null) tags["XMP-exif:GPSLatitude"] = data.lat;
     if (data.lon != null) tags["XMP-exif:GPSLongitude"] = data.lon;
   }
@@ -474,6 +620,13 @@ export function extractLiferTags(tags: ExifTags | Record<string, unknown>): stri
   );
 }
 
+/** The place name in a file (IPTC Sublocation), so a reimport brings it back with the photo. */
+export function extractLocationLabel(tags: ExifTags | Record<string, unknown>): string | null {
+  const raw = tags as Record<string, unknown>;
+  const value = [raw.Location, raw["Sub-location"]].find((v) => typeof v === "string" && v.trim() !== "");
+  return typeof value === "string" ? value.trim() : null;
+}
+
 /** The keywords already in a file or sidecar that aren't Lifer's to replace: everything except
  * species names and codes (Lifer owns which species a photo shows), Lifer's cover marker,
  * Lifer's own "Species|..." hierarchy, and the photo tags Lifer wrote (marked under "Lifer
@@ -486,16 +639,35 @@ interface LocationFilled {
 }
 const NO_LOCATION: LocationFilled = { state: false, country: false, countryCode: false };
 
-async function keywordsToKeep(
-  target: string,
-): Promise<{ flat: string[]; hierarchical: string[]; liferTags: string[]; location: LocationFilled }> {
-  if (!existsSync(target)) return { flat: [], hierarchical: [], liferTags: [], location: NO_LOCATION };
+async function keywordsToKeep(target: string): Promise<{
+  flat: string[];
+  hierarchical: string[];
+  liferTags: string[];
+  location: LocationFilled;
+  cameraDated: boolean;
+  credits: FileCredits;
+}> {
+  // Unreadable counts as dated, so a date is never written over one we couldn't see.
+  if (!(await exists(target)))
+    return { flat: [], hierarchical: [], liferTags: [], location: NO_LOCATION, cameraDated: true, credits: NO_CREDITS };
   let raw: Record<string, unknown>;
   try {
-    raw = (await exiftool.read(target)) as unknown as Record<string, unknown>;
+    raw = asTagRecord(await exiftool.read(target));
   } catch {
-    return { flat: [], hierarchical: [], liferTags: [], location: NO_LOCATION };
+    // Unreadable counts as filled too, so nothing is written over what couldn't be seen.
+    return {
+      flat: [],
+      hierarchical: [],
+      liferTags: [],
+      location: NO_LOCATION,
+      cameraDated: true,
+      credits: UNREADABLE_CREDITS,
+    };
   }
+  const credits = fileCreditsFromTags(raw);
+  // Cameras write CreateDate beside DateTimeOriginal; Lifer writes only DateTimeOriginal, so one
+  // without CreateDate is Lifer's own (or a scan's) and may be corrected.
+  const cameraDated = captureTimeFromTags(raw) !== null && raw.CreateDate != null;
   const filled = (...keys: string[]) =>
     keys.some((k) => typeof raw[k] === "string" && (raw[k] as string).trim() !== "");
   const location = {
@@ -513,16 +685,227 @@ async function keywordsToKeep(
   const hierarchical = allHierarchical.filter(
     (h) => !h.startsWith(`${SPECIES_ROOT}|`) && !h.startsWith(`${SPECIES_ROOT}/`) && !markers.has(h),
   );
-  if (flat.length === 0) return { flat, hierarchical, liferTags, location };
+  if (flat.length === 0) return { flat, hierarchical, liferTags, location, cameraDated, credits };
   const speciesWords = await pool.query<{ k: string }>(
     `SELECT DISTINCT lower(k) AS k FROM species, unnest(ARRAY[common_name, scientific_name, aba_code, ebird_code]) AS k
      WHERE k IS NOT NULL AND lower(k) = ANY($1)`,
     [flat.map((k) => k.toLowerCase())],
   );
   const species = new Set(speciesWords.rows.map((r) => r.k));
-  return { flat: flat.filter((k) => !species.has(k.toLowerCase())), hierarchical, liferTags, location };
+  return {
+    flat: flat.filter((k) => !species.has(k.toLowerCase())),
+    hierarchical,
+    liferTags,
+    location,
+    cameraDated,
+    credits,
+  };
+}
+
+/** What a file already says about who made it, and its caption. */
+export interface FileCredits {
+  creator: string | null;
+  copyright: string | null;
+  credit: string | null;
+  usageTerms: string | null;
+  caption: string | null;
+  /** Lifer wrote the caption (its Description Writer), so it may follow the photo's changes. */
+  captionIsLifers: boolean;
+}
+const NO_CREDITS: FileCredits = {
+  creator: null,
+  copyright: null,
+  credit: null,
+  usageTerms: null,
+  caption: null,
+  captionIsLifers: false,
+};
+const UNREADABLE_CREDITS: FileCredits = {
+  creator: "?",
+  copyright: "?",
+  credit: "?",
+  usageTerms: "?",
+  caption: "?",
+  captionIsLifers: false,
+};
+// Marks a caption as Lifer's (IPTC Description Writer), so one typed in another app is kept.
+const CAPTION_WRITER = "Lifer";
+
+function firstText(raw: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const k of keys) {
+    const v = raw[k];
+    const text = Array.isArray(v) ? v.map(String).join("; ") : typeof v === "string" ? v : null;
+    if (text?.trim()) return text.trim();
+  }
+  return null;
+}
+
+function fileCreditsFromTags(raw: Record<string, unknown>): FileCredits {
+  return {
+    creator: firstText(raw, "Creator", "By-line", "Artist"),
+    copyright: firstText(raw, "Rights", "CopyrightNotice", "Copyright"),
+    credit: firstText(raw, "Credit"),
+    usageTerms: firstText(raw, "UsageTerms"),
+    caption: firstText(raw, "Description", "Caption-Abstract", "ImageDescription"),
+    captionIsLifers: firstText(raw, "CaptionWriter", "Writer-Editor") === CAPTION_WRITER,
+  };
+}
+
+/** The credit and caption tags to write over what the file has: only values that differ, never
+ *  over a creator or copyright of the file's own unless `replaceExisting`, and a caption only
+ *  where the file has none or Lifer wrote it. Empty when the file already matches. */
+export function creditTags(
+  current: FileCredits,
+  wanted: PhotoCredits,
+  mode: "embedded" | "sidecar",
+): Record<string, unknown> {
+  const tags: Record<string, unknown> = {};
+  const fill = (have: string | null, want: string, replaceable: boolean) =>
+    want !== "" && have !== want && (have == null || replaceable);
+  const owned = wanted.replaceExisting;
+  if (fill(current.creator, wanted.creator, owned)) {
+    tags["XMP-dc:Creator"] = [wanted.creator];
+    if (mode === "embedded") {
+      tags["IPTC:By-line"] = [wanted.creator];
+      tags["EXIF:Artist"] = wanted.creator;
+    }
+  }
+  if (fill(current.copyright, wanted.copyright, owned)) {
+    tags["XMP-dc:Rights"] = wanted.copyright;
+    if (mode === "embedded") {
+      tags["IPTC:CopyrightNotice"] = wanted.copyright;
+      tags["EXIF:Copyright"] = wanted.copyright;
+    }
+  }
+  if (fill(current.credit, wanted.credit, owned)) {
+    tags["XMP-photoshop:Credit"] = wanted.credit;
+    if (mode === "embedded") tags["IPTC:Credit"] = wanted.credit;
+  }
+  if (fill(current.usageTerms, wanted.usageTerms, owned)) tags["XMP-xmpRights:UsageTerms"] = wanted.usageTerms;
+  if (fill(current.caption, wanted.caption, current.captionIsLifers)) {
+    tags["XMP-dc:Description"] = wanted.caption;
+    tags["XMP-photoshop:CaptionWriter"] = CAPTION_WRITER;
+    if (mode === "embedded") {
+      tags["IPTC:Caption-Abstract"] = wanted.caption;
+      tags["IPTC:Writer-Editor"] = CAPTION_WRITER;
+      tags["EXIF:ImageDescription"] = wanted.caption;
+    }
+  }
+  return tags;
+}
+
+/** Where a photo file's own metadata lives: in it, or in its sidecar. */
+export const metadataTarget = (imagePath: string) =>
+  metadataGoesInFile(imagePath) ? imagePath : sidecarPathFor(imagePath);
+
+/** True when writing `wanted` would change this file's credits or caption. */
+export async function creditsNeedWriting(imagePath: string, wanted: PhotoCredits): Promise<boolean> {
+  const target = metadataTarget(imagePath);
+  let current = NO_CREDITS;
+  if (await exists(target)) {
+    try {
+      current = fileCreditsFromTags(asTagRecord(await exiftool.read(target)));
+    } catch {
+      return false; // unreadable: left alone, as a write would be
+    }
+  }
+  return Object.keys(creditTags(current, wanted, metadataGoesInFile(imagePath) ? "embedded" : "sidecar")).length > 0;
+}
+
+/** The camera's file name a file was imported with (XMP PreservedFileName), or null. */
+export async function readPreservedFileName(imagePath: string): Promise<string | null> {
+  const target = metadataTarget(imagePath);
+  if (!(await exists(target))) return null;
+  try {
+    return firstText(
+      asTagRecord(await exiftool.read(target, { readArgs: ["-XMP-xmpMM:PreservedFileName"] })),
+      "PreservedFileName",
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Dates a frame saved from a video like the video's own shot, with its place, and names the video
+ *  it came from. The time is written as the UTC wall clock captureTimeFromTags reads back. */
+export async function writeVideoFrameMetadata(
+  imagePath: string,
+  frame: { takenAt: Date | null; lat: number | null; lon: number | null; sourceName: string },
+): Promise<void> {
+  const tags: Record<string, unknown> = { "XMP-dc:Source": frame.sourceName };
+  if (frame.takenAt) {
+    tags["EXIF:DateTimeOriginal"] = frame.takenAt.toISOString().slice(0, 19).replace("T", " ").replace(/-/g, ":");
+  }
+  if (frame.lat != null && frame.lon != null) {
+    Object.assign(tags, {
+      "EXIF:GPSLatitude": Math.abs(frame.lat),
+      "EXIF:GPSLatitudeRef": frame.lat < 0 ? "S" : "N",
+      "EXIF:GPSLongitude": Math.abs(frame.lon),
+      "EXIF:GPSLongitudeRef": frame.lon < 0 ? "W" : "E",
+    });
+  }
+  await queuedWrite(imagePath, async () => {
+    await exiftool.write(imagePath, tags, { writeArgs: ["-overwrite_original"] });
+  });
+}
+
+/** Records the camera's file name before Lifer renames a file, so {original} still means it
+ *  later. A name already recorded is kept. */
+export function preserveFileName(imagePath: string, name: string): Promise<void> {
+  const target = metadataTarget(imagePath);
+  return queuedWrite(target, async () => {
+    if (await readPreservedFileName(imagePath)) return;
+    const tags: Record<string, unknown> = { "XMP-xmpMM:PreservedFileName": name };
+    await exiftool.write(target, tags, { writeArgs: ["-overwrite_original"] });
+  });
+}
+
+/** For an exported copy of a sensitive species' photo: removes its coordinates and anything
+ *  finer than province or state, and swaps a caption naming the place for `caption` (dropped
+ *  when empty). Only ever run on a copy, never on a library file. */
+export async function stripPreciseLocation(
+  copyPath: string,
+  opts: { placeLabel: string | null; caption: string },
+): Promise<void> {
+  const raw = asTagRecord(await exiftool.read(copyPath));
+  const tags: Record<string, unknown> = {};
+  const caption = firstText(raw, "Description", "Caption-Abstract", "ImageDescription");
+  const label = opts.placeLabel?.trim().toLowerCase();
+  if (caption && label && caption.toLowerCase().includes(label)) {
+    const next = opts.caption || null;
+    tags["XMP-dc:Description"] = next;
+    tags["IPTC:Caption-Abstract"] = next;
+    tags["EXIF:ImageDescription"] = next;
+  }
+  await exiftool.write(copyPath, tags, {
+    writeArgs: [
+      "-overwrite_original",
+      "-GPS:all=",
+      "-XMP-exif:GPS*=",
+      "-XMP-iptcCore:Location=",
+      "-IPTC:Sub-location=",
+      "-XMP-photoshop:City=",
+      "-IPTC:City=",
+      "-XMP-iptcExt:LocationCreated=",
+      "-XMP-iptcExt:LocationShown=",
+    ],
+  });
 }
 
 export async function closeExiftool(): Promise<void> {
   await exiftool.end();
+}
+
+/** The file's bytes with GPS tags removed from a throwaway copy, so a photo can be shared without
+ *  its exact location. The original is untouched and the picture isn't re-encoded. */
+export async function readCopyWithoutGps(filePath: string): Promise<Buffer> {
+  const dir = await mkdtemp(path.join(tmpdir(), "lifer-nogps-"));
+  const copy = path.join(dir, path.basename(filePath));
+  try {
+    await copyFile(filePath, copy);
+    await exiftool.write(copy, {}, { writeArgs: ["-gps:all=", "-overwrite_original"] });
+    return await readFile(copy);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }

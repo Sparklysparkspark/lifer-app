@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useUploadQueue, resolveDuplicate } from "../lib/uploadQueue";
 import { formatDate } from "../lib/format";
+import { useRateLimitWaiting } from "../lib/rateLimitWait";
 import InlineSpinner from "./InlineSpinner";
 import Modal from "./Modal";
 import Button from "./Button";
@@ -10,9 +11,11 @@ import ProgressBar from "./ProgressBar";
 // after the page that started them closes.
 export default function UploadQueueBanner() {
   const { t } = useTranslation();
-  const { jobs, targetsExternalDrive, justFinishedAt, pendingDuplicates } = useUploadQueue();
+  const { jobs, targetsExternalDrive, justFinishedAt, finished, pendingDuplicates } = useUploadQueue();
   // One prompt at a time; the rest wait their turn in the queue.
   const pendingDuplicate = pendingDuplicates[0] ?? null;
+  // Also covers uploads the import screen sends itself, outside this queue.
+  const waiting = useRateLimitWaiting();
   const inProgress = jobs.filter((j) => !j.done).length;
   const failed = jobs.filter((j) => j.done && j.error).length;
   const skipped = jobs.filter((j) => j.skipped).length;
@@ -27,8 +30,17 @@ export default function UploadQueueBanner() {
 
   return (
     <>
+      {waiting && (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-footnote text-muted shadow-sm"
+        >
+          <InlineSpinner tone="ink" />
+          <span>{t("upload.banner.waiting")}</span>
+        </div>
+      )}
       {(jobs.length > 0 || justFinished) && (
-        <div className="flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-xs text-muted shadow-sm">
+        <div className="flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-footnote text-muted shadow-sm">
           {jobs.length > 0 ? (
             <>
               <InlineSpinner tone="ink" />
@@ -49,7 +61,11 @@ export default function UploadQueueBanner() {
               )}
             </>
           ) : (
-            <span>{t("upload.banner.finished")}</span>
+            <span>
+              {finished && finished.species > 0
+                ? t("upload.banner.filed", { ...finished, count: finished.imported })
+                : t("upload.banner.finished")}
+            </span>
           )}
         </div>
       )}
@@ -60,6 +76,7 @@ export default function UploadQueueBanner() {
         open={!!pendingDuplicate}
         onClose={() => pendingDuplicate && resolveDuplicate(pendingDuplicate.jobId, "skip")}
         dismissOnBackdrop={false}
+        size="sm"
         title={
           <>
             {t("upload.duplicate.title")}
@@ -73,10 +90,10 @@ export default function UploadQueueBanner() {
         footer={
           pendingDuplicate && (
             <>
-              <Button variant="secondary" size="sm" onClick={() => resolveDuplicate(pendingDuplicate.jobId, "skip")}>
+              <Button variant="secondary" onClick={() => resolveDuplicate(pendingDuplicate.jobId, "skip")}>
                 {t("upload.duplicate.skip")}
               </Button>
-              <Button size="sm" onClick={() => resolveDuplicate(pendingDuplicate.jobId, "import")}>
+              <Button onClick={() => resolveDuplicate(pendingDuplicate.jobId, "import")}>
                 {t("upload.duplicate.importAnyway")}
               </Button>
             </>
@@ -84,7 +101,7 @@ export default function UploadQueueBanner() {
         }
       >
         {pendingDuplicate && (
-          <p className="text-sm text-muted">
+          <p className="text-callout text-muted">
             {takenOn
               ? t("upload.duplicate.messageWithDate", {
                   fileName: pendingDuplicate.fileName,

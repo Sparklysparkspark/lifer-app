@@ -2,7 +2,6 @@
 // (optionally with its RAW sibling), mode=link references a file already on this server.
 // A stored photo arrives as a `file` part, a `stagedId` or an `uploadId`; files are never held in memory.
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
 import { rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify";
@@ -11,6 +10,7 @@ import { pool } from "@lifer/core/db.js";
 import { requireScope } from "../auth/session.js";
 import { ORIGINALS_DIR } from "@lifer/core/config.js";
 import { generateDerivatives } from "@lifer/core/uploads/image.js";
+import { settlePreparedAhead, takePreparedAhead, whileImporting, type PreparedAhead } from "./preparedAhead.js";
 import {
   captureTimeFromTags,
   extractExif,
@@ -32,7 +32,7 @@ import { tagWithRegisteredVolume, resolveChosenVolumeDestination } from "../stor
 import { assertAllowedPath } from "@lifer/core/lib/allowedPaths.js";
 import { moveToFolder } from "@lifer/core/lib/safeFs.js";
 import { hashFile, moveFile } from "../lib/stagedUploads.js";
-import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
+import { ensureDefaultCardCrop, ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { isUuid } from "../lib/validate.js";
 import { replies, withSchemas } from "../lib/schema.js";
 import { UploadResponses } from "./responses.js";
@@ -45,6 +45,7 @@ import { cullDecision, readCullMarks, readPairCullMarks } from "./cullMarks.js";
 import { prepareWorkingImage, type WorkingImage } from "./workingImage.js";
 import {
   claimStagedFile,
+  attachSidecar,
   claimUploadById,
   isUploadSourceError,
   receiveMultipartFile,
@@ -53,8 +54,7 @@ import {
 import {
   UPLOAD_TX_TIMEOUTS,
   derivativeFiles,
-  moveIntoLibrary,
-  originalFilename,
+  moveIntoLibraryNamed,
   queueCaptureVectors,
   removeFiles,
   sanitizeUploadName,
@@ -82,7 +82,7 @@ export async function photoUploadRoutes(fastify: FastifyInstance): Promise<void>
   app.post(
     "/uploads",
     {
-      preValidation: requireScope("photos.write"),
+      preValidation: requireScope("photos.write", ["imports.write"]),
       schema: { response: { ...replies(UploadResponses[201], 201), 200: UploadResponses[200] } },
     },
     async (request, reply) => {
@@ -92,6 +92,7 @@ export async function photoUploadRoutes(fastify: FastifyInstance): Promise<void>
       const sources: ReceivedFile[] = [];
       let photo: ReceivedFile | null = null;
       let raw: ReceivedFile | null = null;
+      let xmp: ReceivedFile | null = null;
       let ok = false;
       let outcome: ImportResult;
       try {
@@ -100,12 +101,13 @@ export async function photoUploadRoutes(fastify: FastifyInstance): Promise<void>
             const received = await receiveMultipartFile(part);
             sources.push(received);
             if (part.fieldname === "rawFile") raw ??= received;
+            else if (part.fieldname === "xmpFile") xmp ??= received;
             else photo ??= received;
           } else {
             fields[part.fieldname] = String(part.value);
           }
         }
-        outcome = await importPhoto(request, fields, photo, raw, sources);
+        outcome = await whileImporting(() => importPhoto(request, fields, photo, raw, sources, xmp));
         ok = outcome.code < 400;
       } finally {
         await Promise.all(sources.map((s) => s.finish(ok).catch(() => {})));
@@ -116,7 +118,7 @@ export async function photoUploadRoutes(fastify: FastifyInstance): Promise<void>
   );
 }
 
-type ImportResult = { code: number; body: unknown };
+export type ImportResult = { code: number; body: unknown };
 const result = (code: number, body: unknown): ImportResult => ({ code, body });
 
 type SpeciesRow = {
@@ -172,6 +174,8 @@ interface PreparedFiles {
   volumeTag: { volumeId: string | null; volumeRelativePath: string | null };
   raw: { dest: string; hash: string; size: number; volumeRelativePath: string | null } | null;
   working: WorkingImage;
+  /** The card crop the import screen already found for this photo, if it did. */
+  cardCrop: PreparedAhead["cardCrop"];
   written: string[];
   moved: Moved[];
 }
@@ -184,12 +188,13 @@ async function undoPreparedFiles(files: Pick<PreparedFiles, "written" | "moved">
 
 // Returns the response instead of sending it, so the route can release the upload's sources
 // (removing a used resumable upload) before the client hears back.
-async function importPhoto(
+export async function importPhoto(
   request: FastifyRequest,
   fields: Record<string, string>,
   photoPart: ReceivedFile | null,
   rawPart: ReceivedFile | null,
   sources: ReceivedFile[],
+  xmpPart: ReceivedFile | null = null,
 ): Promise<ImportResult> {
   const userId = request.user!.id;
   if (fields.mode && fields.mode !== "store" && fields.mode !== "link") {
@@ -218,6 +223,8 @@ async function importPhoto(
       photo = await claimUploadById(userId, fields.uploadId);
       sources.push(photo);
     } else if (mode === "store" && !photo && fields.stagedId) {
+      // Its background previews read the staged file, which claiming moves.
+      await settlePreparedAhead(userId, fields.stagedId);
       photo = await claimStagedFile(userId, fields.stagedId, fields.fileName || null, fields.fileType || null);
       if (!photo) return result(410, { error: "The checked copy of this photo has expired. Send the file again." });
       sources.push(photo);
@@ -227,6 +234,20 @@ async function importPhoto(
       raw = await claimUploadById(userId, fields.rawUploadId);
       sources.push(raw);
     }
+  } catch (err) {
+    if (isUploadSourceError(err)) return result(err.statusCode, { error: err.message });
+    throw err;
+  }
+  // The XMP sidecar sent with the file (or its RAW): its marks, rating and keywords are read as
+  // from a sidecar on disk. Only in store mode, where the files are Lifer's own copies.
+  try {
+    let xmp = xmpPart;
+    if (!xmp && fields.xmpUploadId) {
+      xmp = await claimUploadById(userId, fields.xmpUploadId);
+      sources.push(xmp);
+    }
+    if (xmp && mode !== "store") return result(400, { error: "An XMP sidecar is only supported for mode=store" });
+    if (xmp) for (const f of [photo, raw]) if (f) await attachSidecar(f, xmp);
   } catch (err) {
     if (isUploadSourceError(err)) return result(err.statusCode, { error: err.message });
     throw err;
@@ -305,7 +326,7 @@ async function importPhoto(
       { regionId, locationLabel: target.locationLabel },
       { marks: rawMarks, hidden: rawDecision === "hide" },
     );
-    return result(201, { ...rawResult, hidden: rawDecision === "hide" });
+    return result(201, { ...rawResult, hidden: rawDecision === "hide", sha256: photo.sha256 });
   }
 
   const source = await resolveSource(mode, fields, photo, fileName, fileMimetype);
@@ -332,6 +353,7 @@ async function importPhoto(
         captureId: existing.rows[0].id,
         photoId: existing.rows[0].current_photo_id,
         duplicate: true,
+        sha256: source.fingerprint,
       });
     }
   }
@@ -362,7 +384,13 @@ async function importPhoto(
     filenameVerifiedRaw,
   });
   await afterCommit(request.log, target, meta, files, captureId, claimedRaw, source.fingerprint);
-  return result(201, { captureId, photoId: files.photoId, hidden: meta.hidden });
+  return result(201, {
+    captureId,
+    photoId: files.photoId,
+    hidden: meta.hidden,
+    sha256: source.fingerprint,
+    ...(files.raw ? { rawSha256: files.raw.hash } : {}),
+  });
 }
 
 /** The photo on disk: the linked file itself (link) or the received upload (store). */
@@ -381,7 +409,7 @@ async function resolveSource(
     // Same allowlist as reimport and trips: on a server only DATA_DIR and LIFER_LIBRARY_ROOTS
     // are readable (403 otherwise, checked before existence so it can't probe the disk).
     const allowedLinkPath = assertAllowedPath(linkPath);
-    if (!existsSync(allowedLinkPath)) {
+    if (!(await stat(allowedLinkPath).catch(() => null))) {
       return result(400, { error: "That file doesn't exist on this server" });
     }
     const format = await sniffPhotoFormat(allowedLinkPath);
@@ -417,7 +445,7 @@ async function findFilenameVerifiedRaw(
        AND lower(regexp_replace(regexp_replace(ref, '^.*/', ''), '(-[0-9]+)?\\.[^.]+$', '')) = $2`,
     [userId, stem],
   );
-  if (candidates.rows.length !== 1 || !existsSync(candidates.rows[0].ref)) return null;
+  if (candidates.rows.length !== 1 || !(await stat(candidates.rows[0].ref).catch(() => null))) return null;
   const candidateExif = await extractExif(candidates.rows[0].ref);
   if (candidateExif.takenAt && Math.abs(candidateExif.takenAt.getTime() - takenAt.getTime()) <= 1000) {
     return candidates.rows[0];
@@ -434,12 +462,14 @@ async function prepareFiles(
   meta: PhotoMetadata,
   raw: { file: ReceivedFile; name: string } | null,
 ): Promise<PreparedFiles> {
-  const photoId = randomUUID();
+  const ahead = await takePreparedAhead(target.userId, source.fingerprint);
+  const photoId = ahead?.photoId ?? randomUUID();
   const undo = { written: derivativeFiles(photoId), moved: [] as Moved[] };
   let working: WorkingImage | null = null;
   try {
     working = await prepareWorkingImage(source.path, source.format);
-    const { displayPath, thumbPath, width, height } = await generateDerivatives(working.decodePath, photoId);
+    const { displayPath, thumbPath, width, height } =
+      ahead?.derivatives ?? (await generateDerivatives(working.decodePath, photoId));
     const { chosenVolume } = target;
     // Link mode only remembers where the file already is; its bytes and metadata are never touched.
     let originalRef = source.path;
@@ -451,10 +481,23 @@ async function prepareFiles(
       const folderFor = (subfolder: Subfolder) =>
         speciesFolder(target.userId, target.species.id, base, folderOptions(subfolder, target, meta), settings);
       const photoExtension = storedPhotoExtension(source.format, source.fileName);
-      originalRef = await moveIntoLibrary(
+      const facts = {
+        speciesId: target.species.id,
+        takenAt: meta.exif.takenAt,
+        wallClock: meta.time?.wallClock,
+        locationLabel: target.locationLabel,
+        regionId: target.regionId,
+        tripId: target.tripId,
+        camera: meta.exif.cameraModel,
+        lens: meta.exif.lens,
+        rating: meta.exif.rating,
+      };
+      originalRef = await moveIntoLibraryNamed(
+        target.userId,
         source.path,
         await folderFor("Adjusted"),
-        originalFilename(source.fileName, meta.time, photoExtension),
+        { facts, uploadedName: source.fileName, time: meta.time },
+        photoExtension,
       );
       undo.moved.push({ from: source.path, to: originalRef });
       // Keywords, title and rating are written into the file after the import is saved
@@ -464,10 +507,13 @@ async function prepareFiles(
       // A RAW sent with the photo is linked directly, in the same base folder as the photo.
       if (raw) {
         const rawExt = path.extname(raw.name).toLowerCase();
-        const rawDest = await moveIntoLibrary(
+        const rawDest = await moveIntoLibraryNamed(
+          target.userId,
           raw.file.path,
           await folderFor("RAW"),
-          originalFilename(raw.name, meta.time, rawExt),
+          { facts, uploadedName: raw.name, time: meta.time },
+          rawExt,
+          originalRef,
         );
         undo.moved.push({ from: raw.file.path, to: rawDest });
         rawFiled = {
@@ -489,6 +535,7 @@ async function prepareFiles(
     return {
       photoId,
       derivatives: { displayPath, thumbPath, width, height },
+      cardCrop: ahead?.cardCrop ?? null,
       originalRef,
       managed,
       volumeTag,
@@ -508,6 +555,8 @@ function folderOptions(subfolder: Subfolder, target: ImportTarget, meta: PhotoMe
     takenAt: meta.exif.takenAt,
     wallClock: meta.time?.wallClock,
     locationLabel: target.locationLabel,
+    regionId: target.regionId,
+    tripId: target.tripId,
     // A trip folder never gets the location layer, as trip imports file it.
     allowLocation: !target.tripBaseDir,
   };
@@ -669,7 +718,10 @@ async function afterCommit(
 ): Promise<void> {
   const { userId, species } = target;
   // This photo may just have become the species' cover: frame the card on the animal.
-  if (!meta.hidden) ensureDefaultCardCropLater(userId, species.id);
+  // Awaited when already found, so the card is framed by the time the import answers.
+  if (!meta.hidden && files.cardCrop)
+    await ensureDefaultCardCrop(userId, species.id, { photoId: files.photoId, crop: files.cardCrop });
+  else if (!meta.hidden) ensureDefaultCardCropLater(userId, species.id);
 
   // The claimed RAW now belongs to this capture: file it in the species' RAW folder, within the
   // folder (library, drive or trip) it was filed under. If the move works but the ref can't be

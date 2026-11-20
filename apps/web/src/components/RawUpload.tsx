@@ -113,8 +113,8 @@ export default function RawUpload({
 
   return (
     <div>
-      <h2 className="text-sm font-medium text-ink">{t("upload.raw.title")}</h2>
-      <p className="mt-1 text-xs text-muted">
+      <h2 className="text-callout font-medium text-ink">{t("upload.raw.title")}</h2>
+      <p className="mt-1 text-footnote text-muted">
         {matchOnly ? t("upload.raw.descriptionMatchOnly") : t("upload.raw.descriptionSpecies")}
       </p>
       {!matchOnly && (
@@ -155,14 +155,14 @@ export default function RawUpload({
       <FormMessage error={error} className="mt-2" />
       {results && (
         <div className="mt-2 space-y-1">
-          <p className="text-xs font-medium text-muted">
+          <p className="text-footnote font-medium text-muted">
             {t("upload.raw.addedCount", { added: successCount, total: results.length })}
           </p>
           {/* A folder run can be hundreds of files, so plain "no match" rows are left out. */}
           {results
             .filter((r) => r.linked || r.filed || r.duplicate || r.error || r.collision)
             .map((r, i) => (
-              <p key={i} className="text-xs text-muted">
+              <p key={i} className="text-footnote text-muted">
                 <span className="text-ink">{r.filename}</span>
                 {": "}
                 {r.error ? (

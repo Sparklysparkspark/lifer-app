@@ -14,4 +14,10 @@ describe("mediaNoun", () => {
   it("says file for a mix", () => {
     expect(mediaNoun(true, true)).toBe("file");
   });
+
+  it("says recording for recordings alone, and file when they sit with anything else", () => {
+    expect(mediaNoun(false, false, false, true)).toBe("recording");
+    expect(mediaNoun(false, true, false, true)).toBe("file");
+    expect(mediaNoun(true, false, false, true)).toBe("file");
+  });
 });

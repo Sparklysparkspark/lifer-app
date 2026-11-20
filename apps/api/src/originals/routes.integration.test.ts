@@ -68,8 +68,13 @@ describe.skipIf(!url)("originals routes input", () => {
   });
 
   it("says reveal is desktop only on a server, whatever the body", async () => {
-    for (const body of [{}, { path: 5 }, { path: "/x" }]) {
-      const res = await call("POST", "/api/originals/reveal", body);
+    for (const [route, body] of [
+      ["reveal", {}],
+      ["reveal", { path: 5 }],
+      ["reveal", { path: "/x" }],
+      ["editor-paths", { captureIds: ["eeeeeeee-0000-4000-8000-0000000008fe"] }],
+    ] as const) {
+      const res = await call("POST", `/api/originals/${route}`, body);
       expect([res.statusCode, res.json()]).toEqual([
         404,
         { error: "Only available in the desktop app", code: "desktop_only" },

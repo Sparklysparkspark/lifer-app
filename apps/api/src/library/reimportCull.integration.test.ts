@@ -89,19 +89,17 @@ describe.skipIf(!url)("reimport and culling marks", () => {
   it("skips, hides or imports a rejected photo as asked", async () => {
     const { recoverJpeg } = await import("./reimport.js");
     const skipped = await photo("skipped.jpg", 10, { "XMP-xmp:Rating": -1 });
-    expect(await recoverJpeg(USER, skipped, null, false, false, false, { option: "skip" })).toEqual({
+    expect(await recoverJpeg(USER, skipped, null, false, false, { option: "skip" })).toEqual({
       status: "rejected",
     });
     expect(await captureOf(skipped)).toBeUndefined();
 
     const hidden = await photo("hidden.jpg", 20, { "XMP-xmp:Rating": -1 });
-    expect((await recoverJpeg(USER, hidden, null, false, false, false, { option: "hide" })).status).toBe("recovered");
+    expect((await recoverJpeg(USER, hidden, null, false, false, { option: "hide" })).status).toBe("recovered");
     expect(await captureOf(hidden)).toMatchObject({ hidden: true, cull_verdict: "reject" });
 
     const ignored = await photo("ignored.jpg", 30, { "XMP-xmp:Rating": -1 });
-    expect((await recoverJpeg(USER, ignored, null, false, false, false, { option: "ignore" })).status).toBe(
-      "recovered",
-    );
+    expect((await recoverJpeg(USER, ignored, null, false, false, { option: "ignore" })).status).toBe("recovered");
     expect(await captureOf(ignored)).toMatchObject({ hidden: false, cull_verdict: "reject" });
   });
 
@@ -116,7 +114,7 @@ describe.skipIf(!url)("reimport and culling marks", () => {
     await writer.write(path.join(path.dirname(raw), "IMG_0042.xmp"), { "XMP-xmp:Rating": -1 } as never, {
       writeArgs: ["-overwrite_original"],
     });
-    expect(await recoverJpeg(USER, jpeg, null, false, false, false, { option: "skip", raws: [raw] })).toEqual({
+    expect(await recoverJpeg(USER, jpeg, null, false, false, { option: "skip", raws: [raw] })).toEqual({
       status: "rejected",
     });
   });
@@ -128,7 +126,7 @@ describe.skipIf(!url)("reimport and culling marks", () => {
     expect((await captureOf(tagged)).tags).toEqual(["flight shot"]);
   });
 
-  it("hides a rejected photo when the reimport request leaves cullMarks out", async () => {
+  it("skips a rejected photo from a folder when the request leaves cullMarks out", async () => {
     // A folder of its own, so the job walks only this photo.
     const foreign = path.join(dir, "From another app");
     mkdirSync(foreign, { recursive: true });
@@ -161,9 +159,10 @@ describe.skipIf(!url)("reimport and culling marks", () => {
         if (!status.running) break;
         await new Promise((r) => setTimeout(r, 100));
       }
-      expect(status).toMatchObject({ running: false, jpegsRecovered: 1, jpegsHidden: 1, jpegsRejected: 0 });
+      // A folder path defaults to skipping rejects; a rescan of the library keeps them hidden.
+      expect(status).toMatchObject({ running: false, jpegsRecovered: 0, jpegsHidden: 0, jpegsRejected: 1 });
       // The job walks the folder's real path (on macOS the temp folder is under /private).
-      expect(await captureOf(realpathSync(rejected))).toMatchObject({ hidden: true, cull_verdict: "reject" });
+      expect(await captureOf(realpathSync(rejected))).toBeUndefined();
     } finally {
       await app.close();
     }

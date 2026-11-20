@@ -1,25 +1,27 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { api, apiPath, type ApiResponse } from "../api/client";
-import PageHeader from "../components/PageHeader";
-import { Spinner } from "../components/LoadingScreen";
+import i18n from "../i18n";
+import ManageListPage from "../components/ManageListPage";
+import { docsUrl } from "../lib/docs";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
-import MasonryGrid from "../components/MasonryGrid";
-import PhotoPlaceholder from "../components/PhotoPlaceholder";
-import ProgressiveImg from "../components/ProgressiveImg";
+import PhotoGrid, { type PhotoGridTileData } from "../components/PhotoGrid";
 import SegmentedControl from "../components/SegmentedControl";
 import { useShowLabels } from "../hooks/useShowLabels";
-import EmptyState from "../components/EmptyState";
 import Button from "../components/Button";
 import ConfirmDialog from "../components/ConfirmDialog";
-import FormMessage from "../components/FormMessage";
 import SelectModeToggle from "../components/SelectModeToggle";
-import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { useSelectMode } from "../hooks/useSelectMode";
 import { useToast } from "../hooks/useToast";
-import { pluralize } from "../lib/pluralize";
-import { MENU_ITEM, MENU_PANEL } from "../lib/menuClasses";
+import { MenuItem, MenuPanel } from "../components/Menu";
+import Checkbox from "../components/Checkbox";
 
 type TrashResponse = ApiResponse<"/trash">;
+type TrashItem = TrashResponse["items"][number];
+
+const trashId = (item: TrashItem) => item.captureId;
+const trashTile = (item: TrashItem): PhotoGridTileData => ({ ...item, alt: item.speciesName });
 
 function daysLeft(purgesAt: string): number {
   const ms = new Date(purgesAt).getTime() - Date.now();
@@ -28,36 +30,26 @@ function daysLeft(purgesAt: string): number {
 
 // Gallery-style grid scoped to trashed photos; the only per-photo action is Restore.
 export default function TrashedPhotosPage() {
+  const { t } = useTranslation();
   const [data, setData] = useState<TrashResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [emptying, setEmptying] = useState(false);
   const [confirmingEmpty, setConfirmingEmpty] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
+  const menu = useDropdownMenu<string>();
   const toast = useToast();
   const [showLabels, setShowLabels] = useShowLabels();
   const [photoFilter, setPhotoFilter] = useState<"all" | "edited" | "raw" | "video">("all");
-  const openMenuRef = useRef<HTMLDivElement>(null);
-  useEscapeToClose(() => setOpenMenuKey(null), openMenuKey !== null);
 
   function load() {
     api
       .get("/trash")
       .then(setData)
-      .catch(() => setError("Couldn't load Trash. Try again."));
+      .catch(() => setError(i18n.t("trash.loadFailed")));
   }
 
   useEffect(load, []);
-
-  useEffect(() => {
-    if (!openMenuKey) return;
-    const closeIfOutside = (e: MouseEvent) => {
-      if (openMenuRef.current && !openMenuRef.current.contains(e.target as Node)) setOpenMenuKey(null);
-    };
-    document.addEventListener("click", closeIfOutside);
-    return () => document.removeEventListener("click", closeIfOutside);
-  }, [openMenuKey]);
 
   async function restore(captureId: string) {
     setBusyId(captureId);
@@ -65,7 +57,7 @@ export default function TrashedPhotosPage() {
       await api.post(apiPath("/trash/{id}/restore", { id: captureId }), {});
       load();
     } catch {
-      toast.error("Couldn't restore this photo. Try again.");
+      toast.error(t("trash.restoreFailed"));
     } finally {
       setBusyId(null);
     }
@@ -76,7 +68,7 @@ export default function TrashedPhotosPage() {
     select.exit();
     const results = await Promise.allSettled(ids.map((id) => api.post(apiPath("/trash/{id}/restore", { id }), {})));
     const failed = results.filter((r) => r.status === "rejected").length;
-    if (failed > 0) toast.error(`Couldn't restore ${pluralize(failed, "photo")}. Try again.`);
+    if (failed > 0) toast.error(t("trash.restoreManyFailed", { count: failed }));
     load();
   }
 
@@ -87,7 +79,7 @@ export default function TrashedPhotosPage() {
       setConfirmingEmpty(false);
       load();
     } catch {
-      toast.error("Couldn't empty Trash. Try again.");
+      toast.error(t("trash.emptyFailed"));
     } finally {
       setEmptying(false);
     }
@@ -109,229 +101,125 @@ export default function TrashedPhotosPage() {
     [data, photoFilter],
   );
   const select = useSelectMode(visibleItems, (it) => it.captureId);
-  const { selectMode, selectedIds, dragPreviewIds, dragProps } = select;
-  const indexById = useMemo(() => new Map(visibleItems.map((it, i) => [it.captureId, i])), [visibleItems]);
-  const isSelected = (id: string) => selectedIds.has(id) || (dragPreviewIds?.has(id) ?? false);
-  // Press-and-drag selects a range; the hook resolves a plain click (with Shift) on mouseup.
-  const selectHandlers = (captureId: string) => {
-    const index = indexById.get(captureId) ?? 0;
-    return {
-      onMouseDown: (e: ReactMouseEvent) => {
-        if (!selectMode) return;
-        e.preventDefault();
-        dragProps.onDragSelectStart(index);
-      },
-      onMouseEnter: () => {
-        if (selectMode) dragProps.onDragSelectEnter(index);
-      },
-    };
-  };
+  const { selectMode, selectedIds } = select;
   const itemsWithPhoto = visibleItems.filter((it) => it.photoId);
   const slides: LightboxSlide[] = itemsWithPhoto.map((it) => ({
     url: `/api/photos/${it.photoId}/display`,
     videoUrl: it.kind === "video" ? `/api/photos/${it.photoId}/video` : null,
+    audioUrl: it.kind === "audio" ? `/api/photos/${it.photoId}/audio` : null,
     caption: it.speciesName,
     info: it.kind === "video" ? { durationSeconds: it.durationSeconds } : null,
   }));
 
   return (
-    <div className="flex-1 bg-canvas">
-      <PageHeader
-        sticky
-        title="Trash"
-        backFallbackTo="/settings"
-        backLabel="Settings"
+    <>
+      <ManageListPage
+        title={t("trash.title")}
+        backLabel={t("nav.settings")}
+        description={data ? t("trash.retention", { days: data.retentionDays }) : undefined}
+        docsHref={docsUrl("/guides/trash")}
+        wide
         actions={
-          data &&
-          data.items.length > 0 && (
-            <div className="flex items-center gap-4">
-              {(rawOnlyCount > 0 || videoCount > 0) && (
-                <SegmentedControl
-                  size="sm"
-                  value={photoFilter}
-                  onChange={setPhotoFilter}
-                  options={[
-                    { value: "all", label: `All (${editedCount + rawOnlyCount + videoCount})` },
-                    { value: "edited", label: `Edited (${editedCount})` },
-                    ...(rawOnlyCount > 0 ? [{ value: "raw" as const, label: `RAW (${rawOnlyCount})` }] : []),
-                    ...(videoCount > 0 ? [{ value: "video" as const, label: `Video (${videoCount})` }] : []),
-                  ]}
-                />
-              )}
-              <label className="flex items-center gap-1.5 text-xs text-muted">
-                <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} />
-                Labels
-              </label>
-              <SelectModeToggle active={selectMode} onEnter={() => select.setSelectMode(true)} onExit={select.exit} />
-              <Button
-                variant="secondary"
+          <>
+            {(rawOnlyCount > 0 || videoCount > 0) && (
+              <SegmentedControl
                 size="sm"
-                onClick={() => setConfirmingEmpty(true)}
-                className="text-red-600 dark:text-red-400"
-              >
-                Empty trash
+                value={photoFilter}
+                onChange={setPhotoFilter}
+                options={[
+                  { value: "all", label: t("trash.filter.all", { count: editedCount + rawOnlyCount + videoCount }) },
+                  { value: "edited", label: t("trash.filter.edited", { count: editedCount }) },
+                  ...(rawOnlyCount > 0
+                    ? [{ value: "raw" as const, label: t("trash.filter.raw", { count: rawOnlyCount }) }]
+                    : []),
+                  ...(videoCount > 0
+                    ? [{ value: "video" as const, label: t("trash.filter.video", { count: videoCount }) }]
+                    : []),
+                ]}
+              />
+            )}
+            <Checkbox size="sm" checked={showLabels} onChange={setShowLabels} labelClassName="h-8 text-muted">
+              {t("trash.labels")}
+            </Checkbox>
+            <SelectModeToggle active={selectMode} onEnter={() => select.setSelectMode(true)} onExit={select.exit} />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setConfirmingEmpty(true)}
+              className="text-red-600 dark:text-red-400"
+            >
+              {t("trash.empty.confirm")}
+            </Button>
+          </>
+        }
+        banner={
+          selectMode && (
+            <div className="flex items-center justify-between border-b border-line bg-surface-muted px-6 py-2 text-footnote">
+              <span className="text-muted">{t("trash.selectedCount", { count: selectedIds.size })}</span>
+              <Button size="sm" onClick={restoreSelected} disabled={selectedIds.size === 0}>
+                {t("trash.restoreSelected")}
               </Button>
             </div>
           )
         }
-      />
-
-      {selectMode && (
-        <div className="flex items-center justify-between border-b border-line bg-surface-muted px-6 py-2 text-xs">
-          <span className="text-muted">{selectedIds.size} selected</span>
-          <Button size="sm" onClick={restoreSelected} disabled={selectedIds.size === 0}>
-            Restore selected
-          </Button>
-        </div>
-      )}
-
-      <main className="space-y-section p-page">
-        <FormMessage error={error} />
-        {!data && !error && <Spinner />}
-        {data && (
-          <>
-            <p className="text-sm text-muted">
-              Deleted photos stay here for {data.retentionDays} days, then are permanently removed. You can restore any
-              of them before then.
-            </p>
-            {data.items.length === 0 ? (
-              <EmptyState
-                icon={
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-6 w-6 text-muted"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={1.75}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6" />
-                    <path d="M10 11v6M14 11v6" />
-                  </svg>
-                }
-                title="Trash is empty"
-                description="Deleted photos show up here for a while before they're gone for good."
-              />
-            ) : visibleItems.length === 0 ? (
-              <p className="text-sm text-muted">Nothing matches this filter.</p>
-            ) : (
-              <MasonryGrid
-                items={visibleItems}
-                columnWidth={220}
-                keyFor={(item) => item.captureId}
-                aspectRatioFor={(item) => (item.width && item.height ? item.width / item.height : null)}
-                renderItem={(item, aspectRatio) => {
-                  const photoIndex = itemsWithPhoto.findIndex((it) => it.captureId === item.captureId);
-                  return (
-                    <div key={item.captureId} className="group relative w-full min-w-0">
-                      {item.photoId ? (
-                        <button
-                          onClick={() => {
-                            if (!selectMode) setLightboxIndex(photoIndex);
-                          }}
-                          {...selectHandlers(item.captureId)}
-                          className="relative block w-full overflow-hidden text-left"
-                          style={{ aspectRatio }}
-                        >
-                          <ProgressiveImg
-                            thumbSrc={`/api/photos/${item.photoId}/thumb`}
-                            fullSrc={`/api/photos/${item.photoId}/display`}
-                            alt={item.speciesName}
-                            className={`block h-full w-full cursor-pointer rounded-md object-cover ${
-                              selectMode && isSelected(item.captureId) ? "ring-2 ring-inset ring-blue-500" : ""
-                            }`}
-                          />
-                          {item.kind === "video" && (
-                            <div className="pointer-events-none absolute bottom-2 right-2 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
-                              <span aria-hidden>▶</span>
-                              {item.durationSeconds != null && (
-                                <span>
-                                  {Math.floor(Number(item.durationSeconds) / 60)}:
-                                  {String(Math.round(Number(item.durationSeconds) % 60)).padStart(2, "0")}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </button>
-                      ) : (
-                        <button {...selectHandlers(item.captureId)} className="block w-full text-left">
-                          <PhotoPlaceholder
-                            className={`aspect-square w-full rounded-md ${
-                              selectMode && isSelected(item.captureId) ? "ring-2 ring-inset ring-blue-500" : ""
-                            }`}
-                          />
-                        </button>
-                      )}
-                      {selectMode && (
-                        <input
-                          type="checkbox"
-                          checked={isSelected(item.captureId)}
-                          onChange={(e) =>
-                            select.toggle(
-                              item.captureId,
-                              indexById.get(item.captureId) ?? 0,
-                              (e.nativeEvent as MouseEvent).shiftKey ?? false,
-                            )
-                          }
-                          className="absolute left-2 top-2 h-4 w-4 accent-accent"
-                          aria-label="Select photo"
-                        />
-                      )}
-                      {!selectMode && (
-                        <div
-                          className="absolute right-1 top-1"
-                          ref={openMenuKey === item.captureId ? openMenuRef : undefined}
-                        >
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenMenuKey(openMenuKey === item.captureId ? null : item.captureId);
-                            }}
-                            aria-label="Photo options"
-                            className={`rounded-full bg-black/40 px-1.5 py-0.5 text-xs text-white ${
-                              openMenuKey === item.captureId ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                            }`}
-                          >
-                            ⋯
-                          </button>
-                          {openMenuKey === item.captureId && (
-                            <div className={`absolute right-0 top-full z-10 mt-1 w-36 ${MENU_PANEL}`}>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenMenuKey(null);
-                                  restore(item.captureId);
-                                }}
-                                disabled={busyId === item.captureId}
-                                className={MENU_ITEM}
-                              >
-                                {busyId === item.captureId ? "Restoring…" : "Restore"}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {showLabels && (
-                        <>
-                          <p className="mt-1 truncate text-xs text-muted">{item.speciesName}</p>
-                          <p className="truncate text-xs text-muted">
-                            {pluralize(daysLeft(item.purgesAt), "day")} left
-                            {item.hasRawOriginal &&
-                              (item.pendingDeleteRaw ? " · RAW will also be deleted" : " · RAW will be kept")}
-                          </p>
-                        </>
-                      )}
-                    </div>
-                  );
-                }}
-              />
-            )}
-          </>
-        )}
-      </main>
+        loading={!data}
+        error={error}
+        onRetry={() => {
+          setError(null);
+          load();
+        }}
+        isEmpty={data?.items.length === 0}
+        empty={{
+          icon: (
+            <svg
+              viewBox="0 0 24 24"
+              className="h-6 w-6 text-muted"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.75}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6" />
+              <path d="M10 11v6M14 11v6" />
+            </svg>
+          ),
+          title: t("trash.isEmpty.title"),
+          description: t("trash.isEmpty.description"),
+        }}
+        noMatch={visibleItems.length === 0 ? t("trash.noMatch") : null}
+      >
+        <PhotoGrid
+          items={visibleItems}
+          idFor={trashId}
+          tileFor={trashTile}
+          columnWidth={220}
+          select={select}
+          menu={menu}
+          onOpen={(i) => {
+            const photoIndex = itemsWithPhoto.indexOf(visibleItems[i]);
+            if (photoIndex >= 0) setLightboxIndex(photoIndex);
+          }}
+          renderMenu={(item) => (
+            <MenuPanel className="w-36">
+              <MenuItem onSelect={() => restore(item.captureId)} disabled={busyId === item.captureId}>
+                {busyId === item.captureId ? t("trash.restoring") : t("trash.restore")}
+              </MenuItem>
+            </MenuPanel>
+          )}
+          renderLabel={(item) =>
+            showLabels && (
+              <>
+                <p className="mt-1 truncate text-footnote text-muted">{item.speciesName}</p>
+                <p className="truncate text-footnote text-muted">
+                  {t("trash.daysLeft", { count: daysLeft(item.purgesAt) })}
+                  {item.hasRawOriginal && (item.pendingDeleteRaw ? t("trash.rawDeletedToo") : t("trash.rawKept"))}
+                </p>
+              </>
+            )
+          }
+        />
+      </ManageListPage>
 
       {lightboxIndex !== null && (
         <Lightbox
@@ -344,14 +232,14 @@ export default function TrashedPhotosPage() {
 
       <ConfirmDialog
         open={confirmingEmpty}
-        title="Empty trash?"
-        message="Everything in Trash is deleted for good, including photos that still have days left. This can't be undone."
-        confirmLabel="Empty trash"
+        title={t("trash.empty.title")}
+        message={t("trash.empty.message")}
+        confirmLabel={t("trash.empty.confirm")}
         danger
         busy={emptying}
         onConfirm={() => void emptyTrash()}
         onCancel={() => setConfirmingEmpty(false)}
       />
-    </div>
+    </>
   );
 }

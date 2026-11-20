@@ -253,7 +253,12 @@ describe.skipIf(!url)("upload modes and filing", () => {
     expect(first.statusCode, first.body).toBe(201);
     const again = await post("/uploads", await form({ speciesId: SPECIES, skipDuplicates: "1" }, file));
     expect(again.statusCode, again.body).toBe(200);
-    expect(again.json()).toEqual({ captureId: first.json().captureId, photoId: first.json().photoId, duplicate: true });
+    expect(again.json()).toEqual({
+      captureId: first.json().captureId,
+      photoId: first.json().photoId,
+      duplicate: true,
+      sha256: first.json().sha256,
+    });
     // Without it, the same file is imported again as its own photo.
     const copy = await post("/uploads", await form({ speciesId: SPECIES }, file));
     expect(copy.statusCode, copy.body).toBe(201);

@@ -25,6 +25,9 @@ describe("extractExif", () => {
     );
     expect(result).toEqual({
       takenAt: new Date("2026-01-01T00:00:00Z"),
+      localTakenAt: new Date("2026-01-01T00:00:00Z"),
+      // No OffsetTimeOriginal in these tags.
+      takenAtZoned: false,
       lat: 37.7749,
       lon: -122.4194,
       cameraModel: "Canon EOS R5",
@@ -52,6 +55,8 @@ describe("extractExif", () => {
     const result = await extractExif("unused.jpg", tags({}));
     expect(result).toEqual({
       takenAt: null,
+      localTakenAt: null,
+      takenAtZoned: null,
       lat: null,
       lon: null,
       cameraModel: null,

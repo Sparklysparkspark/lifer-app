@@ -103,9 +103,13 @@ interface QueueState {
   /** A batch targets an external drive, so the banner warns not to unplug it. */
   targetsExternalDrive: boolean;
   justFinishedAt: number | null;
+  /** What the queue that just finished did, for the banner's closing message. */
+  finished: { imported: number; species: number; failed: number } | null;
   /** Paused uploads waiting on a duplicate prompt, oldest first. A queue because several uploads
    *  can hit one at once; shown in the global banner since the enqueuing page may be gone. */
   pendingDuplicates: PendingDuplicate[];
+  /** Bumped when imported photos were removed again (an undo), so open pages reload. */
+  removals: number;
 }
 
 export interface PendingDuplicate {
@@ -116,7 +120,14 @@ export interface PendingDuplicate {
 
 // Module-level store so uploads stay visible (in the banner) after the component that started
 // them unmounts; the fetches themselves already outlive it.
-let state: QueueState = { jobs: [], targetsExternalDrive: false, justFinishedAt: null, pendingDuplicates: [] };
+let state: QueueState = {
+  jobs: [],
+  targetsExternalDrive: false,
+  justFinishedAt: null,
+  finished: null,
+  pendingDuplicates: [],
+  removals: 0,
+};
 const duplicateResolvers = new Map<string, (choice: "import" | "skip") => void>();
 
 /** Answers one duplicate prompt, resuming its paused upload and leaving the others queued. */
@@ -148,6 +159,11 @@ function subscribe(listener: () => void): () => void {
 
 function getSnapshot(): QueueState {
   return state;
+}
+
+/** Tells open pages that imported photos were removed, e.g. by an Undo after leaving the page. */
+export function reportImportsRemoved(): void {
+  setState({ removals: state.removals + 1 });
 }
 
 // Non-hook read of the same state, for tests and non-React callers.
@@ -341,13 +357,32 @@ export function settleExternalJob(jobId: string, error?: string): void {
   setState({ jobs: [...state.jobs] });
 }
 
+// The import screen's own toast already says how the batch went, so the banner skips its line.
+let resultShownElsewhere = false;
+
+/** Leaves the closing "filed under" line to the caller's own message, unless something failed. */
+export function reportResultShownElsewhere(): void {
+  resultShownElsewhere = true;
+}
+
 function settleIfDone() {
   if (state.jobs.every((j) => j.done)) {
     // Cleared after a grace period so the banner can show "Uploaded N photos" first.
     setTimeout(() => {
       if (state.jobs.every((j) => j.done)) {
         const finishedAt = Date.now();
-        setState({ jobs: [], targetsExternalDrive: false, justFinishedAt: finishedAt });
+        const imported = state.jobs.filter((j) => !j.error && !j.skipped);
+        // RAW-only jobs carry no species (speciesId "").
+        const species = new Set(imported.map((j) => j.speciesId).filter(Boolean)).size;
+        const failed = state.jobs.filter((j) => j.error).length;
+        const quiet = resultShownElsewhere && failed === 0;
+        resultShownElsewhere = false;
+        setState({
+          jobs: [],
+          targetsExternalDrive: false,
+          justFinishedAt: quiet ? null : finishedAt,
+          finished: { imported: imported.length, species, failed },
+        });
         // Nothing else re-renders the banner once the queue is empty, so this emit clears it.
         setTimeout(() => {
           if (state.justFinishedAt === finishedAt) setState({ justFinishedAt: null });

@@ -42,11 +42,11 @@ describe.skipIf(!url)("desktop-only storage and migration routes", () => {
     db = new pg.Pool({ connectionString: url });
     createdLocalUser = (await db.query(`SELECT 1 FROM users WHERE email = $1`, [LOCAL_EMAIL])).rowCount === 0;
     const { storageVolumesRoutes } = await import("./routes.js");
-    const { migrateToServerRoutes } = await import("../settings/migrateToServer.js");
+    const { deleteLocalLibraryRoutes } = await import("../settings/deleteLocalLibrary.js");
 
     app = Fastify();
     await app.register(storageVolumesRoutes, { prefix: "/api" });
-    await app.register(migrateToServerRoutes, { prefix: "/api" });
+    await app.register(deleteLocalLibraryRoutes, { prefix: "/api" });
     await app.ready();
 
     // Desktop mode signs every request in as the local user, created on first use.
@@ -127,37 +127,7 @@ describe.skipIf(!url)("desktop-only storage and migration routes", () => {
     expect([res.statusCode, res.json()]).toEqual([400, { error: "path must be an absolute folder path" }]);
   });
 
-  it.each([
-    ["no password", { serverUrl: "https://lifer.example", email: "a@b.c" }, /^Invalid body: password is required$/],
-    ["an empty email", { serverUrl: "https://lifer.example", email: "", password: "p" }, /^Invalid body: email /],
-    [
-      "a number for the URL",
-      { serverUrl: 8080, email: "a@b.c", password: "p" },
-      /^Invalid body: serverUrl must be string$/,
-    ],
-    [
-      "an unknown field",
-      { serverUrl: "https://lifer.example", email: "a@b.c", password: "p", token: "t" },
-      /^Invalid body: unexpected field token$/,
-    ],
-  ])("refuses %s when migrating to a server", async (_name, payload, error) => {
-    const res = await call("POST", "/api/settings/migrate-to-server", payload);
-    expect([res.statusCode, res.json()]).toEqual([400, invalid(error)]);
-  });
-
-  it("still refuses a loopback or link-local server address in the handler, without reaching out", async () => {
-    // A name is refused by what it resolves to, not how it's spelled (lib/outboundGuard.ts).
-    for (const serverUrl of ["http://127.0.0.1:9", "http://localhost:9", "http://169.254.169.254", "http://[::1]:9"]) {
-      const res = await call("POST", "/api/settings/migrate-to-server", { serverUrl, email: "a@b.c", password: "p" });
-      expect([serverUrl, res.statusCode, res.json()]).toEqual([
-        serverUrl,
-        400,
-        { error: "Refusing to migrate to a loopback or link-local address" },
-      ]);
-    }
-  });
-
-  it("needs confirm: true to delete the local library, and then still the migration gate", async () => {
+  it("needs confirm: true to delete the local library, and then still the push gate", async () => {
     for (const payload of [{}, { confirm: false }, { confirm: "true" }, { confirm: true, all: true }]) {
       const res = await call("POST", "/api/settings/delete-local-library", payload);
       expect([payload, res.statusCode, res.json().code]).toEqual([payload, 400, "invalid_request"]);
@@ -165,7 +135,7 @@ describe.skipIf(!url)("desktop-only storage and migration routes", () => {
     const gated = await call("POST", "/api/settings/delete-local-library", { confirm: true });
     expect([gated.statusCode, gated.json()]).toEqual([
       409,
-      { error: "Local files can only be deleted right after a migration to a server." },
+      { error: "Local files can only be deleted once this library is linked to a server." },
     ]);
   });
 });

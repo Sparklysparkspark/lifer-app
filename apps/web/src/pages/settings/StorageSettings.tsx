@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { matches } from "../../lib/keymap";
+import { Trans, useTranslation } from "react-i18next";
 import type { StorageVolume } from "@lifer/shared";
 import { api, apiPath } from "../../api/client";
 import Button from "../../components/Button";
@@ -11,17 +13,24 @@ import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
 import { formatDate } from "../../lib/format";
 import { ignore } from "../../lib/ignore";
-import { pluralize } from "../../lib/pluralize";
 import { tauriInvoke } from "../../lib/tauri";
-import { SettingRow, SettingsGroup, inputClass } from "./shared";
+import { changeLibraryFolder } from "../../lib/libraryFolderChange";
+import TextField from "../../components/TextField";
+import { SettingRow, SettingsGroup } from "./shared";
+import FolderPath from "../../components/FolderPath";
+import ArchiveHealthRows from "./ArchiveHealthRows";
+import MovedPhotosGroup from "./MovedPhotosGroup";
 
 export default function StorageSettings() {
+  const { t } = useTranslation();
   return (
     <>
-      <SettingsGroup title="Where photos live">
+      <SettingsGroup title={t("settings.storage.title")}>
         <StorageLocationRow />
         <StorageVolumesRows />
+        <ArchiveHealthRows />
       </SettingsGroup>
+      <MovedPhotosGroup />
       <RemoveAllDataSection />
     </>
   );
@@ -29,6 +38,7 @@ export default function StorageSettings() {
 
 // Only a desktop API can move the library; a server's folder is whatever LIFER_STORAGE_DIR mounts at /data.
 function StorageLocationRow() {
+  const { t } = useTranslation();
   const confirm = useConfirm();
   const [available, setAvailable] = useState(false);
   const [changeable, setChangeable] = useState(false);
@@ -51,34 +61,28 @@ function StorageLocationRow() {
 
   async function moveTo(newPath: string) {
     const ok = await confirm({
-      title: "Move your photo library?",
-      message: `Move your photo library from ${currentDataDir} to ${newPath}? This moves every file and updates Lifer's records to match.`,
-      confirmLabel: "Move library",
+      title: t("settings.storage.location.moveConfirm.title"),
+      message: `${t("settings.storage.location.moveConfirm.message", { from: currentDataDir, to: newPath })} ${t("settings.storage.location.restartWarning")}`,
+      confirmLabel: t("settings.storage.location.moveConfirm.confirm"),
     });
     if (!ok) return;
     setSaving(true);
     setError(null);
     setResult(null);
     try {
-      const res = await api.put("/settings/storage", { dataDir: newPath });
-      // The desktop shell starts the API from its own config, so it has to hear about the move
-      // or the next launch opens the old, now-empty folder.
-      try {
-        await window.liferSetup?.setLocalDataDir?.(res.dataDir ?? newPath);
-      } catch (err) {
-        setError(
-          `Your library was moved, but Lifer couldn't save the new location for next launch (${String(err)}). After restarting, pick ${res.dataDir} again with the "Change Server / Library" menu item.`,
-        );
-      }
-      setResult(
-        res.filesMoved
-          ? "Your library has been moved. Restart Lifer for the new location to take effect."
-          : "Saved. Restart Lifer for the new location to take effect.",
-      );
-      setCurrentDataDir(res.dataDir ?? newPath);
+      const outcome = await changeLibraryFolder(newPath);
+      if (outcome.kind === "restarting") return;
       setBrowsing(false);
+      if (outcome.kind === "importsRunning") setError(t("settings.storage.location.importsRunning"));
+      else if (outcome.kind === "launchConfigFailed") {
+        setCurrentDataDir(outcome.dataDir);
+        setError(t("settings.storage.location.saveForLaunchFailed", { error: outcome.error, folder: outcome.dataDir }));
+      } else {
+        setCurrentDataDir(newPath);
+        setResult(t(outcome.filesMoved ? "settings.storage.location.moved" : "settings.storage.location.saved"));
+      }
     } catch (err) {
-      setError(errorMessage(err, "Couldn't move this library"));
+      setError(errorMessage(err, t("settings.storage.location.moveFailed")));
     } finally {
       setSaving(false);
     }
@@ -96,22 +100,16 @@ function StorageLocationRow() {
 
   if (!available) return null;
 
-  const path = (
-    <span className="block truncate font-mono" title={currentDataDir ?? undefined}>
-      {currentDataDir}
-    </span>
-  );
+  const path = currentDataDir ? <FolderPath path={currentDataDir} /> : null;
 
   if (!changeable) {
     return (
       <SettingRow
-        label="Library folder"
+        label={t("settings.storage.location.label")}
         description={
           <>
             {path}
-            <span className="mt-0.5 block">
-              The folder inside the container. To move it, change LIFER_STORAGE_DIR in docker-compose and redeploy.
-            </span>
+            <span className="mt-0.5 block">{t("settings.storage.location.containerHint")}</span>
           </>
         }
       />
@@ -120,12 +118,12 @@ function StorageLocationRow() {
 
   return (
     <SettingRow
-      label="Library folder"
+      label={t("settings.storage.location.label")}
       description={path}
       control={
         !browsing && (
           <Button variant="secondary" size="sm" onClick={chooseFolder} loading={saving}>
-            Move
+            {t("settings.storage.location.move")}
           </Button>
         )
       }
@@ -139,6 +137,7 @@ function StorageLocationRow() {
 // Desktop: register external drives with their live connected state. Server: a read-only list of
 // LIFER_LIBRARY_ROOTS, which are configured in docker-compose.
 function StorageVolumesRows() {
+  const { t } = useTranslation();
   const isDesktopApi = useDeploymentMode() === "desktop";
   const confirm = useConfirm();
   const toast = useToast();
@@ -178,7 +177,7 @@ function StorageVolumesRows() {
   async function registerThisFolder() {
     if (!pendingPath) return;
     if (!label.trim()) {
-      setError('Give this drive a name first (e.g. "Red 2TB drive")');
+      setError(t("settings.storage.drives.nameRequired"));
       return;
     }
     setSaving(true);
@@ -191,11 +190,10 @@ function StorageVolumesRows() {
       });
       setPendingPath(null);
       setLabel("");
-      if (res.readopted)
-        setResult(`Recognized ${pluralize(res.readopted, "photo")} already on this drive from before.`);
+      if (res.readopted) setResult(t("settings.storage.drives.readopted", { count: res.readopted }));
       load();
     } catch (err) {
-      setError(errorMessage(err, "Couldn't register that drive"));
+      setError(errorMessage(err, t("settings.storage.drives.registerFailed")));
     } finally {
       setSaving(false);
     }
@@ -214,17 +212,23 @@ function StorageVolumesRows() {
 
   async function remove(id: string) {
     const ok = await confirm({
-      title: "Stop tracking this drive?",
-      message:
-        "Photos already imported from it stay in your library. This just stops Lifer from checking whether it's connected.",
-      confirmLabel: "Stop tracking",
+      title: t("settings.storage.drives.removeConfirm.title"),
+      message: t("settings.storage.drives.removeConfirm.message"),
+      confirmLabel: t("settings.storage.drives.removeConfirm.confirm"),
       danger: true,
     });
-    if (ok) await mutate(() => api.delete(apiPath("/storage-volumes/{id}", { id })), "Couldn't remove that drive");
+    if (ok)
+      await mutate(
+        () => api.delete(apiPath("/storage-volumes/{id}", { id })),
+        t("settings.storage.drives.removeFailed"),
+      );
   }
 
   function setDefault(id: string) {
-    void mutate(() => api.put(apiPath("/storage-volumes/{id}/default", { id }), {}), "Couldn't set the default drive");
+    void mutate(
+      () => api.put(apiPath("/storage-volumes/{id}/default", { id }), {}),
+      t("settings.storage.drives.setDefaultFailed"),
+    );
   }
 
   async function rename(id: string) {
@@ -232,7 +236,7 @@ function StorageVolumesRows() {
     if (
       await mutate(
         () => api.put(apiPath("/storage-volumes/{id}", { id }), { label: renameValue.trim() }),
-        "Couldn't rename that drive",
+        t("settings.storage.drives.renameFailed"),
       )
     ) {
       setRenamingId(null);
@@ -245,23 +249,20 @@ function StorageVolumesRows() {
     return (
       <>
         <SettingRow
-          label="Extra library folders"
-          description={
-            volumes && volumes.length > 0
-              ? "Set with LIFER_LIBRARY_ROOTS in your docker-compose setup."
-              : "Folders on this server to import from and save to. None are set up yet."
-          }
+          label={t("settings.storage.roots.label")}
+          description={t(
+            volumes && volumes.length > 0 ? "settings.storage.roots.configured" : "settings.storage.roots.none",
+          )}
         >
           {!(volumes && volumes.length > 0) && (
-            <ol className="list-decimal space-y-1 pl-5 text-xs text-muted">
+            <ol className="list-decimal space-y-1 pl-5 text-footnote text-muted">
               <li>
-                Bind-mount the host folder into the container, e.g. <code>/srv/photos:/library/nas</code>.
+                <Trans i18nKey="settings.storage.roots.stepMount" components={{ code: <code /> }} />
               </li>
               <li>
-                Set <code>LIFER_LIBRARY_ROOTS=NAS=/library/nas</code> (comma-separate several, as
-                Label=/container/path).
+                <Trans i18nKey="settings.storage.roots.stepSet" components={{ code: <code /> }} />
               </li>
-              <li>Redeploy the container.</li>
+              <li>{t("settings.storage.roots.stepRedeploy")}</li>
             </ol>
           )}
         </SettingRow>
@@ -270,7 +271,7 @@ function StorageVolumesRows() {
             key={v.id}
             label={v.label}
             description={<span className="block truncate">{v.rootPath ?? v.mountPath}</span>}
-            control={<ConnectedLabel connected={v.connected} offline="Not found" />}
+            control={<ConnectedLabel connected={v.connected} offline={t("settings.storage.drives.notFound")} />}
           />
         ))}
       </>
@@ -284,23 +285,23 @@ function StorageVolumesRows() {
           <SettingRow
             key={v.id}
             label={
-              <input
+              <TextField
+                size="sm"
                 type="text"
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && rename(v.id)}
-                aria-label="Drive name"
+                onKeyDown={(e) => matches(e, "confirm") && rename(v.id)}
+                aria-label={t("settings.storage.drives.nameLabel")}
                 autoFocus
-                className={inputClass}
               />
             }
             control={
               <div className="flex gap-2">
-                <Button variant="secondary" size="sm" onClick={() => rename(v.id)}>
-                  Save
+                <Button size="sm" variant="secondary" onClick={() => rename(v.id)}>
+                  {t("common.save")}
                 </Button>
-                <Button variant="secondary" size="sm" onClick={() => setRenamingId(null)}>
-                  Cancel
+                <Button size="sm" variant="secondary" onClick={() => setRenamingId(null)}>
+                  {t("common.cancel")}
                 </Button>
               </div>
             }
@@ -308,13 +309,17 @@ function StorageVolumesRows() {
         ) : (
           <SettingRow
             key={v.id}
-            label={v.isDefault ? `${v.label} (default)` : v.label}
+            label={v.isDefault ? t("settings.storage.drives.defaultLabel", { name: v.label }) : v.label}
             description={
               <>
                 <ConnectedLabel connected={v.connected} />
                 {" · "}
-                {v.connected ? v.mountPath : `Last seen ${formatDate(v.lastSeenAt, "dateTime") || "unknown"}`}
-                {v.managedByEnv && " · Set by LIFER_LIBRARY_ROOTS"}
+                {v.connected
+                  ? v.mountPath
+                  : t("settings.storage.drives.lastSeen", {
+                      date: formatDate(v.lastSeenAt, "dateTime") || t("settings.storage.drives.lastSeenUnknown"),
+                    })}
+                {v.managedByEnv && ` · ${t("settings.storage.drives.managedByEnv")}`}
               </>
             }
             control={
@@ -328,15 +333,15 @@ function StorageVolumesRows() {
                       setRenameValue(v.label);
                     }}
                   >
-                    Rename
+                    {t("common.rename")}
                   </Button>
                   {!v.isDefault && (
                     <Button variant="secondary" size="sm" onClick={() => setDefault(v.id)}>
-                      Make default
+                      {t("settings.storage.drives.makeDefault")}
                     </Button>
                   )}
                   <Button variant="secondary" size="sm" onClick={() => remove(v.id)}>
-                    Remove
+                    {t("settings.storage.drives.remove")}
                   </Button>
                 </div>
               )
@@ -346,13 +351,13 @@ function StorageVolumesRows() {
       )}
 
       <SettingRow
-        label="External drives"
-        description="Photos on a registered drive keep their thumbnails while it's unplugged, so you know which drive to grab."
+        label={t("settings.storage.drives.label")}
+        description={t("settings.storage.drives.description")}
         control={
           !browsing &&
           !pendingPath && (
             <Button variant="secondary" size="sm" onClick={chooseFolder}>
-              Add a drive
+              {t("settings.storage.drives.add")}
             </Button>
           )
         }
@@ -368,28 +373,29 @@ function StorageVolumesRows() {
         )}
         {pendingPath && (
           <>
-            <p className="truncate font-mono text-xs text-muted">{pendingPath}</p>
-            <input
+            <FolderPath path={pendingPath} className="text-footnote" />
+            <TextField
+              size="sm"
               type="text"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="Name this drive (e.g. Red 2TB drive)"
-              aria-label="Drive name"
-              className={`${inputClass} max-w-sm`}
+              placeholder={t("settings.storage.drives.namePlaceholder")}
+              aria-label={t("settings.storage.drives.nameLabel")}
+              className="max-w-sm"
             />
             <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={registerThisFolder} loading={saving}>
-                Add drive
+              <Button size="sm" variant="secondary" onClick={registerThisFolder} loading={saving}>
+                {t("settings.storage.drives.addConfirm")}
               </Button>
               <Button
-                variant="secondary"
                 size="sm"
+                variant="secondary"
                 onClick={() => {
                   setPendingPath(null);
                   setLabel("");
                 }}
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
             </div>
           </>
@@ -406,6 +412,7 @@ const REMOVE_CONFIRM_WORD = "remove";
 // connected server's Settings never shows it. Everything Lifer keeps on this computer goes, then the
 // app quits; photo library folders are never touched.
 export function RemoveAllDataSection() {
+  const { t } = useTranslation();
   const isDesktopLibrary = useDeploymentMode() === "desktop";
   const isTauri = useIsTauri();
   const [libraryFolder, setLibraryFolder] = useState<string | null>(null);
@@ -433,53 +440,58 @@ export function RemoveAllDataSection() {
       // The app quits once it's done, so success never comes back here.
       await invoke("remove_all_data");
     } catch (err) {
-      setError(errorMessage(err, "Lifer couldn't remove its data."));
+      setError(errorMessage(err, t("settings.storage.removeAll.failed")));
       setRemoving(false);
     }
   };
 
   return (
-    <SettingsGroup title="Uninstall">
+    <SettingsGroup title={t("settings.storage.removeAll.group")}>
       <SettingRow
-        label="Remove all Lifer data"
-        description="Deletes everything Lifer keeps on this computer, then quits. Your photos stay where they are."
+        label={t("settings.storage.removeAll.label")}
+        description={t("settings.storage.removeAll.description")}
         control={
           !open && (
             <Button variant="danger" size="sm" onClick={() => setOpen(true)}>
-              Remove
+              {t("settings.storage.removeAll.open")}
             </Button>
           )
         }
       >
         {open && (
-          <div className="space-y-3 text-sm text-ink">
-            <p>This deletes, from this computer:</p>
+          <div className="space-y-3 text-callout text-ink">
+            <p>{t("settings.storage.removeAll.listIntro")}</p>
             <ul className="list-disc space-y-1 pl-5">
-              <li>
-                Lifer's database: your collection, seen and target species, albums, trips, tags, ratings and notes
-              </li>
-              <li>Thumbnails, downloaded models, offline packs and the offline map</li>
-              <li>Lifer's settings, logs and caches</li>
+              <li>{t("settings.storage.removeAll.listDatabase")}</li>
+              <li>{t("settings.storage.removeAll.listDownloads")}</li>
+              <li>{t("settings.storage.removeAll.listSettings")}</li>
             </ul>
             <p>
-              <strong>Your photos are not deleted.</strong>
+              <strong>{t("settings.storage.removeAll.photosKept")}</strong>
               {libraryFolder ? (
                 <>
                   {" "}
-                  They stay in <code className="break-all">{libraryFolder}</code>.
+                  <Trans
+                    i18nKey="settings.storage.removeAll.photosFolder"
+                    values={{ folder: libraryFolder }}
+                    components={{ code: <code className="break-all" /> }}
+                  />
                 </>
               ) : null}{" "}
-              Reimporting that folder on a fresh install brings back your species, albums, trips, tags and ratings. Only
-              Lifer's settings are lost.
+              {t("settings.storage.removeAll.reimportHint")}
             </p>
             <label className="block">
-              Type <strong>{REMOVE_CONFIRM_WORD}</strong> to confirm
-              <input
-                className={`${inputClass} mt-1 max-w-xs`}
+              <Trans
+                i18nKey="settings.storage.removeAll.typeToConfirm"
+                values={{ word: REMOVE_CONFIRM_WORD }}
+                components={{ b: <strong /> }}
+              />
+              <TextField
+                className="mt-1 max-w-xs"
                 value={typed}
                 onChange={(e) => setTyped(e.target.value)}
                 autoComplete="off"
-                aria-label={`Type ${REMOVE_CONFIRM_WORD} to confirm`}
+                aria-label={t("settings.storage.removeAll.typeToConfirmLabel", { word: REMOVE_CONFIRM_WORD })}
               />
             </label>
             <div className="flex flex-wrap gap-2">
@@ -490,7 +502,7 @@ export function RemoveAllDataSection() {
                 loading={removing}
                 onClick={() => void remove()}
               >
-                Remove everything and quit
+                {t("settings.storage.removeAll.confirm")}
               </Button>
               <Button
                 variant="secondary"
@@ -501,7 +513,7 @@ export function RemoveAllDataSection() {
                   setTyped("");
                 }}
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
             </div>
             <FormMessage error={error} />
@@ -512,10 +524,11 @@ export function RemoveAllDataSection() {
   );
 }
 
-function ConnectedLabel({ connected, offline = "Not connected" }: { connected: boolean; offline?: string }) {
+function ConnectedLabel({ connected, offline }: { connected: boolean; offline?: string }) {
+  const { t } = useTranslation();
   return (
-    <span className={`text-xs ${connected ? "text-green-700 dark:text-green-400" : "text-muted"}`}>
-      {connected ? "Connected" : offline}
+    <span className={`text-footnote ${connected ? "text-green-700 dark:text-green-400" : "text-muted"}`}>
+      {connected ? t("settings.storage.drives.connected") : (offline ?? t("settings.storage.drives.notConnected"))}
     </span>
   );
 }
