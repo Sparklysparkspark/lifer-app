@@ -11,7 +11,7 @@ import { assertPackagesLoad, slimPackage, traceRuntimePackages } from "../script
 const [appDir, ...distDirs] = process.argv.slice(2).map((p) => path.resolve(p));
 if (!appDir || distDirs.length === 0) throw new Error("Usage: prune-node-modules.mjs <app dir> <dist dir>...");
 
-const { entries, keep } = traceRuntimePackages({ root: appDir, distDirs });
+const { entries, specs, keep } = traceRuntimePackages({ root: appDir, distDirs });
 
 function sizeOf(target) {
   const st = lstatSync(target);
@@ -84,5 +84,8 @@ console.log(`[prune] kept ${keep.size} packages for: ${[...entries.keys()].sort(
 console.log(`[prune] removed ${(removedBytes / 1048576).toFixed(0)} MB: ${[...collapsed.keys()].sort().join(", ")}`);
 
 // Every package the server imports must still load, with what's left.
-assertPackagesLoad([...entries.keys()], { fromDir: distDirs[0] });
+assertPackagesLoad(
+  [...entries.keys()].map((name) => specs.get(name)),
+  { fromDir: distDirs[0] },
+);
 console.log(`[prune] all ${entries.size} imported packages load`);

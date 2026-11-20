@@ -390,7 +390,8 @@ pub(crate) fn display_path(path: &str) -> String {
     }
 }
 
-/// The verified code signer of a file, or None when it isn't signed (or on Linux).
+/// The verified code signer of a file, or None when it isn't signed. Only the installer check calls it, and that check runs on macOS and Windows.
+#[cfg(any(target_os = "macos", windows))]
 pub(crate) fn signer_of(path: &Path) -> Option<String> {
     platform_signer(path)
 }
