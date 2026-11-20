@@ -10,6 +10,8 @@ const url = process.env.TEST_DATABASE_URL;
 const USER = "cccccccc-0000-4000-8000-000000000107";
 const SPECIES_A = "cccccccc-0000-4000-8000-00000000000a";
 const SPECIES_B = "cccccccc-0000-4000-8000-00000000000b";
+// On eBird's sensitive list everywhere.
+const SPECIES_SENSITIVE = "cccccccc-0000-4000-8000-00000000000c";
 const TOKEN = "lifer_test_integration_token_107";
 
 describe.skipIf(!url)("integration endpoints (API key)", () => {
@@ -29,6 +31,11 @@ describe.skipIf(!url)("integration endpoints (API key)", () => {
     const { hashApiKey } = await import("../auth/apiKeys.js");
     const { integrationRoutes } = await import("./routes.js");
     const { photoRoutes } = await import("../photos/routes.js");
+    const { apiVersionAlias } = await import("../apiRoutes.js");
+    const { galleryRoutes } = await import("../gallery/routes.js");
+    const { galleryMapRoutes } = await import("../gallery/map.js");
+    const { tripsRoutes } = await import("../trips/routes.js");
+    const { statsRoutes } = await import("../stats/routes.js");
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'integrations@test', 'x')`, [USER]);
     await db.query(
@@ -68,10 +75,16 @@ describe.skipIf(!url)("integration endpoints (API key)", () => {
       ["stats.read"],
     ]);
 
-    app = Fastify();
+    await db.query(`INSERT INTO api_keys (user_id, name, key_hash, permissions) VALUES ($1, 'wide', $2, $3)`, [
+      USER,
+      hashApiKey(`${TOKEN}_wide`),
+      ["photos.read", "gallery.read", "trips.read", "stats.read"],
+    ]);
+
+    app = Fastify({ rewriteUrl: apiVersionAlias });
     await app.register(cookie);
-    await app.register(integrationRoutes, { prefix: "/api" });
-    await app.register(photoRoutes, { prefix: "/api" });
+    for (const routes of [integrationRoutes, photoRoutes, galleryRoutes, galleryMapRoutes, tripsRoutes, statsRoutes])
+      await app.register(routes, { prefix: "/api" });
     await app.ready();
   });
 
@@ -79,9 +92,10 @@ describe.skipIf(!url)("integration endpoints (API key)", () => {
     await app?.close();
     await db.query(`DELETE FROM user_species WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [USER]);
+    await db.query(`DELETE FROM trips WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM api_keys WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
-    await db.query(`DELETE FROM species WHERE id IN ($1, $2)`, [SPECIES_A, SPECIES_B]);
+    await db.query(`DELETE FROM species WHERE id IN ($1, $2, $3)`, [SPECIES_A, SPECIES_B, SPECIES_SENSITIVE]);
     await db.end();
     const { pool } = await import("@lifer/core/db.js");
     await pool.end();
@@ -218,5 +232,90 @@ describe.skipIf(!url)("integration endpoints (API key)", () => {
       schema: { type: "integer", minimum: 1 },
     });
     expect(feed.responses["200"].content["application/json"].schema.properties.items.type).toBe("array");
+  });
+
+  it("answers the same routes under /api/v1", async () => {
+    const plain = await get("/api/life-list/summary");
+    const versioned = await get("/api/v1/life-list/summary");
+    expect([versioned.statusCode, versioned.json()]).toEqual([200, plain.json()]);
+    expect((await get("/api/v1/captures?limit=0")).statusCode).toBe(400);
+    expect((await get("/api/v1/captures", `${TOKEN}_narrow`)).statusCode).toBe(401);
+    expect((await app.inject({ method: "GET", url: "/api/v1/openapi.json" })).json().servers).toEqual([
+      { url: "/api/v1" },
+    ]);
+  });
+
+  it("never gives an API key a sensitive species' coordinates or place name", async () => {
+    await db.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class)
+       VALUES ($1, 910703, 'Strix nebulosa', 'Great Grey Owl', 'aves') ON CONFLICT (id) DO NOTHING`,
+      [SPECIES_SENSITIVE],
+    );
+    const trip = await db.query<{ id: string }>(
+      `INSERT INTO trips (user_id, name, source_folder, destination_folder) VALUES ($1, 'Owls', '/in', '/out') RETURNING id`,
+      [USER],
+    );
+    const owl = await db.query<{ id: string }>(
+      `INSERT INTO captures (user_id, species_id, fingerprint, taken_at, quality_rating, lat, lon, location_label, trip_id)
+       VALUES ($1, $2, 'integration-owl', now(), 3, 51.123456, -0.654321, 'Secret Wood', $3) RETURNING id`,
+      [USER, SPECIES_SENSITIVE, trip.rows[0].id],
+    );
+    const owlPhoto = await db.query<{ id: string }>(
+      `INSERT INTO photos (capture_id, display_path, thumb_path) VALUES ($1, '/nowhere/d.webp', '/nowhere/t.webp') RETURNING id`,
+      [owl.rows[0].id],
+    );
+    await db.query(`UPDATE captures_all SET current_photo_id = $1 WHERE id = $2`, [
+      owlPhoto.rows[0].id,
+      owl.rows[0].id,
+    ]);
+    await db.query(
+      `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size) VALUES ($1, 'jpeg', 'path', '/library/owl.jpg', true, 'def', 1)`,
+      [owl.rows[0].id],
+    );
+    // An ordinary species beside it keeps its point, so the check below can't pass by hiding everything.
+    await db.query(
+      `UPDATE captures_all SET lat = 49.28, lon = -123.12, location_label = 'Stanley Park', trip_id = $2 WHERE id = $1`,
+      [captures[1], trip.rows[0].id],
+    );
+    const wide = (path: string) => get(path, `${TOKEN}_wide`);
+    const place = (i: { lat: unknown; lon: unknown; locationLabel: unknown }) => [i.lat, i.lon, i.locationLabel];
+
+    for (const path of ["/api/captures", "/api/v1/captures"]) {
+      const items = (await wide(path)).json().items as Array<{
+        captureId: string;
+        lat: unknown;
+        lon: unknown;
+        locationLabel: unknown;
+      }>;
+      expect(place(items.find((i) => i.captureId === owl.rows[0].id)!)).toEqual([null, null, null]);
+      expect(place(items.find((i) => i.captureId === captures[1])!)).toEqual([49.28, -123.12, "Stanley Park"]);
+    }
+
+    const gallery = (await wide("/api/gallery")).json().items as Array<{
+      captureId: string;
+      lat: unknown;
+      lon: unknown;
+      locationLabel: unknown;
+    }>;
+    expect(place(gallery.find((i) => i.captureId === owl.rows[0].id)!)).toEqual([null, null, null]);
+    expect(gallery.find((i) => i.captureId === captures[1])!.lat).not.toBeNull();
+
+    const map = (await wide("/api/gallery/map")).json();
+    expect(map.cells.map((c: { photoId: string }) => c.photoId)).not.toContain(owlPhoto.rows[0].id);
+    expect(map.cells).toHaveLength(1);
+
+    const tripItems = (await wide(`/api/trips/${trip.rows[0].id}/photos`)).json().items as Array<{
+      captureId: string;
+      lat: unknown;
+      lon: unknown;
+      locationLabel: unknown;
+    }>;
+    expect(place(tripItems.find((i) => i.captureId === owl.rows[0].id)!)).toEqual([null, null, null]);
+    expect(tripItems.find((i) => i.captureId === captures[1])!.lat).not.toBeNull();
+
+    const csv = (await wide("/api/stats/export.csv")).body;
+    expect(csv).toContain("Great Grey Owl");
+    expect(csv).not.toMatch(/51\.12|0\.654|Secret Wood/);
+    expect(csv).toContain("Stanley Park");
   });
 });

@@ -62,6 +62,185 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
     },
   },
 
+  // --- Your own data, for companion apps ---
+  "/userdata/v1/species": {
+    get: {
+      summary: "Your marked and photographed species, for syncing",
+      description:
+        "One row per species you photographed, marked seen or made a target, ordered by last change, then removed marks with `deletedAt` set. Only your own data: no regions, checklists, tiers, seasonality, common names or descriptions. Page with `cursor` until `nextCursor` is null, then pass the last `updatedAt` as `since`. A row with `state` null and `isTarget` false is no longer marked.",
+    },
+  },
+  "/userdata/v1/name-display": {
+    get: {
+      summary: "How the user shows species names",
+      description:
+        "The View menu's name choice: `main` (`common` or `scientific`) and `also`, the names shown under it in order (`other` is whichever of common or scientific isn't main, then `aba` and `ebird` codes). Lifer's default when the user never chose.",
+    },
+  },
+  "/userdata/v1/photos/{id}/display": {
+    get: { summary: "Display-size image of one of your photos (WebP)", binary: "image/webp" },
+  },
+  "/userdata/v1/photos/{id}/thumb": {
+    get: { summary: "Thumbnail of one of your photos (WebP)", binary: "image/webp" },
+  },
+  "/userdata/v1/species/{id}/photos": {
+    get: {
+      summary: "Your photos of a species, best first",
+      description:
+        "Your photos of that species (as the main or an additional subject), highest rating first, then newest, `limit` 1-200 (default 50). Each has its `captureId`, a `thumbnailUrl` to fetch with the same key, rating, `flag` (pick or reject), colour `label`, `takenAt` and whether it is the `featured` photo. Hidden and trashed photos are left out. 404 for an unknown species.",
+    },
+  },
+  "/userdata/v1/species/{id}/featured": {
+    get: {
+      summary: "A species' featured photo",
+      description:
+        "The featured photo of one of your species with its `cardCrop` (percent of the photo), rating, `flag` (pick or reject) and colour `label`, and whether the species is marked `needsBetterPhoto`. `photo` is null when the species has no featured photo of yours. 404 when you have no mark for the species.",
+    },
+    put: {
+      summary: "Choose a species' featured photo",
+      description:
+        "Body `{ photoId }`, one of your photos of that species (403 otherwise). Lifer frames a fresh default crop. Undoable in Lifer.",
+    },
+  },
+  "/userdata/v1/species/{id}/similar-photos": {
+    post: {
+      summary: "Your photos of a species closest to an image",
+      description:
+        "Body `{ model, vector, limit? }`: a 768-number image embedding from the model named in `model` (only Lifer's own model compares; any other answers 400). Returns your photos of that species nearest to it, closest first, with `similarity`, rating, `flag`, `label`, `takenAt` and whether each is the `featured` photo. Hidden and trashed photos are left out. Reads only.",
+    },
+  },
+  "/userdata/v1/photos/{id}": {
+    patch: {
+      summary: "Rate, pick or label one of your photos",
+      description:
+        "Any of `rating` (1-5), `flag` (`pick` or `reject`) and colour `label`; null clears one, and a field left out stays as it is. `changeId` names the change as Lifer lists it in Settings > Connected apps, where the user can undo it; null when nothing changed. At most 600 changes a minute per app.",
+    },
+  },
+  "/userdata/v1/species/{id}/card-crop": {
+    put: {
+      summary: "Set the crop of a species' featured photo",
+      description:
+        "Body `{ x, y, size }` in percent of the photo. 404 when the species has no featured photo. Undoable in Lifer.",
+    },
+  },
+  "/userdata/v1/species/{id}/needs-better-photo": {
+    put: {
+      summary: "Mark a species as needing a better photo",
+      description: "Lifer shows the mark on the species page and as a Collection filter. Undoable in Lifer.",
+    },
+    delete: { summary: "Clear the needs-a-better-photo mark" },
+  },
+
+  // --- Regional species lists, for companion apps ---
+  "/opendata/v1/regions": {
+    get: {
+      summary: "Regions installed in Lifer",
+      description:
+        "The regions whose species lists the user has downloaded: `id`, `name`, `countryCode`, `bounds` (the box around the region's outline, null when unknown) and `speciesCount`.",
+    },
+  },
+  "/opendata/v1/regions/at": {
+    get: {
+      summary: "Installed regions holding a point",
+      description:
+        "Give `lat` and `lon`. Returns the installed regions that contain the point, most specific first (a province before its country). Empty when none is installed there.",
+    },
+  },
+  "/opendata/v1/regions/tree": {
+    get: {
+      summary: "Every region in the catalog",
+      description:
+        "Installed or not, for browsing and searching by name: `id`, `name`, `parentId`, `countryCode`, `aliases`, `hasChildren`, `hasChecklist` and `installed` (whether it is among GET /opendata/v1/regions). Countries come first, then each level by name.",
+    },
+  },
+  "/opendata/v1/regions/{id}/checklist": {
+    get: {
+      summary: "A region's species list",
+      description:
+        "Every species on the region's list with `scientificName`, `commonName`, `taxonClass`, `ebirdCode`, `tier`, `isVagrant` and `sensitiveByDefault`. 404 for an unknown region.",
+    },
+  },
+  "/opendata/v1/gallery-vectors": {
+    get: {
+      summary: "Openly licensed reference vectors",
+      description:
+        "Gallery photo vectors whose photos are CC0, Public Domain Mark or CC BY, oldest first, each with `embedding`, `license`, `photographer` and `sourceUrl`. Page with `nextCursor`; pass the last `updatedAt` as `since` to fetch only new ones later. 409 `model_mismatch` when `space` isn't the model Lifer matches in.",
+    },
+  },
+  "/opendata/v1/attribution": {
+    get: {
+      summary: "Credits for the open reference vectors",
+      description:
+        "The same items as GET /opendata/v1/gallery-vectors without the vectors: `photographer`, `license` and `sourceUrl` of each photo, paged the same way.",
+    },
+  },
+  "/opendata/v1/species/names": {
+    post: {
+      summary: "Lifer's names for scientific names",
+      description:
+        "Send up to 2000 `scientificNames`; each one Lifer knows, directly or as a superseded name, comes back with its `canonicalScientificName`, `commonName`, `ebirdCode` and `abaCode`. Names Lifer doesn't know are left out. No user data.",
+    },
+  },
+  "/opendata/v1/species/rank": {
+    post: {
+      summary: "Species ranked for one photo",
+      description:
+        "Body `{ model, regionId, vectors, takenAt?, limit? }`: up to 4 image embeddings of one subject from the model named in `model`, ranked with Lifer's own matching within `regionId`'s list (null for the user's own species), best first, `limit` 1-20. Uses openly licensed reference photos and the user's own photos only, with no tier or seasonality weighting, so weigh abundance yourself. Empty when the user turned species suggestions off. 409 `model_mismatch` when `model` isn't the one Lifer ranks in.",
+    },
+  },
+  "/opendata/v1/species/rank-batch": {
+    post: {
+      summary: "Species ranked for many photos at once",
+      description:
+        "POST /opendata/v1/species/rank for up to 16 subjects in one request: `items` each hold `vectors` and `takenAt`, sharing one `model`, `regionId` and `limit`. `results` come back in the same order, each exactly what the single route answers for that item. 409 `model_mismatch` when `model` isn't the one Lifer ranks in.",
+    },
+  },
+
+  // --- Opening a connected app inside Lifer (desktop app) ---
+  "/plugins/v1/host-preference": {
+    get: {
+      summary: "Whether the app opens inside Lifer",
+      description:
+        "`openInHost` for the connected app behind the key. Desktop app only (404 on a server); 403 for a key the user made by hand.",
+    },
+  },
+  "/plugins/v1/host-preference/request": {
+    post: {
+      summary: "Ask to open inside Lifer, or to stop",
+      description:
+        "Body `{ openInHost }`. Lifer asks the person in its window and the answer waits for their choice: `granted` and the `openInHost` now in effect. Asking for what's already set answers at once. Desktop app only; at most 10 calls a minute per app.",
+    },
+  },
+  "/plugins/v1/host/open": {
+    post: {
+      summary: "Bring Lifer forward showing the app",
+      description:
+        "Body `{ pluginId }`, the app's own id: an app opens only itself, and only once the person allowed opening inside Lifer (403 otherwise). `ok` false with `reason` `busy` (a dialog is waiting), `not_ready` (the window didn't show the app in time) or `no_frame` (Lifer's window isn't open on this library). Desktop app only; at most 10 calls a minute per app.",
+    },
+  },
+
+  "/imports/v1/folders": {
+    post: {
+      summary: "Import a folder of photos (desktop app)",
+      description:
+        "Starts a background import of a folder on the same computer: ratings, picks, labels and species keywords in the files' XMP are read as in Lifer's own import, and photos Lifer already has are skipped. `mode` `in-place` leaves the files where they are, but only inside a folder or drive Lifer already knows; anywhere else (or with `copy`) Lifer files a copy by species and the answer's `mode` says which happened. 409 while another import runs.",
+    },
+  },
+  "/imports/v1/species-lookup": {
+    post: {
+      summary: "Find species ids by scientific name",
+      description:
+        "For imports: send up to 500 scientific names, get back `matches` (`name` as sent, `speciesId`, current `scientificName`, `match` `exact` or `synonym`) and `unmatched`. Case-insensitive; only current names and superseded names match, and nothing else from the catalog is returned. Use the `speciesId` in POST /uploads.",
+    },
+  },
+  "/imports/v1/jobs/{id}": {
+    get: {
+      summary: "Progress of a folder import",
+      description:
+        "Counts of photos looked at, imported, already in Lifer, skipped and waiting for review. 404 for any id but the latest import's.",
+    },
+  },
+
   // --- Checklist additions ---
   "/regions/{regionId}/checklist-additions/{speciesId}": {
     put: {
@@ -119,6 +298,22 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
   "/photos/{id}/thumb": { get: { summary: "Thumbnail (WebP)", binary: "image/webp" } },
   "/photos/{id}/display": { get: { summary: "Display-size image (WebP)", binary: "image/webp" } },
   "/photos/{id}/medium": { get: { summary: "Grid-size image, 1,024px (WebP)", binary: "image/webp" } },
+  "/photos/{id}/phone": { get: { summary: "Phone full-screen image, 2,048px long edge (WebP)", binary: "image/webp" } },
+  "/photos/{id}/full": {
+    get: {
+      summary: "Full-resolution JPEG",
+      description:
+        "The JPEG original, or a JPEG rendered from the other original or a RAW's preview, kept for an hour. 409 when its drive is not connected.",
+      binary: "image/jpeg",
+    },
+  },
+  "/photos/{id}/card": {
+    get: {
+      summary: "Species card image (WebP)",
+      description: "A square cut to a card crop and scaled to `w` pixels, as the species cards show it.",
+      binary: "image/webp",
+    },
+  },
   "/photos/{id}/original": {
     get: {
       summary: "Original file",
@@ -131,6 +326,14 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
     get: { summary: "Original RAW file, when the photo has one", binary: "application/octet-stream" },
   },
   "/photos/{id}/video": { get: { summary: "Video file (supports Range requests)", binary: "video/*" } },
+  "/photos/{id}/audio": { get: { summary: "Sound recording file (supports Range requests)", binary: "audio/*" } },
+  "/photos/{id}/frame": {
+    post: {
+      summary: "Save one frame of a video as a new photo",
+      description:
+        "Send `atSeconds`. The frame is saved at the video's full size and filed like any imported photo, with the video's species, region, trip and place. 200 with the existing photo for an exact copy you already have. 400 when no frame can be read at that time, 404 when the photo isn't a video, 409 when its drive isn't connected.",
+    },
+  },
 
   // --- Importing and editing photos ---
   "/uploads": {
@@ -139,7 +342,7 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
       description:
         "multipart/form-data. Accepted photos: " +
         ACCEPTED_FORMATS_TEXT +
-        '. A camera RAW (or a TIFF holding sensor data) can also be sent on its own. The file\'s own metadata (capture time, GPS, camera, star rating) is read on import. With `skipDuplicates=1`, an exact copy you already have returns that photo (200, `duplicate: true`) instead of a second one. `cullMarks` decides what happens to a photo a culling app rejected (xmp:Rating -1, a Lightroom, digiKam, Vireo or SuperPicky reject flag): `ignore` (the default) imports it, `skip` answers 200 with `skipped: "rejected"` and imports nothing, `hide` imports it hidden (`hidden: true`, out of the gallery and life list until unhidden). A verdict on `rawFile` counts for `file` too. The file is only read, never changed. Instead of `file`, send `uploadId` (a finished resumable upload, see /uploads/tus) or, after POST /uploads/inspect, `stagedId` with `fileName` and `fileType` to import the copy the server kept. 410 means that copy is gone (expired, already imported or never finished), so send the file again; 409 means the same upload is being imported by another request.',
+        '. A camera RAW (or a TIFF holding sensor data) can also be sent on its own. The file\'s own metadata (capture time, GPS, camera, star rating) is read on import. With `skipDuplicates=1`, an exact copy you already have returns that photo (200, `duplicate: true`) instead of a second one. `cullMarks` decides what happens to a photo a culling app rejected (xmp:Rating -1, a Lightroom, digiKam, Vireo or SuperPicky reject flag): `ignore` (the default) imports it, `skip` answers 200 with `skipped: "rejected"` and imports nothing, `hide` imports it hidden (`hidden: true`, out of the gallery and life list until unhidden). A verdict on `rawFile` counts for `file` too. Send the XMP sidecar of the file or its RAW as `xmpFile` (or `xmpUploadId`) and its rating, pick or reject, colour label and keywords are read as from a sidecar on disk. The 201 answer carries `sha256` (hex SHA-256 of the stored file, and of the duplicate on 200) and `rawSha256` when a RAW came with it, so you can verify the transfer. The file is only read, never changed. Instead of `file`, send `uploadId` (a finished resumable upload, see /uploads/tus) or, after POST /uploads/inspect, `stagedId` with `fileName` and `fileType` to import the copy the server kept. 410 means that copy is gone (expired, already imported or never finished), so send the file again; 409 means the same upload is being imported by another request.',
       multipart: obj(
         {
           file: { type: "string", format: "binary", description: "The photo (or a RAW file on its own)" },
@@ -160,6 +363,8 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
             description:
               "Instead of `file`: a finished resumable upload (the last path segment of its /uploads/tus URL)",
           },
+          xmpFile: { type: "string", format: "binary", description: "Optional XMP sidecar of `file` or `rawFile`" },
+          xmpUploadId: { ...str, description: "Instead of `xmpFile`: the sidecar as a finished resumable upload" },
           rawUploadId: { ...str, description: "Instead of `rawFile`: the RAW as a finished resumable upload" },
           stagedId: { ...str, description: "Instead of `file`: the `stagedId` from POST /uploads/inspect" },
           fileName: {
@@ -184,6 +389,10 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
         file: { type: "string", format: "binary" },
         uploadId: { ...str, description: "Instead of `file`: a finished resumable upload" },
         regionId: uuid,
+        cameraRegion: {
+          ...str,
+          description: "`1`: rank suggestions for the region of the photo's own GPS point, when it has one",
+        },
       }),
     },
   },
@@ -229,6 +438,9 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
   },
   "/species/{id}/split": { post: { summary: "Settle photos under a species that was split" } },
   "/captures/{id}/reassign": { patch: { summary: "Change a photo's species" } },
+  "/captures/{id}/suggestions": {
+    get: { summary: "Other likely species for a photo, from its stored vector. Empty when there is none" },
+  },
   "/captures/{id}/species": { post: { summary: "Add another species shown in the photo" } },
   "/captures/{id}/species/{speciesId}": { delete: { summary: "Remove an additional species" } },
   "/captures/{id}/rating": { patch: { summary: "Set the star rating" } },
@@ -237,10 +449,62 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
   "/captures/{id}/region": {
     patch: { summary: "Set the region and/or location label", description: "A field left out stays as it is." },
   },
+  "/captures/location": {
+    post: {
+      summary: "Set the region and optionally the location label of many photos",
+      description: "Leave locationLabel out to keep each photo's own.",
+    },
+  },
+  "/captures/coordinates": {
+    post: {
+      summary: "Set or clear the GPS coordinates of one or many photos",
+      description:
+        "Send lat and lon in decimal degrees, or both null to clear. The files' GPS follows in the background, in the file for a JPEG and in the sidecar for a RAW. More than 5,000 photos run in the background: background is true and GET /captures/location/status shows progress.",
+    },
+  },
+  "/captures/location/undo": {
+    post: {
+      summary: "Undo the latest location change",
+      description:
+        "Location changes (coordinates, and filing photos under a saved spot) keep a history of 20 steps per user, held until Lifer restarts. Each call puts back one step: point, region, place name, source and accuracy. A placement still running is stopped first. Restored is 0 when there is nothing to undo.",
+    },
+  },
+  "/captures/location/status": {
+    get: {
+      summary: "Progress of a big location change",
+      description:
+        "Placing more than 5,000 photos runs in the background. canUndo says whether POST /captures/location/undo has a step.",
+    },
+  },
+  "/captures/location/cancel": { post: { summary: "Stop a big location change" } },
+  "/captures/taken-at/preview": {
+    post: {
+      summary: "Date range of many photos, before adjusting their time",
+      description: "And how many have no date.",
+    },
+  },
+  "/captures/taken-at/shift": {
+    post: {
+      summary: "Move many photos' date and time by the same amount",
+      description: "Runs in the background; files follow. Undo by sending the opposite minutes.",
+    },
+  },
+  "/captures/taken-at/shift/status": { get: { summary: "Progress of a date and time adjustment" } },
+  "/places": {
+    get: {
+      summary: "Every place name on your photos",
+      description: "With photo counts and each name's most common region. Names in regionId come first.",
+    },
+  },
+  "/places/rename": {
+    post: { summary: "Rename a place name on every photo", description: "Into a name already in use, the two merge." },
+  },
+  "/places/remove": { post: { summary: "Take a place name off every photo", description: "Their regions stay." } },
+  "/places/file-moves/status": { get: { summary: "Progress of files moving after a place rename" } },
 
   // --- Gallery ---
   "/gallery": {
-    get: { summary: "All photos with filters. Unpaged unless limit is given; prefer GET /captures for syncing" },
+    get: { summary: "Photos with filters, a page at a time (up to 500); prefer GET /captures for syncing" },
   },
   "/gallery/ids": {
     get: { summary: "Every capture id matching the GET /gallery filters, with the video and RAW ones listed again" },
@@ -249,6 +513,30 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
   "/gallery/taxa": { get: { summary: "Taxon classes that have photos" } },
   "/gallery/regions-with-photos": { get: { summary: "Regions that have photos" } },
   "/gallery/has-video": { get: { summary: "Whether the library has any videos" } },
+  "/gallery/similar": {
+    get: {
+      summary: "Groups of near-identical photos (bursts and repeats), largest first",
+      description:
+        "Photos of the same species, taken within 15 seconds and almost the same picture, or within 3 minutes and closer still, judged by their stored image vectors. Photos with no date or no vector are never grouped. List a group with GET /gallery?similarTo= its captureId. Lifer only lists them: nothing is changed or deleted.",
+    },
+  },
+  "/gallery/map": {
+    get: {
+      summary: "Where the photos matching the GET /gallery filters are, for a map",
+      description:
+        "Photo counts per country and province (each country's count includes its provinces), and photos with coordinates grouped on a grid of about 100 m. A photo is placed only when it has coordinates: withoutCoordinates counts the ones that need placing, regionOnly those of them that have a region, and each region's regionOnlyCount the ones set to exactly it. A library with more than 20,000 grid cells gets a coarser grid and truncated set to true.",
+    },
+  },
+  "/gallery/map/unplaced": {
+    get: {
+      summary: "The photos that need placing, grouped the way they were shot",
+      description:
+        "The GET /gallery filters, limited to photos without coordinates. Trips first, then sessions (a gap over an hour, a new region or a new day starts the next one); photos with no date are grouped per trip and region. state=region or state=none keeps the photos with only a region, or with no location at all. 50 groups a page.",
+    },
+  },
+  "/gallery/map/unplaced/photos": {
+    get: { summary: "The photos in one group from GET /gallery/map/unplaced, best rated first" },
+  },
 
   // --- Species ---
   "/species": {
@@ -280,6 +568,8 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
   "/stats/photography-dna": { get: { summary: "Shooting habits" } },
   "/stats/species-portfolio": { get: { summary: "Per-species photo coverage" } },
   "/stats/gear-species-breakdown": { get: { summary: "Species by camera and lens" } },
+  "/stats/exif-bucket": { get: { summary: "Every photo behind one EXIF chart bar" } },
+  "/moved-photos/status": { get: { summary: "Whether photos moved on disk were found again, and what needs review" } },
   "/stats/year-comparison": { get: { summary: "Year-over-year comparison" } },
 
   // --- Trips ---
@@ -288,6 +578,15 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
   "/trips/{id}/summary": { get: { summary: "Trip summary" } },
   "/trips/{id}/species": { get: { summary: "Species seen on a trip" } },
   "/trips/{id}/photos": { get: { summary: "Photos from a trip" } },
+  "/trips/{id}/suggestions": {
+    get: {
+      summary: "Photos taken during a trip but in no trip",
+      description: "Photos the user dismissed for this trip, and hidden ones, are left out.",
+    },
+  },
+  "/trips/matching": {
+    post: { summary: "Trips some of these photos were taken during", description: "Body: `{ captureIds }`." },
+  },
   "/trips/{id}/scan-preview": {
     get: {
       summary: "Preview of a file in a trip folder",
@@ -296,9 +595,18 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
     },
   },
   "/trips/{id}/scan/status": { get: { summary: "Trip folder scan progress" } },
+  "/trips/move-files/status": { get: { summary: "Progress of a trip's files moving" } },
   "/trips/{id}/import/status": { get: { summary: "Trip import progress" } },
 
   // --- Albums and shares ---
+  "/portfolio/share": {
+    post: {
+      summary: "Create a public link to your portfolio",
+      description:
+        "The link is returned once, as `token`. A new link replaces the old one, which stops working. 409 on a desktop app, since share links need a Lifer server.",
+    },
+    delete: { summary: "Turn off your portfolio's public link" },
+  },
   "/albums": {
     get: { summary: "Albums" },
     post: { summary: "Create an album" },
@@ -308,9 +616,60 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
     patch: { summary: "Update an album" },
     delete: { summary: "Delete an album (photos are kept)" },
   },
+  "/albums/suggestions": {
+    get: {
+      summary: "Suggested smart albums",
+      description:
+        "Smart albums worth making from your own photos, each with its rules, live photo count and up to 4 preview photos. Nothing is created: post the rules to /albums to make one.",
+    },
+  },
+  "/albums/suggestions/{id}/dismiss": { post: { summary: "Stop suggesting a smart album" } },
+  "/albums/suggestions/{id}/restore": { post: { summary: "Bring back a dismissed smart album suggestion" } },
+  "/pinned-filters": {
+    get: { summary: "Pinned Gallery filters, in order" },
+    put: {
+      summary: "Replace the pinned Gallery filters",
+      description:
+        "Each pin is a name and the same `rules` a smart album takes (version 2, or 1 which is upgraded). The whole list is replaced, so adding, renaming, reordering and unpinning are one call. Up to 50 pins, names up to 80 characters.",
+    },
+  },
+  "/identifications/suggested": {
+    get: {
+      summary: "Photos Lifer filed under a species that you haven't confirmed",
+      description:
+        "Lifer files a photo itself only for a confident match from its region's checklist, and the species counts on the life list marked `suggested` until you confirm. The photos come grouped into encounters (the same species and region with no gap of an hour or more), least sure first. Photos whose species you chose are never listed.",
+    },
+  },
+  "/identifications/suggested/count": {
+    get: {
+      summary: "How many photos wait for review",
+      description: "A count only, cheap enough to poll: the photos GET /identifications/suggested would list.",
+    },
+  },
+  "/identifications/confirm": {
+    post: {
+      summary: "Confirm suggested identifications",
+      description: "Marks the photos' species as yours. Photos already confirmed are left as they are.",
+    },
+  },
+  "/changes": {
+    get: { summary: "The latest recorded assistant changes" },
+    post: {
+      summary: "Record a change with the steps that undo it",
+      description:
+        "For assistants: after changing albums, record what was done and how to reverse it (`deleteAlbum`, or `removeFromAlbum` with the photos that were added). POST /changes/undo-last then reverses the newest change that hasn't been undone.",
+    },
+  },
+  "/changes/undo-last": { post: { summary: "Undo the newest recorded change" } },
   "/albums/{id}/species": { get: { summary: "Species in an album" } },
   "/albums/{id}/captures": { post: { summary: "Add photos to an album" } },
   "/albums/{id}/captures/{captureId}": { delete: { summary: "Remove a photo from an album" } },
+  "/albums/{id}/exclusions": {
+    get: { summary: "Photos left out of a smart album" },
+    post: { summary: "Leave photos out of a smart album" },
+  },
+  "/albums/{id}/exclusions/{captureId}": { delete: { summary: "Put a left-out photo back in a smart album" } },
+  "/albums/{id}/exclusions/restore": { post: { summary: "Put several left-out photos back in a smart album" } },
   "/albums/{id}/cover-crop": { patch: { summary: "Set the album cover crop" } },
   "/albums/{id}/quad-slot": { patch: { summary: "Set a photo in a four-photo album cover" } },
   "/albums/{id}/shares": {
@@ -318,6 +677,9 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
     post: { summary: "Create a share link" },
   },
   "/shares/{id}": { delete: { summary: "Revoke a share link" } },
+  "/shares/{id}/exact-locations": {
+    put: { summary: "Choose whether a share link shows where its photos were taken" },
+  },
 };
 
 // Every error response has this shape: `error` is a message to show a person, and `code`, when
@@ -366,7 +728,8 @@ function parametersOf(schema: unknown, location: "query" | "path" | "header") {
 
 /** The API-key routes, the ones the document describes. */
 export function keyRoutes(routes: Iterable<CatalogRoute>): CatalogRoute[] {
-  return [...routes].filter((r) => r.scope && r.url.startsWith("/api/"));
+  // The "sync" scope is the desktop app's own (auth/apiKeyRoutes.ts), not an integration surface.
+  return [...routes].filter((r) => r.scope && r.scope !== "sync" && r.url.startsWith("/api/"));
 }
 
 /** Options for buildOpenApi. */
@@ -450,7 +813,7 @@ export function buildOpenApi(routes: Iterable<CatalogRoute>, { internal = false 
       description:
         "Routes an API key can reach on a Lifer server. Create keys under Settings > Account > API keys and send them as the `x-api-key` header. Each key only works for the scopes it was given (`x-required-scope` on each operation). See the API guide at https://sparklysparkspark.github.io/lifer-app/api/overview.",
     },
-    servers: [{ url: "/api" }],
+    servers: [{ url: "/api/v1" }],
     components: {
       securitySchemes: { apiKey: { type: "apiKey", in: "header", name: "x-api-key" } },
       schemas: { Error: ErrorBody },

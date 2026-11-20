@@ -7,6 +7,7 @@ import { pool } from "@lifer/core/db.js";
 import { Nullable, Uuid, replies, routeCatalog, withSchemas } from "../lib/schema.js";
 import { requireScope } from "../auth/session.js";
 import { buildOpenApi } from "./openapi.js";
+import { sensitiveForKey } from "../companion/privacy.js";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -68,7 +69,7 @@ const CaptureItem = Type.Object({
   }),
   rating: Nullable(Type.Integer({ description: "1-5" })),
   tags: Type.Array(Type.String()),
-  kind: Type.Enum(["image", "video"]),
+  kind: Type.Enum(["image", "video", "audio"]),
   width: IntNull,
   height: IntNull,
   originals: Type.Object({ jpeg: OriginalFile, raw: OriginalFile, video: OriginalFile }),
@@ -90,6 +91,9 @@ const LifeListSpecies = Type.Object({
   firstCollected: TimeNull(),
   lastPhotographed: TimeNull(),
   photoCount: Type.Integer(),
+  suggested: Type.Boolean({
+    description: "True while every photo of the species was filed by Lifer and none is confirmed yet",
+  }),
   bestRating: IntNull,
   coverPhotoId: Nullable(Uuid()),
   coverImage: StrNull,
@@ -100,6 +104,8 @@ const LifeListSummary = Type.Object({
   seenOnlySpecies: Type.Integer(),
   photos: Type.Integer(),
   newThisYear: Type.Integer(),
+  suggestedCount: Type.Integer({ description: "Photos Lifer filed that you haven't confirmed" }),
+  suggestedSpecies: Type.Integer({ description: "Photographed species counted only on suggested photos" }),
   byTaxonClass: Type.Record(Type.String(), Type.Integer()),
   latestLifer: Nullable(
     Type.Object({
@@ -196,6 +202,11 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
       );
       const rows = res.rows.slice(0, limit);
       const last = rows[rows.length - 1];
+      // A sensitive species' photo comes by region only, as on a share.
+      const hidden = await sensitiveForKey(
+        request,
+        rows.map((r) => ({ capture_id: r.id, species_id: r.species_id, region_id: r.region_id })),
+      );
       const original = (ref: string | null, size: string | number | null, hash: string | null) =>
         ref ? { fileName: fileName(ref), sizeBytes: size != null ? Number(size) : null, sha256: hash } : null;
 
@@ -212,11 +223,11 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
           createdAt: r.created_at,
           updatedAt: r.updated_at,
           deletedAt: r.deleted_at,
-          lat: r.lat != null ? Number(r.lat) : null,
-          lon: r.lon != null ? Number(r.lon) : null,
+          lat: r.lat != null && !hidden?.has(r.id) ? Number(r.lat) : null,
+          lon: r.lon != null && !hidden?.has(r.id) ? Number(r.lon) : null,
           regionId: r.region_id,
           regionName: r.region_name,
-          locationLabel: r.location_label,
+          locationLabel: hidden?.has(r.id) ? null : r.location_label,
           tripId: r.trip_id,
           camera: {
             model: r.camera_model,
@@ -274,7 +285,10 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
         `SELECT s.id, s.scientific_name, s.common_name, s.taxon_class, s.family, us.state, us.first_collected,
                 us.cover_photo_id, us.best_quality,
                 (SELECT count(*)::int FROM captures c WHERE c.user_id = $1 AND c.species_id = s.id) AS photo_count,
-                (SELECT max(c.taken_at) FROM captures c WHERE c.user_id = $1 AND c.species_id = s.id) AS last_photographed
+                (SELECT max(c.taken_at) FROM captures c WHERE c.user_id = $1 AND c.species_id = s.id) AS last_photographed,
+                EXISTS (SELECT 1 FROM captures c WHERE c.user_id = $1 AND c.species_id = s.id)
+                  AND NOT EXISTS (SELECT 1 FROM captures c WHERE c.user_id = $1 AND c.species_id = s.id
+                                  AND c.identification_state = 'confirmed') AS suggested
          FROM user_species us JOIN species s ON s.id = us.species_id
          WHERE us.user_id = $1 AND us.state = ANY($2) ${taxonFilter}
          ORDER BY us.first_collected NULLS LAST, s.scientific_name`,
@@ -291,6 +305,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
           firstCollected: r.first_collected,
           lastPhotographed: r.last_photographed,
           photoCount: r.photo_count,
+          suggested: r.suggested,
           bestRating: r.best_quality,
           coverPhotoId: r.cover_photo_id,
           coverImage: r.cover_photo_id ? `/api/photos/${r.cover_photo_id}/display` : null,
@@ -315,11 +330,22 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
     },
     async (request, reply) => {
       const userId = request.user!.id;
-      const totals = await pool.query<{ photographed: number; seen: number; photos: number }>(
+      const totals = await pool.query<{
+        photographed: number;
+        seen: number;
+        photos: number;
+        suggested_photos: number;
+        suggested_species: number;
+      }>(
         `SELECT count(*) FILTER (WHERE state = 'collected')::int AS photographed,
                 count(*) FILTER (WHERE state = 'seen')::int AS seen,
-                (SELECT count(*)::int FROM captures WHERE user_id = $1) AS photos
-         FROM user_species WHERE user_id = $1`,
+                (SELECT count(*)::int FROM captures WHERE user_id = $1) AS photos,
+                (SELECT count(*)::int FROM captures WHERE user_id = $1 AND identification_state = 'suggested') AS suggested_photos,
+                count(*) FILTER (WHERE state = 'collected' AND EXISTS (SELECT 1 FROM captures c WHERE c.user_id = $1
+                    AND c.species_id = us.species_id AND c.identification_state = 'suggested')
+                  AND NOT EXISTS (SELECT 1 FROM captures c WHERE c.user_id = $1 AND c.species_id = us.species_id
+                    AND c.identification_state = 'confirmed'))::int AS suggested_species
+         FROM user_species us WHERE user_id = $1`,
         [userId],
       );
       const byGroup = await pool.query<{ taxon_class: string; n: number }>(
@@ -363,6 +389,8 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
         seenOnlySpecies: totals.rows[0].seen,
         photos: totals.rows[0].photos,
         newThisYear: thisYear.rows[0].n,
+        suggestedCount: totals.rows[0].suggested_photos,
+        suggestedSpecies: totals.rows[0].suggested_species,
         byTaxonClass: Object.fromEntries(byGroup.rows.map((g) => [g.taxon_class, g.n])),
         latestLifer: l
           ? {

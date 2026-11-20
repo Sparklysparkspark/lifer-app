@@ -11,6 +11,9 @@ import { useToast } from "../hooks/useToast";
 import { docsUrl } from "../lib/docs";
 import { errorMessage } from "../lib/errorMessage";
 import { formatDate, formatList } from "../lib/format";
+import TextField from "../components/TextField";
+import Checkbox from "../components/Checkbox";
+import Panel from "../components/Panel";
 
 const API_GUIDE_URL = docsUrl("/api/overview");
 
@@ -28,6 +31,11 @@ const SCOPE_GROUPS: Array<{ labelKey: string; read?: Scope; write?: Scope }> = [
   { labelKey: "apiKeys.scopes.photos", read: "photos.read", write: "photos.write" },
   // write = adding species to region checklists yourself.
   { labelKey: "apiKeys.scopes.lifeList", read: "collection.read", write: "collection.write" },
+  // Companion apps: your own marks and photos with no catalog data (write = ratings, featured photos and
+  // the "needs a better photo" mark); importing new photos.
+  { labelKey: "apiKeys.scopes.yourData", read: "userdata.read", write: "userdata.write" },
+  { labelKey: "apiKeys.scopes.imports", write: "imports.write" },
+  { labelKey: "apiKeys.scopes.openData", read: "opendata.read" },
 ];
 
 type ApiKey = ApiResponse<"/api-keys">["keys"][number];
@@ -122,18 +130,19 @@ export default function ApiKeysPage() {
         backFallbackTo="/settings"
         backLabel={t("apiKeys.backLabel")}
         actions={
-          <Button size="sm" onClick={() => setCreating((c) => !c)}>
+          <Button size="sm" variant={creating ? "secondary" : "primary"} onClick={() => setCreating((c) => !c)}>
             {creating ? t("common.cancel") : t("apiKeys.newKey")}
           </Button>
         }
       >
-        <p className="text-sm text-muted">
+        <p className="text-callout text-muted">
           <Trans
             i18nKey="apiKeys.intro"
             components={{
               guide: (
                 <a
                   href={API_GUIDE_URL}
+                  // eslint-disable-next-line no-restricted-syntax -- baseline, migrate to openExternal() or a shared link component
                   target="_blank"
                   rel="noreferrer"
                   className="font-medium text-accent hover:underline"
@@ -142,6 +151,7 @@ export default function ApiKeysPage() {
               openapi: (
                 <a
                   href="/api/openapi.json"
+                  // eslint-disable-next-line no-restricted-syntax -- baseline, migrate to openExternal() or a shared link component
                   target="_blank"
                   rel="noreferrer"
                   className="font-medium text-accent hover:underline"
@@ -155,31 +165,32 @@ export default function ApiKeysPage() {
       <main className="mx-auto max-w-2xl space-y-section p-page">
         {revealedToken && (
           <div className="rounded-panel border border-accent bg-surface p-panel">
-            <p className="text-sm font-semibold text-ink">{t("apiKeys.revealed.title")}</p>
-            <p className="mt-1 text-xs text-muted">{t("apiKeys.revealed.description")}</p>
+            <p className="text-callout font-semibold text-ink">{t("apiKeys.revealed.title")}</p>
+            <p className="mt-1 text-footnote text-muted">{t("apiKeys.revealed.description")}</p>
             <div className="mt-2 flex items-center gap-2">
-              <code className="flex-1 overflow-x-auto rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink">
+              <code className="flex-1 overflow-x-auto rounded-control border border-line bg-surface-muted px-3 py-2 text-footnote text-ink">
                 {revealedToken}
               </code>
               <Button variant="secondary" size="sm" onClick={() => void copyToken(revealedToken)}>
                 {t("apiKeys.copy")}
               </Button>
             </div>
-            <button onClick={() => setRevealedToken(null)} className="mt-3 text-xs text-muted underline">
+            <Button variant="link" size="sm" onClick={() => setRevealedToken(null)} className="mt-3">
               {t("common.done")}
-            </button>
+            </Button>
           </div>
         )}
 
         {creating && (
-          <form onSubmit={createKey} className="space-y-item rounded-panel border border-line bg-surface p-panel">
-            <p className="text-xs text-muted">
+          <Panel as="form" onSubmit={createKey} className="space-y-item">
+            <p className="text-footnote text-muted">
               <Trans
                 i18nKey="apiKeys.form.permissionsHint"
                 components={{
                   guide: (
                     <a
                       href={API_GUIDE_URL}
+                      // eslint-disable-next-line no-restricted-syntax -- baseline, migrate to openExternal() or a shared link component
                       target="_blank"
                       rel="noreferrer"
                       className="font-medium text-accent hover:underline"
@@ -189,42 +200,31 @@ export default function ApiKeysPage() {
               />
             </p>
             <div>
-              <label className="mb-1 block text-sm font-medium text-ink">{t("apiKeys.form.name")}</label>
-              <input
+              <label className="mb-1 block text-callout font-medium text-ink">{t("apiKeys.form.name")}</label>
+              <TextField
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t("apiKeys.form.namePlaceholder")}
                 autoFocus
                 required
-                className="w-full rounded-md border border-line px-3 py-2 text-sm"
               />
             </div>
             <div>
-              <p className="mb-2 text-sm font-medium text-ink">{t("apiKeys.form.permissions")}</p>
+              <p className="mb-2 text-callout font-medium text-ink">{t("apiKeys.form.permissions")}</p>
               <div className="space-y-1.5">
                 {SCOPE_GROUPS.map((group) => (
-                  <div key={group.labelKey} className="flex items-center gap-4 text-sm text-ink">
+                  <div key={group.labelKey} className="flex items-center gap-4 text-callout text-ink">
                     <span className="w-20 shrink-0">{t(group.labelKey)}</span>
                     {group.read && (
-                      <label className="flex items-center gap-1.5">
-                        <input
-                          type="checkbox"
-                          checked={selected.has(group.read)}
-                          onChange={() => toggle(group.read!)}
-                        />
+                      <Checkbox checked={selected.has(group.read)} onChange={() => toggle(group.read!)}>
                         {t("apiKeys.form.read")}
-                      </label>
+                      </Checkbox>
                     )}
                     {group.write && (
-                      <label className="flex items-center gap-1.5">
-                        <input
-                          type="checkbox"
-                          checked={selected.has(group.write)}
-                          onChange={() => toggle(group.write!)}
-                        />
+                      <Checkbox checked={selected.has(group.write)} onChange={() => toggle(group.write!)}>
                         {t("apiKeys.form.write")}
-                      </label>
+                      </Checkbox>
                     )}
                   </div>
                 ))}
@@ -234,7 +234,7 @@ export default function ApiKeysPage() {
             <Button type="submit" disabled={!name.trim() || selected.size === 0} loading={saving}>
               {saving ? t("apiKeys.form.creating") : t("apiKeys.form.create")}
             </Button>
-          </form>
+          </Panel>
         )}
 
         {loadError ? (
@@ -267,15 +267,15 @@ export default function ApiKeysPage() {
                 }
                 title={t("apiKeys.empty.title")}
                 description={t("apiKeys.empty.description")}
-                action={{ label: t("apiKeys.newKey"), onClick: () => setCreating(true) }}
               />
-              <p className="text-center text-sm text-muted">
+              <p className="text-center text-callout text-muted">
                 <Trans
                   i18nKey="apiKeys.empty.guideHint"
                   components={{
                     guide: (
                       <a
                         href={API_GUIDE_URL}
+                        // eslint-disable-next-line no-restricted-syntax -- baseline, migrate to openExternal() or a shared link component
                         target="_blank"
                         rel="noreferrer"
                         className="font-medium text-accent hover:underline"
@@ -287,27 +287,29 @@ export default function ApiKeysPage() {
             </>
           )
         ) : (
-          <ul className="divide-y divide-line rounded-panel border border-line bg-surface">
+          <Panel as="ul" grouped>
             {keys.map((key) => (
               <li key={key.id} className="flex items-center justify-between gap-3 p-4">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-ink">{key.name}</p>
-                  <p className="mt-0.5 truncate text-xs text-muted">{formatList(key.permissions, "unit")}</p>
-                  <p className="mt-0.5 text-xs text-muted">
+                  <p className="text-callout font-medium text-ink">{key.name}</p>
+                  <p className="mt-0.5 truncate text-footnote text-muted">{formatList(key.permissions, "unit")}</p>
+                  <p className="mt-0.5 text-footnote text-muted">
                     {key.lastUsedAt
                       ? t("apiKeys.lastUsed", { date: formatDate(key.lastUsedAt) })
                       : t("apiKeys.neverUsed")}
                   </p>
                 </div>
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => void revoke(key)}
-                  className="shrink-0 rounded-md border border-line px-3 py-1.5 text-xs text-rose-700 hover:bg-surface-muted dark:text-rose-400"
+                  className="shrink-0 text-rose-700 dark:text-rose-400"
                 >
                   {t("apiKeys.revoke")}
-                </button>
+                </Button>
               </li>
             ))}
-          </ul>
+          </Panel>
         )}
       </main>
     </div>

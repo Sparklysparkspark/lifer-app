@@ -64,6 +64,25 @@ describe("API documentation", () => {
     expect(stale).toEqual([]);
   });
 
+  // Integrations get every filter, sort and search, plus smart albums, suggestions, similar groups
+  // and the map, each behind a scope.
+  it("offers the gallery, smart album, suggestion, similar and map routes to keys", () => {
+    const offered = new Set(routes.map((r) => `${r.scope} ${r.method} ${r.url}`));
+    for (const route of [
+      "gallery.read GET /api/gallery",
+      "gallery.read GET /api/gallery/search",
+      "gallery.read GET /api/gallery/similar",
+      "gallery.read GET /api/gallery/map",
+      "album.read GET /api/albums/suggestions",
+      "album.write POST /api/albums",
+      "album.write PATCH /api/albums/:id",
+      "album.write DELETE /api/albums/:id",
+      "album.read GET /api/pinned-filters",
+      "album.write PUT /api/pinned-filters",
+    ])
+      expect(offered).toContain(route);
+  });
+
   it("only uses scopes a key can actually be given", () => {
     const scopes = new Set<string>(API_KEY_SCOPES);
     expect([...new Set(routes.map((r) => r.scope))].filter((s) => !scopes.has(s!))).toEqual([]);

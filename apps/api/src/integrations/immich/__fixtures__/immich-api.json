@@ -1,0 +1,64 @@
+{
+  "GET /api/server/version": { "major": 1, "minor": 132, "patch": 3 },
+  "GET /api/users/me": { "id": "8f0f8c4e-1f5b-4b7e-9a51-6f6d1c2b9a10", "email": "owner@example.com", "name": "Owner" },
+  "GET /api/albums": [
+    { "id": "a1b2c3d4-0000-4000-8000-000000000001", "albumName": "Birds 2024", "assetCount": 5 },
+    { "id": "a1b2c3d4-0000-4000-8000-000000000002", "albumName": "Family", "assetCount": 120 }
+  ],
+  "GET /api/albums/a1b2c3d4-0000-4000-8000-000000000001": {
+    "id": "a1b2c3d4-0000-4000-8000-000000000001",
+    "albumName": "Birds 2024",
+    "assetCount": 5,
+    "assets": [
+      {
+        "id": "0e9a7f10-0000-4000-8000-00000000000a",
+        "type": "IMAGE",
+        "checksum": "q83vEjRWeJq83vEjRWeJq83vEjQ=",
+        "originalFileName": "Immichia testensis 1.jpg",
+        "updatedAt": "2024-05-01T10:00:00.000Z",
+        "isTrashed": false,
+        "exifInfo": { "fileSizeInByte": 4096 }
+      },
+      {
+        "id": "0e9a7f10-0000-4000-8000-00000000000b",
+        "type": "IMAGE",
+        "checksum": "q83vEjRWeJq83vEjRWeJq83vEjQ=",
+        "originalFileName": "Immichia testensis 1 (copy).jpg",
+        "updatedAt": "2024-05-01T10:00:01.000Z",
+        "isTrashed": false,
+        "exifInfo": { "fileSizeInByte": 4096 }
+      },
+      {
+        "id": "0e9a7f10-0000-4000-8000-00000000000c",
+        "type": "VIDEO",
+        "checksum": "3q2+7wAAAAAAAAAAAAAAAAAAAAA=",
+        "originalFileName": "clip.mp4",
+        "updatedAt": "2024-05-01T10:00:02.000Z",
+        "isTrashed": false,
+        "exifInfo": { "fileSizeInByte": 9000000 }
+      },
+      {
+        "id": "0e9a7f10-0000-4000-8000-00000000000d",
+        "type": "IMAGE",
+        "checksum": "u7u7u7u7u7u7u7u7u7u7u7u7u7s=",
+        "originalFileName": "IMG_0001.jpg",
+        "updatedAt": "2024-05-01T10:00:03.000Z",
+        "isTrashed": false,
+        "exifInfo": { "fileSizeInByte": 4096 }
+      },
+      {
+        "id": "0e9a7f10-0000-4000-8000-00000000000e",
+        "type": "IMAGE",
+        "checksum": "zMzMzMzMzMzMzMzMzMzMzMzMzMw=",
+        "originalFileName": "already in lifer.jpg",
+        "updatedAt": "2024-05-01T10:00:04.000Z",
+        "isTrashed": false,
+        "exifInfo": { "fileSizeInByte": 4096 }
+      }
+    ]
+  },
+  "GET /api/tags": [],
+  "PUT /api/tags": [
+    { "id": "7a6b5c4d-0000-4000-8000-0000000000f1", "name": "Immich Test Heron", "value": "Lifer/Immich Test Heron" }
+  ]
+}
