@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "Lifer",
+    "slug": "lifer",
+    "version": "0.11.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "app.lifer.mobile",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Lifer looks for your computer on this Wi-Fi so your life list can sync.",
+        "NSBonjourServices": ["_lifer-companion._tcp"]
+      },
+      "icon": {
+        "light": "./assets/icon.png",
+        "dark": "./assets/icon-dark.png"
+      }
+    },
+    "android": {
+      "package": "app.lifer.mobile",
+      "predictiveBackGestureEnabled": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#F6EEDC"
+      }
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Lifer uses the camera to read the pairing code shown on your computer, and to take a photo you want to check against your list. Photos stay on this phone.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": false
+        }
+      ],
+      "./plugins/withNoMlKit",
+      "./plugins/withOnnxRuntimeBridgeless"
+    ],
+    "icon": "./assets/icon.png"
+  }
+}

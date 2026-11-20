@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lifer phone mockups</title>
+<style>
+/* Mockups for docs/plans/mobile-ux-plan.md. Static, no network. Real Lifer tokens from apps/web/src/theme.css. */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --page:#ece6d8;--page-ink:#242c34;--page-muted:#5f6b6f;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--page:#0c0d0e;--page-ink:#eceae5;--page-muted:#a9aca9}}
+:root[data-theme="dark"]{--page:#0c0d0e;--page-ink:#eceae5;--page-muted:#a9aca9}
+body{background:var(--page);color:var(--page-ink);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
+.doc{max-width:1900px;margin:0 auto;padding:48px 16px 80px}
+.doc>h1{font-size:34px;font-weight:700;letter-spacing:.2px}
+.doc>p{color:var(--page-muted);font-size:17px;line-height:1.45;max-width:760px;margin-top:8px}
+.legend{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:16px;font-size:14px;color:var(--page-muted)}
+.blocks{display:flex;flex-wrap:wrap;gap:56px 28px;margin-top:40px}
+.block{flex:0 0 auto;max-width:100%}
+.block h2{font-size:22px;font-weight:700}
+.block>p{font-size:15px;line-height:1.45;color:var(--page-muted);max-width:888px;margin:4px 0 18px}
+.phones{display:flex;gap:40px;flex-wrap:wrap}
+.cap{font-size:13px;color:var(--page-muted);text-align:center;margin-top:10px}
+.dev{width:424px;height:896px;border-radius:72px;background:#16171a;padding:11px;box-shadow:0 0 0 1.5px #3a3c40,0 30px 60px -20px rgba(0,0,0,.35)}
+
+/* Phone themes */
+.ph{width:402px;height:874px;border-radius:61px;overflow:hidden;position:relative;background:var(--canvas);color:var(--ink);font-size:17px;line-height:22px;letter-spacing:-.2px}
+.light{--canvas:#f6eedc;--surface:#fbf7ee;--surface-muted:#f1e8d4;--line:#e6dcc6;--ink:#242c34;--muted:#5f6b6f;--accent:#68745e;--accent-fg:#fff;--link:#4e5a45;--control:#fff;
+  --fill:rgba(120,100,60,.11);--glass:rgba(253,250,243,.66);--glass-edge:rgba(255,255,255,.9);--glass-shadow:rgba(60,50,30,.13);--sel:rgba(104,116,94,.16);--sep:rgba(60,50,30,.11);--scrim:rgba(40,35,25,.18);--sheet:#fbf7ee;--glass-bar:rgba(253,250,243,.8);--tab-on:#68745e;--accent-tint:rgba(104,116,94,.14);
+  --t-birds:#4d6b4a;--t-mammals:#925639;--t-reptiles:#5c6928;--t-amph:#356f65;--t-fish:#3b6580;--t-insects:#895f18;--t-arach:#80506a;--t-other:#65655e}
+.dark{--canvas:#141516;--surface:#1c1e1f;--surface-muted:#25282a;--line:#34383b;--ink:#eceae5;--muted:#a9aca9;--accent:#68745e;--accent-fg:#fff;--link:#b3c0a5;--control:#2a2d2f;
+  --fill:rgba(120,124,128,.22);--glass:rgba(42,45,47,.62);--glass-edge:rgba(255,255,255,.14);--glass-shadow:rgba(0,0,0,.4);--sel:rgba(179,192,165,.18);--sep:rgba(255,255,255,.1);--scrim:rgba(0,0,0,.4);--sheet:#1c1e1f;--glass-bar:rgba(40,43,45,.8);--tab-on:#b3c0a5;--accent-tint:rgba(179,192,165,.14);
+  --t-birds:#a7c79f;--t-mammals:#e0a583;--t-reptiles:#c3d174;--t-amph:#86cbbd;--t-fish:#8fb7d4;--t-insects:#e6bb62;--t-arach:#d3a3bf;--t-other:#b6b6ad}
+
+svg.i{width:22px;height:22px;flex:none;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+svg.f{fill:currentColor;stroke:none}
+
+/* Status bar, island, home indicator */
+.sb{position:absolute;top:0;left:0;right:0;height:54px;z-index:40;color:var(--ink);pointer-events:none}
+.sb.w{color:#fff}
+.sb .tm{position:absolute;left:51px;top:17px;font-weight:600;font-size:17px;letter-spacing:-.3px}
+.sb .ic{position:absolute;right:30px;top:19px;display:flex;gap:6px;align-items:center}
+.di{position:absolute;top:11px;left:50%;width:126px;height:37px;margin-left:-63px;border-radius:20px;background:#000;z-index:41}
+.hi{position:absolute;bottom:8px;left:50%;width:140px;height:5px;margin-left:-70px;border-radius:3px;background:var(--ink);z-index:42}
+.hi.w{background:#fff}
+
+/* Glass */
+.glass{background:var(--glass);-webkit-backdrop-filter:blur(18px) saturate(1.7);backdrop-filter:blur(18px) saturate(1.7);box-shadow:inset 0 0 0 .6px var(--glass-edge),0 6px 22px -6px var(--glass-shadow)}
+.glass.dk{--glass:rgba(40,40,40,.5);--glass-edge:rgba(255,255,255,.18);color:#fff}
+
+/* Nav bar */
+.nav{position:absolute;top:54px;left:0;right:0;height:52px;display:flex;align-items:center;gap:10px;padding:0 16px;z-index:30}
+.nav .sp{flex:1}
+.gb{width:44px;height:44px;border-radius:22px;display:grid;place-items:center;color:var(--ink)}
+.gcap{height:44px;border-radius:22px;display:flex;align-items:center;color:var(--ink)}
+.gcap>span{width:44px;height:44px;display:grid;place-items:center}
+.gtxt{height:44px;border-radius:22px;padding:0 16px;display:flex;align-items:center;font-weight:600;font-size:17px;color:var(--ink)}
+.topfade{position:absolute;left:0;right:0;top:0;height:118px;z-index:20;background:linear-gradient(var(--canvas) 0,var(--canvas) 50%,transparent);pointer-events:none}
+.content{position:absolute;inset:0;padding-top:106px;overflow:hidden}
+.lt{font-weight:700;font-size:34px;line-height:41px;letter-spacing:.2px;padding:0 20px}
+.sub{display:flex;align-items:center;gap:4px;padding:2px 20px 0;color:var(--link);font-weight:600;font-size:17px}
+.sub svg{width:15px;height:15px;stroke-width:2.6}
+.search{margin:12px 16px 0;height:40px;border-radius:20px;background:var(--fill);display:flex;align-items:center;gap:7px;padding:0 13px;color:var(--muted);font-size:17px}
+.search svg{width:18px;height:18px;stroke-width:2.2}
+.meta{padding:12px 20px 0;color:var(--muted);font-size:13px;line-height:18px}
+
+/* Tab bar (iOS 26 floating glass) */
+.tb{--glass:var(--glass-bar);position:absolute;left:14px;right:14px;bottom:23px;height:64px;border-radius:32px;display:flex;padding:4px;z-index:35}
+.tb a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--ink);font-size:10px;font-weight:600;letter-spacing:0;border-radius:28px;text-decoration:none}
+.tb a svg{width:26px;height:26px}
+.tb a.on{color:var(--tab-on);background:var(--sel)}
+.botfade{position:absolute;left:0;right:0;bottom:0;height:170px;z-index:25;background:linear-gradient(transparent,var(--canvas) 62%);pointer-events:none}
+.acc{position:absolute;left:14px;right:14px;bottom:95px;height:52px;border-radius:26px;z-index:35;display:flex;align-items:center;gap:10px;padding:0 6px 0 8px}
+.acc .th{width:38px;height:38px;border-radius:19px;flex:none}
+.acc .tx{flex:1;min-width:0;line-height:17px}
+.acc .tx b{display:block;font-size:15px;font-weight:600}
+.acc .tx span{font-size:13px;color:var(--muted)}
+.acc .lg{height:38px;border-radius:19px;padding:0 14px;display:flex;align-items:center;gap:5px;background:var(--accent);color:#fff;font-weight:600;font-size:15px}
+.acc .lg svg{width:17px;height:17px;stroke-width:2.4}
+
+/* Collection cards */
+.sec{display:flex;align-items:center;gap:8px;padding:22px 20px 10px}
+.sec h3{font-size:20px;font-weight:700;line-height:25px;flex:1}
+.sec .ct{font-size:15px;color:var(--muted)}
+.sec svg{width:22px;height:22px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 16px}
+.card{border-radius:16px;overflow:hidden;background:var(--surface);box-shadow:0 0 0 .6px var(--line),0 1px 3px rgba(40,30,10,.05);position:relative}
+.card .im{aspect-ratio:1/1;position:relative}
+.card .nm{padding:9px 12px 11px}
+.card .cn{font-weight:600;font-size:15px;line-height:19px;letter-spacing:-.2px}
+.card .scn{font-style:italic;font-size:13px;line-height:17px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card.un .im,.card.un .cn{opacity:.55}
+.badge{position:absolute;top:8px;right:8px;height:28px;min-width:28px;border-radius:14px;display:flex;align-items:center;justify-content:center;gap:4px;padding:0 8px;font-size:12px;font-weight:600}
+.badge svg{width:15px;height:15px;stroke-width:2.3}
+.tier{display:inline-block;margin-top:6px;font-size:11px;font-weight:600;letter-spacing:.2px;text-transform:uppercase;padding:2px 7px;border-radius:6px;background:var(--accent-tint);color:var(--link)}
+.unph{background:var(--surface-muted);display:grid;place-items:center}
+.unph>svg{width:46%;height:46%;opacity:.5}
+.progress{height:6px;border-radius:3px;background:var(--fill);overflow:hidden;margin:8px 20px 0}
+.progress>i{display:block;height:100%;background:var(--accent);border-radius:3px}
+
+/* Photos */
+.p{background-size:cover;background-position:center;position:relative;overflow:hidden}
+.p svg.sil{position:absolute;fill:rgba(20,22,16,.82)}
+.p1{background:radial-gradient(circle at 18% 22%,rgba(236,240,200,.55),transparent 16%),radial-gradient(circle at 82% 16%,rgba(220,232,190,.45),transparent 12%),radial-gradient(circle at 70% 80%,rgba(160,190,110,.5),transparent 30%),linear-gradient(165deg,#30402a,#55703a 50%,#8da45c)}
+.p2{background:radial-gradient(ellipse 30% 26% at 52% 52%,rgba(214,120,52,.95),rgba(214,120,52,0) 72%),radial-gradient(circle at 25% 30%,rgba(210,220,170,.35),transparent 20%),linear-gradient(160deg,#41402b,#6e6c3c 55%,#a39a5c)}
+.p3{background:radial-gradient(ellipse 34% 20% at 50% 60%,rgba(30,30,32,.9),rgba(30,30,32,0) 70%),linear-gradient(180deg,#8fb2c4,#c9d9de 55%,#6e8d8c 56%,#4e6b6a)}
+.p4{background:radial-gradient(circle at 30% 40%,rgba(255,226,170,.6),transparent 22%),radial-gradient(ellipse 40% 26% at 60% 62%,rgba(150,70,30,.85),transparent 70%),linear-gradient(170deg,#7a5a2e,#b98a45 50%,#e2c27c)}
+.p5{background:radial-gradient(ellipse 26% 22% at 46% 46%,rgba(245,245,240,.95),rgba(245,245,240,0) 72%),linear-gradient(180deg,#5c7f99,#2f4f66)}
+.p6{background:radial-gradient(circle at 70% 30%,rgba(255,255,240,.5),transparent 18%),radial-gradient(ellipse 30% 30% at 40% 60%,rgba(90,60,40,.8),transparent 70%),linear-gradient(150deg,#5b6b4a,#87925e 60%,#b7b47c)}
+.p7{background:radial-gradient(ellipse 50% 30% at 50% 65%,rgba(120,140,70,.7),transparent 70%),linear-gradient(180deg,#d9c9a3,#c8b07b 50%,#8f7b47)}
+.p8{background:radial-gradient(ellipse 22% 30% at 58% 48%,rgba(60,62,70,.95),rgba(60,62,70,0) 72%),radial-gradient(circle at 20% 20%,rgba(255,250,230,.4),transparent 20%),linear-gradient(160deg,#9aa7a0,#c8cfc4 60%,#e6e4d2)}
+.p9{background:radial-gradient(ellipse 34% 22% at 46% 56%,rgba(190,70,40,.85),transparent 70%),linear-gradient(170deg,#203528,#2f4d34 50%,#5f7c49)}
+.p10{background:radial-gradient(circle at 60% 40%,rgba(255,240,200,.65),transparent 28%),linear-gradient(180deg,#e9b37a,#c4744c 50%,#5d3a3a)}
+.p11{background:radial-gradient(ellipse 28% 18% at 50% 58%,rgba(250,250,250,.9),transparent 70%),linear-gradient(180deg,#365a74,#5f8aa3 60%,#2b4558)}
+.p12{background:radial-gradient(ellipse 30% 30% at 50% 50%,rgba(120,100,60,.85),transparent 70%),radial-gradient(circle at 80% 20%,rgba(230,240,210,.45),transparent 18%),linear-gradient(150deg,#495a3a,#70824f)}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
+.grid3 .p{aspect-ratio:1/1}
+.mh{padding:18px 20px 8px;display:flex;align-items:baseline;gap:8px}
+.mh b{font-size:20px;font-weight:700}
+.mh span{font-size:15px;color:var(--muted)}
+
+/* Lists */
+.group{margin:0 16px;border-radius:22px;background:var(--surface);overflow:hidden;box-shadow:0 0 0 .6px var(--line)}
+.row{display:flex;align-items:center;gap:12px;min-height:52px;padding:8px 16px;position:relative}
+.row+.row::before{content:"";position:absolute;top:0;right:0;left:var(--inset,16px);height:1px;background:var(--sep)}
+.row .tx{flex:1;min-width:0}
+.row .tx b{display:block;font-weight:400;font-size:17px;line-height:22px}
+.row .tx span{display:block;font-size:15px;line-height:20px;color:var(--muted)}
+.row .vl{color:var(--muted);font-size:17px}
+.row .ch{width:14px;height:14px;color:var(--muted);opacity:.7;stroke-width:2.6}
+.row .thm{width:52px;height:52px;border-radius:10px;flex:none}
+.ico{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:#fff;flex:none}
+.ico svg{width:18px;height:18px}
+.gh{padding:20px 32px 7px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.2px}
+.gh2{display:flex;align-items:center;gap:6px;padding:24px 20px 10px;font-size:20px;font-weight:700}
+.gh2 svg{width:18px;height:18px;color:var(--link)}
+.gh2 .sp{flex:1}
+.gh2 a{font-size:17px;font-weight:400;color:var(--link);text-decoration:none}
+
+/* Buttons */
+.btn{height:50px;border-radius:25px;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:17px}
+.btn.pri{background:var(--accent);color:#fff}
+.btn.alt{background:var(--fill);color:var(--ink)}
+.btn svg{width:20px;height:20px;stroke-width:2.2}
+
+/* Sheet */
+.scrim{position:absolute;inset:0;background:var(--scrim);z-index:50}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--sheet);border-radius:38px 38px 0 0;z-index:51;box-shadow:0 -10px 40px rgba(0,0,0,.15)}
+.grab{width:36px;height:5px;border-radius:3px;background:var(--muted);opacity:.4;margin:6px auto 0}
+
+/* Menu */
+.menu{position:absolute;z-index:52;width:262px;border-radius:24px;padding:6px 0;background:var(--glass);-webkit-backdrop-filter:blur(30px) saturate(1.8);backdrop-filter:blur(30px) saturate(1.8);box-shadow:inset 0 0 0 .6px var(--glass-edge),0 18px 50px -10px rgba(0,0,0,.3)}
+.light .menu{--glass:rgba(252,249,242,.95)}
+.dark .menu{--glass:rgba(44,47,49,.95)}
+.mi{display:flex;align-items:center;gap:10px;height:44px;padding:0 18px 0 14px;font-size:17px}
+.mi .ck{width:18px;color:var(--ink)}
+.mi .ck svg{width:16px;height:16px;stroke-width:2.6}
+.mi .lb{flex:1}
+.mi .lb small{display:block;font-size:13px;line-height:15px;color:var(--muted)}
+.mi.two{height:54px}
+.mi>svg{width:18px;height:18px;color:var(--muted)}
+.msep{height:6px;background:var(--sep);opacity:.6;margin:4px 0}
+.mh2{padding:8px 18px 4px 42px;font-size:13px;color:var(--muted)}
+
+/* Segmented */
+.seg{display:flex;margin:14px 16px 0;height:36px;border-radius:18px;background:var(--fill);padding:3px}
+.seg span{flex:1;display:grid;place-items:center;font-size:14px;font-weight:600;border-radius:15px;color:var(--ink)}
+.seg span.on{background:var(--control);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+
+/* Stats */
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 16px}
+.tile{background:var(--surface);border-radius:22px;padding:14px 16px;box-shadow:0 0 0 .6px var(--line)}
+.tile b{display:block;font-size:30px;line-height:36px;font-weight:700;letter-spacing:.2px;font-variant-numeric:tabular-nums}
+.tile span{font-size:15px;color:var(--muted);line-height:20px}
+.bars{padding:14px 16px 6px}
+.bar{display:grid;grid-template-columns:96px 1fr 44px;align-items:center;gap:8px;height:30px;font-size:15px}
+.bar i{display:block;height:14px;border-radius:4px}
+.bar em{font-style:normal;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+.cols{display:flex;align-items:flex-end;gap:10px;height:132px;padding:12px 16px 0}
+.cols div{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.cols i{display:block;width:100%;border-radius:5px 5px 2px 2px;background:var(--accent)}
+.dark .cols i{background:var(--link)}
+
+/* Toolbar (species page) */
+.tbar{position:absolute;left:16px;right:16px;bottom:30px;display:flex;align-items:center;gap:10px;z-index:35}
+.tbar .gb{width:52px;height:52px;border-radius:26px}
+.tbar .btn{flex:1;height:52px;border-radius:26px}
+
+/* Page-level theme toggle */
+.tt{position:fixed;top:16px;right:16px;z-index:100;font:600 14px -apple-system,sans-serif;padding:8px 14px;border-radius:18px;border:1px solid rgba(128,128,128,.4);background:var(--page);color:var(--page-ink);cursor:pointer}
+@media (max-width:480px){.dev{transform:scale(.78);transform-origin:top left;margin-bottom:-197px;margin-right:-93px}}
+</style>
+</head>
+<body>
+<button class="tt" type="button" onclick="var r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'">Page theme</button>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- Line icons drawn after SF Symbols at regular weight. Approximations, not Apple artwork. -->
+    <symbol id="collection" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2.2"/><rect x="13" y="3" width="8" height="8" rx="2.2"/><rect x="3" y="13" width="8" height="8" rx="2.2"/><rect x="13" y="13" width="8" height="8" rx="2.2"/></symbol>
+    <symbol id="gallery" viewBox="0 0 24 24"><path d="M7 4.5h11.5A2.5 2.5 0 0 1 21 7v8.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><mask id="gm"><rect width="24" height="24" fill="#fff"/><path d="M4.5 18.5l3.6-4.4 2.6 2.8 2.4-2.6 2.9 4.2z" fill="#000"/><circle cx="8.4" cy="11" r="1.5" fill="#000"/></mask><rect x="2.5" y="7.5" width="15.5" height="13" rx="2.6" mask="url(#gm)"/></symbol>
+    <symbol id="albums" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="2" rx="1"/><rect x="4.5" y="5.6" width="15" height="2" rx="1"/><rect x="2.5" y="8.8" width="19" height="12.7" rx="2.8"/></symbol>
+    <symbol id="trips" viewBox="0 0 24 24"><mask id="tm"><rect width="24" height="24" fill="#fff"/><path d="M9 3.8v14.4M15 6.2v14.4" stroke="#000" stroke-width="1.3"/></mask><path mask="url(#tm)" d="M2.5 6.4L9 3.6l6 2.6 6.5-2.8v14.2L15 20.4l-6-2.6-6.5 2.8z"/></symbol>
+    <symbol id="identify" viewBox="0 0 24 24"><circle cx="6.6" cy="16" r="4.6"/><circle cx="17.4" cy="16" r="4.6"/><rect x="3.2" y="5" width="6.6" height="10" rx="2.2"/><rect x="14.2" y="5" width="6.6" height="10" rx="2.2"/><rect x="9" y="9" width="6" height="4.6" rx="1.2"/><rect x="4.4" y="2.6" width="4.2" height="3.4" rx="1.2"/><rect x="15.4" y="2.6" width="4.2" height="3.4" rx="1.2"/></symbol>
+    <symbol id="search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.6"/><path d="M15.5 15.5l5 5"/></symbol>
+    <symbol id="filter" viewBox="0 0 24 24"><path d="M4.5 7h15M7.5 12h9M10.5 17h3"/></symbol>
+    <symbol id="person" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.3"/><circle cx="12" cy="10" r="3.2"/><path d="M6.2 18.4c1.6-2.6 3.6-3.6 5.8-3.6s4.2 1 5.8 3.6"/></symbol>
+    <symbol id="chev-d" viewBox="0 0 24 24"><path d="M6.5 9.5l5.5 5.5 5.5-5.5"/></symbol>
+    <symbol id="chev-r" viewBox="0 0 24 24"><path d="M9 5.5l6.5 6.5L9 18.5"/></symbol>
+    <symbol id="chev-l" viewBox="0 0 24 24"><path d="M15 4.5L7.5 12l7.5 7.5"/></symbol>
+    <symbol id="xmark" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
+    <symbol id="ellipsis" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.8" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="heart" viewBox="0 0 24 24"><path d="M12 20.2C6.2 15.8 3 12.6 3 8.9 3 6.3 5 4.5 7.4 4.5c1.9 0 3.5 1.1 4.6 2.7 1.1-1.6 2.7-2.7 4.6-2.7C19 4.5 21 6.3 21 8.9c0 3.7-3.2 6.9-9 11.3z"/></symbol>
+    <symbol id="share" viewBox="0 0 24 24"><path d="M8.5 9.5H7a2 2 0 0 0-2 2V19a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7.5a2 2 0 0 0-2-2h-1.5M12 2.8V14M8.6 6.2L12 2.8l3.4 3.4"/></symbol>
+    <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2"/><path d="M12 11v5.6"/><circle cx="12" cy="7.7" r=".9" fill="currentColor"/></symbol>
+    <symbol id="eye" viewBox="0 0 24 24"><path d="M2.5 12C5 7.6 8.3 5.5 12 5.5s7 2.1 9.5 6.5c-2.5 4.4-5.8 6.5-9.5 6.5S5 16.4 2.5 12z"/><circle cx="12" cy="12" r="3.1"/></symbol>
+    <symbol id="scope" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.6"/><circle cx="12" cy="12" r="2.6"/><path d="M12 1.8v3.4M12 18.8v3.4M1.8 12h3.4M18.8 12h3.4"/></symbol>
+    <symbol id="camera" viewBox="0 0 24 24"><path d="M3 9.2a2 2 0 0 1 2-2h2.4l1.6-2.4h6l1.6 2.4H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.6"/></symbol>
+    <symbol id="photo" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.6"/><circle cx="8.6" cy="9.6" r="1.7"/><path d="M3.6 17.5l5-5 3.6 3.4 3-2.8 5.2 4.6"/></symbol>
+    <symbol id="pin" viewBox="0 0 24 24"><path d="M12 21.2s-6.8-6.2-6.8-11.4a6.8 6.8 0 0 1 13.6 0c0 5.2-6.8 11.4-6.8 11.4z"/><circle cx="12" cy="9.8" r="2.5"/></symbol>
+    <symbol id="loc" viewBox="0 0 24 24"><path d="M20.2 3.8L3.8 10.6l7.2 2.4 2.4 7.2z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="chart" viewBox="0 0 24 24"><rect x="3.5" y="12" width="4" height="8.5" rx="1.2"/><rect x="10" y="7" width="4" height="13.5" rx="1.2"/><rect x="16.5" y="3.5" width="4" height="17" rx="1.2"/></symbol>
+    <symbol id="globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2"/><ellipse cx="12" cy="12" rx="3.9" ry="9.2"/><path d="M3 12h18M4.4 7.3h15.2M4.4 16.7h15.2"/></symbol>
+    <symbol id="gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.9 1.9M16.6 16.6l1.9 1.9M5.5 18.5l1.9-1.9M16.6 7.4l1.9-1.9"/><circle cx="12" cy="12" r="6.6"/></symbol>
+    <symbol id="sync" viewBox="0 0 24 24"><path d="M4.6 11.2a7.5 7.5 0 0 1 13.2-4.4M19.4 12.8a7.5 7.5 0 0 1-13.2 4.4M18.2 3.4v3.8h-3.8M5.8 20.6v-3.8h3.8"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24"><path d="M5 12.6l4.6 4.6L19 7.4"/></symbol>
+    <symbol id="checkc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.6" fill="currentColor" stroke="none"/><path d="M7.4 12.3l3.2 3.2 6-6.4" stroke="#fff" stroke-width="2.3"/></symbol>
+    <symbol id="sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></symbol>
+    <symbol id="mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+    <symbol id="bird" viewBox="0 0 24 24"><g fill="currentColor" stroke="none"><ellipse cx="10.8" cy="13.4" rx="6.4" ry="4.4" transform="rotate(-18 10.8 13.4)"/><circle cx="16.2" cy="8.6" r="3.1"/><path d="M18.9 7.9l3.4.9-3.4 1.1z"/><path d="M6.2 14.6L1.6 18l5.8-.8z"/><path d="M10 17.6l-.6 3.2M12.4 17.2l.2 3.4" stroke="currentColor" stroke-width="1.2" fill="none"/></g></symbol>
+    <symbol id="paw" viewBox="0 0 24 24"><g fill="currentColor" stroke="none"><ellipse cx="12" cy="15.6" rx="5" ry="4.2"/><ellipse cx="6" cy="10.4" rx="2" ry="2.6"/><ellipse cx="18" cy="10.4" rx="2" ry="2.6"/><ellipse cx="9.4" cy="6.4" rx="2" ry="2.7"/><ellipse cx="14.6" cy="6.4" rx="2" ry="2.7"/></g></symbol>
+    <symbol id="perched" viewBox="0 0 100 100"><path d="M0 82 C30 78 60 80 100 74 L100 79 C60 85 30 83 0 87Z"/><ellipse cx="50" cy="58" rx="13" ry="20" transform="rotate(12 50 58)"/><circle cx="46" cy="36" r="9"/><path d="M38 34 L27 36 L38 38Z"/><path d="M55 74 L60 90 L50 78Z"/><path d="M47 76 L46 82 M53 76 L54 82" stroke="rgba(20,22,16,.82)" stroke-width="2"/></symbol>
+    <symbol id="wifi" viewBox="0 0 24 24"><path d="M2.5 9a14 14 0 0 1 19 0M5.8 12.4a9.2 9.2 0 0 1 12.4 0M9.1 15.8a4.6 4.6 0 0 1 5.8 0" stroke-width="2.4"/><circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none"/></symbol>
+  </defs>
+</svg>
+
+<div class="doc">
+  <h1>Lifer phone app</h1>
+  <p>Mockups for the plan in <code>docs/plans/mobile-ux-plan.md</code>. iPhone 16 Pro at 402 by 874 points, light on the left and dark on the right, iOS 26 conventions (floating glass tab bar, glass bar buttons, large titles). Photos are gradient placeholders. Android follows the same structure with Material 3 parts (see the plan).</p>
+  <div class="legend"><span>Tabs: Collection, Gallery, Albums, Identify (Albums holds Albums | Trips)</span><span>Round button at top right: Stats, Regions, Settings and sync</span><span>Colours: theme.css tokens, taxa option B</span></div>
+  <div class="blocks" id="blocks"></div>
+</div>
+
+<script>
+const I=(id,cls="i",extra="")=>`<svg class="${cls}" ${extra}><use href="#${id}"/></svg>`;
+const F=(id,extra="")=>I(id,"i f",extra);
+const status=(w)=>`<div class="sb ${w?"w":""}"><span class="tm">9:41</span><span class="ic">
+<svg width="19" height="12" viewBox="0 0 19 12" fill="currentColor"><rect x="0" y="8" width="3.2" height="4" rx="1"/><rect x="5" y="5.5" width="3.2" height="6.5" rx="1"/><rect x="10" y="3" width="3.2" height="9" rx="1"/><rect x="15" y="0" width="3.2" height="12" rx="1"/></svg>
+<svg width="17" height="12" viewBox="0 0 17 12" fill="currentColor"><path d="M8.5 2.2c2.4 0 4.6.9 6.3 2.5l1.2-1.2A10.6 10.6 0 0 0 8.5.5 10.6 10.6 0 0 0 1 3.5l1.2 1.2a9 9 0 0 1 6.3-2.5zm0 3.4c1.5 0 2.8.6 3.9 1.5l1.2-1.2a7.2 7.2 0 0 0-10.2 0l1.2 1.2c1-.9 2.4-1.5 3.9-1.5zm0 3.4c.6 0 1.1.2 1.5.6L8.5 11.1 7 9.6c.4-.4.9-.6 1.5-.6z"/></svg>
+<svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.8" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="9" rx="2.4" fill="currentColor"/><path d="M25 4.5v4c.8-.3 1.3-1.1 1.3-2s-.5-1.7-1.3-2z" fill="currentColor" opacity=".45"/></svg>
+</span></div><div class="di"></div>`;
+const home=(w)=>`<div class="hi ${w?"w":""}"></div>`;
+const TABS=[["collection","Collection"],["gallery","Gallery"],["albums","Albums"],["identify","Identify"]];
+const tabbar=(on)=>`<div class="botfade"></div><nav class="tb glass">${TABS.map(([id,l])=>`<a class="${id===on?"on":""}">${F(id)}<span>${l}</span></a>`).join("")}</nav>`;
+const navBtns=(items)=>`<div class="nav"><span class="sp"></span>${items}</div>`;
+const cap=(...ids)=>`<div class="gcap glass">${ids.map(i=>`<span>${I(i)}</span>`).join("")}</div>`;
+const card=(cn,sn,ph,opts={})=>`<div class="card ${opts.un?"un":""}"><div class="im p ${ph}">${opts.sil?`<svg class="sil" style="${opts.sil}" viewBox="0 0 100 100"><use href="#perched"/></svg>`:""}${opts.badge||""}</div><div class="nm"><div class="cn">${cn}</div><div class="scn">${sn}</div>${opts.tier?`<span class="tier">${opts.tier}</span>`:""}</div></div>`;
+const badge=(icon,label)=>`<span class="badge glass">${I(icon)}${label?`<span>${label}</span>`:""}</span>`;
+
+const S={};
+
+S.collection=()=>`${status()}
+<div class="content">
+  <div class="lt">Collection</div>
+  <div class="sub">British Columbia ${I("chev-d")}</div>
+  <div class="search">${I("search")}<span>Search species</span></div>
+  <div class="meta">412 of 1,180 species photographed</div>
+  <div class="progress"><i style="width:35%"></i></div>
+  <div class="sec" style="color:var(--t-birds)">${F("bird")}<h3 style="color:var(--ink)">Birds</h3><span class="ct">318 of 402</span></div>
+  <div class="cards">
+    ${card("Pileated Woodpecker","Dryocopus pileatus","p1",{sil:"left:4%;top:8%;width:92%;height:92%",tier:"Uncommon"})}
+    ${card("Varied Thrush","Ixoreus naevius","p2")}
+    <div class="card un"><div class="im unph" style="color:var(--t-birds)"><svg viewBox="0 0 24 24"><use href="#bird"/></svg>${badge("scope")}</div><div class="nm"><div class="cn">Sooty Grouse</div><div class="scn">Dendragapus fuliginosus</div></div></div>
+    <div class="card"><div class="im p p3">${badge("eye","Seen")}</div><div class="nm"><div class="cn">Black Oystercatcher</div><div class="scn">Haematopus bachmani</div></div></div>
+    ${card("Steller's Jay","Cyanocitta stelleri","p11")}
+    ${card("Barred Owl","Strix varia","p6")}
+  </div>
+</div>
+${navBtns(cap("filter","person"))}
+${tabbar("collection")}${home()}`;
+
+S.menu=()=>S.collection().replace(`${tabbar("collection")}`,`${tabbar("collection")}<div class="scrim" style="background:var(--scrim);opacity:.5"></div>
+<div class="menu" style="top:106px;right:16px">
+  <div class="mh2">Show</div>
+  <div class="mi"><span class="ck">${I("check")}</span><span class="lb">All</span></div>
+  <div class="mi"><span class="ck"></span><span class="lb">Photographed</span></div>
+  <div class="mi"><span class="ck"></span><span class="lb">Seen only</span></div>
+  <div class="mi"><span class="ck"></span><span class="lb">Targets</span></div>
+  <div class="mi"><span class="ck"></span><span class="lb">Not yet photographed</span></div>
+  <div class="msep"></div>
+  <div class="mi two"><span class="ck"></span><span class="lb">Arrange<small>Field guide order</small></span>${I("chev-r")}</div>
+  <div class="mi two"><span class="ck"></span><span class="lb">Group<small>Broad group</small></span>${I("chev-r")}</div>
+  <div class="mi two"><span class="ck"></span><span class="lb">Card size<small>Large</small></span>${I("chev-r")}</div>
+  <div class="msep"></div>
+  <div class="mi"><span class="ck"></span><span class="lb">More filters</span>${I("sliders")}</div>
+</div>`);
+
+const tiles=(arr)=>arr.map(p=>p.endsWith("+")?`<div class="p ${p.slice(0,-1)}"><svg class="sil" style="left:18%;top:10%;width:64%;height:90%" viewBox="0 0 100 100"><use href="#perched"/></svg></div>`:`<div class="p ${p}"></div>`).join("");
+S.gallery=()=>`${status()}
+<div class="content">
+  <div class="lt">Gallery</div>
+  <div class="search">${I("search")}<span>Search photos</span><span style="flex:1"></span>${I("mic")}</div>
+  <div class="meta">60,214 photos</div>
+  <div class="mh"><b>May 2026</b><span>Tofino, British Columbia</span></div>
+  <div class="grid3">${tiles(["p1+","p11","p5","p2","p8","p3","p9","p6+","p4"])}</div>
+  <div class="mh"><b>April 2026</b><span>Okanagan</span></div>
+  <div class="grid3">${tiles(["p7","p10+","p12","p3","p2","p1+","p6","p11","p5"])}</div>
+</div>
+${navBtns(`<div class="gtxt glass">Select</div>`+cap("filter","person"))}
+<div class="acc glass"><span class="th p p9"></span><span class="tx"><b>Vancouver Island</b><span>Trip, 34 of 212 seen</span></span><span class="lg">${I("plus")}Log</span></div>
+${tabbar("gallery")}${home()}`;
+
+S.viewer=()=>`<div style="position:absolute;inset:0;background:#000"></div>${status(true)}
+<div class="p p1" style="position:absolute;left:0;right:0;top:268px;height:302px"><svg class="sil" style="left:22%;top:4%;width:56%;height:96%" viewBox="0 0 100 100"><use href="#perched"/></svg></div>
+<div class="nav" style="color:#fff"><div class="gb glass dk">${I("xmark")}</div><span class="sp" style="text-align:center;line-height:18px"><b style="display:block;font-size:16px">Pileated Woodpecker</b><span style="font-size:13px;opacity:.75">12 May 2026, 7:42 AM</span></span><div class="gb glass dk">${I("ellipsis")}</div></div>
+<div style="position:absolute;left:0;right:0;bottom:104px;display:flex;justify-content:center;gap:2px">${["p6","p2","p1","p11","p5","p8","p3"].map((p,i)=>`<span class="p ${p}" style="width:${i===2?38:26}px;height:40px;border-radius:${i===2?6:3}px;${i===2?"margin:0 4px;outline:2px solid #fff":"opacity:.85"}"></span>`).join("")}</div>
+<div class="tbar" style="bottom:34px;justify-content:space-between">
+  <div class="gb glass dk">${I("share")}</div>
+  <div class="gcap glass dk" style="height:52px;border-radius:26px"><span style="width:56px;height:52px">${I("heart")}</span><span style="width:56px;height:52px">${I("info")}</span></div>
+  <div class="gb glass dk">${I("ellipsis")}</div>
+</div>${home(true)}`;
+
+S.viewerInfo=()=>`<div style="position:absolute;inset:0;background:#000"></div>${status(true)}
+<div class="p p1" style="position:absolute;left:0;right:0;top:106px;height:302px"><svg class="sil" style="left:22%;top:4%;width:56%;height:96%" viewBox="0 0 100 100"><use href="#perched"/></svg></div>
+<div class="nav" style="color:#fff"><div class="gb glass dk">${I("xmark")}</div><span class="sp"></span><div class="gb glass dk">${I("ellipsis")}</div></div>
+<div class="sheet" style="top:430px">
+  <div class="grab"></div>
+  <div style="display:flex;align-items:center;padding:10px 20px 4px"><b style="flex:1;font-size:20px">Info</b><div class="gb" style="background:var(--fill);width:36px;height:36px">${I("xmark","i","style='width:18px;height:18px'")}</div></div>
+  <div class="group" style="margin-top:8px">
+    <div class="row" style="--inset:80px"><span class="thm p p1" style="width:52px;height:52px"></span><span class="tx"><b style="font-weight:600">Pileated Woodpecker</b><span><i>Dryocopus pileatus</i></span></span>${I("chev-r","i ch")}</div>
+    <div class="row"><span class="tx"><b>12 May 2026, 7:42 AM</b><span>Stanley Park, Vancouver</span></span></div>
+    <div class="row"><span class="tx"><b>Canon EOS R5</b><span>RF 100-500mm, 1/1000 s, f/7.1, ISO 1600</span></span></div>
+    <div class="row"><span class="tx"><b>Vancouver Island 2026</b><span>Trip</span></span>${I("chev-r","i ch")}</div>
+  </div>
+</div>${home()}`;
+
+S.species=()=>`${status(true)}
+<div class="content" style="padding-top:0">
+  <div class="p p1" style="height:340px"><svg class="sil" style="left:24%;top:16%;width:52%;height:84%" viewBox="0 0 100 100"><use href="#perched"/></svg></div>
+  <div style="padding:18px 20px 0">
+    <div style="font-size:28px;line-height:34px;font-weight:700">Pileated Woodpecker</div>
+    <div style="font-style:italic;color:var(--muted);font-size:17px;margin-top:2px">Dryocopus pileatus</div>
+    <div style="display:flex;gap:8px;margin-top:10px;align-items:center"><span class="tier" style="margin:0;display:flex;align-items:center;gap:4px;color:var(--t-birds);background:var(--fill)"><svg class="i f" style="width:13px;height:13px"><use href="#bird"/></svg>Birds</span><span class="tier" style="margin:0">Uncommon in British Columbia</span></div>
+  </div>
+  <div style="display:flex;gap:10px;padding:16px 16px 0">
+    <div class="btn" style="flex:1;background:var(--accent-tint);color:var(--link);height:46px">${F("checkc")}Photographed</div>
+    <div class="btn alt" style="flex:1;height:46px">${I("scope")}Target</div>
+  </div>
+  <div class="group" style="margin-top:16px">
+    <div class="row"><span class="tx"><b>First photographed</b></span><span class="vl">12 May 2024</span></div>
+    <div class="row"><span class="tx"><b>Sightings</b></span><span class="vl">3</span>${I("chev-r","i ch")}</div>
+  </div>
+  <div class="gh2">Your photos<span class="sp"></span><a>14 photos</a></div>
+  <div class="grid3" style="padding:0 16px;gap:3px">${tiles(["p1+","p6","p12+"])}</div>
+</div>
+<div class="nav"><div class="gb glass">${I("chev-l")}</div><span class="sp"></span>${cap("heart","ellipsis")}</div>
+<div class="botfade" style="height:120px"></div>
+<div class="tbar"><div class="gb glass">${I("share")}</div><div class="btn pri">${I("pin")}Log sighting</div></div>${home()}`;
+
+const alb=(name,count,ph,extra="")=>`<div><div class="p ${ph}" style="aspect-ratio:1/1;border-radius:14px;position:relative">${extra}</div><div style="font-size:15px;font-weight:600;margin-top:6px;line-height:19px">${name}</div><div style="font-size:15px;color:var(--muted);line-height:19px">${count}</div></div>`;
+const albSeg=(on)=>`<div class="seg" style="margin-top:10px"><span class="${on==="albums"?"on":""}">Albums</span><span class="${on==="trips"?"on":""}">Trips</span></div>`;
+S.albums=()=>`${status()}
+<div class="content">
+  <div class="lt">Albums</div>
+  ${albSeg("albums")}
+  <div class="cards" style="margin-top:18px;row-gap:16px">
+    ${alb("Favourites","1,204","p1",`<span class="badge glass" style="top:auto;bottom:8px;right:auto;left:8px">${F("heart")}</span>`)}
+    ${alb("Owls","86","p6",`<span class="badge glass" style="top:auto;bottom:8px;right:auto;left:8px">${I("gear")}</span>`)}
+    ${alb("Vancouver Island 2026","312","p9")}
+    ${alb("Best of 2025","48","p10")}
+    ${alb("Shorebirds","130","p3")}
+    ${alb("Mammals of the Rockies","64","p4")}
+  </div>
+</div>
+${navBtns(cap("filter","person"))}
+${tabbar("albums")}${home()}`;
+
+S.trips=()=>`${status()}
+<div class="content">
+  <div class="lt">Albums</div>
+  ${albSeg("trips")}
+  <div style="margin:14px 16px 0;border-radius:24px;overflow:hidden;background:var(--surface);box-shadow:0 0 0 .6px var(--line)">
+    <div class="p p9" style="height:150px;display:flex;align-items:flex-end;padding:14px 16px;color:#fff">
+      <div><div style="font-size:13px;font-weight:600;opacity:.9;text-transform:uppercase;letter-spacing:.3px">Now</div><div style="font-size:24px;font-weight:700;line-height:28px">Vancouver Island</div><div style="font-size:15px;opacity:.9">Day 3 of 6, Tofino</div></div>
+    </div>
+    <div style="padding:12px 16px 14px">
+      <div style="display:flex;font-size:15px"><b style="flex:1;font-weight:600">34 of 212 species seen</b><span style="color:var(--muted)">8 targets left</span></div>
+      <div class="progress" style="margin:8px 0 12px"><i style="width:16%"></i></div>
+      <div class="btn pri" style="height:44px">${I("pin")}Log sighting</div>
+    </div>
+  </div>
+  <div class="gh2">${F("loc")}Your targets in British Columbia<span class="sp"></span><a>See all</a></div>
+  <div class="group">
+    <div class="row" style="--inset:80px"><span class="thm unph" style="color:var(--t-birds)"><svg viewBox="0 0 24 24" style="width:60%;height:60%"><use href="#bird"/></svg></span><span class="tx"><b>Sooty Grouse</b><span>Target, likely this month</span></span>${I("chev-r","i ch")}</div>
+    <div class="row" style="--inset:80px"><span class="thm unph" style="color:var(--t-birds)"><svg viewBox="0 0 24 24" style="width:60%;height:60%"><use href="#bird"/></svg></span><span class="tx"><b>Marbled Murrelet</b><span>Not yet seen</span></span>${I("chev-r","i ch")}</div>
+  </div>
+  <div class="gh2">Past trips</div>
+  <div class="group">
+    <div class="row" style="--inset:80px"><span class="thm p p7"></span><span class="tx"><b>Okanagan spring</b><span>14 to 18 April 2026, 96 species</span></span>${I("chev-r","i ch")}</div>
+  </div>
+</div>
+<div class="topfade" style="opacity:0"></div>
+${navBtns(cap("plus","person"))}
+${tabbar("albums")}${home()}`;
+
+S.identify=()=>`${status()}
+<div class="content">
+  <div class="lt">Identify</div>
+  <div style="padding:6px 20px 0;font-size:17px;line-height:23px;color:var(--muted)">Is this a lifer? Check a photo or a name against your list.</div>
+  <div class="search" style="margin-top:16px">${I("search")}<span>Type a species name</span></div>
+  <div class="gh2" style="font-size:17px;padding-top:22px">Recent checks</div>
+  <div class="group">
+    <div class="row" style="--inset:80px"><span class="thm p p2"></span><span class="tx"><b>Varied Thrush</b><span>Photographed, 12 photos</span></span>${I("chev-r","i ch")}</div>
+    <div class="row" style="--inset:80px"><span class="thm p p5"></span><span class="tx"><b>Glaucous-winged Gull</b><span>Seen, no photo yet</span></span>${I("chev-r","i ch")}</div>
+    <div class="row" style="--inset:80px"><span class="thm p p8"></span><span class="tx"><b>Wandering Tattler</b><span>New for your life list</span></span>${I("chev-r","i ch")}</div>
+  </div>
+</div>
+${navBtns(cap("person"))}
+<div style="position:absolute;left:16px;right:16px;bottom:104px;z-index:34">
+  <div style="font-size:13px;line-height:18px;color:var(--muted);text-align:center;padding:0 12px 12px">Photo matching on the phone is coming. For now, Lifer shows your photo beside the name you type.</div>
+  <div style="display:flex;gap:10px"><div class="btn pri" style="flex:1">${I("photo")}Choose photo</div><div class="btn alt" style="flex:1">${I("camera")}Take photo</div></div>
+</div>
+${tabbar("identify")}${home()}`;
+
+S.identifyResult=()=>`${status(true)}
+<div class="p" style="position:absolute;inset:0 0 auto 0;height:520px;background:radial-gradient(circle at 78% 20%,rgba(255,255,245,.5),transparent 22%),linear-gradient(180deg,#a9bab6,#d5dccf 58%,#8c977c)"><svg class="sil" style="left:24%;top:22%;width:52%;height:72%" viewBox="0 0 100 100"><use href="#perched"/></svg></div>
+<div class="nav"><div class="gb glass dk">${I("xmark")}</div><span class="sp"></span></div>
+<div class="sheet" style="top:470px">
+  <div class="grab"></div>
+  <div style="padding:14px 20px 0">
+    <div style="font-size:24px;line-height:30px;font-weight:700">Wandering Tattler</div>
+    <div style="font-style:italic;color:var(--muted)">Tringa incana</div>
+  </div>
+  <div style="margin:14px 16px 0;border-radius:20px;padding:14px 16px;background:var(--accent-tint)">
+    <div style="font-weight:700;color:var(--link);font-size:17px">New for your life list</div>
+    <div style="font-size:15px;line-height:20px;margin-top:2px">You haven't seen or photographed this species. Uncommon in British Columbia in May.</div>
+  </div>
+  <div style="padding:16px 16px 0;display:flex;flex-direction:column;gap:10px">
+    <div class="btn pri">${I("eye")}Mark as seen</div>
+    <div style="display:flex;gap:10px"><div class="btn alt" style="flex:1.4">${I("plus")}Add to Lifer</div><div class="btn alt" style="flex:1">${I("scope")}Target</div></div>
+  </div>
+  <div style="text-align:center;color:var(--link);font-size:17px;padding-top:16px">Not this one? Change species</div>
+</div>${home()}`;
+
+S.stats=()=>`${status()}
+<div class="content">
+  <div class="lt">Stats</div>
+  <div class="sub">All keepers ${I("chev-d")}</div>
+  <div class="tiles" style="margin-top:14px">
+    <div class="tile"><b>412</b><span>species photographed</span></div>
+    <div class="tile"><b>96</b><span>seen, no photo yet</span></div>
+    <div class="tile"><b>60,214</b><span>photos</span></div>
+    <div class="tile"><b>14</b><span>countries</span></div>
+  </div>
+  <div class="gh2" style="font-size:17px">Species by group</div>
+  <div class="group"><div class="bars">
+    <div class="bar"><span>Birds</span><i style="width:100%;background:var(--t-birds)"></i><em>318</em></div>
+    <div class="bar"><span>Mammals</span><i style="width:17%;background:var(--t-mammals)"></i><em>54</em></div>
+    <div class="bar"><span>Insects</span><i style="width:5%;background:var(--t-insects)"></i><em>15</em></div>
+    <div class="bar"><span>Reptiles</span><i style="width:4%;background:var(--t-reptiles)"></i><em>12</em></div>
+    <div class="bar"><span>Amphibians</span><i style="width:3%;background:var(--t-amph)"></i><em>9</em></div>
+  </div></div>
+  <div class="gh2" style="font-size:17px">New species by year</div>
+  <div class="group"><div class="cols">${[["2021",30],["2022",48],["2023",62],["2024",90],["2025",74],["2026",40]].map(([y,h])=>`<div><i style="height:${h}px"></i>${y}</div>`).join("")}</div><div style="height:12px"></div></div>
+</div>
+<div class="nav"><div class="gb glass">${I("chev-l")}</div><span class="sp"></span>${cap("share")}</div>
+${tabbar("collection")}${home()}`;
+
+S.account=()=>S.collection()+`<div class="scrim"></div>
+<div class="sheet" style="top:440px;left:8px;right:8px;bottom:8px;border-radius:44px;background:var(--canvas)">
+  <div class="grab"></div>
+  <div style="display:flex;align-items:center;padding:8px 16px 0"><span style="width:44px"></span><b style="flex:1;text-align:center;font-size:17px">Your Lifer</b><div class="gtxt glass" style="height:40px;padding:0 14px">Done</div></div>
+  <div class="group" style="margin-top:18px">
+    <div class="row" style="padding:12px 16px"><span class="ico" style="background:var(--accent);width:40px;height:40px;border-radius:11px">${I("sync")}</span><span class="tx"><b style="font-weight:600">Up to date</b><span>Synced 2 min ago</span></span><span style="color:var(--link);font-weight:600;font-size:15px">Sync now</span></div>
+  </div>
+  <div class="group" style="margin-top:16px">
+    <div class="row" style="--inset:58px"><span class="ico" style="background:#5c7a8a">${F("chart")}</span><span class="tx"><b>Stats</b></span>${I("chev-r","i ch")}</div>
+    <div class="row" style="--inset:58px"><span class="ico" style="background:#4d6b4a">${I("globe")}</span><span class="tx"><b>Regions</b></span><span class="vl">3 on this phone</span>${I("chev-r","i ch")}</div>
+    <div class="row" style="--inset:58px"><span class="ico" style="background:#6b6e72">${I("gear")}</span><span class="tx"><b>Settings</b></span>${I("chev-r","i ch")}</div>
+  </div>
+  <div class="gh" style="padding-top:8px;text-transform:none;font-size:13px;line-height:18px">1.2 GB of photos saved for offline use.</div>
+</div>`;
+
+const BLOCKS=[
+  ["Collection","The desktop's species cards, two across, grouped by broad group with the taxa colour on the section glyph. Region is the subtitle under the large title (tap for the region picker). Search sits in the navigation bar. Filter and account buttons share one glass capsule. Unseen species show the flat group illustration, faded; a target or seen-only species carries one small glass badge.",[["collection","light"],["collection","dark"]]],
+  ["Collection filters","One native pull-down menu replaces the sideways chip strip: Show as checkmark items, then Arrange, Group and Card size as submenus with the current choice underneath, then More filters for rarity, traits and year in a sheet. Same names as the desktop toolbar.",[["menu","light"],["menu","dark"]]],
+  ["Gallery","Every photo, newest first, edge to edge like Apple Photos, with month headings that name the place. Search in the bar (offline species names, plus the hub's full search when reachable). Select at top right. An active trip sits above the tab bar on every tab: tap to open trip mode, Log to record a sighting.",[["gallery","light"],["gallery","dark"]]],
+  ["Photo viewer","Black in every appearance so the photo is judged on black. Glass controls, a filmstrip, and a bottom toolbar: Share, Favourite, Info, and More (View full size, Add to album, Open species). Swipe down to close. Info opens as a sheet and the photo moves up.",[["viewer","dark"],["viewerInfo","light"],["viewerInfo","dark"]]],
+  ["Species page","A fixed-size hero photo (the card photo), names, group and rarity, then status as two clear toggles. Facts in one inset group, your photos below. The one primary action, Log sighting, sits in the lower third in a floating toolbar; the tab bar steps aside on detail pages.",[["species","light"],["species","dark"]]],
+  ["Albums","Four tabs, so Trips lives here: a native segmented control under the large title switches Albums | Trips and remembers the last choice. Album covers two across with name and count, like the desktop Albums page. Favourites and smart albums carry a small glyph. The bar menu arranges albums; an album opens as a Gallery grid.",[["albums","light"],["albums","dark"]]],
+  ["Albums, Trips segment","Same screen, Trips selected, unchanged inside: the active trip leads with progress in plain counts and Log sighting in the card, then Your targets in the chosen region, then past trips. Plus starts a trip. The trip bar above the tab bar still opens the trip from every tab. No horizontal strips.",[["trips","light"],["trips","dark"]]],
+  ["Identify","Is this a lifer? The two big actions sit in the thumb zone above the tab bar. Typing a name works now; the honest note says photo matching comes later. Recent checks keep the verdict.",[["identify","light"],["identify","dark"]]],
+  ["Identify result","The verdict in a sheet over the person's own photo. Plain words, no celebration. Mark as seen is the primary action; adding the photo to Lifer is a separate, explicit choice.",[["identifyResult","light"],["identifyResult","dark"]]],
+  ["Stats","Opened from the account button (and from the Collection progress line). Same filter name as the desktop, big plain numbers, taxa colours only for the group series.",[["stats","light"],["stats","dark"]]],
+  ["Your Lifer (account button)","The round button at the top right of every tab opens this sheet: sync status in plain words, then Stats, Regions and Settings, the desktop's remaining sidebar pages.",[["account","light"],["account","dark"]]],
+];
+
+document.getElementById("blocks").innerHTML=BLOCKS.map(([t,d,frames])=>`<section class="block"><h2>${t}</h2><p>${d}</p><div class="phones">${frames.map(([s,th])=>`<figure><div class="dev"><div class="ph ${th}">${S[s]()}</div></div><figcaption class="cap">${th==="light"?"Light":"Dark"}</figcaption></figure>`).join("")}</div></section>`).join("");
+</script>
+</body>
+</html>

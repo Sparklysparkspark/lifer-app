@@ -1,0 +1,5 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": { "modules": ["PinnedFetchModule"] },
+  "android": { "modules": ["app.lifer.pinnedfetch.PinnedFetchModule"] }
+}
