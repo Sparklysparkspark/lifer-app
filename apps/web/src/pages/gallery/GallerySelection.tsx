@@ -1,86 +1,317 @@
-import type { RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useTranslation } from "react-i18next";
+import { useOpenInEditors } from "../../hooks/useOpenInEditors";
+import { useInatStatus } from "../../hooks/useInatStatus";
+import { useSendToInat } from "../../hooks/useSendToInat";
+import RegionBrowser from "../../components/RegionBrowser";
+import PlaceNameInput from "../../components/PlaceNameInput";
 import SpeciesPicker from "../../components/SpeciesPicker";
-import { TagEditor } from "../../components/Lightbox";
-import AddToAlbumButton from "../../components/AddToAlbumButton";
+import TagEditor from "../../components/TagEditor";
+import AddToAlbumModal from "../../components/AddToAlbumModal";
 import InlineSpinner from "../../components/InlineSpinner";
 import Modal from "../../components/Modal";
 import Button from "../../components/Button";
-import { pluralize } from "../../lib/pluralize";
+import StarRating from "../../components/StarRating";
 import type { GalleryEdits } from "./useGalleryEdits";
 import { formatNumber } from "../../lib/format";
+import Checkbox from "../../components/Checkbox";
+import AdjustTimeDialog from "./AdjustTimeDialog";
+import CoordinatesModal from "../../components/CoordinatesModal";
+import { SelectionBar, type BarAction } from "../../components/SelectionActionRow";
+import { COMPARE_MAX, COMPARE_MIN } from "../../lib/compareZoom";
 
-const TRASH_NOTE = (
-  <p className="text-sm text-muted">Deleted photos stay in Trash for 7 days, where you can restore them.</p>
-);
+function TrashNote({ noun }: { noun: string }) {
+  const { t } = useTranslation();
+  return <p className="text-callout text-muted">{t("gallery.select.trashNote", { noun })}</p>;
+}
 
-// Select mode's bar. In the album picker it only adds to that album; otherwise it corrects the
-// ID, tags, adds to any album or deletes.
+// Same region picker as a photo's location editor, for the whole selection.
+function SetRegionDialog({
+  count,
+  onSet,
+  onClose,
+  suggestedRegionIds,
+}: {
+  count: number;
+  onSet: (regionId: string, locationLabel: string) => Promise<void>;
+  onClose: () => void;
+  suggestedRegionIds: Array<string | null | undefined>;
+}) {
+  const { t } = useTranslation();
+  const [regionId, setRegionId] = useState<string | null>(null);
+  const [label, setLabel] = useState("");
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t("gallery.select.setRegionTitle", { count })}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            disabled={!regionId}
+            onClick={() => {
+              if (regionId) void onSet(regionId, label);
+              onClose();
+            }}
+          >
+            {t("gallery.select.setRegionApply")}
+          </Button>
+        </>
+      }
+    >
+      <RegionBrowser
+        regionId={regionId}
+        onChange={setRegionId}
+        allowAnyRegion
+        suggestedRegionIds={suggestedRegionIds}
+      />
+      <div className="mt-4 text-callout">
+        <label htmlFor="bulk-place-name" className="mb-1 block text-muted">
+          {t("captureEdit.location.placeName")}
+          <span className="ml-1.5 text-footnote">{t("import.rows.optional")}</span>
+        </label>
+        <PlaceNameInput id="bulk-place-name" value={label} onChange={setLabel} regionId={regionId} />
+        <p className="mt-1 text-footnote text-muted">{t("gallery.select.setRegionPlaceHint")}</p>
+      </div>
+    </Modal>
+  );
+}
+
+type BarDialog = "correctId" | "tag" | "rate" | "region" | "album" | "adjustTime" | "coordinates";
+
+// Select mode's bar. In the album picker it only adds to that album; otherwise each action opens
+// its own dialog: correct the ID, tag, rate, set the region, add to any album; or downloads,
+// hides or deletes.
 export function GallerySelectBar({
   selectedIds,
   selectingAll,
   targetAlbumId,
   edits,
+  suggestedRegionIds,
+  regionFirst = false,
+  selectionLacksRegion = false,
+  onCoordinatesSaved,
+  onCompare,
+  compareFirst = false,
+  onPlaceOnMap,
 }: {
   selectedIds: ReadonlySet<string>;
   selectingAll: boolean;
   targetAlbumId: string | null;
   edits: GalleryEdits;
+  /** Quick picks for Set region: the one selected photo's region, the Gallery's region filter. */
+  suggestedRegionIds: Array<string | null | undefined>;
+  /** Fixing photos with no region (from Stats): Set region leads, as the main action. */
+  regionFirst?: boolean;
+  /** Every selected photo is loaded and has no region, so coordinates may offer one. */
+  selectionLacksRegion?: boolean;
+  onCoordinatesSaved?: (
+    captureIds: string[],
+    point: { lat: number; lon: number } | null,
+    region: { id: string; name: string } | null,
+  ) => void;
+  /** Opens the selected photos side by side; offered for 2 to 4. */
+  onCompare?: () => void;
+  /** Reviewing a similar group: Compare leads, as the main action. */
+  compareFirst?: boolean;
+  /** Opens the map to place the selected photos by clicking a point or a saved spot. */
+  onPlaceOnMap?: () => void;
 }) {
+  const { t } = useTranslation();
   const { bulk } = edits;
+  const openInEditors = useOpenInEditors();
+  const inat = useInatStatus();
+  const sendToInat = useSendToInat();
+  const count = selectedIds.size;
+  const [dialog, setDialog] = useState<BarDialog | null>(null);
+  const close = () => setDialog(null);
+  const tagRef = useRef<HTMLDivElement>(null);
+  // TagEditor has no autofocus of its own; this runs after the Modal's own first-field focus.
+  useLayoutEffect(() => {
+    if (dialog === "tag") tagRef.current?.querySelector("input")?.focus();
+  }, [dialog]);
+
+  const regionAction: BarAction = {
+    key: "region",
+    label: t("gallery.select.setRegion"),
+    onClick: () => setDialog("region"),
+    variant: regionFirst ? "primary" : "secondary",
+    loading: bulk.settingRegion,
+  };
+  const deleteAction: BarAction = {
+    key: "delete",
+    label: t("gallery.select.deleteSelected"),
+    onClick: () => edits.batch.setOpen(true),
+    variant: "danger",
+  };
+  const actions: BarAction[] = targetAlbumId
+    ? [
+        {
+          key: "addToTarget",
+          label: edits.addingToTargetAlbum ? t("gallery.select.adding") : t("gallery.select.addToAlbum", { count }),
+          onClick: edits.addSelectedToTargetAlbum,
+          variant: "primary",
+          loading: edits.addingToTargetAlbum,
+        },
+        deleteAction,
+      ]
+    : [
+        ...(onCompare && count >= COMPARE_MIN && count <= COMPARE_MAX
+          ? [
+              {
+                key: "compare",
+                label: t("gallery.select.compare"),
+                onClick: onCompare,
+                variant: compareFirst && !regionFirst ? ("primary" as const) : undefined,
+              },
+            ]
+          : []),
+        ...(regionFirst ? [regionAction] : []),
+        {
+          key: "correctId",
+          label: bulk.batchReassigning ? t("gallery.select.reassigning") : t("gallery.select.correctId"),
+          onClick: () => setDialog("correctId"),
+          loading: bulk.batchReassigning,
+        },
+        { key: "tag", label: t("gallery.select.addTag"), onClick: () => setDialog("tag") },
+        { key: "rate", label: t("gallery.select.rate"), onClick: () => setDialog("rate") },
+        ...(regionFirst ? [] : [regionAction]),
+        ...(onPlaceOnMap ? [{ key: "placeOnMap", label: t("gallery.select.placeOnMap"), onClick: onPlaceOnMap }] : []),
+        { key: "album", label: t("albums.addTo.button"), onClick: () => setDialog("album") },
+        { key: "download", label: t("gallery.select.downloadOriginals"), onClick: () => void bulk.download() },
+        { key: "hide", label: t("gallery.select.hide"), onClick: () => void edits.hide([...selectedIds]) },
+        {
+          key: "coordinates",
+          label: t("gallery.select.addCoordinates"),
+          onClick: () => setDialog("coordinates"),
+          menuOnly: true,
+        },
+        ...(inat?.connected
+          ? [
+              {
+                key: "inaturalist",
+                label: t("inaturalist.send.action"),
+                onClick: () => void sendToInat([...selectedIds]).then((sent) => sent && edits.reload()),
+                menuOnly: true,
+              },
+            ]
+          : []),
+        // The editor's own window handles a big batch badly; 200 files is the most one call opens.
+        ...openInEditors.editors.map((editor) => ({
+          key: `openIn-${editor.id}`,
+          label: t("openIn.item", { name: editor.name }),
+          onClick: () => openInEditors.openIn(editor, [...selectedIds].slice(0, 200)),
+          menuOnly: true,
+        })),
+        {
+          key: "adjustTime",
+          label: t("gallery.adjustTime.action"),
+          onClick: () => setDialog("adjustTime"),
+          menuOnly: true,
+        },
+        deleteAction,
+      ];
+
   return (
-    <div className="flex items-center gap-3 border-b border-line bg-surface-muted px-page py-2 text-xs">
-      <span className="shrink-0 text-muted">{formatNumber(selectedIds.size)} selected</span>
-      {selectingAll && <InlineSpinner size="xs" label="Selecting every photo" />}
-      {/* Always rendered as a flex spacer so the controls don't shift with the selection. */}
-      <div className="flex min-w-0 flex-1 items-center gap-6">
-        {/* ID correction doesn't belong in the album picker. */}
-        {!targetAlbumId && selectedIds.size > 0 && (
-          <>
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="shrink-0 text-muted">Correct ID to:</span>
-              <div className="w-56">
-                <SpeciesPicker placeholder="Type a species…" onSelect={(s) => bulk.reassignSelected(s.id)} />
-              </div>
-              {bulk.batchReassigning && <span className="shrink-0 text-muted">Reassigning…</span>}
-            </div>
-            <span aria-hidden className="h-4 w-px shrink-0 bg-line" />
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="shrink-0 text-muted">Add tag:</span>
-              <div className="w-48">
-                <TagEditor tags={bulk.tags} existingTags={edits.tagOptions} compact onChange={bulk.changeTags} />
-              </div>
-            </div>
-            {bulk.tags.length > 0 && (
-              <Button size="sm" onClick={edits.exitSelectMode} className="shrink-0">
-                Done
-              </Button>
-            )}
-          </>
-        )}
-      </div>
-      {targetAlbumId ? (
-        <Button
-          size="sm"
-          onClick={edits.addSelectedToTargetAlbum}
-          disabled={selectedIds.size === 0}
-          loading={edits.addingToTargetAlbum}
-          className="shrink-0"
+    <SelectionBar
+      count={count}
+      busyLabel={selectingAll ? t("gallery.select.selectingAll") : null}
+      emptyText={t("gallery.select.none")}
+      actions={actions}
+    >
+      {dialog === "correctId" && (
+        <Modal
+          open
+          onClose={close}
+          title={t("gallery.select.correctIdTitle", { count })}
+          footer={
+            <Button variant="secondary" onClick={close}>
+              {t("common.cancel")}
+            </Button>
+          }
         >
-          {edits.addingToTargetAlbum ? "Adding…" : `Add ${selectedIds.size || ""} to album`}
-        </Button>
-      ) : (
-        <AddToAlbumButton captureIds={[...selectedIds]} onAdded={edits.exitSelectMode} />
+          <SpeciesPicker
+            autoFocus
+            placeholder={t("gallery.select.typeSpecies")}
+            onSelect={(species) => {
+              close();
+              void bulk.reassignSelected(species);
+            }}
+          />
+        </Modal>
       )}
-      <Button
-        variant="danger"
-        size="sm"
-        onClick={() => edits.batch.setOpen(true)}
-        disabled={selectedIds.size === 0}
-        className="shrink-0"
-      >
-        Delete selected
-      </Button>
-    </div>
+      {dialog === "tag" && (
+        <Modal
+          open
+          onClose={close}
+          title={t("gallery.select.addTagTitle", { count })}
+          footer={
+            <Button
+              onClick={() => {
+                close();
+                if (bulk.tags.length > 0) edits.exitSelectMode();
+              }}
+            >
+              {t("common.done")}
+            </Button>
+          }
+        >
+          <div ref={tagRef}>
+            <TagEditor tags={bulk.tags} existingTags={edits.tagOptions} compact onChange={bulk.changeTags} />
+          </div>
+        </Modal>
+      )}
+      {dialog === "rate" && (
+        <Modal
+          open
+          onClose={close}
+          size="sm"
+          title={t("gallery.select.rateTitle", { count })}
+          footer={
+            <Button variant="secondary" onClick={close}>
+              {t("common.cancel")}
+            </Button>
+          }
+        >
+          <StarRating
+            rating={null}
+            size="text-title-2"
+            onRate={(rating) => {
+              close();
+              void bulk.rate(rating);
+            }}
+          />
+        </Modal>
+      )}
+      {dialog === "region" && (
+        <SetRegionDialog count={count} onSet={bulk.setRegion} onClose={close} suggestedRegionIds={suggestedRegionIds} />
+      )}
+      {dialog === "album" && (
+        <AddToAlbumModal captureIds={[...selectedIds]} onClose={close} onAdded={edits.exitSelectMode} />
+      )}
+      {dialog === "coordinates" && (
+        <CoordinatesModal
+          captureIds={[...selectedIds]}
+          suggestRegion={selectionLacksRegion}
+          onSaved={(point, region) => onCoordinatesSaved?.([...selectedIds], point, region)}
+          onUndone={edits.reload}
+          onClose={close}
+        />
+      )}
+      {dialog === "adjustTime" && (
+        <AdjustTimeDialog
+          captureIds={[...selectedIds]}
+          onClose={close}
+          onChanged={() => {
+            edits.exitSelectMode();
+            edits.reload();
+          }}
+        />
+      )}
+    </SelectionBar>
   );
 }
 
@@ -103,68 +334,64 @@ export function GalleryDeleteDialogs({
   deleteButtonRef: RefObject<HTMLButtonElement | null>;
   batchDeleteButtonRef: RefObject<HTMLButtonElement | null>;
 }) {
+  const { t } = useTranslation();
   const { single, batch, deleting } = edits;
   return (
     <>
       <Modal
         open={!!single.captureId}
         onClose={() => single.request(null)}
-        title={`Delete this ${singleNoun}?`}
+        title={t("gallery.select.deleteOne", { noun: singleNoun })}
+        size="sm"
         initialFocusRef={deleteButtonRef}
         footer={
           <>
-            <Button variant="secondary" size="sm" onClick={() => single.request(null)}>
-              Cancel
+            <Button variant="secondary" onClick={() => single.request(null)}>
+              {t("common.cancel")}
             </Button>
             <Button
               ref={deleteButtonRef}
               variant="danger"
-              size="sm"
               loading={deleting}
               onClick={() => single.captureId && single.confirm(single.captureId)}
             >
-              {deleting ? "Deleting…" : "Delete"}
+              {deleting ? t("common.deleting") : t("common.delete")}
             </Button>
           </>
         }
       >
-        {TRASH_NOTE}
+        <TrashNote noun={singleNoun} />
       </Modal>
 
       <Modal
         open={batch.open}
         onClose={batch.close}
-        title={`Delete ${pluralize(selectedCount, batchNoun)}?`}
+        title={t("gallery.select.deleteMany", { noun: batchNoun, count: selectedCount })}
+        size="sm"
         initialFocusRef={batchDeleteButtonRef}
         footer={
           <>
-            <Button variant="secondary" size="sm" onClick={batch.close}>
-              Cancel
+            <Button variant="secondary" onClick={batch.close}>
+              {t("common.cancel")}
             </Button>
-            <Button ref={batchDeleteButtonRef} variant="danger" size="sm" loading={deleting} onClick={batch.confirm}>
-              {deleting ? "Deleting…" : "Delete"}
+            <Button ref={batchDeleteButtonRef} variant="danger" loading={deleting} onClick={batch.confirm}>
+              {deleting ? t("common.deleting") : t("common.delete")}
             </Button>
           </>
         }
       >
-        {TRASH_NOTE}
+        <TrashNote noun={batchNoun} />
         {selectedHaveRaw && (
-          <label className="mt-3 flex items-center gap-2 text-xs text-ink">
-            <input
-              type="checkbox"
-              checked={batch.deleteRawToo}
-              onChange={(e) => batch.setDeleteRawToo(e.target.checked)}
-              className="h-3.5 w-3.5"
-            />
-            Also delete the matching RAW file when this is permanently removed
-          </label>
+          <Checkbox checked={batch.deleteRawToo} onChange={batch.setDeleteRawToo} className="mt-3">
+            {t("gallery.select.deleteRawToo")}
+          </Checkbox>
         )}
       </Modal>
     </>
   );
 }
 
-// Select mode's bar under the "Hidden" filter: photos a culling app rejected, imported hidden.
+// Select mode's bar under the "Hidden" filter: photos hidden from a menu, or rejected in a culling app.
 // Unhiding is the one thing to do with them; everything else waits until they're back.
 export function HiddenSelectBar({
   selectedIds,
@@ -177,15 +404,16 @@ export function HiddenSelectBar({
   unhiding: boolean;
   onUnhide: () => void;
 }) {
+  const { t } = useTranslation();
   return (
-    <div className="flex items-center gap-3 border-b border-line bg-surface-muted px-page py-2 text-xs">
-      <span className="shrink-0 text-muted">{formatNumber(selectedIds.size)} selected</span>
-      {selectingAll && <InlineSpinner size="xs" label="Selecting every photo" />}
-      <span className="min-w-0 flex-1 text-muted">
-        Hidden photos were rejected in your culling app. Unhiding adds them to your gallery and life list.
+    <div className="flex items-center gap-3 border-b border-line bg-surface-muted px-page py-2 text-footnote">
+      <span className="shrink-0 text-muted">
+        {t("gallery.select.selected", { count: formatNumber(selectedIds.size) })}
       </span>
+      {selectingAll && <InlineSpinner size="xs" label={t("gallery.select.selectingAll")} />}
+      <span className="min-w-0 flex-1 text-muted">{t("gallery.select.hiddenNote")}</span>
       <Button size="sm" onClick={onUnhide} disabled={selectedIds.size === 0} loading={unhiding} className="shrink-0">
-        {unhiding ? "Unhiding…" : "Unhide selected"}
+        {unhiding ? t("gallery.select.unhiding") : t("gallery.select.unhideSelected")}
       </Button>
     </div>
   );

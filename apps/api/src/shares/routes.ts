@@ -1,7 +1,7 @@
 // Public, revocable links to an album's current contents (read at request time).
 // The public routes below never use requireAuth or request.user, and this file is kept separate so
-// it's clear which routes are unauthenticated. GPS is never included, so a link can't reveal a
-// rare species' location. Links are found by their token's sha256 (token_hash, migration 132);
+// it's clear which routes are unauthenticated. GPS is never included; place names only on a link
+// whose owner turned them on, and never a sensitive species', so a link can't reveal where it is. Links are found by their token's sha256 (token_hash, migration 132);
 // the owner's copy for the share list is kept encrypted (lib/secretBox.ts), never as plain text.
 import { randomBytes } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
@@ -17,7 +17,46 @@ import { parseDate } from "../lib/validate.js";
 import { IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { addUnlock, hasUnlock } from "./unlockCookie.js";
 import { CreatedShare, ShareList } from "../albums/responses.js";
+import { albumItemRows } from "../albums/routes.js";
+import { ALBUM_MEMBER_COLUMNS } from "../albums/smartRules.js";
 import { isKnownDevice, rememberDevice, shareDeviceId } from "../auth/knownDevice.js";
+import { DEFAULT_SPECIES_NAME_DISPLAY, getSpeciesNameDisplay } from "../settings/speciesNameDisplay.js";
+import { sensitiveCapturesAmong } from "../settings/metadataSettings.js";
+import { photoPlaceForRegion } from "../regions/photoPlace.js";
+import type { GalleryRow } from "../gallery/routes.js";
+
+/** Each photo's place, as names: the place name, province or state, and country. A sensitive
+ *  species (the owner's list, unless they turned it off) gets its province or country only.
+ *  Never coordinates. */
+async function shareLocations(
+  rows: GalleryRow[],
+  ownerId: string,
+): Promise<Map<string, { place: string | null; region: string | null; country: string | null }>> {
+  const captureIds = rows.map((r) => r.capture_id);
+  const labels = await pool.query<{ id: string; location_label: string | null }>(
+    `SELECT id, location_label FROM captures WHERE id = ANY($1::uuid[])`,
+    [captureIds],
+  );
+  const labelOf = new Map(labels.rows.map((r) => [r.id, r.location_label]));
+  const sensitive = await sensitiveCapturesAmong(ownerId, rows);
+  const regionIds = [...new Set(rows.map((r) => r.region_id).filter((id): id is string => !!id))];
+  const places = new Map(
+    await Promise.all(regionIds.map(async (id) => [id, await photoPlaceForRegion(pool, id)] as const)),
+  );
+  return new Map(
+    rows.map((r) => {
+      const place = r.region_id ? places.get(r.region_id) : null;
+      return [
+        r.capture_id,
+        {
+          place: sensitive.has(r.capture_id) ? null : (labelOf.get(r.capture_id) ?? null),
+          region: place?.state ?? null,
+          country: place?.country ?? null,
+        },
+      ];
+    }),
+  );
+}
 
 const albumNotFound = notFoundOnInvalidId("Album not found");
 const TokenParams = Type.Object({ token: Type.String({ minLength: 1 }) });
@@ -39,11 +78,15 @@ async function resolveShare(token: string) {
     password_hash: string | null;
     allow_download: boolean;
     show_metadata: boolean;
+    show_exact_locations: boolean;
     expires_at: Date | null;
     revoked_at: Date | null;
     album_name: string;
+    owner_id: string;
+    is_smart: boolean;
   }>(
-    `SELECT sl.id, sl.album_id, sl.password_hash, sl.allow_download, sl.show_metadata, sl.expires_at, sl.revoked_at, a.name AS album_name
+    `SELECT sl.id, sl.album_id, sl.password_hash, sl.allow_download, sl.show_metadata, sl.show_exact_locations, sl.expires_at, sl.revoked_at, a.name AS album_name, a.user_id AS owner_id,
+            a.rules IS NOT NULL AS is_smart
      FROM shared_links sl
      JOIN albums a ON a.id = sl.album_id
      WHERE sl.token_hash = $1`,
@@ -83,6 +126,21 @@ export async function encryptStoredShareTokens(db: Pick<typeof pool, "query"> = 
   return res.rows.length;
 }
 
+// A shared page loads every thumbnail at once, so a smart album's matches are kept briefly
+// rather than re-run per image.
+const SMART_MEMBERS_TTL_MS = 30_000;
+const smartMembers = new Map<string, { at: number; photoIds: Set<string> }>();
+
+async function smartSharePhotoIds(albumId: string, ownerId: string): Promise<Set<string>> {
+  const hit = smartMembers.get(albumId);
+  if (hit && Date.now() - hit.at < SMART_MEMBERS_TTL_MS) return hit.photoIds;
+  const members = await albumItemRows(albumId, ownerId, undefined, ALBUM_MEMBER_COLUMNS);
+  const photoIds = new Set(members.map((r) => r.photo_id));
+  if (smartMembers.size > 100) smartMembers.delete(smartMembers.keys().next().value!);
+  smartMembers.set(albumId, { at: Date.now(), photoIds });
+  return photoIds;
+}
+
 function hasValidUnlock(request: { cookies: Record<string, string | undefined> }, shareId: string): boolean {
   return hasUnlock(request.cookies[UNLOCK_COOKIE_NAME], shareId);
 }
@@ -105,6 +163,7 @@ export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> 
             password: Type.Optional(Type.String({ maxLength: 1024 })),
             allowDownload: Type.Optional(Type.Boolean()),
             showMetadata: Type.Optional(Type.Boolean()),
+            showExactLocations: Type.Optional(Type.Boolean()),
             // Not format date-time: parseDate below takes any date string, as it always has.
             expiresAt: Type.Optional(Nullable(Type.String())),
           },
@@ -114,7 +173,7 @@ export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> 
       },
     },
     async (request, reply) => {
-      const { password, allowDownload, showMetadata, expiresAt: rawExpiresAt } = request.body;
+      const { password, allowDownload, showMetadata, showExactLocations, expiresAt: rawExpiresAt } = request.body;
       const expiresAt = parseDate(rawExpiresAt);
       if (expiresAt === undefined) return reply.code(400).send({ error: "expiresAt must be a valid date" });
 
@@ -128,9 +187,9 @@ export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> 
       const passwordHash = password ? await hashPassword(password) : null;
 
       const res = await pool.query(
-        `INSERT INTO shared_links (album_id, token_hash, token_encrypted, password_hash, allow_download, show_metadata, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING id, allow_download, show_metadata, expires_at, created_at`,
+        `INSERT INTO shared_links (album_id, token_hash, token_encrypted, password_hash, allow_download, show_metadata, show_exact_locations, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id, allow_download, show_metadata, show_exact_locations, expires_at, created_at`,
         [
           request.params.id,
           hashToken(token),
@@ -138,6 +197,7 @@ export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> 
           passwordHash,
           !!allowDownload,
           !!showMetadata,
+          !!showExactLocations,
           expiresAt,
         ],
       );
@@ -148,6 +208,7 @@ export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> 
         hasPassword: !!passwordHash,
         allowDownload: r.allow_download,
         showMetadata: r.show_metadata,
+        showExactLocations: r.show_exact_locations,
         expiresAt: r.expires_at,
         createdAt: r.created_at,
       };
@@ -169,7 +230,7 @@ export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> 
       if (albumRes.rows.length === 0) return reply.code(404).send({ error: "Album not found" });
 
       const res = await pool.query(
-        `SELECT id, token, token_encrypted, password_hash, allow_download, show_metadata, expires_at, revoked_at, created_at
+        `SELECT id, token, token_encrypted, password_hash, allow_download, show_metadata, show_exact_locations, expires_at, revoked_at, created_at
          FROM shared_links WHERE album_id = $1 ORDER BY created_at DESC`,
         [request.params.id],
       );
@@ -180,11 +241,38 @@ export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> 
           hasPassword: !!r.password_hash,
           allowDownload: r.allow_download,
           showMetadata: r.show_metadata,
+          showExactLocations: r.show_exact_locations,
           expiresAt: r.expires_at,
           revoked: !!r.revoked_at,
           createdAt: r.created_at,
         })),
       };
+    },
+  );
+
+  // Whether this link shows where its photos were taken (sensitive species: province or country).
+  app.put(
+    "/shares/:id/exact-locations",
+    {
+      preValidation: requireScope("share.write"),
+      config: notFoundOnInvalidId("Share not found"),
+      schema: {
+        params: IdParams,
+        body: Type.Object({ enabled: Type.Boolean() }, { additionalProperties: false }),
+        response: replies(Type.Object({ showExactLocations: Type.Boolean() })),
+      },
+    },
+    async (request, reply) => {
+      // Ownership joins through albums, like revoking.
+      const res = await pool.query<{ show_exact_locations: boolean }>(
+        `UPDATE shared_links sl SET show_exact_locations = $3
+         FROM albums a
+         WHERE sl.id = $1 AND sl.album_id = a.id AND a.user_id = $2
+         RETURNING sl.show_exact_locations`,
+        [request.params.id, request.user!.id, request.body.enabled],
+      );
+      if (res.rowCount === 0) return reply.code(404).send({ error: "Share not found" });
+      return { showExactLocations: res.rows[0].show_exact_locations };
     },
   );
 
@@ -219,29 +307,34 @@ export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> 
       return { needsPassword: true };
     }
 
-    const itemsRes = await pool.query(
-      `SELECT c.id AS capture_id, p.id AS photo_id, p.width, p.height, s.common_name, s.scientific_name,
-              c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso
-       FROM album_captures ac
-       JOIN captures c ON c.id = ac.capture_id
-       JOIN photos p ON p.id = c.current_photo_id
-       JOIN species s ON s.id = c.species_id
-       WHERE ac.album_id = $1
-       ORDER BY ac.added_at DESC`,
-      [share.album_id],
+    // The album page's own membership, so a smart album's link shows its live matches.
+    const rows = await albumItemRows(share.album_id, share.owner_id);
+    if (share.is_smart)
+      smartMembers.set(share.album_id, { at: Date.now(), photoIds: new Set(rows.map((r) => r.photo_id)) });
+    const codesRes = await pool.query<{ id: string; aba_code: string | null; ebird_code: string | null }>(
+      `SELECT id, aba_code, ebird_code FROM species WHERE id = ANY($1::uuid[])`,
+      [[...new Set(rows.map((r) => r.species_id))]],
     );
+    const codes = new Map(codesRes.rows.map((r) => [r.id, r]));
+    // Where each photo was taken, only on a link whose owner turned locations on.
+    const locations = share.show_exact_locations ? await shareLocations(rows, share.owner_id) : null;
 
     return {
       title: share.album_name,
       allowDownload: share.allow_download,
-      items: itemsRes.rows.map((row) => ({
+      // Names ordered the way the album's owner shows them.
+      speciesNames: (await getSpeciesNameDisplay(share.owner_id)) ?? DEFAULT_SPECIES_NAME_DISPLAY,
+      items: rows.map((row) => ({
         photoId: row.photo_id,
         captureId: row.capture_id,
         width: row.width,
         height: row.height,
         commonName: row.common_name,
         scientificName: row.scientific_name,
-        // Camera EXIF only when the owner opted in. GPS is never selected above.
+        abaCode: codes.get(row.species_id)?.aba_code ?? null,
+        ebirdCode: codes.get(row.species_id)?.ebird_code ?? null,
+        ...(locations ? { location: locations.get(row.capture_id) ?? null } : {}),
+        // Camera EXIF only when the owner opted in. GPS is never copied out.
         ...(share.show_metadata
           ? {
               cameraModel: row.camera_model,
@@ -325,15 +418,22 @@ export async function albumShareRoutes(fastify: FastifyInstance): Promise<void> 
         }
 
         const column = kind === "display" ? "p.display_path" : "p.thumb_path";
+        if (share.is_smart && !(await smartSharePhotoIds(share.album_id, share.owner_id)).has(request.params.photoId))
+          return reply.code(404).send({ error: "Photo not found" });
         // Through the captures view and its current photo, so a trashed capture or an older
-        // rendition is never served from a public link.
+        // rendition is never served from a public link. A smart album's membership was checked above.
         const res = await pool.query<{ path: string }>(
-          `SELECT ${column} AS path
-           FROM album_captures ac
-           JOIN captures c ON c.id = ac.capture_id
-           JOIN photos p ON p.id = c.current_photo_id
-           WHERE ac.album_id = $1 AND p.id = $2`,
-          [share.album_id, request.params.photoId],
+          share.is_smart
+            ? `SELECT ${column} AS path
+               FROM captures c
+               JOIN photos p ON p.id = c.current_photo_id
+               WHERE c.user_id = $1 AND p.id = $2`
+            : `SELECT ${column} AS path
+               FROM album_captures ac
+               JOIN captures c ON c.id = ac.capture_id
+               JOIN photos p ON p.id = c.current_photo_id
+               WHERE ac.album_id = $1 AND p.id = $2`,
+          [share.is_smart ? share.owner_id : share.album_id, request.params.photoId],
         );
         const filePath = res.rows[0]?.path;
         if (!filePath || !existsSync(filePath)) return reply.code(404).send({ error: "Photo not found" });

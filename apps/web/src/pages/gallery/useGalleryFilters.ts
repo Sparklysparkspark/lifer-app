@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SetURLSearchParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { usePersistedState } from "../../hooks/usePersistedState";
@@ -10,50 +10,120 @@ import {
   type PhotoSort,
   type RawFilesFilter,
 } from "../../lib/photoListFilters";
-import { countActiveFilters, shotKindForSearch } from "./galleryHelpers";
+import { SHOT_ACTIONS, SHOT_FRAMINGS, parseShotList } from "@lifer/shared";
+import { countActiveFilters, shotTypeForKind, shotTypeForSearch, shotTypeValues } from "./galleryHelpers";
 import type { GalleryQuery } from "./types";
 import { ignore } from "../../lib/ignore";
 
 type Scope = { id: string; name: string | null };
 
+/** Where a page saves its browsing presets. */
+export interface PresetKeys {
+  rawFiles: string;
+  editedRaw: string;
+  media: string;
+  sort: string;
+}
+const GALLERY_KEYS: PresetKeys = {
+  rawFiles: GALLERY_RAW_FILES_KEY,
+  editedRaw: GALLERY_EDITED_RAW_KEY,
+  media: "galleryMediaFilter",
+  sort: "gallerySortBy",
+};
+
+// A browsing preset the Gallery remembers. A seeded copy (the smart album rule builder) keeps its
+// own, so editing rules never changes how the Gallery opens.
+function usePreset<T>(key: string, fallback: T, seeded: T | undefined): [T, (value: T) => void] {
+  const persisted = usePersistedState<T>(key, fallback);
+  const local = useState<T>(seeded ?? fallback);
+  return seeded === undefined ? persisted : local;
+}
+
 // The Gallery's search, filters and sort. Some arrive in the URL (?q=, ?tag=, ?missingDate=1,
-// Stats' ?taxon=, ?shotKind=, ?tier= (with ?tierRegionId= and ?regionId= for a local tier),
+// Stats' ?taxon=, ?action= and ?framing= (or an old link's ?shotKind=), ?tier= (with ?tierRegionId= and ?regionId= for a local tier),
 // and the palette's ?tripId= / ?inAlbum= scopes); the search is kept in ?q= so back restores it.
-export function useGalleryFilters(searchParams: URLSearchParams, setSearchParams: SetURLSearchParams) {
-  const [onlyTopRated, setOnlyTopRated] = useState(false);
-  const [onlyHidden, setOnlyHidden] = useState(false);
-  const [onlyFeatured, setOnlyFeatured] = useState(false);
-  // From Stats' "Missing date" row. Read once: fixing a date drops the item locally.
-  const [missingDate] = useState(() => searchParams.get("missingDate") === "1");
+// With `seed` (a smart album's rules) it starts from those instead. Album and trip pages share it
+// with their own saved presets (`keys`) and without the ?q= search (`search: false`).
+export function useGalleryFilters(
+  searchParams: URLSearchParams,
+  setSearchParams: SetURLSearchParams,
+  seed?: Omit<GalleryQuery, "sortBy">,
+  {
+    keys = GALLERY_KEYS,
+    search = true,
+    alsoClear = [],
+  }: { keys?: PresetKeys; search?: boolean; alsoClear?: readonly string[] } = {},
+) {
+  const [ratingMin, setRatingMin] = useState<number | null>(seed?.ratingMin ?? null);
+  const [ratingMax, setRatingMax] = useState<number | null>(seed?.ratingMax ?? null);
+  const [unrated, setUnrated] = useState(seed?.unrated ?? false);
+  const [animalsMin, setAnimalsMin] = useState<number | null>(seed?.animalsMin ?? null);
+  const [animalsMax, setAnimalsMax] = useState<number | null>(seed?.animalsMax ?? null);
+  const [onlyHidden, setOnlyHidden] = useState(seed?.onlyHidden ?? false);
+  const [onlyFeatured, setOnlyFeatured] = useState(seed?.onlyFeatured ?? false);
+  const [notOnInat, setNotOnInat] = useState(seed?.notOnInat ?? false);
+  // From Stats' "Missing date" row too. Fixing a date drops the item locally, not by refetching.
+  const [missingDate, setMissingDateState] = useState(
+    () => seed?.missingDate ?? searchParams.get("missingDate") === "1",
+  );
+  const [missingCoordinates, setMissingCoordinatesState] = useState(
+    () => seed?.missingCoordinates ?? searchParams.get("missingCoordinates") === "1",
+  );
   const [selectedTaxa, setSelectedTaxa] = useState<Set<string>>(() => {
+    if (seed) return seed.selectedTaxa;
     const taxon = searchParams.get("taxon");
     return new Set(taxon ? [taxon] : []);
   });
-  const [shotKind, setShotKind] = useState<string | null>(() => searchParams.get("shotKind"));
-  const [tier, setTier] = useState<string | null>(() => searchParams.get("tier"));
-  const [tierRegionId, setTierRegionId] = useState<string | null>(() => searchParams.get("tierRegionId"));
-  // Persisted browsing presets: edited photos with no RAW-only ones, photos only, is the default.
-  const [rawFiles, setRawFiles] = usePersistedState<RawFilesFilter>(GALLERY_RAW_FILES_KEY, DEFAULT_RAW_FILES);
-  const [editedRaw, setEditedRaw] = usePersistedState<EditedRawFilter>(GALLERY_EDITED_RAW_KEY, "any");
-  const [mediaFilter, setMediaFilter] = usePersistedState<MediaFilter>("galleryMediaFilter", "photos");
+  // From the URL: the two axes, plus an old link's single ?shotKind=.
+  const [urlShotType] = useState(() => {
+    const legacy = shotTypeForKind(searchParams.get("shotKind"));
+    return {
+      actions: new Set([...parseShotList(searchParams.get("action"), SHOT_ACTIONS), ...legacy.actions]),
+      framings: new Set([...parseShotList(searchParams.get("framing"), SHOT_FRAMINGS), ...legacy.framings]),
+    };
+  });
+  const [shotActions, setShotActions] = useState<ReadonlySet<string>>(() => seed?.shotActions ?? urlShotType.actions);
+  const [shotFramings, setShotFramings] = useState<ReadonlySet<string>>(
+    () => seed?.shotFramings ?? urlShotType.framings,
+  );
+  const [tiers, setTiers] = useState<readonly string[]>(() => (seed ? seed.tiers : searchParams.getAll("tier")));
+  const [tierRegionId, setTierRegionId] = useState<string | null>(() =>
+    seed ? seed.tierRegionId : searchParams.get("tierRegionId"),
+  );
+  // Persisted browsing presets: every photo, RAW-only ones included, and no videos is the default.
+  // Only a user's own pick is stored, so a saved "hide" stays and counts as an active filter.
+  const [rawFiles, setRawFiles] = usePreset<RawFilesFilter>(keys.rawFiles, DEFAULT_RAW_FILES, seed?.rawFiles);
+  const [editedRaw, setEditedRaw] = usePreset<EditedRawFilter>(keys.editedRaw, "any", seed?.editedRaw);
+  const [mediaFilter, setMediaFilter] = usePreset<MediaFilter>(keys.media, "photos", seed?.mediaFilter);
   // YYYY-MM-DD; the server treats dateTo as inclusive.
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [dateRangeOpen, setDateRangeOpen] = useState(false);
-  const [regionId, setRegionId] = useState<string | null>(() => searchParams.get("regionId"));
+  const [dateFrom, setDateFrom] = useState(seed?.dateFrom ?? "");
+  const [dateTo, setDateTo] = useState(seed?.dateTo ?? "");
+  const [dateRangeOpen, setDateRangeOpen] = useState(!!(seed?.dateFrom || seed?.dateTo));
+  // Each takes several values, repeated in the URL (?regionId=a&regionId=b): any one matches.
+  const [regionIds, setRegionIdsState] = useState<readonly string[]>(() =>
+    seed ? seed.regionIds : searchParams.getAll("regionId"),
+  );
   // Seeded from ?tag=X (e.g. Manage tags' photo counts).
-  const [tag, setTag] = useState<string | null>(() => searchParams.get("tag"));
+  const [tags, setTagsState] = useState<readonly string[]>(() => (seed ? seed.tags : searchParams.getAll("tag")));
+  // Seeded from ?place=X (Settings > Library > Places), or picked in the Filters panel.
+  const [places, setPlacesState] = useState<readonly string[]>(() =>
+    seed ? seed.places : searchParams.getAll("place"),
+  );
+  // From a point clicked on the map view: ?bbox=west,south,east,north.
+  const [bbox, setBboxState] = useState<string | null>(() => (seed ? (seed.bbox ?? null) : searchParams.get("bbox")));
   // From the palette's "search this trip/album": ?tripId= or ?inAlbum= (albumId is the add-photos picker).
   const [scopeTrip, setScopeTrip] = useState<Scope | null>(() => {
-    const id = searchParams.get("tripId");
+    const id = seed ? seed.scopeTripId : searchParams.get("tripId");
     return id ? { id, name: null } : null;
   });
   const [scopeAlbum, setScopeAlbum] = useState<Scope | null>(() => {
-    const id = searchParams.get("inAlbum");
+    const id = seed ? seed.scopeAlbumId : searchParams.get("inAlbum");
     return id ? { id, name: null } : null;
   });
   const scopeTripId = scopeTrip?.id ?? null;
   const scopeAlbumId = scopeAlbum?.id ?? null;
+  // Read from the URL each render: "Similar photos" is a link, which can arrive while the page is open.
+  const similarTo = seed ? null : searchParams.get("similarTo");
   useEffect(() => {
     if (!scopeTripId) return;
     api
@@ -68,28 +138,62 @@ export function useGalleryFilters(searchParams: URLSearchParams, setSearchParams
       .then((res) => setScopeAlbum((prev) => (prev?.id === scopeAlbumId ? { ...prev, name: res.name } : prev)))
       .catch(ignore("Couldn't load the album name"));
   }, [scopeAlbumId]);
-  // Stats' filters arrive in the URL, so clearing one drops it there too.
-  function dropParam(name: string) {
+  // Stats' filters arrive in the URL, so setting or clearing one writes it there too. One call
+  // per change: setSearchParams' updater sees the render's params, so a second call would undo the first.
+  function writeParams(values: Record<string, string | readonly string[] | null>) {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        next.delete(name);
+        for (const [name, value] of Object.entries(values)) {
+          next.delete(name);
+          if (typeof value === "string") {
+            if (value) next.set(name, value);
+          } else for (const v of value ?? []) next.append(name, v);
+        }
         return next;
       },
       { replace: true },
     );
   }
-  function clearShotKind() {
-    setShotKind(null);
-    dropParam("shotKind");
+  // The new fields are written from now on; an old ?shotKind= goes with the first change.
+  function changeShotType(axis: "action" | "framing", next: ReadonlySet<string>) {
+    if (axis === "action") setShotActions(next);
+    else setShotFramings(next);
+    const values = shotTypeValues(next, axis === "action" ? SHOT_ACTIONS : SHOT_FRAMINGS);
+    writeParams({ [axis]: values.join(",") || null, shotKind: null });
   }
-  function clearTier() {
-    setTier(null);
-    setTierRegionId(null);
-    dropParam("tier");
-    dropParam("tierRegionId");
+  // A local tier (tierRegionId) stays while switching tiers; clearing the tiers drops both.
+  function changeTiers(value: readonly string[]) {
+    setTiers(value);
+    if (value.length === 0) setTierRegionId(null);
+    writeParams(value.length > 0 ? { tier: value } : { tier: null, tierRegionId: null });
   }
-  function clearScope(kind: "trip" | "album") {
+  function setRegionIds(value: readonly string[]) {
+    setRegionIdsState(value);
+    writeParams({ regionId: value });
+  }
+  function setTags(value: readonly string[]) {
+    setTagsState(value);
+    writeParams({ tag: value });
+  }
+  function setMissingDate(value: boolean) {
+    setMissingDateState(value);
+    writeParams({ missingDate: value ? "1" : null });
+  }
+  function setMissingCoordinates(value: boolean) {
+    setMissingCoordinatesState(value);
+    writeParams({ missingCoordinates: value ? "1" : null });
+  }
+  function clearScope(kind: "trip" | "album" | "similar") {
+    if (kind === "similar") {
+      // A new history entry, so Back returns to the group.
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("similarTo");
+        return next;
+      });
+      return;
+    }
     if (kind === "trip") setScopeTrip(null);
     else setScopeAlbum(null);
     setSearchParams(
@@ -101,12 +205,33 @@ export function useGalleryFilters(searchParams: URLSearchParams, setSearchParams
       { replace: true },
     );
   }
-  const [sortBy, setSortBy] = usePersistedState<PhotoSort>("gallerySortBy", "newest");
+  // One setter, so Unrated never combines with a range and a 5 or too-low maximum means no cap.
+  function setRating(min: number | null, max: number | null, onlyUnrated = false) {
+    setUnrated(onlyUnrated);
+    setRatingMin(onlyUnrated ? null : min);
+    setRatingMax(onlyUnrated || max === null || max === 5 || (min !== null && max < min) ? null : max);
+  }
+  // "Exactly" sets both ends; "at least" only the minimum.
+  function setAnimals(min: number | null, exact: boolean) {
+    setAnimalsMin(min);
+    setAnimalsMax(exact ? min : null);
+  }
+  function setPlaces(value: readonly string[]) {
+    setPlacesState(value);
+    writeParams({ place: value });
+  }
+  // `alsoWrite`: other params changed in the same step (the map view closing as it opens an area).
+  function setBbox(value: string | null, alsoWrite: Record<string, string | null> = {}) {
+    setBboxState(value);
+    writeParams({ bbox: value, ...alsoWrite });
+  }
+  const [sortBy, setSortBy] = usePersistedState<PhotoSort>(keys.sort, "newest");
   // The query lives in ?q= so back navigation restores it.
-  const [searchInput, setSearchInput] = useState(() => searchParams.get("q") ?? "");
+  const urlQuery = search ? (searchParams.get("q") ?? "") : "";
+  const [searchInput, setSearchInput] = useState(() => seed?.searchQuery ?? urlQuery);
   // Debounced copy of searchInput that is actually sent.
   const [searchQuery, setSearchQuery] = useState(() => {
-    const q = (searchParams.get("q") ?? "").trim();
+    const q = (seed?.searchQuery ?? urlQuery).trim();
     return q.length >= 3 ? q : "";
   });
 
@@ -120,7 +245,6 @@ export function useGalleryFilters(searchParams: URLSearchParams, setSearchParams
 
   // The search palette hands off with /gallery?q=, which can arrive while this page is open. Our
   // own write below always carries the current searchQuery, so it changes nothing here.
-  const urlQuery = searchParams.get("q") ?? "";
   const [seenUrlQuery, setSeenUrlQuery] = useState(urlQuery);
   if (seenUrlQuery !== urlQuery) {
     setSeenUrlQuery(urlQuery);
@@ -133,7 +257,7 @@ export function useGalleryFilters(searchParams: URLSearchParams, setSearchParams
   }
 
   useEffect(() => {
-    if ((searchParams.get("q") ?? "") === searchQuery) return;
+    if (!search || (searchParams.get("q") ?? "") === searchQuery) return;
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -146,16 +270,24 @@ export function useGalleryFilters(searchParams: URLSearchParams, setSearchParams
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mirrors only a committed search into the URL; other param changes come the other way
   }, [searchQuery]);
 
-  // "flight" on its own is Stats' Flight shots, not a picture search (shotKindForSearch).
-  const typedShotKind = shotKindForSearch(searchQuery);
+  // "flight" on its own is the Shot type filter, not a picture search (shotTypeForSearch).
+  const typedShotType = useMemo(() => shotTypeForSearch(searchQuery), [searchQuery]);
   const query: GalleryQuery = {
-    searchQuery: typedShotKind ? "" : searchQuery,
+    searchQuery: typedShotType || similarTo ? "" : searchQuery,
     onlyHidden,
-    onlyTopRated,
+    ratingMin,
+    ratingMax,
+    unrated,
+    animalsMin,
+    animalsMax,
     onlyFeatured,
+    notOnInat,
     missingDate,
-    shotKind: shotKind ?? typedShotKind,
-    tier,
+    missingCoordinates,
+    // A chosen axis wins over the typed one.
+    shotActions: shotActions.size > 0 || !typedShotType ? shotActions : typedShotType.actions,
+    shotFramings: shotFramings.size > 0 || !typedShotType ? shotFramings : typedShotType.framings,
+    tiers,
     tierRegionId,
     selectedTaxa,
     rawFiles,
@@ -163,47 +295,124 @@ export function useGalleryFilters(searchParams: URLSearchParams, setSearchParams
     mediaFilter,
     dateFrom,
     dateTo,
-    regionId,
-    tag,
+    regionIds,
+    tags,
+    places,
+    bbox,
+    similarTo,
     scopeTripId,
     scopeAlbumId,
     sortBy,
   };
   // The typed kind is the search, not a filter, so it doesn't count toward the Filters badge.
-  const activeFilterCount = countActiveFilters({ ...query, shotKind });
+  const activeFilterCount = countActiveFilters({ ...query, shotActions, shotFramings });
 
   function clearFilters() {
     // With nothing but the presets active, "clear" means show everything.
     const onlyPresets = activeFilterCount === 0 && !searchQuery;
-    setOnlyTopRated(false);
+    setRating(null, null);
+    setAnimals(null, false);
     setOnlyHidden(false);
     setOnlyFeatured(false);
+    setNotOnInat(false);
     setMediaFilter(onlyPresets ? "both" : "photos");
-    setRawFiles(onlyPresets ? "show" : DEFAULT_RAW_FILES);
+    setRawFiles(DEFAULT_RAW_FILES);
     setEditedRaw("any");
     setSelectedTaxa(new Set());
     setDateFrom("");
     setDateTo("");
     setDateRangeOpen(false);
-    setRegionId(null);
-    setTag(null);
-    clearShotKind();
-    clearTier();
-    if (scopeTripId) clearScope("trip");
-    if (scopeAlbumId) clearScope("album");
+    setRegionIdsState([]);
+    setTagsState([]);
+    setPlacesState([]);
+    setBboxState(null);
+    setMissingDateState(false);
+    setMissingCoordinatesState(false);
+    setShotActions(new Set());
+    setShotFramings(new Set());
+    setTiers([]);
+    setTierRegionId(null);
+    setScopeTrip(null);
+    setScopeAlbum(null);
+    writeParams({
+      missingDate: null,
+      missingCoordinates: null,
+      shotKind: null,
+      action: null,
+      framing: null,
+      tier: null,
+      tierRegionId: null,
+      tripId: null,
+      inAlbum: null,
+      regionId: null,
+      tag: null,
+      place: null,
+      bbox: null,
+      // A page's own filters kept in the URL (a trip's species), cleared in the same write.
+      ...Object.fromEntries(alsoClear.map((name) => [name, null])),
+    });
     setSearchInput("");
     setSearchQuery("");
+  }
+
+  // Replaces every filter with a saved set (a pinned filter): one URL write, as clearFilters does.
+  function applyQuery(q: Omit<GalleryQuery, "sortBy">) {
+    setRating(q.ratingMin, q.ratingMax, q.unrated);
+    setAnimalsMin(q.animalsMin);
+    setAnimalsMax(q.animalsMax);
+    setOnlyHidden(q.onlyHidden);
+    setOnlyFeatured(q.onlyFeatured);
+    setNotOnInat(q.notOnInat);
+    setMediaFilter(q.mediaFilter);
+    setRawFiles(q.rawFiles);
+    setEditedRaw(q.editedRaw);
+    setSelectedTaxa(new Set(q.selectedTaxa));
+    setDateFrom(q.dateFrom);
+    setDateTo(q.dateTo);
+    setDateRangeOpen(!!(q.dateFrom || q.dateTo));
+    setRegionIdsState(q.regionIds);
+    setTagsState(q.tags);
+    setPlacesState(q.places);
+    setBboxState(q.bbox ?? null);
+    setMissingDateState(q.missingDate);
+    setMissingCoordinatesState(q.missingCoordinates);
+    setShotActions(new Set(q.shotActions));
+    setShotFramings(new Set(q.shotFramings));
+    setTiers(q.tiers);
+    setTierRegionId(q.tierRegionId ?? null);
+    setScopeTrip(q.scopeTripId ? { id: q.scopeTripId, name: null } : null);
+    setScopeAlbum(q.scopeAlbumId ? { id: q.scopeAlbumId, name: null } : null);
+    setSearchInput(q.searchQuery);
+    setSearchQuery(q.searchQuery.trim().length >= 3 ? q.searchQuery.trim() : "");
+    writeParams({
+      missingDate: q.missingDate ? "1" : null,
+      missingCoordinates: q.missingCoordinates ? "1" : null,
+      shotKind: null,
+      action: shotTypeValues(q.shotActions, SHOT_ACTIONS).join(",") || null,
+      framing: shotTypeValues(q.shotFramings, SHOT_FRAMINGS).join(",") || null,
+      tier: q.tiers,
+      tierRegionId: q.tierRegionId ?? null,
+      tripId: q.scopeTripId,
+      inAlbum: q.scopeAlbumId,
+      regionId: q.regionIds,
+      tag: q.tags,
+      place: q.places,
+      bbox: q.bbox ?? null,
+    });
   }
 
   return {
     query,
     activeFilterCount,
     clearFilters,
+    applyQuery,
     searchInput,
     setSearchInput,
-    setOnlyTopRated,
+    setRating,
+    setAnimals,
     setOnlyHidden,
     setOnlyFeatured,
+    setNotOnInat,
     setSelectedTaxa,
     setRawFiles,
     setEditedRaw,
@@ -212,15 +421,21 @@ export function useGalleryFilters(searchParams: URLSearchParams, setSearchParams
     setDateTo,
     dateRangeOpen,
     setDateRangeOpen,
-    setRegionId,
-    setTag,
+    setRegionIds,
+    setTags,
+    setPlaces,
+    setBbox,
     setSortBy,
     scopeTrip,
     scopeAlbum,
     clearScope,
-    shotKind,
-    clearShotKind,
-    clearTier,
+    shotActions,
+    shotFramings,
+    setShotActions: (next: ReadonlySet<string>) => changeShotType("action", next),
+    setShotFramings: (next: ReadonlySet<string>) => changeShotType("framing", next),
+    setTiers: changeTiers,
+    setMissingDate,
+    setMissingCoordinates,
   };
 }
 

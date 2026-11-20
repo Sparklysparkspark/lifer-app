@@ -1,17 +1,34 @@
 import { useCallback, useEffect } from "react";
-import type { CollectionItem } from "@lifer/shared";
+import type { AlbumPhoto, CollectionItem } from "@lifer/shared";
 import { api, apiPath } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import { useApiResource } from "../../lib/resource";
 import type { AlbumDetail, AlbumView, Crop } from "./types";
 
+const FIRST_PHOTOS = 200;
+/** The album with only its first photos: what the page draws first, and what hovering a card warms. */
+export const albumPreviewPath = (id: string) => `/albums/${id}?limit=${FIRST_PHOTOS}`;
+
 // The album, its species (loaded once the species view opens), and every edit to them. Edits
 // reload the album afterwards, since the server resolves covers and quad slots.
 export function useAlbumDetail(id: string | undefined, view: AlbumView) {
   const toast = useToast();
+  // The first photos arrive in a fraction of a second, while a smart album matching most of the
+  // library takes seconds in full; both load at once and the page draws whichever it has.
+  const preview = useApiResource<AlbumDetail>(id ? albumPreviewPath(id) : null);
   const albumResource = useApiResource<AlbumDetail>(id ? `/albums/${id}` : null);
-  const album = albumResource.data;
-  const setAlbum = albumResource.setData;
+  const album = albumResource.data ?? preview.data;
+  const setFull = albumResource.setData;
+  const setPreview = preview.setData;
+  // shortcut: an edit made before the whole album arrives can be undone by that older answer
+  // until the next reload; fine while albums open in seconds.
+  const setAlbum = useCallback(
+    (update: (prev: AlbumDetail | null) => AlbumDetail | null) => {
+      setFull(update);
+      setPreview(update);
+    },
+    [setFull, setPreview],
+  );
   const loadError = albumResource.error != null;
   // A reload after a change: any earlier error clears while it retries.
   const reloadAlbum = albumResource.reload;
@@ -37,14 +54,55 @@ export function useAlbumDetail(id: string | undefined, view: AlbumView) {
     load();
   }
 
+  // A smart album's rules chose the photo, so taking it out records an exclusion instead.
   async function removeFromAlbum(captureId: string) {
     if (!id) return;
-    setAlbum((a) => (a ? { ...a, items: a.items.filter((i) => i.captureId !== captureId) } : a));
+    const smart = !!album?.rules;
+    setAlbum((a) =>
+      a
+        ? {
+            ...a,
+            items: a.items.filter((i) => i.captureId !== captureId),
+            excludedCount: a.excludedCount + (smart ? 1 : 0),
+          }
+        : a,
+    );
     try {
-      await api.delete(apiPath("/albums/{id}/captures/{captureId}", { id, captureId }));
+      if (smart) await api.post(apiPath("/albums/{id}/exclusions", { id }), { captureIds: [captureId] });
+      else await api.delete(apiPath("/albums/{id}/captures/{captureId}", { id, captureId }));
     } catch {
-      toast.error("Couldn't remove this photo from the album.");
+      toast.error(smart ? "Couldn't exclude this photo from the album." : "Couldn't remove this photo from the album.");
       load();
+    }
+  }
+
+  // A photo menu edit, shown at once; the reload that follows brings what the server works out.
+  function updateItem(captureId: string, patch: Partial<AlbumPhoto>) {
+    setAlbum((a) =>
+      a ? { ...a, items: a.items.map((i) => (i.captureId === captureId ? { ...i, ...patch } : i)) } : a,
+    );
+  }
+
+  async function rateCapture(captureId: string, rating: number | null) {
+    setAlbum((a) =>
+      a ? { ...a, items: a.items.map((i) => (i.captureId === captureId ? { ...i, qualityRating: rating } : i)) } : a,
+    );
+    try {
+      await api.patch(apiPath("/captures/{id}/rating", { id: captureId }), { rating });
+    } catch {
+      toast.error("Couldn't save that rating.");
+      load();
+    }
+  }
+
+  async function deleteAlbum(): Promise<boolean> {
+    if (!id) return false;
+    try {
+      await api.delete(apiPath("/albums/{id}", { id }));
+      return true;
+    } catch {
+      toast.error("Couldn't delete this album");
+      return false;
     }
   }
 
@@ -69,7 +127,8 @@ export function useAlbumDetail(id: string | undefined, view: AlbumView) {
     );
   }
 
-  async function setCoverPhoto(photoId: string) {
+  /** Null goes back to the automatic cover. */
+  async function setCoverPhoto(photoId: string | null) {
     if (!id) return;
     await saveAndReload(
       () => api.patch(apiPath("/albums/{id}", { id }), { coverPhotoId: photoId }),
@@ -118,6 +177,9 @@ export function useAlbumDetail(id: string | undefined, view: AlbumView) {
     load,
     speciesItems,
     removeFromAlbum,
+    rateCapture,
+    updateItem,
+    deleteAlbum,
     saveName,
     saveDescription,
     setCoverLayout,

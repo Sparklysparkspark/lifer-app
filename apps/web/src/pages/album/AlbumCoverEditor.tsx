@@ -1,81 +1,132 @@
 import type { QuadSlot } from "@lifer/shared";
 import { cropToImageStyle } from "../../lib/crop";
-import { PANEL } from "../../lib/layout";
+import ProgressiveImg from "../../components/ProgressiveImg";
+import Panel from "../../components/Panel";
+import Button from "../../components/Button";
+import { useTranslation } from "react-i18next";
 import SegmentedControl from "../../components/SegmentedControl";
 
-const COVER_LAYOUTS = [
-  { value: "single", label: "Single photo" },
-  { value: "quad", label: "Quad grid" },
-] as const;
-
-const QUAD_TILE_BUTTON = "rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-medium text-ink hover:bg-white";
-
-// "Edit cover": single photo or quad grid, and for a quad, which photo (and crop) each tile shows.
+// The album's cover while editing: single photo or quad grid, and which photo (and crop) it shows.
 // Picking a tile's photo happens in the grid below, so the page owns `pickingSlot`.
 export default function AlbumCoverEditor({
   coverLayout,
+  coverPhotoId,
+  coverCrop,
   quadSlots,
   pickingSlot,
+  replacingWith,
+  onReplaceSlot,
+  onCancelReplace,
   onSetCoverLayout,
+  onCropCover,
   onPickSlot,
   onCropSlot,
 }: {
   coverLayout: "single" | "quad";
+  coverPhotoId: string | null;
+  coverCrop: { x: number | null; y: number | null; size: number | null };
   quadSlots: Array<QuadSlot | null>;
   pickingSlot: number | null;
+  /** A photo waiting to replace one of the quad tiles, picked by clicking the tile. */
+  replacingWith?: string | null;
+  onReplaceSlot?: (slot: number) => void;
+  onCancelReplace?: () => void;
   onSetCoverLayout: (layout: "single" | "quad") => void;
+  onCropCover: () => void;
   onPickSlot: (slot: number | null) => void;
   onCropSlot: (slot: number) => void;
 }) {
+  const { t } = useTranslation();
+  const coverLayouts = [
+    { value: "single", label: t("albums.cover.single") },
+    { value: "quad", label: t("albums.cover.quad") },
+  ] as const;
   return (
-    <div className="mb-section">
-      <div className={`space-y-3 ${PANEL}`}>
-        <div className="flex items-center gap-2 text-sm text-muted">
-          Cover style
-          <SegmentedControl value={coverLayout} onChange={onSetCoverLayout} options={COVER_LAYOUTS} />
-        </div>
-        {coverLayout === "quad" && (
-          <div>
-            {pickingSlot != null ? (
-              <p className="mb-2 text-xs text-muted">
-                Click a photo below to use it in this tile.{" "}
-                <button onClick={() => onPickSlot(null)} className="underline hover:text-ink">
-                  Cancel
-                </button>
-              </p>
-            ) : (
-              <p className="mb-2 text-xs text-muted">Hover a tile to change its photo or crop.</p>
+    // Only as wide as its content.
+    <Panel className="w-fit max-w-full space-y-3">
+      <div className="flex items-center gap-2 text-callout text-muted">
+        {t("albums.cover.style")}
+        <SegmentedControl value={coverLayout} onChange={onSetCoverLayout} options={coverLayouts} />
+      </div>
+      {coverLayout === "single" && (
+        <div>
+          <p className="mb-2 text-footnote text-muted">{t("albums.cover.singleHint")}</p>
+          <div className="group relative aspect-square w-48 overflow-hidden rounded-control bg-surface-muted">
+            {coverPhotoId && (
+              <>
+                <ProgressiveImg
+                  thumbSrc={`/api/photos/${coverPhotoId}/thumb`}
+                  fullSrc={`/api/photos/${coverPhotoId}/thumb`}
+                  alt=""
+                  className="h-full w-full"
+                  style={cropToImageStyle(coverCrop.x, coverCrop.y, coverCrop.size)}
+                />
+                <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                  <Button variant="secondary" size="sm" onClick={onCropCover}>
+                    {t("albums.cover.crop")}
+                  </Button>
+                </div>
+              </>
             )}
-            <div className="grid w-48 grid-cols-2 grid-rows-2 gap-1">
-              {quadSlots.map((slot, i) => (
-                <div key={i} className="group relative aspect-square overflow-hidden rounded-md bg-surface">
-                  {slot ? (
-                    <img
-                      src={`/api/photos/${slot.photoId}/thumb`}
-                      alt=""
-                      loading="lazy"
-                      className="h-full w-full object-cover"
-                      style={cropToImageStyle(slot.cropX, slot.cropY, slot.cropSize)}
-                    />
-                  ) : (
-                    <div className="h-full w-full bg-surface-muted" />
-                  )}
-                  <div className="absolute inset-0 flex items-center justify-center gap-1 bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
-                    <button onClick={() => onPickSlot(i)} className={QUAD_TILE_BUTTON}>
-                      Change
-                    </button>
+          </div>
+        </div>
+      )}
+      {coverLayout === "quad" && (
+        <div>
+          {replacingWith ? (
+            <p className="mb-2 text-footnote text-muted">
+              {t("albums.cover.replaceHint")}{" "}
+              <Button variant="link" size="sm" onClick={onCancelReplace}>
+                {t("common.cancel")}
+              </Button>
+            </p>
+          ) : pickingSlot != null ? (
+            <p className="mb-2 text-footnote text-muted">
+              {t("albums.cover.pickHint")}{" "}
+              <Button variant="link" size="sm" onClick={() => onPickSlot(null)}>
+                {t("common.cancel")}
+              </Button>
+            </p>
+          ) : (
+            <p className="mb-2 text-footnote text-muted">{t("albums.cover.hoverHint")}</p>
+          )}
+          <div className="grid w-48 grid-cols-2 grid-rows-2 gap-1">
+            {quadSlots.map((slot, i) => (
+              <div key={i} className="group relative aspect-square overflow-hidden rounded-control bg-surface">
+                {slot ? (
+                  <ProgressiveImg
+                    thumbSrc={`/api/photos/${slot.photoId}/thumb`}
+                    fullSrc={`/api/photos/${slot.photoId}/thumb`}
+                    alt=""
+                    className="h-full w-full"
+                    style={cropToImageStyle(slot.cropX, slot.cropY, slot.cropSize)}
+                  />
+                ) : (
+                  <div className="h-full w-full bg-surface-muted" />
+                )}
+                {replacingWith ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                    <Button variant="secondary" size="sm" className="h-6 px-1.5" onClick={() => onReplaceSlot?.(i)}>
+                      {t("albums.cover.replace")}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center gap-1 bg-black/50 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                    <Button variant="secondary" size="sm" className="h-6 px-1.5" onClick={() => onPickSlot(i)}>
+                      {t("albums.cover.change")}
+                    </Button>
                     {slot && (
-                      <button onClick={() => onCropSlot(i)} className={QUAD_TILE_BUTTON}>
-                        Crop
-                      </button>
+                      <Button variant="secondary" size="sm" className="h-6 px-1.5" onClick={() => onCropSlot(i)}>
+                        {t("albums.cover.crop")}
+                      </Button>
                     )}
                   </div>
-                </div>
-              ))}
-            </div>
+                )}
+              </div>
+            ))}
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </Panel>
   );
 }

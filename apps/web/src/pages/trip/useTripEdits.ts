@@ -1,29 +1,30 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { api, apiPath } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
+import type { useSelectMode } from "../../hooks/useSelectMode";
 import { errorMessage } from "../../lib/errorMessage";
 import type { TripDetail, TripPhoto } from "./types";
 
-// Changes to the trip and its photos from this page: name, description and cover, plus deleting
-// photos one at a time or from select mode. Each reloads the trip afterwards.
+// Changes to the trip and its photos from this page: name, description and cover, rating photos,
+// plus deleting photos one at a time or from select mode. Each reloads the trip afterwards.
 export function useTripEdits({
   id,
   load,
   photos,
+  select,
   closeMenu,
 }: {
   id: string | undefined;
   load: () => Promise<void>;
   photos: TripPhoto[] | null;
+  /** The photo grid's select mode (separate from the review rows' selection), shared with the Gallery. */
+  select: ReturnType<typeof useSelectMode<TripPhoto>>;
   closeMenu: () => void;
 }) {
   const toast = useToast();
   const [settingCover, setSettingCover] = useState<string | null>(null);
   const [croppingCoverPhotoUrl, setCroppingCoverPhotoUrl] = useState<string | null>(null);
-  // Photo-grid multi-select (separate from the review rows' selection). Trips have no videos or
-  // per-photo tags, so the filters are just top rated, RAW and a date range.
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedCaptureIds, setSelectedCaptureIds] = useState<Set<string>>(new Set());
+  const { selectMode, setSelectMode, selectedIds: selectedCaptureIds, exit: exitSelectMode } = select;
   const [confirmingDeleteCaptureId, setConfirmingDeleteCaptureId] = useState<string | null>(null);
   const [confirmingBatchDelete, setConfirmingBatchDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -37,7 +38,7 @@ export function useTripEdits({
       await api.put(apiPath("/trips/{id}/cover", { id }), { captureId });
       void load();
     } catch (err) {
-      toast.error(errorMessage(err, "Couldn't change the featured photo"));
+      toast.error(errorMessage(err, "Couldn't change the trip cover"));
     } finally {
       setSettingCover(null);
     }
@@ -53,7 +54,7 @@ export function useTripEdits({
       await load();
       setCroppingCoverPhotoUrl(photoUrl);
     } catch (err) {
-      toast.error(errorMessage(err, "Couldn't change the featured photo"));
+      toast.error(errorMessage(err, "Couldn't change the trip cover"));
     } finally {
       setSettingCover(null);
     }
@@ -84,19 +85,18 @@ export function useTripEdits({
     }
   }
 
-  function toggleSelected(captureId: string) {
-    setSelectedCaptureIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(captureId)) next.delete(captureId);
-      else next.add(captureId);
-      return next;
-    });
-  }
-
-  function exitSelectMode() {
-    setSelectMode(false);
-    setSelectedCaptureIds(new Set());
-  }
+  // Stable, since the Lightbox slides are built from it.
+  const rateCapture = useCallback(
+    async (captureId: string, rating: number | null) => {
+      try {
+        await api.patch(apiPath("/captures/{id}/rating", { id: captureId }), { rating });
+        void load();
+      } catch (err) {
+        toast.error(errorMessage(err, "Couldn't save that rating"));
+      }
+    },
+    [load, toast],
+  );
 
   // A RAW beside an edited original; a RAW-only photo is its RAW, so deleting it removes the RAW anyway.
   const selectedHaveRaw = (photos ?? []).some(
@@ -159,10 +159,10 @@ export function useTripEdits({
     saveName,
     saveDescription,
     setCoverLayout,
+    rateCapture,
     selectMode,
     setSelectMode,
     selectedCaptureIds,
-    toggleSelected,
     exitSelectMode,
     selectedHaveRaw,
     confirmingDeleteCaptureId,

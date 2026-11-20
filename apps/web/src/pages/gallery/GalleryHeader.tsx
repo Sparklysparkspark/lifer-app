@@ -1,262 +1,225 @@
-import { useRegions } from "../../hooks/useRegions";
-import { ALL_TAXON_CLASSES, taxonDisplayLabel } from "@lifer/shared";
+import { useTranslation } from "react-i18next";
 import SearchInput from "../../components/SearchInput";
 import InlineSpinner from "../../components/InlineSpinner";
-import Pill from "../../components/Pill";
-import Select from "../../components/Select";
-import RegionBrowser from "../../components/RegionBrowser";
-import FilterPopover, { FilterGroupLabel, FilterFieldLabel } from "../../components/FilterPopover";
 import SelectModeToggle from "../../components/SelectModeToggle";
-import {
-  DateRangeField,
-  FilterCheckbox,
-  MediaFilterField,
-  PhotoSortSelect,
-  RawFilterFields,
-  ThumbSizeSlider,
-} from "../../components/PhotoGridControls";
-import { UNCATEGORIZED_REGION_ID, toggleInSet } from "./galleryHelpers";
+import Button from "../../components/Button";
+import Menu, { MenuItem, MenuLink, MenuPanel } from "../../components/Menu";
+import SimilarGroupActions from "./SimilarGroupActions";
+import { useDropdownMenu } from "../../hooks/useDropdownMenu";
+import { useVersionCounts } from "../../lib/photoVersions";
+import { PhotoViewMenu, type PhotoLayout } from "../../components/PhotoGridControls";
+import PhotoFiltersMenu, { ScopeChip } from "../../components/PhotoFiltersMenu";
+import { GRID_PHOTO_FILTER_SECTIONS, PHOTO_SORTS } from "../../lib/photoGridSections";
+import { searchPartLabel, soleRegionId, type GalleryGroupBy, type SearchPart } from "./galleryHelpers";
 import type { GalleryFacets } from "./useGalleryFacets";
 import type { GalleryFilters } from "./useGalleryFilters";
 import type { GalleryDisplayPrefs } from "./useGalleryDisplayPrefs";
 
-// The Gallery header's controls: search, sort, the Filters panel (filters and display options),
-// thumbnail size and select mode.
+// The Gallery header's controls: search, the View menu (grouping, sort, size, captions), the
+// Filters menu, the More menu's tools and select mode. A similar group stands alone, so it has no
+// search or filters.
 export function GalleryToolbar({
   filters,
   facets,
   display,
+  groupBy,
   tagOptions,
   searching,
   hasPhotos,
   selectMode,
   onEnterSelectMode,
   onExitSelectMode,
+  onSaveSmartAlbum,
+  onPinFilters,
+  layout = "grid",
+  onLayoutChange,
 }: {
   filters: GalleryFilters;
   facets: GalleryFacets;
   display: GalleryDisplayPrefs;
+  /** display.groupBy as shown: "Rarity here" only with a region filter. */
+  groupBy: GalleryGroupBy;
   tagOptions: string[];
   searching: boolean;
   hasPhotos: boolean;
   selectMode: boolean;
   onEnterSelectMode: () => void;
   onExitSelectMode: () => void;
+  /** Saves the current search and filters as a smart album. */
+  onSaveSmartAlbum?: () => void;
+  /** Pins the current filters as a one-click chip. */
+  onPinFilters?: () => void;
+  /** The grid, or the map of where the photos were taken. */
+  layout?: PhotoLayout;
+  onLayoutChange?: (layout: PhotoLayout) => void;
 }) {
+  const { t } = useTranslation();
   const { query } = filters;
-  const { selectedTaxa, dateFrom, dateTo, regionId } = query;
-  const taxonPill = (tc: string) => (
-    <Pill
-      key={tc}
-      size="sm"
-      active={selectedTaxa.has(tc)}
-      onClick={() => filters.setSelectedTaxa((prev) => toggleInSet(prev, tc))}
-    >
-      {taxonDisplayLabel(tc, facets.namingStyles)}
-    </Pill>
-  );
+  const more = useDropdownMenu<true>();
+  const similar = !!query.similarTo;
+  const regionFilterActive = !!soleRegionId(query.regionIds);
+  // Saving needs something to save: a search or a filter off its default.
+  const canSaveSmartAlbum =
+    filters.activeFilterCount > 0 || !!query.searchQuery || query.shotActions.size > 0 || query.shotFramings.size > 0;
+
+  // Nothing to view, filter or act on until photos are imported.
+  const libraryEmpty = facets.libraryEmpty && !query.searchQuery;
+  // Offered once any photo has versions; a search lists photos only.
+  const hasVersions = useVersionCounts().size > 0 || display.allVersions;
+  const versionsSection = hasVersions && !query.searchQuery && !query.onlyHidden ? (["versions"] as const) : [];
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-      <SearchInput
-        value={filters.searchInput}
-        onChange={filters.setSearchInput}
-        placeholder="Search, e.g. “heron in water”"
-        className="w-full sm:w-96"
-        aria-label="Search your photos by what's in them"
-      />
-      {searching && <InlineSpinner size="sm" label="Searching…" />}
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-footnote">
+      {!similar && (
+        <SearchInput
+          value={filters.searchInput}
+          onChange={filters.setSearchInput}
+          placeholder={t("gallery.toolbar.searchPlaceholder")}
+          className="w-full sm:w-96"
+          aria-label={t("gallery.toolbar.searchLabel")}
+        />
+      )}
+      {searching && <InlineSpinner size="sm" label={t("gallery.toolbar.searching")} />}
 
-      <PhotoSortSelect
-        value={query.sortBy}
-        onChange={filters.setSortBy}
-        disabled={!!query.searchQuery}
-        title={query.searchQuery ? "Search results are already ranked by relevance" : undefined}
-      />
+      {/* How the photos are laid out, apart from which are shown (Filters), as in the Collection. */}
+      {!libraryEmpty && (
+        <PhotoViewMenu
+          // On the map, only the choice to go back to the grid applies.
+          sections={
+            !onLayoutChange || similar
+              ? ["group", "sort", "size", "captions"]
+              : layout === "map"
+                ? ["layout"]
+                : ["layout", "group", "sort", "size", "captions", ...versionsSection]
+          }
+          layout={onLayoutChange && { value: layout, onChange: onLayoutChange }}
+          activeCount={
+            (groupBy !== "none" ? 1 : 0) +
+            (query.sortBy !== "newest" ? 1 : 0) +
+            (versionsSection.length && display.allVersions ? 1 : 0)
+          }
+          group={{
+            value: groupBy,
+            options: [
+              "none",
+              "region",
+              "broad",
+              "group",
+              "tier",
+              ...(regionFilterActive ? (["localTier"] as const) : []),
+            ],
+            onChange: display.setGroupBy,
+          }}
+          // A search is ranked by relevance, so it has no sort.
+          sort={{
+            value: query.sortBy,
+            options: PHOTO_SORTS,
+            onChange: filters.setSortBy,
+            disabled: !!query.searchQuery,
+            title: query.searchQuery ? t("gallery.toolbar.sortDisabled") : undefined,
+          }}
+          size={{ value: display.thumbSizePx, onChange: display.updateThumbSize }}
+          captions={display}
+          allVersions={{ checked: display.allVersions, onChange: display.setAllVersions }}
+        />
+      )}
+      {!similar && !libraryEmpty && (
+        <PhotoFiltersMenu
+          filters={filters}
+          facets={facets}
+          tagOptions={tagOptions}
+          sections={GRID_PHOTO_FILTER_SECTIONS}
+        />
+      )}
+      {!similar && !libraryEmpty && filters.activeFilterCount > 0 && (
+        <Button variant="secondary" size="sm" onClick={filters.clearFilters}>
+          {t("gallery.toolbar.clearAll")}
+        </Button>
+      )}
 
-      <FilterPopover activeCount={filters.activeFilterCount}>
-        <div className="space-y-2.5">
-          <FilterGroupLabel>Filter</FilterGroupLabel>
-          <div className="flex flex-wrap items-center gap-3">
-            <FilterCheckbox checked={query.onlyTopRated} onChange={filters.setOnlyTopRated}>
-              Top rated
-            </FilterCheckbox>
-            <FilterCheckbox checked={query.onlyFeatured} onChange={filters.setOnlyFeatured}>
-              Featured
-            </FilterCheckbox>
-            {/* Photos a culling app rejected, imported hidden (docs: Culling with other apps). */}
-            {(facets.hiddenCount > 0 || query.onlyHidden) && (
-              <FilterCheckbox checked={query.onlyHidden} onChange={filters.setOnlyHidden}>
-                Hidden
-              </FilterCheckbox>
-            )}
-          </div>
-
-          {facets.hasVideoInLibrary && <MediaFilterField value={query.mediaFilter} onChange={filters.setMediaFilter} />}
-
-          <RawFilterFields
-            rawFiles={query.rawFiles}
-            editedRaw={query.editedRaw}
-            onRawFilesChange={filters.setRawFiles}
-            onEditedRawChange={filters.setEditedRaw}
-          />
-
-          <DateRangeField
-            dateFrom={dateFrom}
-            dateTo={dateTo}
-            onDateFromChange={filters.setDateFrom}
-            onDateToChange={filters.setDateTo}
-            open={filters.dateRangeOpen}
-            onOpen={() => filters.setDateRangeOpen(true)}
-            onClear={() => {
-              filters.setDateFrom("");
-              filters.setDateTo("");
-              filters.setDateRangeOpen(false);
-            }}
-          />
-
-          <div>
-            <FilterFieldLabel>Region</FilterFieldLabel>
-            <label className="mb-1.5 flex items-center gap-1.5 text-xs text-ink">
-              <input
-                type="checkbox"
-                checked={regionId === UNCATEGORIZED_REGION_ID}
-                onChange={(e) => filters.setRegionId(e.target.checked ? UNCATEGORIZED_REGION_ID : null)}
-                className="accent-ink"
-              />
-              No region set yet
-            </label>
-            {regionId !== UNCATEGORIZED_REGION_ID && (
-              <RegionBrowser
-                regionId={regionId}
-                onChange={filters.setRegionId}
-                allowAnyRegion
-                restrictToIds={facets.regionsWithPhotos}
-              />
-            )}
-          </div>
-
-          {tagOptions.length > 0 && (
-            <div>
-              <FilterFieldLabel>Tag</FilterFieldLabel>
-              <Select aria-label="Tag" value={query.tag ?? ""} onChange={(e) => filters.setTag(e.target.value || null)}>
-                <option value="">Any tag</option>
-                {tagOptions.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          )}
-
-          <div>
-            <FilterFieldLabel>Taxon</FilterFieldLabel>
-            <div className="flex max-h-32 flex-wrap gap-1 overflow-y-auto">
-              {ALL_TAXON_CLASSES.filter((tc) => !facets.availableTaxa || facets.availableTaxa.has(tc)).map(taxonPill)}
-              {facets.otherTaxaClasses.map(taxonPill)}
-            </div>
-            {selectedTaxa.size > 0 && (
-              <button
-                type="button"
-                onClick={() => filters.setSelectedTaxa(new Set())}
-                className="mt-1 text-xs text-muted hover:underline"
-              >
-                Clear taxon filter
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-1.5 border-t border-line pt-2.5">
-          <FilterGroupLabel>Display</FilterGroupLabel>
-          <FilterCheckbox checked={display.showLabels} onChange={display.setShowLabels}>
-            Labels
-          </FilterCheckbox>
-          <FilterCheckbox checked={display.showCameraInfo} onChange={display.setShowCameraInfo}>
-            Camera info
-          </FilterCheckbox>
-          <FilterCheckbox checked={display.showRatings} onChange={display.setShowRatings}>
-            Ratings
-          </FilterCheckbox>
-          <FilterCheckbox checked={display.groupByRegion} onChange={display.setGroupByRegion}>
-            Group by region
-          </FilterCheckbox>
-        </div>
-      </FilterPopover>
-
-      <ThumbSizeSlider value={display.thumbSizePx} onChange={display.updateThumbSize} />
       {hasPhotos && <SelectModeToggle active={selectMode} onEnter={onEnterSelectMode} onExit={onExitSelectMode} />}
+
+      {!libraryEmpty && !similar && (
+        <Menu
+          trigger="toolbar"
+          open={more.openKey === true}
+          onToggle={() => more.setOpenKey(more.openKey ? null : true)}
+          menuRef={more.ref}
+          className="relative"
+        >
+          <MenuPanel className="min-w-44 whitespace-nowrap">
+            <MenuLink to="/gallery/similar">{t("gallery.toolbar.findSimilar")}</MenuLink>
+            {onSaveSmartAlbum && canSaveSmartAlbum && (
+              <MenuItem onSelect={onSaveSmartAlbum}>{t("albums.smart.saveFromGallery")}</MenuItem>
+            )}
+            {onPinFilters && canSaveSmartAlbum && (
+              <MenuItem onSelect={onPinFilters}>{t("gallery.pins.pinThese")}</MenuItem>
+            )}
+          </MenuPanel>
+        </Menu>
+      )}
     </div>
   );
 }
 
-// Under the heading: the photo count, the trip/album scope chips from the search palette, and the
-// kind-of-shot and tier chips from Stats.
+// Under the heading: the photo count and the trip/album scope chips from the search palette.
+// Stats' filters show in the Filters panel instead.
 export function GallerySummary({
   countText,
   filters,
+  similarAlone = false,
+  searchParts = [],
+  onRemoveSearchPart,
 }: {
   countText: string | null;
-  filters: Pick<
-    GalleryFilters,
-    "scopeTrip" | "scopeAlbum" | "clearScope" | "query" | "shotKind" | "clearShotKind" | "clearTier"
-  >;
+  /** A long search's parts, shown as tokens from two parts up. */
+  searchParts?: SearchPart[];
+  onRemoveSearchPart?: (part: SearchPart) => void;
+  filters: Pick<GalleryFilters, "scopeTrip" | "scopeAlbum" | "clearScope"> &
+    Partial<Pick<GalleryFilters, "query" | "setBbox">>;
+  /** A similar group with only the photo itself in it. */
+  similarAlone?: boolean;
 }) {
+  const { t } = useTranslation();
   const { scopeTrip, scopeAlbum } = filters;
-  // Only Stats' kind-of-shot filter gets a chip; a typed "flight" stays in the search box.
-  const { shotKind } = filters;
-  const { tier, tierRegionId } = filters.query;
-  const { regions } = useRegions();
-  const tierRegion = tierRegionId ? regions?.find((r) => r.id === tierRegionId)?.name : null;
-  const tierLabel = tier ? `${tier.charAt(0).toUpperCase()}${tier.slice(1)}` : "";
+  const bbox = filters.query?.bbox;
+  const similarTo = filters.query?.similarTo;
   return (
     <>
-      {countText !== null && <p className="text-xs text-muted">{countText}</p>}
-      {(scopeTrip || scopeAlbum || shotKind || tier) && (
+      {countText !== null && <p className="text-footnote text-muted">{countText}</p>}
+      {searchParts.length >= 2 && onRemoveSearchPart && (
+        <div className="mt-1 flex flex-wrap gap-1.5" role="group" aria-label={t("gallery.searchPart.parts")}>
+          {searchParts.map((part, i) => (
+            <ScopeChip
+              key={`${i}:${part.text}`}
+              label={searchPartLabel(part)}
+              onRemove={() => onRemoveSearchPart(part)}
+            />
+          ))}
+        </div>
+      )}
+      {similarTo && similarAlone && <p className="text-footnote text-muted">{t("gallery.similarNone")}</p>}
+      {similarTo && <SimilarGroupActions captureId={similarTo} alone={similarAlone} />}
+      {(scopeTrip || scopeAlbum || bbox || similarTo) && (
         <div className="mt-1 flex flex-wrap gap-1.5">
+          {similarTo && <ScopeChip label={t("gallery.scope.similar")} onRemove={() => filters.clearScope("similar")} />}
           {scopeTrip && (
-            <ScopeChip label={`In trip ${scopeTrip.name ?? ""}`.trim()} onRemove={() => filters.clearScope("trip")} />
+            <ScopeChip
+              label={t("gallery.scope.trip", { name: scopeTrip.name ?? "" }).trim()}
+              onRemove={() => filters.clearScope("trip")}
+            />
           )}
           {scopeAlbum && (
             <ScopeChip
-              label={`In album ${scopeAlbum.name ?? ""}`.trim()}
+              label={t("gallery.scope.album", { name: scopeAlbum.name ?? "" }).trim()}
               onRemove={() => filters.clearScope("album")}
             />
           )}
-          {shotKind && <ScopeChip label={SHOT_KIND_LABELS[shotKind] ?? shotKind} onRemove={filters.clearShotKind} />}
-          {tier && (
-            <ScopeChip
-              label={tierRegion ? `${tierLabel} in ${tierRegion}` : `${tierLabel} species`}
-              onRemove={filters.clearTier}
-            />
+          {bbox && filters.setBbox && (
+            <ScopeChip label={t("gallery.scope.mapArea")} onRemove={() => filters.setBbox!(null)} />
           )}
         </div>
       )}
     </>
-  );
-}
-
-const SHOT_KIND_LABELS: Record<string, string> = {
-  portrait: "Portrait shots",
-  flight: "Flight shots",
-  behavior: "Behaviour shots",
-  environmental: "Environmental shots",
-};
-
-// A removable "In trip X" / "In album X" filter, from the palette's search-within hand-off.
-function ScopeChip({ label, onRemove }: { label: string; onRemove: () => void }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-line bg-surface-muted px-2 py-0.5 text-xs text-ink">
-      {label}
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`Remove filter: ${label}`}
-        className="text-sm leading-none text-muted hover:text-ink"
-      >
-        ×
-      </button>
-    </span>
   );
 }

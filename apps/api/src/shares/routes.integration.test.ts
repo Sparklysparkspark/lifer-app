@@ -13,6 +13,7 @@ const url = process.env.TEST_DATABASE_URL;
 const OWNER = "eeeeeeee-0000-4000-8000-000000000611";
 const NO_SUCH = "eeeeeeee-0000-4000-8000-0000000006fe";
 const TOKEN = "lifer_test_share_routes_owner_611";
+const NAME_KEY = `species_name_display:${OWNER}`;
 const invalid = (pattern: RegExp) => ({ error: expect.stringMatching(pattern), code: "invalid_request" });
 
 describe.skipIf(!url)("share routes input validation", () => {
@@ -39,6 +40,7 @@ describe.skipIf(!url)("share routes input validation", () => {
     const { albumShareRoutes } = await import("./routes.js");
 
     await db.query(`DELETE FROM users WHERE id = $1`, [OWNER]);
+    await db.query(`DELETE FROM install_settings WHERE key = $1`, [NAME_KEY]);
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'share-routes@test', 'x')`, [OWNER]);
     await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day')`, [
       hashToken(TOKEN),
@@ -59,6 +61,7 @@ describe.skipIf(!url)("share routes input validation", () => {
     if (db) {
       // Albums (and their share links) go with the user.
       await db.query(`DELETE FROM users WHERE id = $1`, [OWNER]);
+      await db.query(`DELETE FROM install_settings WHERE key = $1`, [NAME_KEY]);
       await db.end();
     }
     if (dataDir) rmSync(dataDir, { recursive: true, force: true });
@@ -135,5 +138,142 @@ describe.skipIf(!url)("share routes input validation", () => {
     }
     const [share] = (await call("GET", `/api/albums/${albumId}/shares`)).json().shares as Array<{ id: string }>;
     expect((await call("DELETE", `/api/shares/${share.id}`)).json()).toEqual({ ok: true });
+  });
+
+  it("names species the way the album's owner does, defaulting when unset or unreadable", async () => {
+    const created = await call("POST", `/api/albums/${albumId}/shares`, { allowDownload: false });
+    const { token } = created.json() as { token: string };
+    const names = async () => (await visit("GET", `/api/share/${token}`)).json().speciesNames;
+    const store = (value: unknown) =>
+      db.query(
+        `INSERT INTO install_settings (key, value) VALUES ($1, $2::jsonb)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        [NAME_KEY, JSON.stringify(value)],
+      );
+    expect(await names()).toEqual({ main: "common", also: ["other"] });
+
+    await store({ main: "scientific", also: ["ebird", "aba"] });
+    expect(await names()).toEqual({ main: "scientific", also: ["aba", "ebird"] });
+    await store({ main: "common", also: [] });
+    expect(await names()).toEqual({ main: "common", also: [] });
+    // A choice saved in the earlier single Second line shape still reads, mapped exactly.
+    await store({ first: "scientific", second: "aba" });
+    expect(await names()).toEqual({ main: "scientific", also: ["aba"] });
+
+    for (const junk of [{ main: "scientific", also: ["<script>"] }, { main: "latin", also: [] }, "common"]) {
+      await store(junk);
+      expect(await names()).toEqual({ main: "common", also: ["other"] });
+    }
+  });
+});
+
+// Common Goldeneye is on eBird's list only in England: a link with places on names the place of its
+// Canadian photo, and only the province and country of its English one or one with no region.
+describe.skipIf(!url)("share output for a regionally sensitive species", () => {
+  const SENS_OWNER = "eeeeeeee-0000-4000-8000-000000000612";
+  const GOLDENEYE = "eeeeeeee-0000-4000-8000-000000000613";
+  const R = {
+    gb: "eeeeeeee-0000-4000-8000-000000000621",
+    england: "eeeeeeee-0000-4000-8000-000000000622",
+    kent: "eeeeeeee-0000-4000-8000-000000000623",
+    ca: "eeeeeeee-0000-4000-8000-000000000624",
+    ontario: "eeeeeeee-0000-4000-8000-000000000625",
+  };
+  const SENS_TOKEN = "lifer_test_share_routes_owner_612";
+  let app: FastifyInstance;
+  let db: pg.Pool;
+  let cookieName: string;
+  const captureAt: Record<string, string> = {};
+  let shareToken: string;
+
+  beforeAll(async () => {
+    process.env.DATABASE_URL = url;
+    process.env.SINGLE_USER_MODE = "0";
+    db = new pg.Pool({ connectionString: url });
+    const { hashToken } = await import("../auth/session.js");
+    ({ SESSION_COOKIE_NAME: cookieName } = await import("@lifer/core/config.js"));
+    const { albumShareRoutes } = await import("./routes.js");
+
+    await db.query(`DELETE FROM users WHERE id = $1`, [SENS_OWNER]);
+    await db.query(`DELETE FROM install_settings WHERE key = $1`, [`sensitive_species:${SENS_OWNER}`]);
+    await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'share-sensitive@test', 'x')`, [
+      SENS_OWNER,
+    ]);
+    await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day')`, [
+      hashToken(SENS_TOKEN),
+      SENS_OWNER,
+    ]);
+    await db.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class)
+       VALUES ($1, 910612, 'Bucephala clangula', 'Common Goldeneye', 'aves') ON CONFLICT (id) DO NOTHING`,
+      [GOLDENEYE],
+    );
+    await db.query(
+      `INSERT INTO regions (id, name, parent_id, ebird_region_code, external_codes) VALUES
+         ($1, 'Test United Kingdom', NULL, 'GB', '{GBR}'), ($2, 'England', $1, NULL, '{}'),
+         ($3, 'Kent', $2, 'GB-KEN', '{}'), ($4, 'Test Canada', NULL, 'CA', '{CAN}'), ($5, 'Ontario', $4, 'CA-ON', '{}')
+       ON CONFLICT (id) DO NOTHING`,
+      [R.gb, R.england, R.kent, R.ca, R.ontario],
+    );
+    const album = await db.query<{ id: string }>(
+      `INSERT INTO albums (user_id, name) VALUES ($1, 'Ducks') RETURNING id`,
+      [SENS_OWNER],
+    );
+    for (const [where, region] of [
+      ["Kent", R.kent],
+      ["Ontario", R.ontario],
+      ["Unknown", null],
+    ] as const) {
+      const c = await db.query<{ id: string }>(
+        `INSERT INTO captures (user_id, species_id, fingerprint, region_id, location_label, lat, lon)
+         VALUES ($1, $2, $3, $4, $5, 51.1, 1.1) RETURNING id`,
+        [SENS_OWNER, GOLDENEYE, `share-sensitive-${where}`, region, `${where} Marsh`],
+      );
+      const p = await db.query<{ id: string }>(
+        `INSERT INTO photos (capture_id, display_path, thumb_path) VALUES ($1, '/nowhere/d.webp', '/nowhere/t.webp') RETURNING id`,
+        [c.rows[0].id],
+      );
+      await db.query(`UPDATE captures_all SET current_photo_id = $1 WHERE id = $2`, [p.rows[0].id, c.rows[0].id]);
+      await db.query(`INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2)`, [
+        album.rows[0].id,
+        c.rows[0].id,
+      ]);
+      captureAt[where] = c.rows[0].id;
+    }
+    app = Fastify();
+    await app.register(cookie);
+    await app.register(albumShareRoutes, { prefix: "/api" });
+    await app.ready();
+    const share = await app.inject({
+      method: "POST",
+      url: `/api/albums/${album.rows[0].id}/shares`,
+      payload: { showExactLocations: true },
+      cookies: { [cookieName]: SENS_TOKEN },
+    });
+    shareToken = share.json().token;
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    if (db) {
+      await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [SENS_OWNER]);
+      await db.query(`DELETE FROM users WHERE id = $1`, [SENS_OWNER]);
+      await db.query(`DELETE FROM regions WHERE id = ANY($1::uuid[])`, [[R.kent, R.ontario, R.england, R.gb, R.ca]]);
+      await db.query(`DELETE FROM species WHERE id = $1`, [GOLDENEYE]);
+      await db.end();
+    }
+  });
+
+  it("names the place only where eBird doesn't list it, and never sends coordinates", async () => {
+    const res = await app.inject({ method: "GET", url: `/api/share/${shareToken}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toMatch(/51\.1|"lat"|"lon"/);
+    const placeOf = (where: string) =>
+      (res.json().items as Array<{ captureId: string; location: { place: string | null } }>).find(
+        (i) => i.captureId === captureAt[where],
+      )!.location.place;
+    expect(placeOf("Kent")).toBeNull();
+    expect(placeOf("Ontario")).toBe("Ontario Marsh");
+    expect(placeOf("Unknown")).toBeNull();
   });
 });

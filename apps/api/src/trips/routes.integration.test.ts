@@ -14,6 +14,7 @@ const url = process.env.TEST_DATABASE_URL;
 const OWNER = "eeeeeeee-0000-4000-8000-000000000641";
 const TOKEN = "lifer_test_trip_routes_owner_641";
 const NO_SUCH_TRIP = "eeeeeeee-0000-4000-8000-0000000006ff";
+const SPECIES = "eeeeeeee-0000-4000-8000-00000000064a";
 
 const invalid = (pattern: RegExp) => ({ error: expect.stringMatching(pattern), code: "invalid_request" });
 
@@ -29,8 +30,11 @@ describe.skipIf(!url)("trip route validation", () => {
     app.inject({ method, url: route, payload: payload as object, cookies: { [cookieName]: TOKEN } });
 
   async function cleanup() {
+    await db.query(`DELETE FROM user_species WHERE user_id = $1`, [OWNER]);
+    await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [OWNER]);
     await db.query(`DELETE FROM trips WHERE user_id = $1`, [OWNER]);
     await db.query(`DELETE FROM users WHERE id = $1`, [OWNER]);
+    await db.query(`DELETE FROM species WHERE id = $1`, [SPECIES]);
   }
 
   beforeAll(async () => {
@@ -74,6 +78,17 @@ describe.skipIf(!url)("trip route validation", () => {
     const { pool } = await import("@lifer/core/db.js");
     await pool.end();
     rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it("limits trip names to 255 characters on create, start and rename", async () => {
+    const tooLong = "t".repeat(256);
+    const create = await call("POST", "/api/trips", { name: tooLong, sourceFolder });
+    expect([create.statusCode, create.json().error]).toEqual([400, "Names can be at most 255 characters"]);
+    const start = await call("POST", "/api/trips/start", { name: tooLong, startDate: "2026-05-01" });
+    expect(start.statusCode).toBe(400);
+    expect((await call("PATCH", `/api/trips/${tripId}`, { name: tooLong })).statusCode).toBe(400);
+    expect((await call("PATCH", `/api/trips/${tripId}`, { name: "t".repeat(255) })).statusCode).toBe(200);
+    expect((await call("POST", "/api/trips", { name: "t".repeat(255), sourceFolder })).statusCode).toBe(201);
   });
 
   it("creates a trip from the web app's request, and refuses a missing, mistyped or extra field", async () => {
@@ -133,6 +148,95 @@ describe.skipIf(!url)("trip route validation", () => {
         expect([id, route, res.statusCode, res.json()]).toEqual([id, route, 404, { error: "Trip not found" }]);
       }
     }
+  });
+
+  it("shows each species by the trip's own best photo, not its featured one", async () => {
+    await db.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class) VALUES ($1, 920641, 'Testus tripus', 'Trip Bird', 'aves')`,
+      [SPECIES],
+    );
+    const photoFor = async (fingerprint: string, rating: number | null, tripOrNull: string | null) => {
+      const capture = (
+        await db.query<{ id: string }>(
+          `INSERT INTO captures (user_id, species_id, fingerprint, quality_rating, trip_id) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+          [OWNER, SPECIES, fingerprint, rating, tripOrNull],
+        )
+      ).rows[0].id;
+      const photo = (
+        await db.query<{ id: string }>(
+          `INSERT INTO photos (capture_id, display_path, thumb_path) VALUES ($1, '/nowhere/d.webp', '/nowhere/t.webp') RETURNING id`,
+          [capture],
+        )
+      ).rows[0].id;
+      await db.query(`UPDATE captures_all SET current_photo_id = $1 WHERE id = $2`, [photo, capture]);
+      return photo;
+    };
+    const featured = await photoFor("trip-species-featured", 5, null);
+    await photoFor("trip-species-low", 1, tripId);
+    const best = await photoFor("trip-species-best", 3, tripId);
+    await db.query(
+      `INSERT INTO user_species (user_id, species_id, state, cover_photo_id, first_collected) VALUES ($1, $2, 'collected', $3, CURRENT_DATE)`,
+      [OWNER, SPECIES, featured],
+    );
+    expect((await call("GET", `/api/trips/${tripId}/species`)).json().items).toEqual([
+      expect.objectContaining({ speciesId: SPECIES, coverPhotoUrl: `/api/photos/${best}/thumb` }),
+    ]);
+  });
+
+  // Remembered state (docs/docs/contributing/remembered-state.md): a trip whose folder is gone.
+  it("still opens a trip whose folder is gone, and a scan marks its photos missing, not deleted", async () => {
+    const folder = path.join(dataDir, "Unplugged");
+    mkdirSync(folder);
+    const id = (await call("POST", "/api/trips", { name: "Unplugged", sourceFolder: folder })).json().id;
+    const capture = (
+      await db.query<{ id: string }>(
+        // SPECIES is made by the test above.
+        `INSERT INTO captures (user_id, species_id, fingerprint, trip_id) VALUES ($1, $2, 'trip-unplugged', $3) RETURNING id`,
+        [OWNER, SPECIES, id],
+      )
+    ).rows[0].id;
+    await db.query(
+      `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size)
+       VALUES ($1, 'jpeg', 'path', $2, false, 'trip-unplugged-hash', 1)`,
+      [capture, path.join(folder, "Wildlife", "a.jpg")],
+    );
+    rmSync(folder, { recursive: true });
+
+    expect((await call("GET", `/api/trips/${id}`)).statusCode).toBe(200);
+    expect((await call("GET", "/api/trips")).statusCode).toBe(200);
+    const { scanTrip } = await import("./scan.js");
+    const result = await scanTrip(id, OWNER, folder, path.join(folder, "Wildlife"));
+    expect(result).toMatchObject({ markedStale: 1, newFiles: [] });
+    const original = await db.query(`SELECT stale FROM originals WHERE capture_id = $1`, [capture]);
+    expect(original.rows).toEqual([{ stale: true }]);
+
+    // Its photos still list, a RAW-only one marked as such for the web's RAW files filter.
+    const rawCapture = (
+      await db.query<{ id: string }>(
+        `INSERT INTO captures (user_id, species_id, fingerprint, trip_id) VALUES ($1, $2, 'trip-unplugged-raw', $3) RETURNING id`,
+        [OWNER, SPECIES, id],
+      )
+    ).rows[0].id;
+    await db.query(
+      `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size)
+       VALUES ($1, 'raw', 'path', $2, false, 'trip-unplugged-raw-hash', 1)`,
+      [rawCapture, path.join(folder, "Wildlife", "b.cr3")],
+    );
+    for (const c of [capture, rawCapture]) {
+      await db.query(
+        `WITH p AS (INSERT INTO photos (capture_id, display_path, thumb_path)
+           VALUES ($1, '/nowhere/d.webp', '/nowhere/t.webp') RETURNING id)
+         UPDATE captures_all SET current_photo_id = (SELECT id FROM p) WHERE id = $1`,
+        [c],
+      );
+    }
+    const photos = (await call("GET", `/api/trips/${id}/photos`)).json().items;
+    expect(photos.map((p: { captureId: string; originalKind: string }) => [p.captureId, p.originalKind]).sort()).toEqual(
+      [
+        [capture, "jpeg"],
+        [rawCapture, "raw"],
+      ].sort(),
+    );
   });
 
   it("updates a trip the way the web app does, refusing an unknown layout or extra field", async () => {

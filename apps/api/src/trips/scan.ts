@@ -84,7 +84,7 @@ export async function withCullMarks(
 
 /** Reconciles every original linked to this trip with what's on disk. `candidates` is the full
  *  file listing, searched by content hash for moved files. */
-export async function matchAgainstKnownOriginals(
+async function matchAgainstKnownOriginals(
   tripId: string,
   candidates: CandidateFile[],
   signal?: AbortSignal,
@@ -146,7 +146,7 @@ export async function matchAgainstKnownOriginals(
 }
 
 /** Files no known original has claimed. */
-export function findNewFiles(candidates: CandidateFile[], claimedAbsolutePaths: Set<string>): CandidateFile[] {
+function findNewFiles(candidates: CandidateFile[], claimedAbsolutePaths: Set<string>): CandidateFile[] {
   return candidates.filter((c) => !claimedAbsolutePaths.has(c.absolutePath));
 }
 
@@ -229,7 +229,7 @@ export async function scanTrip(
 
 /** Source-folder photos whose content hash isn't yet a captures.fingerprint for this user, so a
  * photo imported any other way isn't offered again. One imported hidden counts as imported. */
-export async function findUnimportedFiles(
+async function findUnimportedFiles(
   userId: string,
   files: CandidateFile[],
   signal?: AbortSignal,

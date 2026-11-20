@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
-  shotKindForSearch,
+  shotTypeForSearch,
   anySelectedIn,
   appendNew,
   countActiveFilters,
   describeSearchReading,
   galleryCountText,
   galleryParams,
+  effectiveGalleryGroupBy,
+  groupGalleryItems,
   groupItemsByRegion,
   itemShotData,
   selectionHasRaw,
+  selectionLocated,
   selectionNoun,
   toggleInSet,
   UNKNOWN_REGION_GROUP_KEY,
@@ -39,15 +42,25 @@ function item(photoId: string, partial: Partial<GalleryItem> = {}): GalleryItem 
     lon: null,
     regionId: null,
     regionName: null,
+    locationLabel: null,
     kind: "image",
     durationSeconds: null,
     tags: [],
     isFeatured: false,
     hasRawOriginal: false,
+    inatStatus: null,
+    inatObservationId: null,
     originalRef: null,
     originalManaged: null,
     originalKind: null,
     rawRef: null,
+    taxonOrder: "Artiodactyla",
+    family: "Cervidae",
+    sortOrder: null,
+    isOtherTaxa: false,
+    inatIconicTaxon: null,
+    tier: "common",
+    localTier: null,
     cullVerdict: null,
     cullLabel: null,
     hidden: false,
@@ -60,20 +73,28 @@ function item(photoId: string, partial: Partial<GalleryItem> = {}): GalleryItem 
 const defaults: GalleryQuery = {
   searchQuery: "",
   onlyHidden: false,
-  onlyTopRated: false,
+  ratingMin: null,
+  ratingMax: null,
+  unrated: false,
+  animalsMin: null,
+  animalsMax: null,
   onlyFeatured: false,
+  notOnInat: false,
   missingDate: false,
-  shotKind: null,
-  tier: null,
+  missingCoordinates: false,
+  shotActions: new Set(),
+  shotFramings: new Set(),
+  tiers: [],
   tierRegionId: null,
   selectedTaxa: new Set(),
-  rawFiles: "hide",
+  rawFiles: "show",
   editedRaw: "any",
   mediaFilter: "photos",
   dateFrom: "",
   dateTo: "",
-  regionId: null,
-  tag: null,
+  regionIds: [],
+  tags: [],
+  places: [],
   scopeTripId: null,
   scopeAlbumId: null,
   sortBy: "newest",
@@ -81,7 +102,13 @@ const defaults: GalleryQuery = {
 
 describe("galleryParams", () => {
   it("sends only the default presets by default", () => {
-    expect(galleryParams(defaults).toString()).toBe("includeRaw=0&excludeVideo=1");
+    expect(galleryParams(defaults).toString()).toBe("excludeVideo=1");
+  });
+
+  it("sends notOnInat and counts it as an active filter", () => {
+    const q = { ...defaults, notOnInat: true };
+    expect(galleryParams(q).get("notOnInat")).toBe("1");
+    expect(countActiveFilters(q)).toBe(countActiveFilters(defaults) + 1);
   });
 
   it("sends every filter, in a fixed order", () => {
@@ -89,7 +116,8 @@ describe("galleryParams", () => {
       ...defaults,
       searchQuery: "owl flying",
       onlyHidden: true,
-      onlyTopRated: true,
+      ratingMin: 3,
+      ratingMax: 4,
       onlyFeatured: true,
       missingDate: true,
       selectedTaxa: new Set(["aves", "insecta"]),
@@ -97,14 +125,15 @@ describe("galleryParams", () => {
       mediaFilter: "videos",
       dateFrom: "2024-01-01",
       dateTo: "2024-12-31",
-      regionId: "r1",
-      tag: "nest",
+      regionIds: ["r1", "r2"],
+      tags: ["nest"],
+      places: ["Pigeon Lake"],
       scopeTripId: "t1",
       scopeAlbumId: "a1",
     });
     expect(params.toString()).toBe(
-      "q=owl+flying&hidden=1&onlyTopRated=1&onlyFeatured=1&missingDate=1&taxa=aves%2Cinsecta&includeRaw=0&onlyHasRaw=1&onlyVideo=1" +
-        "&dateFrom=2024-01-01&dateTo=2024-12-31&regionId=r1&tag=nest&tripId=t1&albumId=a1",
+      "q=owl+flying&hidden=1&ratingMin=3&ratingMax=4&onlyFeatured=1&missingDate=1&taxa=aves%2Cinsecta&onlyHasRaw=1&onlyVideo=1" +
+        "&dateFrom=2024-01-01&dateTo=2024-12-31&regionId=r1&regionId=r2&tag=nest&place=Pigeon+Lake&tripId=t1&albumId=a1",
     );
   });
 
@@ -114,9 +143,9 @@ describe("galleryParams", () => {
 });
 
 describe("countActiveFilters", () => {
-  it("counts nothing at the defaults, whatever the search or missing-date view", () => {
+  it("counts nothing at the defaults, whatever the search or sort", () => {
     expect(countActiveFilters(defaults)).toBe(0);
-    expect(countActiveFilters({ ...defaults, searchQuery: "owl", missingDate: true, sortBy: "oldest" })).toBe(0);
+    expect(countActiveFilters({ ...defaults, searchQuery: "owl", sortBy: "oldest" })).toBe(0);
   });
 
   it("counts a date range once, with one or both ends", () => {
@@ -125,7 +154,7 @@ describe("countActiveFilters", () => {
   });
 
   it("counts presets moved off their defaults", () => {
-    expect(countActiveFilters({ ...defaults, rawFiles: "show", editedRaw: "without", mediaFilter: "both" })).toBe(3);
+    expect(countActiveFilters({ ...defaults, rawFiles: "hide", editedRaw: "without", mediaFilter: "both" })).toBe(3);
   });
 
   it("counts each filter once", () => {
@@ -133,16 +162,21 @@ describe("countActiveFilters", () => {
       countActiveFilters({
         ...defaults,
         onlyHidden: true,
-        onlyTopRated: true,
+        ratingMin: 3,
+        ratingMax: 4,
         onlyFeatured: true,
+        missingDate: true,
+        shotActions: new Set(["flying"]),
+        shotFramings: new Set(["close"]),
+        tiers: ["rare", "common"],
         selectedTaxa: new Set(["aves", "mammalia"]),
         dateTo: "2024-01-01",
-        regionId: "r",
-        tag: "t",
+        regionIds: ["r", "s"],
+        tags: ["t"],
         scopeTripId: "trip",
         scopeAlbumId: "album",
       }),
-    ).toBe(9);
+    ).toBe(12);
   });
 });
 
@@ -177,12 +211,21 @@ describe("toggleInSet", () => {
 });
 
 describe("describeSearchReading", () => {
-  const none = { species: [], groups: [], scenes: [], places: [], dates: [], description: null };
+  const none = { species: [], groups: [], scenes: [], places: [], dates: [], order: [], description: null };
 
   it("is null without an interpretation or anything beyond the query", () => {
     expect(describeSearchReading(undefined)).toBeNull();
     expect(describeSearchReading(none)).toBeNull();
     expect(describeSearchReading({ ...none, description: "swimming" })).toBeNull();
+  });
+
+  it("says how many animals after the subject", () => {
+    const count = (c: { min: number; max: number | null; about: number | null; crowd: boolean }) =>
+      describeSearchReading({ ...none, groups: ["birds"], count: c });
+    expect(count({ min: 3, max: 3, about: null, crowd: false })).toBe("birds · 3 animals");
+    expect(count({ min: 35, max: 70, about: 50, crowd: true })).toBe("birds · about 50 animals");
+    expect(count({ min: 2, max: null, about: null, crowd: false })).toBe("birds · 2 or more animals");
+    expect(count({ min: 30, max: null, about: null, crowd: true })).toBe("birds · a big crowd");
   });
 
   it("lists the subject, places and dates, then what it looks like", () => {
@@ -193,6 +236,7 @@ describe("describeSearchReading", () => {
         scenes: [],
         places: ["Washington"],
         dates: ["2024"],
+        order: [],
         description: "swimming",
       }),
     ).toBe("ducks · Washington · 2024 · looks like “swimming”");
@@ -212,6 +256,22 @@ describe("describeSearchReading", () => {
 
   it("skips an empty subject", () => {
     expect(describeSearchReading({ ...none, places: ["Yukon"] })).toBe("Yukon");
+  });
+
+  it("says filter, order and time words, styles, cameras and what was left out in plain words", () => {
+    expect(
+      describeSearchReading({
+        ...none,
+        groups: ["ducks"],
+        readings: ["lifers", "sunset"],
+        stars: { min: 4, max: null },
+        excluded: ["mallards"],
+      }),
+    ).toBe("ducks · 4 or more stars · first photo of each species · around sunset · not mallards");
+    expect(describeSearchReading({ ...none, styles: ["high key"], cameras: ["Canon EOS R5"] })).toBe(
+      "high key · Canon EOS R5",
+    );
+    expect(describeSearchReading({ ...none, stars: { min: 5, max: 5 } })).toBe("5 stars");
   });
 });
 
@@ -358,16 +418,113 @@ describe("selectionHasRaw", () => {
   });
 });
 
-describe("shotKindForSearch", () => {
-  it("reads a search that only names a kind of shot", () => {
-    expect(shotKindForSearch("flight")).toBe("flight");
-    expect(shotKindForSearch("  Birds in Flight ")).toBe("flight");
-    expect(shotKindForSearch("portrait shots")).toBe("portrait");
-    expect(shotKindForSearch("behaviour")).toBe("behavior");
+describe("selectionLocated", () => {
+  it("finds selected photos with coordinates, loaded or not", () => {
+    const items = [item("a", { lat: "1", lon: "2" }), item("b"), item("c", { lat: "3", lon: "4" })];
+    expect([...selectionLocated(items, new Set(["c-a", "c-b", "c-x"]), new Set(["c-x", "c-y"]))].sort()).toEqual([
+      "c-a",
+      "c-x",
+    ]);
+  });
+});
+
+describe("shotTypeForSearch", () => {
+  const read = (q: string) => {
+    const r = shotTypeForSearch(q);
+    return r && { actions: [...r.actions], framings: [...r.framings] };
+  };
+  it("reads a search that only names a kind of shot as the axis it stands for", () => {
+    expect(read("flight")).toEqual({ actions: ["flying"], framings: [] });
+    expect(read("  Birds in Flight ")).toEqual({ actions: ["flying"], framings: [] });
+    expect(read("portrait shots")).toEqual({ actions: [], framings: ["close"] });
+    expect(read("behaviour")).toEqual({ actions: ["behavior"], framings: [] });
+    expect(read("environmental")).toEqual({ actions: [], framings: ["environmental"] });
   });
 
-  it("leaves anything more specific to picture search", () => {
-    expect(shotKindForSearch("heron in flight")).toBeNull();
-    expect(shotKindForSearch("fli")).toBeNull();
+  it("leaves anything more specific to the server's search", () => {
+    expect(shotTypeForSearch("heron in flight")).toBeNull();
+    expect(shotTypeForSearch("fli")).toBeNull();
+  });
+});
+
+describe("galleryParams shot type", () => {
+  it("writes the two axes in their own order, never the old shotKind", () => {
+    const params = galleryParams({
+      ...defaults,
+      shotActions: new Set(["behavior", "flying"]),
+      shotFramings: new Set(["environmental"]),
+    });
+    expect([params.get("action"), params.get("framing"), params.get("shotKind")]).toEqual([
+      "flying,behavior",
+      "environmental",
+      null,
+    ]);
+  });
+});
+
+describe("groupGalleryItems", () => {
+  const owl = { taxonClass: "aves", taxonOrder: "Strigiformes", family: "Strigidae" };
+  const duck = { taxonClass: "aves", taxonOrder: "Anseriformes", family: "Anatidae" };
+  const items = [
+    item("a", { ...owl, tier: "rare", localTier: "common" }),
+    item("b", { ...duck, tier: "common", localTier: null }),
+    item("c", { ...owl, tier: "legendary", localTier: "rare" }),
+    item("d", { tier: "occasional" }),
+    item("e", { ...duck, tier: null }),
+  ];
+  const shape = (groupBy: Parameters<typeof groupGalleryItems>[1]) =>
+    groupGalleryItems(items, groupBy)!.map((g) => [g.label, g.entries.map((e) => e.item.photoId).join("")]);
+  const everyPhotoOnce = (groupBy: Parameters<typeof groupGalleryItems>[1]) =>
+    expect(
+      groupGalleryItems(items, groupBy)!
+        .flatMap((g) => g.entries.map((e) => e.i))
+        .sort(),
+    ).toEqual([0, 1, 2, 3, 4]);
+
+  it("is null when ungrouped", () => {
+    expect(groupGalleryItems(items, "none")).toBeNull();
+  });
+
+  it("groups by first broad group and by family group in field-guide order, keeping photo order", () => {
+    // Birds before mammals, and waterfowl lead the bird list, owls come later.
+    expect(shape("broad")).toEqual([
+      ["Waterfowl", "be"],
+      ["Owls", "ac"],
+      ["Hoofed Mammals", "d"],
+    ]);
+    expect(shape("group")).toEqual([
+      ["Waterfowl", "be"],
+      ["Owls", "ac"],
+      ["Cervidae", "d"],
+    ]);
+    everyPhotoOnce("broad");
+    everyPhotoOnce("group");
+  });
+
+  it("groups by tier rarest first, local tier falling back to the global one", () => {
+    expect(shape("tier")).toEqual([
+      ["Legendary", "c"],
+      ["Rare", "a"],
+      ["Occasional", "d"],
+      ["Common", "be"],
+    ]);
+    expect(shape("localTier")).toEqual([
+      ["Rare", "c"],
+      ["Occasional", "d"],
+      ["Common", "abe"],
+    ]);
+    everyPhotoOnce("tier");
+    everyPhotoOnce("localTier");
+  });
+
+  it("keeps region grouping as it was", () => {
+    const regioned = [item("a", { regionId: "y", regionName: "Yukon" }), item("b")];
+    expect(groupGalleryItems(regioned, "region")).toEqual(groupItemsByRegion(regioned));
+  });
+
+  it("offers Rarity here only with a region filter", () => {
+    expect(effectiveGalleryGroupBy("localTier", true)).toBe("localTier");
+    expect(effectiveGalleryGroupBy("localTier", false)).toBe("tier");
+    expect(effectiveGalleryGroupBy("region", false)).toBe("region");
   });
 });

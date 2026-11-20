@@ -1,8 +1,9 @@
 import { rawFilterParams, type EditedRawFilter, type RawFilesFilter } from "../photoListFilters";
 import { filterByQuery } from "../searchNormalize";
+import type { NamePart } from "../speciesName";
 
 export type PaletteAction =
-  | { type: "navigate"; to: string }
+  | { type: "navigate"; to: string; state?: unknown }
   | { type: "external"; url: string }
   | { type: "setQuery"; query: string }
   // Opens the iNaturalist "any taxa" search once the palette has closed.
@@ -13,8 +14,9 @@ export interface PaletteItem {
   id: string;
   label: string;
   sublabel?: string;
-  // Italic secondary text, for scientific names.
-  italicSublabel?: boolean;
+  // Species rows: the main name's style (namePartClass) and the second line's parts.
+  labelClass?: string;
+  sublabelParts?: NamePart[];
   thumbUrl?: string;
   action: PaletteAction;
 }
@@ -54,7 +56,7 @@ export function derivePaletteContext(pathname: string, search: string): PaletteC
 
 // The Gallery's persisted presets (usePersistedState keys), so palette thumbnails never show a
 // photo the Gallery is set to hide.
-export type GalleryMediaPreset = "both" | "photos" | "videos";
+export type GalleryMediaPreset = "both" | "photos" | "videos" | "recordings";
 export const GALLERY_RAW_FILES_KEY = "galleryRawFiles";
 export const GALLERY_EDITED_RAW_KEY = "galleryEditedRaw";
 export const GALLERY_MEDIA_PRESET_KEY = "galleryMediaFilter";
@@ -67,6 +69,7 @@ export function galleryPresetParams(
   const out = rawFilterParams(rawFiles, editedRaw);
   if (media === "photos") out.excludeVideo = "1";
   else if (media === "videos") out.onlyVideo = "1";
+  else if (media === "recordings") out.onlyAudio = "1";
   return out;
 }
 

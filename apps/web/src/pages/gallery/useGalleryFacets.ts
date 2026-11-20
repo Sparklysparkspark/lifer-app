@@ -4,14 +4,17 @@ import { api } from "../../api/client";
 import { useSettings } from "../../hooks/useSettings";
 import { ignore } from "../../lib/ignore";
 
+// One empty list, so the grid's grouping isn't redone on every render while settings load.
+const NO_NAMING_STYLES: string[] = [];
+
 // What the whole library holds, so the filters only offer choices that can match something.
 export function useGalleryFacets() {
-  // Only offer the media filter when the library has a video at all.
-  const [hasVideoInLibrary, setHasVideoInLibrary] = useState(false);
+  // Only offer the media filter when the library has a video or recording at all.
+  const [hasOtherMediaInLibrary, setHasOtherMediaInLibrary] = useState(false);
   useEffect(() => {
     api
-      .get<{ hasVideo: boolean }>("/gallery/has-video")
-      .then((res) => setHasVideoInLibrary(res.hasVideo))
+      .get<{ hasVideo: boolean; hasAudio: boolean }>("/gallery/has-video")
+      .then((res) => setHasOtherMediaInLibrary(res.hasVideo || res.hasAudio))
       .catch(ignore("Couldn't check for videos"));
   }, []);
   // Photos imported hidden (a culling app rejected them), so the "Hidden" filter only shows when
@@ -39,7 +42,7 @@ export function useGalleryFacets() {
     [availableTaxa],
   );
   const { settings } = useSettings();
-  const namingStyles = settings?.speciesNamingStyles ?? [];
+  const namingStyles = settings?.speciesNamingStyles ?? NO_NAMING_STYLES;
   // Region filter offers only regions that have photos.
   const [regionsWithPhotos, setRegionsWithPhotos] = useState<Set<string> | null>(null);
   useEffect(() => {
@@ -52,7 +55,7 @@ export function useGalleryFacets() {
   return {
     hiddenCount,
     refreshHiddenCount: () => setHiddenCountVersion((v) => v + 1),
-    hasVideoInLibrary,
+    hasOtherMediaInLibrary,
     availableTaxa,
     otherTaxaClasses,
     namingStyles,

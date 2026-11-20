@@ -90,6 +90,7 @@ describe("filterEntries", () => {
 describe("galleryPresetParams", () => {
   it("mirrors the Gallery's RAW and media presets", () => {
     expect(galleryPresetParams("show", "without", "photos")).toEqual({ excludeHasRaw: "1", excludeVideo: "1" });
+    expect(galleryPresetParams("show", "any", "recordings")).toEqual({ onlyAudio: "1" });
     expect(galleryPresetParams("hide", "with", "videos")).toEqual({ includeRaw: "0", onlyHasRaw: "1", onlyVideo: "1" });
     expect(galleryPresetParams("only", "any", "both")).toEqual({ onlyRaw: "1" });
     expect(galleryPresetParams("show", "any", "both")).toEqual({});

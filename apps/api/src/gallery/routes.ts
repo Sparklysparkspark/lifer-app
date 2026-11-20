@@ -1,48 +1,111 @@
 // Gallery of every photo across all species, plus photo search.
+import { NOT_A_LINKED_VERSION } from "../captures/hidden.js";
+import { galleryItemForDevice, sensitiveForKey, withoutSensitivePlace } from "../companion/privacy.js";
+import { mapAreaSql } from "./mapArea.js";
+import { insideSpotSql, metresTo } from "../places/spotArea.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { captureIdsOfShotKind, isShotKind, SHOT_KINDS, type ShotKind } from "../stats/shotKinds.js";
+import { captureIdsOfShotTypes } from "../stats/shotKinds.js";
 import { pool } from "@lifer/core/db.js";
-import { Type, type Static } from "typebox";
+import { Type, type Static, type TSchema } from "typebox";
 import { isUuid, parseDate, parseLimit } from "../lib/validate.js";
-import { Uuid, replies, withSchemas } from "../lib/schema.js";
-import { GalleryItem, SearchInterpretation } from "./responses.js";
-import { requireScope } from "../auth/session.js";
+import { Ok, Uuid, replies, withSchemas } from "../lib/schema.js";
+import { GalleryItem, SearchInterpretation, SimilarGroupList } from "./responses.js";
+import { taxonomicOrderKeys } from "../lib/taxonomicOrder.js";
+import { TIER_RANK } from "./searchTerms.js";
+import { requireAuth, requireScope } from "../auth/session.js";
+import { PLACE_NAME_MAX } from "../captures/places.js";
+import { versionLabel } from "../uploads/versionGrouping.js";
 import { EMBEDDING_MODEL_VERSION, SCENE_MODEL_VERSION } from "@lifer/core/config.js";
-import { parseSearchQuery, rankSearch, type PlaceEntry, type SearchRow, type SpeciesEntry } from "./photoSearch.js";
+import { dismissSimilarGroup, setDismissed, similarGroupOf, similarGroups } from "./similar.js";
+import {
+  parseSearchQuery,
+  rankSearch,
+  type ParsedQuery,
+  type PlaceEntry,
+  type Reading,
+  type SearchOutcome,
+  type SearchRow,
+  type SpeciesEntry,
+} from "./photoSearch.js";
 import type { GroupPredicate } from "./searchTaxonSynonyms.js";
-import type { CullLabel } from "@lifer/shared";
+import {
+  LEGACY_SHOT_KINDS,
+  SHOT_ACTIONS,
+  SHOT_FRAMINGS,
+  parseShotList,
+  compositionOf,
+  orientationOf,
+  timeMaybeWrong,
+  trustedSun,
+  type CullLabel,
+  type FrameBox,
+  type LightStats,
+  type LegacyShotKind,
+  type ShotAction,
+  type ShotFraming,
+} from "@lifer/shared";
+
+// Thumbnails per group in the similar photos list.
+const SIMILAR_PREVIEWS = 4;
 
 /** Sentinel `regionId` for the "Uncategorized" filter: captures with no region set. */
 export const UNCATEGORIZED_REGION_ID = "uncategorized";
 
 /** A region filter matches that region and every descendant. The root region (World) also
  *  matches captures with no region, so it never hides untagged photos. */
-function regionMatchClause(paramIdx: number | null): string {
-  if (!paramIdx) return "";
-  return `AND (
+function regionMatchClause(paramIdx: number): string {
+  return `(
              c.region_id IN (
                WITH RECURSIVE region_tree AS (
-                 SELECT id FROM regions WHERE id = $${paramIdx}
+                 SELECT id FROM regions WHERE id = ANY($${paramIdx}::uuid[])
                  UNION ALL
-                 SELECT r.id FROM regions r JOIN region_tree rt ON r.parent_id = rt.id
+                 -- home_country_id: a province shown under its continent still belongs to its country.
+                 SELECT r.id FROM regions r JOIN region_tree rt ON r.parent_id = rt.id OR r.home_country_id = rt.id
                )
                SELECT id FROM region_tree
              )
-             OR (c.region_id IS NULL AND EXISTS (SELECT 1 FROM regions WHERE id = $${paramIdx} AND parent_id IS NULL))
+             OR (c.region_id IS NULL AND EXISTS (SELECT 1 FROM regions WHERE id = ANY($${paramIdx}::uuid[]) AND parent_id IS NULL))
            )`;
 }
+
+// A photo's species tier, the user's own winning as on the Collection.
+export const GALLERY_TIER_SQL = `COALESCE(
+    (SELECT gto.tier FROM user_tier_overrides gto
+      WHERE gto.user_id = c.user_id AND gto.species_id = c.species_id AND gto.region_id IS NULL LIMIT 1),
+    (SELECT gsr.tier FROM species_rarity gsr WHERE gsr.species_id = c.species_id)
+  )`;
 
 // Columns shared by /gallery and /gallery/search, so filters stay in sync between them.
 export const GALLERY_ITEM_COLUMNS = `
   c.id AS capture_id, p.id AS photo_id, p.width, p.height, c.species_id, s.scientific_name, s.common_name, s.taxon_class,
   c.taken_at, c.created_at, c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso, c.quality_rating,
-  c.lat, c.lon, c.region_id, reg.name AS region_name, p.kind AS photo_kind, p.duration_seconds, c.tags,
+  c.lat, c.lon, c.region_id, reg.name AS region_name, c.location_label, p.kind AS photo_kind, p.duration_seconds, c.tags,
   c.cull_verdict, c.cull_label, c.hidden_at IS NOT NULL AS hidden,
   (p.id = us.cover_photo_id) AS is_featured,
   EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw_original,
+  (SELECT io.status FROM capture_inaturalist_observations io WHERE io.capture_id = c.id AND io.photo_sent) AS inat_status,
+  (SELECT io.inat_observation_id FROM capture_inaturalist_observations io WHERE io.capture_id = c.id AND io.photo_sent) AS inat_observation_id,
   o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind,
-  (SELECT rr.ref FROM originals rr WHERE rr.capture_id = c.id AND rr.kind = 'raw' LIMIT 1) AS raw_ref
+  (SELECT rr.ref FROM originals rr WHERE rr.capture_id = c.id AND rr.kind = 'raw' LIMIT 1) AS raw_ref,
+  s.taxon_order, s.family, s.sort_order, s.is_other_taxa, s.inat_iconic_taxon,
+  ${GALLERY_TIER_SQL} AS tier,
+  cfr.box AS frame_box, cfr.box_unsure AS frame_unsure, cfr.aspect AS frame_aspect, cfr.light AS light_stats,
+  c.taken_at_zoned
 `;
+
+/** With a region filter: the extra column of each photo's tier there (the user's own first, as on
+ *  a region's checklist), for grouping by "Rarity here". Empty otherwise. */
+export function galleryLocalTierColumn(f: Pick<GalleryFilters, "regionIds">, param: (v: unknown) => string): string {
+  // With several regions there is no single "here" to rank against.
+  if (f.regionIds.length !== 1 || f.regionIds[0] === UNCATEGORIZED_REGION_ID) return "";
+  const r = param(f.regionIds[0]);
+  return `, COALESCE(
+    (SELECT lto.tier FROM user_tier_overrides lto
+      WHERE lto.user_id = c.user_id AND lto.species_id = c.species_id AND (lto.region_id = ${r}::uuid OR lto.region_id IS NULL)
+      ORDER BY lto.region_id NULLS LAST LIMIT 1),
+    (SELECT lrs.local_tier FROM region_species lrs WHERE lrs.species_id = c.species_id AND lrs.region_id = ${r}::uuid)
+  ) AS local_tier`;
+}
 export const GALLERY_ITEM_JOINS = `
   JOIN photos p ON p.id = c.current_photo_id
   JOIN species s ON s.id = c.species_id
@@ -55,12 +118,26 @@ export const GALLERY_ITEM_JOINS = `
     SELECT * FROM originals lo WHERE lo.capture_id = c.id ORDER BY (lo.kind = 'jpeg') DESC LIMIT 1
   ) o ON true
 `;
+/** GALLERY_ITEM_JOINS plus the photo's frame, for queries that select GALLERY_ITEM_COLUMNS. Kept
+ *  out of the filter-only queries (counts, the map), where the planner wouldn't drop it. */
+export const GALLERY_ITEM_FRAME_JOINS = `${GALLERY_ITEM_JOINS}
+  LEFT JOIN capture_frames cfr ON cfr.capture_id = c.id AND cfr.photo_id = p.id
+`;
 
 // The filters /gallery and /gallery/search share, parsed and validated once. Ids and dates that
 // wouldn't survive a Postgres cast get a 400 instead of a 500.
 export interface GalleryFilters {
   onlyHidden: boolean;
-  onlyTopRated: boolean;
+  /** Star rating range, both ends inclusive; either end may be open. Unrated photos never match a range. */
+  ratingMin: number | null;
+  ratingMax: number | null;
+  /** Only photos with no star rating. */
+  unrated: boolean;
+  /** Only photos not yet sent to iNaturalist. */
+  notOnInat: boolean;
+  /** How many animals the detector found, both ends inclusive; uncounted photos never match. */
+  animalsMin: number | null;
+  animalsMax: number | null;
   onlyFeatured: boolean;
   taxa: string[];
   includeRaw: boolean;
@@ -68,22 +145,47 @@ export interface GalleryFilters {
   excludeHasRaw: boolean;
   onlyHasRaw: boolean;
   onlyVideo: boolean;
+  onlyAudio: boolean;
   excludeVideo: boolean;
   missingDate: boolean;
+  missingCoordinates: boolean;
   dateFrom: string | null;
   dateTo: string | null;
-  regionId: string | null;
-  tag: string | null;
-  tripId: string | null;
-  albumId: string | null;
-  shotKind: ShotKind | null;
-  /** Only species of this rarity tier (species_rarity), from Stats' By tier list. */
-  tier: string | null;
+  // Each of these is a list: a photo matches when it has any one of the values, and every filter
+  // that is set must match (OR within a filter, AND across filters).
+  regionIds: string[];
+  tags: string[];
+  /** Only photos with exactly one of these place names (location_label). */
+  places: string[];
+  /** Only photos whose coordinates fall in this box (west, south, east, north); west > east crosses
+   *  the antimeridian. */
+  bbox?: [number, number, number, number] | null;
+  /** Also photos with no coordinates set to exactly one of these regions, alongside the bbox's
+   *  (a map cluster's dots and rings in one list). */
+  orRegionOnly?: string[];
+  /** Only photos whose point lies inside this saved place's radius. */
+  spotId?: string | null;
+  tripIds: string[];
+  albumIds: string[];
+  /** Shot type: any of these actions, and any of these framings (an empty list is any). */
+  shotActions: ShotAction[];
+  shotFramings: ShotFraming[];
+  /** Only species of one of these rarity tiers (species_rarity), from Stats' By tier list. */
+  tiers: string[];
   /** With `tier`: compare each species' local tier in this region instead of its overall one. */
   tierRegionId: string | null;
-  /** The captures of `shotKind`, filled in by galleryFiltersFor (it's worked out from vectors). */
-  shotKindCaptureIds?: string[];
+  /** The captures of the shot type, filled in by galleryFiltersFor (it's worked out from vectors). */
+  shotTypeCaptureIds?: string[];
+  /** The members of the smart albums in `albumIds`, filled in by galleryFiltersFor (their rules pick
+   *  them, not album_captures). Those albums are removed from `albumIds`, which keeps the plain ones. */
+  albumCaptureIds?: string[];
+  /** Only this photo and its near-identical ones (similar.ts). */
+  similarTo: string | null;
+  /** The group `similarTo` stands for, filled in by galleryFiltersFor. */
+  similarCaptureIds?: string[];
 }
+
+const STAR_VALUES = ["1", "2", "3", "4", "5"];
 
 // "1" turns a filter on; "0" (or leaving it out) leaves it off.
 const OnOff = (description: string) => Type.Optional(Type.Enum(["0", "1"], { description }));
@@ -91,16 +193,25 @@ const OnOff = (description: string) => Type.Optional(Type.Enum(["0", "1"], { des
 /** The captures a filter set lists from: the `captures` view, or with `hidden=1` the hidden
  *  photos it leaves out (hidden.ts). */
 export function galleryCapturesSource(f: Pick<GalleryFilters, "onlyHidden">): string {
-  return f.onlyHidden ? "(SELECT * FROM captures_all WHERE deleted_at IS NULL AND hidden_at IS NOT NULL)" : "captures";
+  return f.onlyHidden
+    ? `(SELECT * FROM captures_all c WHERE deleted_at IS NULL AND hidden_at IS NOT NULL AND ${NOT_A_LINKED_VERSION})`
+    : "captures";
 }
 
-// The filters /gallery, /gallery/ids and /gallery/search share.
-const GalleryFilterQuery = Type.Object({
+// Room for every region of a large library picked at once.
+const MAX_FILTER_VALUES = 500;
+
+// A filter that takes several values: repeat the param (?regionId=a&regionId=b). A photo matches
+// any one of them; one value alone still works.
+const Many = <T extends TSchema>(item: T, description: string) =>
+  Type.Optional(Type.Array(item, { description, maxItems: MAX_FILTER_VALUES }));
+
+// The filters /gallery, /gallery/ids and /gallery/search share (and smart album rules).
+export const GalleryFilterQuery = Type.Object({
   taxa: Type.Optional(Type.String({ description: "Comma-separated taxon classes" })),
-  regionId: Type.Optional(
-    Type.Union([Uuid(), Type.Literal(UNCATEGORIZED_REGION_ID)], {
-      description: 'Region, or "uncategorized" for photos with no region',
-    }),
+  regionId: Many(
+    Type.Union([Uuid(), Type.Literal(UNCATEGORIZED_REGION_ID)]),
+    'Region, or "uncategorized" for photos with no region',
   ),
   // A prefix check only: parseDay below also refuses dates that don't exist.
   dateFrom: Type.Optional(
@@ -109,25 +220,67 @@ const GalleryFilterQuery = Type.Object({
   dateTo: Type.Optional(
     Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}", description: "Taken on or before (YYYY-MM-DD)" }),
   ),
-  tag: Type.Optional(Type.String({ description: "Only photos with this tag" })),
-  tripId: Type.Optional(Uuid({ description: "Only photos in this trip" })),
-  albumId: Type.Optional(Uuid({ description: "Only photos in this album" })),
-  missingDate: OnOff("1 for photos with no capture date only"),
-  tier: Type.Optional(
-    Type.Enum(["legendary", "rare", "uncommon", "occasional", "common", "unrated"], {
-      description: "Only species of this rarity tier",
+  tag: Many(Type.String(), "Only photos with this tag"),
+  place: Many(Type.String({ maxLength: PLACE_NAME_MAX }), "Only photos with this place name"),
+  bbox: Type.Optional(
+    Type.String({
+      pattern: "^-?[0-9.]+,-?[0-9.]+,-?[0-9.]+,-?[0-9.]+$",
+      description: "Only photos with coordinates in this box: west,south,east,north in degrees",
     }),
   ),
-  tierRegionId: Type.Optional(Uuid({ description: "With tier: the region whose local tier counts" })),
-  shotKind: Type.Optional(
-    Type.Enum(
-      SHOT_KINDS.map((k) => k.key),
-      { description: "Only this kind of shot, as Stats' Photography DNA counts them" },
-    ),
+  spotId: Type.Optional(Uuid({ description: "Only photos whose coordinates fall inside this saved place" })),
+  orRegionOnly: Many(
+    Uuid(),
+    "With bbox: also photos with no coordinates set to exactly this region (a map ring), in the same list",
   ),
-  onlyTopRated: OnOff("1 for 5-star photos only"),
+  tripId: Many(Uuid(), "Only photos in this trip"),
+  albumId: Many(Uuid(), "Only photos in this album"),
+  similarTo: Type.Optional(
+    Uuid({
+      description:
+        "Only this photo and its near-identical ones (bursts and repeats), whatever the RAW and video presets",
+    }),
+  ),
+  missingDate: OnOff("1 for photos with no capture date only"),
+  missingCoordinates: OnOff("1 for photos with no coordinates only"),
+  tier: Many(
+    Type.Enum(["legendary", "rare", "uncommon", "occasional", "common", "unrated"]),
+    "Only species of this rarity tier",
+  ),
+  tierRegionId: Type.Optional(Uuid({ description: "With tier: the region whose local tier counts" })),
+  action: Type.Optional(
+    Type.String({
+      pattern: `^(${SHOT_ACTIONS.join("|")})(,(${SHOT_ACTIONS.join("|")}))*$`,
+      description: `Only photos with one of these comma-separated actions (${SHOT_ACTIONS.join(", ")}), as Stats' Photography DNA reads them`,
+    }),
+  ),
+  framing: Type.Optional(
+    Type.String({
+      pattern: `^(${SHOT_FRAMINGS.join("|")})(,(${SHOT_FRAMINGS.join("|")}))*$`,
+      description: `Only photos with one of these comma-separated framings (${SHOT_FRAMINGS.join(", ")})`,
+    }),
+  ),
+  // Saved smart albums and old links still carry it.
+  shotKind: Type.Optional(
+    Type.Enum(Object.keys(LEGACY_SHOT_KINDS) as LegacyShotKind[], {
+      description: "Older single shot type: flight and behavior are an action, portrait and environmental a framing",
+      deprecated: true,
+    }),
+  ),
+  onlyTopRated: OnOff("1 for 5-star photos only (the same as ratingMin=5)"),
+  ratingMin: Type.Optional(Type.Enum(STAR_VALUES, { description: "Only photos rated at least this many stars" })),
+  ratingMax: Type.Optional(Type.Enum(STAR_VALUES, { description: "Only photos rated at most this many stars" })),
+  unrated: OnOff("1 for photos with no star rating only (not with ratingMin or ratingMax)"),
+  notOnInat: OnOff("1 for photos not yet sent to iNaturalist"),
+  animalsMin: Type.Optional(
+    Type.String({ pattern: "^[1-9][0-9]{0,3}$", description: "Only photos with at least this many animals" }),
+  ),
+  animalsMax: Type.Optional(
+    Type.String({ pattern: "^[1-9][0-9]{0,3}$", description: "Only photos with at most this many animals" }),
+  ),
   onlyFeatured: OnOff("1 for species cover photos only"),
   onlyVideo: OnOff("1 for videos only"),
+  onlyAudio: OnOff("1 for sound recordings only"),
   excludeVideo: OnOff("1 to leave videos out"),
   onlyHasRaw: OnOff("1 for photos with a RAW original only (RAW-only photos included)"),
   excludeHasRaw: OnOff("1 to leave out edited photos that have a RAW original (RAW-only photos stay)"),
@@ -135,27 +288,61 @@ const GalleryFilterQuery = Type.Object({
   onlyRaw: OnOff("1 for only the photos whose only original is a RAW"),
   hidden: OnOff("1 for only the photos imported hidden because a culling app rejected them"),
 });
-type GalleryFilterQuery = Static<typeof GalleryFilterQuery>;
+export type GalleryFilterQuery = Static<typeof GalleryFilterQuery>;
 
 // Plain YYYY-MM-DD from a native <input type="date">; anything else Postgres can't cast is refused.
 function parseDay(value: string | undefined): string | null | undefined {
   if (!value) return null;
-  const d = parseDate(value);
-  if (!d || !/^\d{4}-\d{2}-\d{2}/.test(value)) return undefined;
-  return value.slice(0, 10);
+  const day = value.slice(0, 10);
+  // JS rolls 2024-02-31 over to March, so the day must survive the round trip.
+  const d = parseDate(day);
+  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(day) || d.toISOString().slice(0, 10) !== day) return undefined;
+  return day;
 }
+
+// Blank and repeated values dropped, order kept.
+const distinct = (values: readonly string[] | undefined): string[] => [...new Set(values?.filter(Boolean))];
 
 export function parseGalleryFilters(q: GalleryFilterQuery): GalleryFilters | { error: string } {
   const dateFrom = parseDay(q.dateFrom);
   const dateTo = parseDay(q.dateTo);
   if (dateFrom === undefined || dateTo === undefined) return { error: "dateFrom and dateTo must be YYYY-MM-DD dates" };
   // The query schema already refused malformed region, trip and album ids.
-  const regionId = q.regionId || null;
-  const tripId = q.tripId || null;
-  const albumId = q.albumId || null;
+  // The older "top rated" switch is the 5-star end of the range.
+  const ratingMin = q.onlyTopRated === "1" ? 5 : q.ratingMin ? Number(q.ratingMin) : null;
+  const ratingMax = q.ratingMax ? Number(q.ratingMax) : null;
+  const unrated = q.unrated === "1";
+  if (ratingMin !== null && ratingMax !== null && ratingMin > ratingMax)
+    return { error: "ratingMin can't be more than ratingMax" };
+  if (unrated && (ratingMin !== null || ratingMax !== null))
+    return { error: "unrated can't be combined with a star rating range" };
+  const animalsMin = q.animalsMin ? Number(q.animalsMin) : null;
+  const animalsMax = q.animalsMax ? Number(q.animalsMax) : null;
+  if (animalsMin !== null && animalsMax !== null && animalsMin > animalsMax)
+    return { error: "animalsMin can't be more than animalsMax" };
+  const shotActions = parseShotList(q.action, SHOT_ACTIONS);
+  const shotFramings = parseShotList(q.framing, SHOT_FRAMINGS);
+  const legacy: { action?: ShotAction; framing?: ShotFraming } | undefined =
+    q.shotKind && LEGACY_SHOT_KINDS[q.shotKind as LegacyShotKind];
+  const bbox = q.bbox ? q.bbox.split(",").map(Number) : null;
+  if (
+    bbox &&
+    (bbox.some((v) => !Number.isFinite(v)) ||
+      bbox[1] > bbox[3] ||
+      [bbox[1], bbox[3]].some((v) => Math.abs(v) > 90) ||
+      [bbox[0], bbox[2]].some((v) => Math.abs(v) > 180))
+  )
+    return { error: "bbox must be west,south,east,north in degrees, with south at or below north" };
+  if (legacy?.action && !shotActions.includes(legacy.action)) shotActions.push(legacy.action);
+  if (legacy?.framing && !shotFramings.includes(legacy.framing)) shotFramings.push(legacy.framing);
   return {
     onlyHidden: q.hidden === "1",
-    onlyTopRated: q.onlyTopRated === "1",
+    ratingMin,
+    ratingMax,
+    unrated,
+    notOnInat: q.notOnInat === "1",
+    animalsMin,
+    animalsMax,
     onlyFeatured: q.onlyFeatured === "1",
     taxa: q.taxa?.split(",").filter(Boolean) ?? [],
     includeRaw: q.includeRaw !== "0",
@@ -163,59 +350,138 @@ export function parseGalleryFilters(q: GalleryFilterQuery): GalleryFilters | { e
     excludeHasRaw: q.excludeHasRaw === "1",
     onlyHasRaw: q.onlyHasRaw === "1",
     onlyVideo: q.onlyVideo === "1",
+    onlyAudio: q.onlyAudio === "1",
     excludeVideo: q.excludeVideo === "1",
     // Captures with no taken_at (Stats page drill-down).
     missingDate: q.missingDate === "1",
+    missingCoordinates: q.missingCoordinates === "1",
     // dateTo includes the whole day (< the next day).
     dateFrom,
     dateTo,
-    regionId,
-    tag: q.tag || null,
-    tripId,
-    albumId,
-    shotKind: q.shotKind && isShotKind(q.shotKind) ? q.shotKind : null,
-    tier: q.tier || null,
+    regionIds: distinct(q.regionId),
+    tags: distinct(q.tag),
+    places: distinct(q.place?.map((p) => p.trim())),
+    bbox: bbox as [number, number, number, number] | null,
+    orRegionOnly: distinct(q.orRegionOnly),
+    spotId: q.spotId || null,
+    tripIds: distinct(q.tripId),
+    albumIds: distinct(q.albumId),
+    shotActions,
+    shotFramings,
+    tiers: distinct(q.tier),
     tierRegionId: q.tierRegionId || null,
+    similarTo: q.similarTo || null,
   };
 }
 
-/** parseGalleryFilters, plus the captures a ?shotKind= stands for. */
+/** parseGalleryFilters, plus the captures a shot type or a smart ?albumId= stands for. `seenAlbums`
+ *  is the smart albums already being resolved, so rules that scope to themselves can't loop. */
 export async function galleryFiltersFor(
   q: GalleryFilterQuery,
   userId: string,
+  seenAlbums: ReadonlySet<string> = new Set(),
 ): Promise<GalleryFilters | { error: string }> {
-  const filters = parseGalleryFilters(q);
-  if ("error" in filters || !filters.shotKind) return filters;
-  return { ...filters, shotKindCaptureIds: await captureIdsOfShotKind(userId, filters.shotKind) };
+  const filters: GalleryFilters | { error: string } = parseGalleryFilters(q);
+  if ("error" in filters) return filters;
+  await withShotTypeIds(filters, userId);
+  if (filters.similarTo) {
+    filters.similarCaptureIds = await similarGroupOf(userId, filters.similarTo);
+    // The group is shown whole: a burst is often RAW-only frames the browsing presets leave out.
+    Object.assign(filters, {
+      includeRaw: true,
+      onlyRaw: false,
+      excludeHasRaw: false,
+      onlyHasRaw: false,
+      onlyVideo: false,
+      onlyAudio: false,
+      excludeVideo: false,
+    });
+  }
+  if (filters.albumIds.length > 0) {
+    // Imported lazily: albums/routes builds on this module.
+    const { smartAlbumCaptureIds } = await import("../albums/routes.js");
+    const plain: string[] = [];
+    let smart: string[] | undefined;
+    for (const id of filters.albumIds) {
+      const ids = await smartAlbumCaptureIds(id, userId, seenAlbums);
+      if (ids) smart = [...(smart ?? []), ...ids];
+      else plain.push(id);
+    }
+    filters.albumCaptureIds = smart;
+    filters.albumIds = plain;
+  }
+  return filters;
+}
+
+/** Fills in the captures a filter set's shot type stands for. */
+async function withShotTypeIds(f: GalleryFilters, userId: string): Promise<GalleryFilters> {
+  if (f.shotActions.length > 0 || f.shotFramings.length > 0)
+    f.shotTypeCaptureIds = await captureIdsOfShotTypes(userId, f.shotActions, f.shotFramings);
+  return f;
+}
+
+/** At a place: the label, or a point inside the user's saved place of that name (as its photo count). */
+function placeClause(names: string): string {
+  return `AND (c.location_label = ANY(${names}::text[]) OR (c.lat IS NOT NULL AND c.lon IS NOT NULL AND EXISTS (
+    SELECT 1 FROM saved_spots s
+    WHERE s.user_id = c.user_id AND lower(s.name) = ANY(SELECT lower(n) FROM unnest(${names}::text[]) n)
+      AND c.lat BETWEEN s.lat - s.radius_m / 111320.0 AND s.lat + s.radius_m / 111320.0
+      AND ${metresTo("s")} <= s.radius_m)))`;
 }
 
 /** The WHERE clauses for a filter set, adding each value through `param` ($n placeholders). */
 export function galleryFilterSql(f: GalleryFilters, param: (v: unknown) => string): string {
-  const isUncategorized = f.regionId === UNCATEGORIZED_REGION_ID;
+  const uncategorized = f.regionIds.includes(UNCATEGORIZED_REGION_ID);
+  const regionIds = f.regionIds.filter((id) => id !== UNCATEGORIZED_REGION_ID);
   return [
-    f.onlyTopRated ? "AND c.quality_rating = 5" : "",
+    f.ratingMin !== null ? `AND c.quality_rating >= ${param(f.ratingMin)}::int` : "",
+    f.ratingMax !== null ? `AND c.quality_rating <= ${param(f.ratingMax)}::int` : "",
+    f.unrated ? "AND c.quality_rating IS NULL" : "",
+    f.notOnInat
+      ? // Photos ignored for iNaturalist aren't waiting to go there either.
+        "AND c.inat_ignored_at IS NULL AND NOT EXISTS (SELECT 1 FROM capture_inaturalist_observations io WHERE io.capture_id = c.id AND io.photo_sent)"
+      : "",
+    f.animalsMin !== null ? `AND c.subject_count >= ${param(f.animalsMin)}::int` : "",
+    f.animalsMax !== null ? `AND c.subject_count <= ${param(f.animalsMax)}::int` : "",
     // "Featured" means this photo is its species' cover_photo_id, not a photo-level flag.
     f.onlyFeatured ? "AND p.id = us.cover_photo_id" : "",
     f.missingDate ? "AND c.taken_at IS NULL" : "",
-    f.tier && f.tierRegionId
-      ? `AND COALESCE((SELECT rs.local_tier FROM region_species rs WHERE rs.species_id = c.species_id AND rs.region_id = ${param(f.tierRegionId)}::uuid), 'unrated') = ${param(f.tier)}`
-      : f.tier
-        ? `AND EXISTS (SELECT 1 FROM species_rarity sr WHERE sr.species_id = c.species_id AND sr.tier = ${param(f.tier)})`
+    f.missingCoordinates ? "AND (c.lat IS NULL OR c.lon IS NULL)" : "",
+    f.tiers.length > 0 && f.tierRegionId
+      ? `AND COALESCE((SELECT rs.local_tier FROM region_species rs WHERE rs.species_id = c.species_id AND rs.region_id = ${param(f.tierRegionId)}::uuid), 'unrated') = ANY(${param(f.tiers)}::text[])`
+      : f.tiers.length > 0
+        ? `AND EXISTS (SELECT 1 FROM species_rarity sr WHERE sr.species_id = c.species_id AND sr.tier = ANY(${param(f.tiers)}::text[]))`
         : "",
-    f.shotKind ? `AND c.id = ANY(${param(f.shotKindCaptureIds ?? [])}::uuid[])` : "",
+    f.shotActions.length > 0 || f.shotFramings.length > 0
+      ? `AND c.id = ANY(${param(f.shotTypeCaptureIds ?? [])}::uuid[])`
+      : "",
     f.taxa.length > 0 ? `AND s.taxon_class = ANY(${param(f.taxa)})` : "",
     f.dateFrom ? `AND c.taken_at >= ${param(f.dateFrom)}::date` : "",
     f.dateTo ? `AND c.taken_at < (${param(f.dateTo)}::date + INTERVAL '1 day')` : "",
-    isUncategorized
-      ? "AND c.region_id IS NULL"
-      : f.regionId
-        ? regionMatchClause(Number(param(f.regionId).slice(1)))
-        : "",
-    f.tag ? `AND ${param(f.tag)} = ANY(c.tags)` : "",
-    f.tripId ? `AND c.trip_id = ${param(f.tripId)}::uuid` : "",
+    uncategorized || regionIds.length > 0
+      ? `AND (${[
+          uncategorized ? "c.region_id IS NULL" : "",
+          regionIds.length > 0 ? regionMatchClause(Number(param(regionIds).slice(1))) : "",
+        ]
+          .filter(Boolean)
+          .join(" OR ")})`
+      : "",
+    f.tags.length > 0 ? `AND c.tags && ${param(f.tags)}::text[]` : "",
+    f.places.length > 0 ? placeClause(param(f.places)) : "",
+    mapAreaSql(f, param),
+    insideSpotSql(f.spotId, param),
+    f.tripIds.length > 0 ? `AND c.trip_id = ANY(${param(f.tripIds)}::uuid[])` : "",
+    f.similarTo ? `AND c.id = ANY(${param(f.similarCaptureIds ?? [])}::uuid[])` : "",
     // EXISTS rather than a JOIN so a photo in an album is never listed twice.
-    f.albumId
-      ? `AND EXISTS (SELECT 1 FROM album_captures fac WHERE fac.capture_id = c.id AND fac.album_id = ${param(f.albumId)}::uuid)`
+    f.albumCaptureIds || f.albumIds.length > 0
+      ? `AND (${[
+          f.albumCaptureIds ? `c.id = ANY(${param(f.albumCaptureIds)}::uuid[])` : "",
+          f.albumIds.length > 0
+            ? `EXISTS (SELECT 1 FROM album_captures fac WHERE fac.capture_id = c.id AND fac.album_id = ANY(${param(f.albumIds)}::uuid[]))`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" OR ")})`
       : "",
     // `o` is the photo's main original, the edited one when there is one: a RAW there means the
     // RAW is all the photo has.
@@ -228,7 +494,9 @@ export function galleryFilterSql(f: GalleryFilters, param: (v: unknown) => strin
         ? "AND EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
         : "",
     f.onlyVideo ? "AND p.kind = 'video'" : "",
-    f.excludeVideo ? "AND p.kind IS DISTINCT FROM 'video'" : "",
+    f.onlyAudio ? "AND p.kind = 'audio'" : "",
+    // The Photos choice: recordings are their own media type.
+    f.excludeVideo ? "AND p.kind NOT IN ('video', 'audio')" : "",
   ]
     .filter(Boolean)
     .join("\n           ");
@@ -242,7 +510,27 @@ interface SortKey {
   nullable: boolean;
   cast: string;
 }
+// Within one species, newest first.
+const NEWEST_KEYS: SortKey[] = [
+  { expr: "c.taken_at", desc: true, nullable: true, cast: "timestamptz" },
+  { expr: "c.created_at", desc: true, nullable: false, cast: "timestamptz" },
+];
+const FIELD_GUIDE_KEYS: SortKey[] = taxonomicOrderKeys().map((k) => ({ ...k, desc: false }));
+// Search's rarest-first rank (legendary highest); unrated and unknown last.
+const TIER_RANK_SQL = `COALESCE(CASE ${GALLERY_TIER_SQL} ${Object.entries(TIER_RANK)
+  .map(([tier, rank]) => `WHEN '${tier}' THEN ${rank}`)
+  .join(" ")} END, 0)`;
 const GALLERY_SORTS: Record<string, SortKey[]> = {
+  // The Collection's species orders, each photo grouped with its species.
+  taxonomic: [...FIELD_GUIDE_KEYS, ...NEWEST_KEYS],
+  name: [
+    { expr: "COALESCE(s.common_name, s.scientific_name)", desc: false, nullable: false, cast: "text" },
+    { expr: "s.scientific_name", desc: false, nullable: false, cast: "text" },
+    ...NEWEST_KEYS,
+  ],
+  scientific: [{ expr: "s.scientific_name", desc: false, nullable: false, cast: "text" }, ...NEWEST_KEYS],
+  // Field guide order within a tier, as the Collection's stable sort leaves it.
+  rarity: [{ expr: TIER_RANK_SQL, desc: true, nullable: false, cast: "int" }, ...FIELD_GUIDE_KEYS, ...NEWEST_KEYS],
   newest: [
     { expr: "c.taken_at", desc: true, nullable: true, cast: "timestamptz" },
     { expr: "c.created_at", desc: true, nullable: false, cast: "timestamptz" },
@@ -339,9 +627,11 @@ async function libraryStamp(userId: string): Promise<string> {
   const hit = stampCache.get(userId);
   if (hit && Date.now() - hit.at < STAMP_TTL_MS) return hit.stamp;
   const res = await pool.query<{ stamp: string }>(
-    `SELECT concat_ws('|', count(*), max(c.updated_at),
+    `SELECT concat_ws('|', count(*), max(c.updated_at), count(c.subject_count),
               (SELECT max(ce.computed_at) FROM capture_embeddings ce JOIN captures_all c2 ON c2.id = ce.capture_id WHERE c2.user_id = $1),
               (SELECT max(cs.computed_at) FROM capture_scenes cs JOIN captures_all c2 ON c2.id = cs.capture_id WHERE c2.user_id = $1),
+              (SELECT max(cf.computed_at) FROM capture_frames cf JOIN captures_all c2 ON c2.id = cf.capture_id WHERE c2.user_id = $1),
+              (SELECT max(cb.computed_at) FROM capture_background_embeddings cb JOIN captures_all c2 ON c2.id = cb.capture_id WHERE c2.user_id = $1),
               (SELECT concat_ws(',', count(*), max(ac.added_at)) FROM album_captures ac JOIN albums a ON a.id = ac.album_id WHERE a.user_id = $1),
               (SELECT concat_ws(',', count(*), max(a.updated_at)) FROM albums a WHERE a.user_id = $1),
               (SELECT count(*) FROM trips t WHERE t.user_id = $1)) AS stamp
@@ -485,25 +775,204 @@ const GalleryListQuery = Type.Object({
   ...GalleryFilterQuery.properties,
   // Not an enum: the web app sends a sort remembered in the browser, and an unknown one has
   // always meant the default.
-  sort: Type.Optional(Type.String({ description: "newest (default), oldest, ratingHigh or ratingLow" })),
+  sort: Type.Optional(
+    Type.String({
+      description:
+        "newest (default), oldest, ratingHigh, ratingLow, taxonomic (field guide order), name (common name), scientific or rarity (rarest first)",
+    }),
+  ),
   // No maximum: a larger limit has always been capped at 500, not refused.
   limit: Type.Optional(
     Type.Integer({
       minimum: 1,
-      description: "Page size, 1 to 500 (larger is capped at 500). When given, the response adds nextCursor",
+      description: "Page size, 1 to 500 (default and cap 500; larger is capped)",
     }),
   ),
   cursor: Type.Optional(
     Type.String({ description: "nextCursor from the previous page, with the same sort and filters" }),
   ),
+  allVersions: OnOff(
+    "1 to also list every version of a photo (prints, edits, exports) as its own item, each with `version`. Counts elsewhere stay one per photo",
+  ),
 });
+
+// The captures plus the versions hidden behind their photos (not ones the user hid as well).
+const ALL_VERSIONS_SOURCE = `(SELECT * FROM captures_all c WHERE deleted_at IS NULL AND (hidden_at IS NULL OR EXISTS (
+  SELECT 1 FROM capture_versions cv WHERE cv.capture_id = c.id AND cv.state = 'linked' AND cv.hid_capture)))`;
+// A version used as the photo swapped photos with its group, so its card shows the group's own
+// file: named after that file.
+const SHOWN_FILE = `(SELECT cv.group_capture_id FROM capture_versions cv
+  WHERE cv.capture_id = c.id AND cv.state = 'linked' AND cv.displayed)`;
+const VERSION_COLUMNS = `,
+  (SELECT cv.group_capture_id FROM capture_versions cv WHERE cv.capture_id = c.id AND cv.state = 'linked') AS version_of,
+  (SELECT l.label FROM capture_version_labels l WHERE l.capture_id = COALESCE(${SHOWN_FILE}, c.id)) AS version_label,
+  vf.ref AS version_ref, vf.role AS version_role`;
+const VERSION_JOINS = `
+  LEFT JOIN LATERAL (
+    SELECT vo.ref, vo.role FROM originals vo WHERE vo.capture_id = COALESCE(${SHOWN_FILE}, c.id)
+    ORDER BY (vo.kind = 'jpeg') DESC LIMIT 1
+  ) vf ON true`;
+
+/** A photo search within a filter set, best match first: what /gallery/search answers and what
+ *  a smart album with search text lists. Null when `isGone` says the client left first. */
+export async function searchGallery(
+  userId: string,
+  q: string,
+  filters: GalleryFilters,
+  opts: { quick?: boolean; isGone?: () => boolean; ignoreAlbumNames?: boolean } = {},
+): Promise<SearchOutcome<GallerySearchRow> | null> {
+  const quick = opts.quick ?? false;
+  const stamp = await libraryStamp(userId);
+  // LEFT JOIN: a photo without a vector or scene is still found by name, group, place and date.
+  const rowsFor = (f: GalleryFilters) => {
+    const params: unknown[] = [userId, EMBEDDING_MODEL_VERSION, SCENE_MODEL_VERSION];
+    const param = (v: unknown) => {
+      params.push(v);
+      return `$${params.length}`;
+    };
+    const where = galleryFilterSql(f, param);
+    return searchRows(
+      userId,
+      stamp,
+      `SELECT ${GALLERY_ITEM_COLUMNS}${galleryLocalTierColumn(f, param)},
+            c.location_label, c.trip_id::text AS trip_id, s.common_name_aliases, s.aba_code, s.ebird_code,
+            (SELECT array_agg(ac.album_id::text) FROM album_captures ac WHERE ac.capture_id = c.id) AS album_ids,
+            ce.computed_at::text AS embedding_computed_at, cs.labels AS scene_labels, cs.colors AS scene_colors,
+            c.subject_count, cbg.computed_at::text AS background_computed_at,
+            -- A lifer is a photo from the day the species was first photographed. first_collected
+            -- is a date, so the photo's time has to go first.
+            (c.taken_at::date = us.first_collected) IS TRUE AS is_lifer,
+            EXISTS (SELECT 1 FROM species_traits t WHERE t.species_id = c.species_id
+                      AND (t.endemic_country_iso3 IS NOT NULL OR t.endemic_region_label IS NOT NULL)) AS is_endemic
+       FROM ${galleryCapturesSource(f)} c
+       ${GALLERY_ITEM_FRAME_JOINS}
+       LEFT JOIN capture_embeddings ce ON ce.capture_id = c.id AND ce.model_version = $2
+       LEFT JOIN capture_scenes cs ON cs.capture_id = c.id AND cs.model_version = $3
+       LEFT JOIN capture_background_embeddings cbg
+         ON cbg.capture_id = c.id AND cbg.photo_id = p.id AND cbg.model_version = $2
+       WHERE c.user_id = $1
+         ${where}`,
+      params,
+    );
+  };
+  const [res, vocab, latinGroups, catalogHeads] = await Promise.all([
+    rowsFor(filters),
+    searchVocabulary(userId, stamp),
+    latinGroupNames(),
+    catalogHeadNouns(),
+  ]);
+
+  const speciesById = new Map<string, SpeciesEntry>();
+  for (const r of res.rows) {
+    if (speciesById.has(r.species_id)) continue;
+    speciesById.set(r.species_id, {
+      id: r.species_id,
+      commonName: r.common_name,
+      scientificName: r.scientific_name,
+      taxonClass: r.taxon_class,
+      taxonOrder: r.taxon_order,
+      family: r.family,
+      // Old scientific names (species_synonyms) match the same way an alias does.
+      aliases: [...((r.common_name_aliases as string[] | null) ?? []), ...(vocab.synonyms.get(r.species_id) ?? [])],
+      codes: [r.aba_code, r.ebird_code].filter((c): c is string => typeof c === "string" && c.length > 0),
+    });
+  }
+  const cameras = [...new Set(res.rows.map((r) => r.camera_model).filter((m): m is string => !!m))];
+  const parsed = parseSearchQuery(
+    q,
+    {
+      species: [...speciesById.values()],
+      places: opts.ignoreAlbumNames ? vocab.places.filter((p) => p.kind !== "album") : vocab.places,
+      latinGroups,
+      catalogHeads,
+      cameras,
+    },
+    { partialWordPicksSpecies: quick },
+  );
+  // Filter words in the query ("5 stars", "videos", "hidden") work as the Gallery's own filters.
+  const narrowed = withQueryFilters(filters, parsed);
+  if (narrowed !== filters) await withShotTypeIds(narrowed, userId);
+  const rows = narrowed === filters ? res.rows : (await rowsFor(narrowed)).rows;
+  // The full pass embeds the description with CLIP; not worth doing for a cancelled request.
+  if (!quick && (parsed.description || parsed.scenes.length > 0) && opts.isGone?.()) return null;
+  return rankSearch(q, parsed, rows, regionSubtree, { quick });
+}
+
+/** The filters with the query's filter words added. They only narrow what's already checked: a
+ *  shot type word narrows its axis to that one when the filter already allows it. */
+function withQueryFilters(f: GalleryFilters, parsed: Pick<ParsedQuery, "readings" | "stars">): GalleryFilters {
+  const r = parsed.readings;
+  const stars = parsed.stars;
+  const narrowAxis = <T extends string>(checked: T[], known: readonly T[]) => {
+    const typed = known.filter((k) => r.has(k as Reading));
+    if (typed.length === 0) return checked;
+    const kept = checked.length === 0 ? typed : typed.filter((k) => checked.includes(k));
+    // Nothing allowed both ways: nothing matches, which an unknown value says.
+    return kept.length > 0 ? kept : (["none"] as T[]);
+  };
+  const shotActions = narrowAxis(f.shotActions, SHOT_ACTIONS);
+  const shotFramings = narrowAxis(f.shotFramings, SHOT_FRAMINGS);
+  if (
+    !stars &&
+    shotActions === f.shotActions &&
+    shotFramings === f.shotFramings &&
+    !["unrated", "videos", "raw", "hidden", "edited", "noDate"].some((k) => r.has(k as Reading))
+  )
+    return f;
+  return {
+    ...f,
+    ratingMin: stars ? Math.max(f.ratingMin ?? 0, stars.min) : f.ratingMin,
+    ratingMax: stars?.max ? Math.min(f.ratingMax ?? 5, stars.max) : f.ratingMax,
+    unrated: f.unrated || r.has("unrated"),
+    onlyVideo: f.onlyVideo || r.has("videos"),
+    onlyHasRaw: f.onlyHasRaw || r.has("raw"),
+    onlyHidden: f.onlyHidden || r.has("hidden"),
+    // Edited photos are the ones with more than a RAW, as the RAW files filter's "Hide" shows.
+    includeRaw: f.includeRaw && !r.has("edited"),
+    missingDate: f.missingDate || r.has("noDate"),
+    shotActions,
+    shotFramings,
+  };
+}
+
+/** Every photo a filter set matches, in the Gallery's default order (newest first). `columns`
+ *  narrows the select for callers that only need ids, which skips the per-row subqueries. */
+export async function listGalleryRows<T = GalleryRow>(
+  userId: string,
+  filters: GalleryFilters,
+  columns = GALLERY_ITEM_COLUMNS,
+): Promise<T[]> {
+  const params: unknown[] = [userId];
+  const param = (v: unknown) => {
+    params.push(v);
+    return `$${params.length}`;
+  };
+  const where = galleryFilterSql(filters, param);
+  const localTier = columns === GALLERY_ITEM_COLUMNS ? galleryLocalTierColumn(filters, param) : "";
+  const res = await pool.query(
+    `SELECT ${columns}${localTier}
+       FROM ${galleryCapturesSource(filters)} c
+       ${GALLERY_ITEM_FRAME_JOINS}
+       WHERE c.user_id = $1
+         ${where}
+       ORDER BY ${galleryOrderBy(GALLERY_SORTS.newest)}`,
+    params,
+  );
+  return res.rows as T[];
+}
+
+const forViewer = <T extends { captureId: string; lat: unknown; lon: unknown }>(
+  item: T,
+  sensitive: Set<string> | null,
+  device: boolean | undefined,
+) => (sensitive && device ? galleryItemForDevice(item, sensitive) : withoutSensitivePlace(item, sensitive));
 
 export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
   app.get(
     "/gallery/search",
     {
-      preValidation: requireScope("gallery.read"),
+      preValidation: requireScope("gallery.read", ["companion"]),
       schema: {
         querystring: GallerySearchQuery,
         response: replies(
@@ -522,64 +991,19 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
       const filters = await galleryFiltersFor(request.query, userId);
       if ("error" in filters) return reply.code(400).send({ error: filters.error });
       if (!q) return { items: [] };
-      const quick = request.query.quick === "1";
-      const isGone = watchClientGone(request, reply);
-
-      const params: unknown[] = [userId, EMBEDDING_MODEL_VERSION, SCENE_MODEL_VERSION];
-      const param = (v: unknown) => {
-        params.push(v);
-        return `$${params.length}`;
-      };
-      const where = galleryFilterSql(filters, param);
-      const stamp = await libraryStamp(userId);
-      // LEFT JOIN: a photo without a vector or scene is still found by name, group, place and date.
-      const [res, vocab, latinGroups, catalogHeads] = await Promise.all([
-        searchRows(
-          userId,
-          stamp,
-          `SELECT ${GALLERY_ITEM_COLUMNS},
-                c.location_label, c.trip_id::text AS trip_id, s.common_name_aliases, s.aba_code, s.ebird_code, s.taxon_order, s.family,
-                (SELECT array_agg(ac.album_id::text) FROM album_captures ac WHERE ac.capture_id = c.id) AS album_ids,
-                ce.computed_at::text AS embedding_computed_at, cs.labels AS scene_labels, cs.colors AS scene_colors
-           FROM ${galleryCapturesSource(filters)} c
-           ${GALLERY_ITEM_JOINS}
-           LEFT JOIN capture_embeddings ce ON ce.capture_id = c.id AND ce.model_version = $2
-           LEFT JOIN capture_scenes cs ON cs.capture_id = c.id AND cs.model_version = $3
-           WHERE c.user_id = $1
-             ${where}`,
-          params,
-        ),
-        searchVocabulary(userId, stamp),
-        latinGroupNames(),
-        catalogHeadNouns(),
-      ]);
-
-      const speciesById = new Map<string, SpeciesEntry>();
-      for (const r of res.rows) {
-        if (speciesById.has(r.species_id)) continue;
-        speciesById.set(r.species_id, {
-          id: r.species_id,
-          commonName: r.common_name,
-          scientificName: r.scientific_name,
-          taxonClass: r.taxon_class,
-          taxonOrder: r.taxon_order,
-          family: r.family,
-          // Old scientific names (species_synonyms) match the same way an alias does.
-          aliases: [...((r.common_name_aliases as string[] | null) ?? []), ...(vocab.synonyms.get(r.species_id) ?? [])],
-          codes: [r.aba_code, r.ebird_code].filter((c): c is string => typeof c === "string" && c.length > 0),
-        });
-      }
-      const parsed = parseSearchQuery(
-        q,
-        { species: [...speciesById.values()], places: vocab.places, latinGroups, catalogHeads },
-        { partialWordPicksSpecies: quick },
+      const outcome = await searchGallery(userId, q, filters, {
+        quick: request.query.quick === "1",
+        isGone: watchClientGone(request, reply),
+      });
+      if (!outcome) return reply.code(499).send({ error: "Search cancelled" });
+      const sensitive = await sensitiveForKey(
+        request,
+        outcome.items.map((o) => o.row),
       );
-      // The full pass embeds the description with CLIP; not worth doing for a cancelled request.
-      if (!quick && (parsed.description || parsed.scenes.length > 0) && isGone())
-        return reply.code(499).send({ error: "Search cancelled" });
-      const outcome = await rankSearch(q, parsed, res.rows, regionSubtree, { quick });
       return {
-        items: outcome.items.map(({ row, score }) => toGalleryItem(row, score)),
+        items: outcome.items.map(({ row, score }) =>
+          forViewer(toGalleryItem(row, score), sensitive, request.deviceKey),
+        ),
         interpretation: outcome.interpretation,
         pending: outcome.pending ?? false,
       };
@@ -589,21 +1013,18 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
   app.get(
     "/gallery",
     {
-      preValidation: requireScope("gallery.read"),
+      preValidation: requireScope("gallery.read", ["companion"]),
       schema: {
         querystring: GalleryListQuery,
         response: replies(
           Type.Object({
             items: Type.Array(GalleryItem),
-            nextCursor: Type.Optional(
-              Type.Union([Type.String(), Type.Null()], {
-                description: "Only when limit is given: pass as cursor for the next page; null on the last page",
-              }),
-            ),
+            nextCursor: Type.Union([Type.String(), Type.Null()], {
+              description: "Pass as cursor for the next page; null on the last page",
+            }),
             total: Type.Optional(
               Type.Integer({
-                description:
-                  "Only on the first page (limit given, no cursor): how many photos match the filters in all",
+                description: "Only on the first page (no cursor): how many photos match the filters in all",
               }),
             ),
           }),
@@ -617,9 +1038,8 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
       const sortName = request.query.sort && GALLERY_SORTS[request.query.sort] ? request.query.sort : "newest";
       const sortKeys = GALLERY_SORTS[sortName];
 
-      // Optional keyset paging: ?limit= (1-500) returns one page plus nextCursor. Without it, all photos.
-      const paged = request.query.limit !== undefined;
-      const limit = paged ? parseLimit(request.query.limit, 0, 500) : 0;
+      // Keyset paging, always: one page of up to 500 plus nextCursor.
+      const limit = parseLimit(request.query.limit, 500, 500);
       let cursor: GalleryCursor | null = null;
       if (request.query.cursor) {
         cursor = decodeGalleryCursor(request.query.cursor);
@@ -634,35 +1054,36 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
       const where = galleryFilterSql(filters, param);
       // The filter params only, captured before the cursor adds its own, for the first page's count.
       const filterParams = [...params];
+      const allVersions = request.query.allVersions === "1" && !filters.onlyHidden;
+      const source = allVersions ? ALL_VERSIONS_SOURCE : galleryCapturesSource(filters);
+      const localTier = galleryLocalTierColumn(filters, param) + (allVersions ? VERSION_COLUMNS : "");
       const after = cursor ? galleryAfterCursorSql(sortKeys, cursor, param) : "";
       // Counted on the first page only.
-      const countQuery =
-        paged && !cursor
-          ? pool.query<{ total: number }>(
-              `SELECT count(*)::int AS total
-               FROM ${galleryCapturesSource(filters)} c
+      const countQuery = !cursor
+        ? pool.query<{ total: number }>(
+            `SELECT count(*)::int AS total
+               FROM ${source} c
                ${GALLERY_ITEM_JOINS}
                WHERE c.user_id = $1
                  ${where}`,
-              filterParams,
-            )
-          : null;
+            filterParams,
+          )
+        : null;
       const [res, countRes] = await Promise.all([
         pool.query(
-          `SELECT ${GALLERY_ITEM_COLUMNS}${paged ? `, ${sortKeys.map((k, i) => `(${k.expr})::text AS _sort${i}`).join(", ")}` : ""}
-           FROM ${galleryCapturesSource(filters)} c
-           ${GALLERY_ITEM_JOINS}
+          `SELECT ${GALLERY_ITEM_COLUMNS}${localTier}, ${sortKeys.map((k, i) => `(${k.expr})::text AS _sort${i}`).join(", ")}
+           FROM ${source} c
+           ${GALLERY_ITEM_FRAME_JOINS}${allVersions ? VERSION_JOINS : ""}
            WHERE c.user_id = $1
              ${where}
              ${after}
            ORDER BY ${galleryOrderBy(sortKeys)}
-           ${paged ? `LIMIT ${limit + 1}` : ""}`,
+           LIMIT ${limit + 1}`,
           params,
         ),
         countQuery,
       ]);
 
-      if (!paged) return { items: res.rows.map((row) => toGalleryItem(row, null)) };
       const page = res.rows.slice(0, limit);
       const last = page.at(-1);
       const nextCursor =
@@ -673,9 +1094,23 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
               id: last.capture_id,
             })
           : null;
+      const sensitive = await sensitiveForKey(request, page);
       const total = countRes ? (countRes.rows[0]?.total ?? 0) : undefined;
       return {
-        items: page.map((row) => toGalleryItem(row, null)),
+        items: page.map((row) => {
+          const item = forViewer(toGalleryItem(row, null), sensitive, request.deviceKey);
+          if (!row.version_of) return item;
+          const auto = versionLabel(row.version_ref ?? "", row.version_role ?? null);
+          return {
+            ...item,
+            version: {
+              of: row.version_of,
+              label: row.version_label ?? null,
+              labelKind: auto.kind,
+              labelSize: auto.size,
+            },
+          };
+        }),
         nextCursor,
         ...(total !== undefined ? { total } : {}),
       };
@@ -689,12 +1124,23 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
     {
       preValidation: requireScope("gallery.read"),
       schema: {
-        querystring: GalleryFilterQuery,
+        querystring: Type.Object({
+          ...GalleryFilterQuery.properties,
+          originals: Type.Optional(
+            Type.Boolean({ description: "Also list each photo's downloadable original, for downloading them all" }),
+          ),
+        }),
         response: replies(
           Type.Object({
             captureIds: Type.Array(Uuid()),
             videoCaptureIds: Type.Array(Uuid()),
             rawCaptureIds: Type.Array(Uuid()),
+            locatedCaptureIds: Type.Array(Uuid(), { description: "The ones with coordinates" }),
+            originals: Type.Optional(
+              Type.Array(Type.Object({ captureId: Uuid(), photoId: Uuid(), kind: Type.String() }), {
+                description: "With originals=true: the photos that have one, and its kind",
+              }),
+            ),
           }),
         ),
       },
@@ -709,8 +1155,17 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
         return `$${params.length}`;
       };
       const where = galleryFilterSql(filters, param);
-      const res = await pool.query<{ capture_id: string; is_video: boolean; has_raw: boolean }>(
-        `SELECT c.id::text AS capture_id, p.kind = 'video' AS is_video,
+      const res = await pool.query<{
+        capture_id: string;
+        is_video: boolean;
+        has_raw: boolean;
+        photo_id: string;
+        original_kind: string | null;
+        has_original: boolean;
+        located: boolean;
+      }>(
+        `SELECT c.id::text AS capture_id, p.kind = 'video' AS is_video, c.lat IS NOT NULL AND c.lon IS NOT NULL AS located,
+              p.id::text AS photo_id, o.kind AS original_kind, o.ref IS NOT NULL AS has_original,
               -- A RAW beside an edited original: the delete dialog's "also delete the RAW" choice.
               -- A RAW-only photo is its RAW, so it goes when the photo does.
               EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw')
@@ -724,12 +1179,23 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
       const captureIds: string[] = [];
       const videoCaptureIds: string[] = [];
       const rawCaptureIds: string[] = [];
+      const locatedCaptureIds: string[] = [];
+      const originals: Array<{ captureId: string; photoId: string; kind: string }> = [];
       for (const r of res.rows) {
         captureIds.push(r.capture_id);
         if (r.is_video) videoCaptureIds.push(r.capture_id);
         if (r.has_raw) rawCaptureIds.push(r.capture_id);
+        if (r.located) locatedCaptureIds.push(r.capture_id);
+        if (r.has_original && r.original_kind)
+          originals.push({ captureId: r.capture_id, photoId: r.photo_id, kind: r.original_kind });
       }
-      return { captureIds, videoCaptureIds, rawCaptureIds };
+      return {
+        captureIds,
+        videoCaptureIds,
+        rawCaptureIds,
+        locatedCaptureIds,
+        ...(request.query.originals ? { originals } : {}),
+      };
     },
   );
 
@@ -738,18 +1204,114 @@ export async function galleryRoutes(fastify: FastifyInstance): Promise<void> {
     "/gallery/has-video",
     {
       preValidation: requireScope("gallery.read"),
-      schema: { response: replies(Type.Object({ hasVideo: Type.Boolean() })) },
+      schema: { response: replies(Type.Object({ hasVideo: Type.Boolean(), hasAudio: Type.Boolean() })) },
     },
     async (request) => {
       const userId = request.user!.id;
-      const res = await pool.query<{ exists: boolean }>(
+      const res = await pool.query<{ video: boolean; audio: boolean }>(
         `SELECT EXISTS (
          SELECT 1 FROM photos p JOIN captures c ON c.id = p.capture_id
          WHERE c.user_id = $1 AND p.kind = 'video'
-       ) AS exists`,
+       ) AS video, EXISTS (
+         SELECT 1 FROM photos p JOIN captures c ON c.id = p.capture_id
+         WHERE c.user_id = $1 AND p.kind = 'audio'
+       ) AS audio`,
         [userId],
       );
-      return { hasVideo: res.rows[0]?.exists ?? false };
+      return { hasVideo: res.rows[0]?.video ?? false, hasAudio: res.rows[0]?.audio ?? false };
+    },
+  );
+
+  // Groups of near-identical photos (bursts and repeats) for review, largest first. Each opens in
+  // the Gallery with ?similarTo= its first photo.
+  app.get(
+    "/gallery/similar",
+    {
+      preValidation: requireScope("gallery.read"),
+      schema: {
+        querystring: Type.Object({
+          limit: Type.Optional(Type.String({ pattern: "^[0-9]+$", description: "Groups per page, up to 200" })),
+          offset: Type.Optional(Type.String({ pattern: "^[0-9]+$", description: "Groups to skip" })),
+        }),
+        response: replies(SimilarGroupList),
+      },
+    },
+    async (request) => {
+      const userId = request.user!.id;
+      const limit = parseLimit(request.query.limit, 100, 200);
+      const offset = Number(request.query.offset ?? 0);
+      const all = await similarGroups(userId);
+      const page = all.slice(offset, offset + limit);
+      const ids = page.flatMap((g) => [...g.slice(0, SIMILAR_PREVIEWS), g[g.length - 1]]);
+      const res = await pool.query<{
+        id: string;
+        photo_id: string | null;
+        taken_at: Date | null;
+        species_id: string;
+        common_name: string | null;
+        scientific_name: string;
+      }>(
+        `SELECT c.id, c.current_photo_id AS photo_id, c.taken_at, c.species_id, s.common_name, s.scientific_name
+           FROM captures c JOIN species s ON s.id = c.species_id
+          WHERE c.user_id = $1 AND c.id = ANY($2::uuid[])`,
+        [userId, ids],
+      );
+      const byId = new Map(res.rows.map((r) => [r.id, r]));
+      return {
+        total: all.length,
+        groups: page.flatMap((g) => {
+          const first = byId.get(g[0]);
+          // Trashed or hidden since the groups were worked out.
+          if (!first) return [];
+          return [
+            {
+              captureId: g[0],
+              count: g.length,
+              speciesId: first.species_id,
+              commonName: first.common_name,
+              scientificName: first.scientific_name,
+              firstTakenAt: first.taken_at?.toISOString() ?? null,
+              lastTakenAt: byId.get(g[g.length - 1])?.taken_at?.toISOString() ?? null,
+              previewPhotoIds: g
+                .slice(0, SIMILAR_PREVIEWS)
+                .map((id) => byId.get(id)?.photo_id)
+                .filter((id): id is string => !!id),
+            },
+          ];
+        }),
+      };
+    },
+  );
+
+  // "Keep all" and "Not similar": the photo's group is never offered again. The reply lists the
+  // photos, which the DELETE below takes to bring the group back.
+  app.post(
+    "/gallery/similar/dismiss",
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object({ captureId: Uuid() }, { additionalProperties: false }),
+        response: replies(Type.Object({ captureIds: Type.Array(Uuid()) })),
+      },
+    },
+    async (request) => ({ captureIds: await dismissSimilarGroup(request.user!.id, request.body.captureId) }),
+  );
+
+  app.delete(
+    "/gallery/similar/dismiss",
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          { captureIds: Type.Array(Uuid(), { minItems: 2, maxItems: 500 }) },
+          { additionalProperties: false },
+        ),
+        response: replies(Ok),
+      },
+    },
+    async (request) => {
+      await setDismissed(request.user!.id, request.body.captureIds, false);
+      return { ok: true };
     },
   );
 
@@ -823,7 +1385,8 @@ export interface GalleryRow {
   lon: string | null;
   region_id: string | null;
   region_name: string | null;
-  photo_kind: "image" | "video" | null;
+  location_label: string | null;
+  photo_kind: "image" | "video" | "audio" | null;
   duration_seconds: string | null;
   tags: string[] | null;
   cull_verdict: "pick" | "reject" | null;
@@ -831,10 +1394,39 @@ export interface GalleryRow {
   hidden: boolean | null;
   is_featured: boolean | null;
   has_raw_original: boolean;
+  inat_status: "pending" | "completed" | null;
+  inat_observation_id: string | null;
   original_ref: string | null;
   original_managed: boolean | null;
   original_kind: string | null;
   raw_ref: string | null;
+  taxon_order: string | null;
+  family: string | null;
+  sort_order: number | null;
+  is_other_taxa: boolean | null;
+  inat_iconic_taxon: string | null;
+  tier: string | null;
+  /** Only selected with a region filter (galleryLocalTierColumn). */
+  local_tier?: string | null;
+  frame_box: number[] | null;
+  frame_unsure: boolean | null;
+  frame_aspect: number | null;
+  light_stats: LightStats | null;
+  taken_at_zoned: boolean | null;
+}
+
+/** What search reads from a photo's frame, in API form (GalleryItem.frame). Null until read. */
+function frameItem(row: GalleryRow) {
+  if (row.frame_aspect == null || !row.light_stats) return null;
+  const box = row.frame_box?.length === 4 ? (row.frame_box as FrameBox) : null;
+  return {
+    box,
+    boxUnsure: !!row.frame_unsure,
+    aspect: row.frame_aspect,
+    orientation: orientationOf(row.frame_aspect),
+    composition: box && !row.frame_unsure ? compositionOf(box) : null,
+    light: row.light_stats,
+  };
 }
 
 // Response shape for /gallery and /gallery/search; score is null for the plain listing.
@@ -860,6 +1452,7 @@ export function toGalleryItem(row: GalleryRow, score: number | null) {
     lon: row.lon,
     regionId: row.region_id,
     regionName: row.region_name,
+    locationLabel: row.location_label ?? null,
     kind: row.photo_kind ?? "image",
     durationSeconds: row.duration_seconds,
     tags: row.tags ?? [],
@@ -870,10 +1463,22 @@ export function toGalleryItem(row: GalleryRow, score: number | null) {
     hidden: row.hidden ?? false,
     isFeatured: row.is_featured,
     hasRawOriginal: row.has_raw_original,
+    inatStatus: row.inat_status,
+    inatObservationId: row.inat_observation_id,
     originalRef: row.original_ref,
     originalManaged: row.original_managed,
     originalKind: row.original_kind,
     rawRef: row.raw_ref ?? null,
+    taxonOrder: row.taxon_order,
+    family: row.family,
+    sortOrder: row.sort_order ?? null,
+    isOtherTaxa: row.is_other_taxa === true,
+    inatIconicTaxon: row.inat_iconic_taxon,
+    tier: row.tier,
+    localTier: row.local_tier ?? null,
     matchScore: score,
+    frame: frameItem(row),
+    // Sun well down but a plainly daylit photo: the bulk date fix can suggest it.
+    timeMaybeWrong: row.light_stats ? timeMaybeWrong(trustedSun(row), row.light_stats) : null,
   };
 }

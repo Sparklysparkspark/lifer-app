@@ -1,14 +1,13 @@
+import { Trans, useTranslation } from "react-i18next";
+import Button from "../../components/Button";
 import EditableTextField from "../../components/EditableTextField";
 import InfoTip from "../../components/InfoTip";
-import { pluralize } from "../../lib/pluralize";
 import type { TripDetail, TripFolder, TripSummary } from "./types";
 
-const RELOCATE_INFO_PARAGRAPHS = [
-  "Use this if this trip's folder moved: a new computer, a reinstall, a renamed drive.",
-  "It doesn't move or copy any files. It just updates the path Lifer has stored, then automatically rescans the new location and relinks your existing photos by their content. You won't need to reassign species to anything that's already here.",
-];
+const RELOCATE_INFO_PARAGRAPHS = ["trips.header.relocateInfo", "trips.header.relocateInfoDetail"];
+const COUNT = { n: <span className="font-medium text-ink" /> };
 
-// Under the trip's name: its two folders, the photo count, what was notable, and the description.
+// Under the trip's name: its folders, the photo count, what was notable, and the description.
 export default function TripHeaderDetails({
   trip,
   photoCount,
@@ -22,47 +21,54 @@ export default function TripHeaderDetails({
   onRelocate: (which: TripFolder) => void;
   onSaveDescription: (description: string) => void;
 }) {
+  const { t } = useTranslation();
+  const relocateSource = () => onRelocate("sourceFolder");
+  // A started trip saves into its own folder, so one line covers both, and moving its files is in
+  // the ⋯ menu. A trip made from a folder can point that folder somewhere else here.
+  const separateSource = trip.destinationFolder !== trip.sourceFolder;
   return (
     <>
-      <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
-        <span className="shrink-0">Trip folder:</span>
+      <div className="flex min-w-0 items-center gap-2 text-footnote text-muted">
+        <span className="shrink-0">{t("trips.header.tripFolder")}</span>
         <span className="min-w-0 truncate" title={trip.sourceFolder}>
           {trip.sourceFolder}
         </span>
-        <button onClick={() => onRelocate("sourceFolder")} className="shrink-0 underline hover:text-ink">
-          Relocate…
-        </button>
-        <InfoTip paragraphs={RELOCATE_INFO_PARAGRAPHS} className="shrink-0" />
-        <span className="shrink-0">· {pluralize(photoCount, "photo")}</span>
+        {separateSource && (
+          <>
+            <Button variant="link" size="sm" onClick={relocateSource} className="shrink-0">
+              {t("trips.header.relocate")}
+            </Button>
+            <InfoTip paragraphs={RELOCATE_INFO_PARAGRAPHS.map((key) => t(key))} className="shrink-0" />
+          </>
+        )}
+        <span className="shrink-0">· {t("trips.header.photoCount", { count: photoCount })}</span>
       </div>
-      <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
-        <span className="shrink-0">Wildlife saved to:</span>
-        <span className="min-w-0 truncate" title={trip.destinationFolder}>
-          {trip.destinationFolder}
-        </span>
-        <button onClick={() => onRelocate("destinationFolder")} className="shrink-0 underline hover:text-ink">
-          Relocate…
-        </button>
-      </div>
+      {separateSource && (
+        <div className="flex min-w-0 items-center gap-2 text-footnote text-muted">
+          <span className="shrink-0">{t("trips.header.savedTo")}</span>
+          <span className="min-w-0 truncate" title={trip.destinationFolder}>
+            {trip.destinationFolder}
+          </span>
+        </div>
+      )}
       {summary && summary.speciesCount > 0 && (
-        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted">
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-footnote text-muted">
           <span>
-            <span className="font-medium text-ink">{summary.speciesCount}</span> species
+            <Trans i18nKey="trips.header.species" values={{ count: summary.speciesCount }} components={COUNT} />
           </span>
           {summary.liferCount > 0 && (
             <span>
-              <span className="font-medium text-ink">{summary.liferCount}</span>{" "}
-              {summary.liferCount === 1 ? "lifer" : "lifers"}
+              <Trans i18nKey="trips.header.lifers" values={{ count: summary.liferCount }} components={COUNT} />
             </span>
           )}
           {summary.rareCount > 0 && (
             <span>
-              <span className="font-medium text-ink">{summary.rareCount}</span> rare/legendary
+              <Trans i18nKey="trips.header.rare" values={{ count: summary.rareCount }} components={COUNT} />
             </span>
           )}
           {summary.endemicCount > 0 && (
             <span>
-              <span className="font-medium text-ink">{summary.endemicCount}</span> endemic
+              <Trans i18nKey="trips.header.endemic" values={{ count: summary.endemicCount }} components={COUNT} />
             </span>
           )}
         </div>
@@ -71,8 +77,8 @@ export default function TripHeaderDetails({
         <EditableTextField
           value={trip.description ?? ""}
           onSave={onSaveDescription}
-          placeholder="Add a description…"
-          className="text-sm text-ink"
+          placeholder={t("trips.header.descriptionPlaceholder")}
+          className="text-callout text-ink"
           multiline
         />
       </div>

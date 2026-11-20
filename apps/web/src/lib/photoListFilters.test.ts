@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
-import {
-  countPhotoFilters,
-  matchesMediaFilter,
-  matchesPhotoFilters,
-  sortPhotos,
-  type PhotoFilters,
-} from "./photoListFilters";
+import { matchesMediaFilter, matchesPhotoFilters, sortPhotos, type PhotoFilters } from "./photoListFilters";
 
-const none: PhotoFilters = { rawFiles: "show", editedRaw: "any", onlyTopRated: false, dateFrom: "", dateTo: "" };
+const none: PhotoFilters = {
+  rawFiles: "show",
+  editedRaw: "any",
+  ratingMin: null,
+  ratingMax: null,
+  unrated: false,
+  missingDate: false,
+  dateFrom: "",
+  dateTo: "",
+};
 const EDITED = { hasRaw: false, rawOnly: false };
 const EDITED_WITH_RAW = { hasRaw: true, rawOnly: false };
 const RAW_ONLY = { hasRaw: true, rawOnly: true };
@@ -41,11 +44,19 @@ describe("matchesPhotoFilters", () => {
     expect(matchesPhotoFilters(photo("a", null), RAW_ONLY, withoutRaw)).toBe(true);
   });
 
-  it("keeps only 5-star photos when top rated is on", () => {
-    const topRated = { ...none, onlyTopRated: true };
-    expect(matchesPhotoFilters(photo("a", null, 5), EDITED, topRated)).toBe(true);
-    expect(matchesPhotoFilters(photo("a", null, 4), EDITED, topRated)).toBe(false);
-    expect(matchesPhotoFilters(photo("a", null, null), EDITED, topRated)).toBe(false);
+  it("keeps a star range, both ends inclusive, and never an unrated photo in it", () => {
+    const range = { ...none, ratingMin: 3, ratingMax: 4 };
+    expect(matchesPhotoFilters(photo("a", null, 3), EDITED, range)).toBe(true);
+    expect(matchesPhotoFilters(photo("a", null, 4), EDITED, range)).toBe(true);
+    expect(matchesPhotoFilters(photo("a", null, 5), EDITED, range)).toBe(false);
+    expect(matchesPhotoFilters(photo("a", null, null), EDITED, range)).toBe(false);
+  });
+
+  it("keeps only unrated photos, or only undated ones", () => {
+    expect(matchesPhotoFilters(photo("a", null, null), EDITED, { ...none, unrated: true })).toBe(true);
+    expect(matchesPhotoFilters(photo("a", null, 2), EDITED, { ...none, unrated: true })).toBe(false);
+    expect(matchesPhotoFilters(photo("a", null), EDITED, { ...none, missingDate: true })).toBe(true);
+    expect(matchesPhotoFilters(photo("a", "2024-05-01T00:00:00Z"), EDITED, { ...none, missingDate: true })).toBe(false);
   });
 
   it("includes both ends of the date range, the whole last day", () => {
@@ -71,6 +82,9 @@ describe("matchesMediaFilter", () => {
     expect(matchesMediaFilter("video", "videos")).toBe(true);
     expect(matchesMediaFilter("image", "both")).toBe(true);
     expect(matchesMediaFilter("video", "both")).toBe(true);
+    expect(matchesMediaFilter("audio", "photos")).toBe(false);
+    expect(matchesMediaFilter("audio", "recordings")).toBe(true);
+    expect(matchesMediaFilter("image", "recordings")).toBe(false);
   });
 
   it("treats an unknown kind as a photo", () => {
@@ -107,16 +121,42 @@ describe("sortPhotos", () => {
   });
 });
 
-describe("countPhotoFilters", () => {
-  it("counts nothing at the defaults", () => {
-    expect(countPhotoFilters({ ...none, rawFiles: "hide" })).toBe(0);
-  });
+describe("sortPhotos species orders", () => {
+  const sp = (id: string, takenAt: string | null, fields: Record<string, unknown>) => ({ id, takenAt, ...fields });
+  const duck = {
+    commonName: "Mallard",
+    scientificName: "Anas platyrhynchos",
+    taxonClass: "aves",
+    taxonOrder: "Anseriformes",
+    tier: "common",
+  };
+  const owl = {
+    commonName: "Barn Owl",
+    scientificName: "Tyto alba",
+    taxonClass: "aves",
+    taxonOrder: "Strigiformes",
+    tier: "rare",
+  };
+  const moose = {
+    commonName: "Moose",
+    scientificName: "Alces alces",
+    taxonClass: "mammalia",
+    taxonOrder: "Artiodactyla",
+    tier: null,
+  };
+  const photos = [
+    sp("moose", "2024-01-01T00:00:00Z", moose),
+    sp("owl-old", "2020-01-01T00:00:00Z", owl),
+    sp("duck", "2022-01-01T00:00:00Z", duck),
+    sp("owl-undated", null, owl),
+    sp("owl-new", "2023-01-01T00:00:00Z", owl),
+  ];
+  const ids = (list: typeof photos) => list.map((p) => p.id);
 
-  it("counts each filter off its default once", () => {
-    const defaults = { ...none, rawFiles: "hide" as const };
-    expect(countPhotoFilters({ ...defaults, onlyTopRated: true, dateFrom: "2024-01-01", dateTo: "2024-02-01" })).toBe(
-      2,
-    );
-    expect(countPhotoFilters({ ...defaults, rawFiles: "show", editedRaw: "with", dateTo: "2024-02-01" })).toBe(3);
+  it("orders by species, newest first within one", () => {
+    expect(ids(sortPhotos(photos, "taxonomic"))).toEqual(["duck", "owl-new", "owl-old", "owl-undated", "moose"]);
+    expect(ids(sortPhotos(photos, "name"))).toEqual(["owl-new", "owl-old", "owl-undated", "duck", "moose"]);
+    expect(ids(sortPhotos(photos, "scientific"))).toEqual(["moose", "duck", "owl-new", "owl-old", "owl-undated"]);
+    expect(ids(sortPhotos(photos, "rarity"))).toEqual(["owl-new", "owl-old", "owl-undated", "duck", "moose"]);
   });
 });

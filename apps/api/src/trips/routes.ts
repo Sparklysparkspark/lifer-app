@@ -1,31 +1,39 @@
 import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
-import { existsSync, statSync, mkdirSync } from "node:fs";
+import { mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { pool } from "@lifer/core/db.js";
 import { IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth, requireScope } from "../auth/session.js";
-import { assertAllowedPath } from "@lifer/core/lib/allowedPaths.js";
+import { assertAllowedPath, isDirectory } from "@lifer/core/lib/allowedPaths.js";
 import { sanitizeForFilesystem } from "../uploads/speciesFolderName.js";
-import { toCollectionItem } from "../collection/collectionItem.js";
-import { markNameChanged } from "../species/speciesSplits.js";
-import { nextDefaultName } from "../lib/defaultName.js";
+import { photoSetSpeciesCards, type SetPhoto } from "../collection/photoSetSpecies.js";
+import { MAX_NAME_LENGTH, NAME_TOO_LONG, nextDefaultName } from "../lib/defaultName.js";
 import { isValidCrop } from "../lib/crop.js";
 import { isTripBusy, tripJobRoutes } from "./jobs.js";
 import { TripDetail, TripList, TripPhotos, TripSpecies, TripSummary } from "./responses.js";
 import { removeTripRecord } from "../lib/libraryRecords.js";
+import { ORIGINALS_DIR } from "@lifer/core/config.js";
+import { tripMembershipRoutes } from "./membership.js";
+import { tripFileMoveRoutes } from "./moveFiles.js";
+import { GALLERY_TIER_SQL } from "../gallery/routes.js";
+import { BEST_PHOTO_ORDER } from "../lib/bestPhotoOrder.js";
+import { sensitiveForKey } from "../companion/privacy.js";
+
+// The shared pick order under this file's `cc` alias.
+const BEST_PHOTO_ORDER_CC = BEST_PHOTO_ORDER.replaceAll("c.", "cc.");
 
 /** Checks a trip's destination folder and creates it if needed. It must be an absolute path whose
  * parent Lifer is allowed to use (assertAllowedPath); the folder itself may not exist yet. */
-function prepareDestinationFolder(folder: string): { path: string } | { error: string } {
+async function prepareDestinationFolder(folder: string): Promise<{ path: string } | { error: string }> {
   if (!path.isAbsolute(folder)) return { error: "destinationFolder must be an absolute folder path" };
   // Resolved first, so the last segment can't be ".." stepping back out of the checked parent.
   const resolved = path.resolve(folder);
   const parent = assertAllowedPath(path.dirname(resolved));
   const destination = path.join(parent, path.basename(resolved));
-  if (existsSync(destination) && !statSync(destination).isDirectory())
-    return { error: "destinationFolder is a file, not a folder" };
-  mkdirSync(destination, { recursive: true });
+  const existing = await stat(destination).catch(() => null);
+  if (existing && !existing.isDirectory()) return { error: "destinationFolder is a file, not a folder" };
+  await mkdir(destination, { recursive: true });
   // The folder itself checked too: an existing symlink there must not lead outside.
   assertAllowedPath(destination);
   return { path: destination };
@@ -34,6 +42,24 @@ function prepareDestinationFolder(folder: string): { path: string } | { error: s
 const tripNotFound = notFoundOnInvalidId("Trip not found");
 // Folder paths are checked against the allowed roots in the handlers, not here.
 const FolderPath = Type.String({ minLength: 1 });
+const TripDate = Type.String({ format: "date" });
+
+// The date, region and active columns every trip answer carries (TripSummary in @lifer/shared).
+const DATE_COLUMNS = `t.start_date::text AS start_date, t.end_date::text AS end_date, t.region_id, t.active_override`;
+const dateFields = (r: {
+  start_date: string | null;
+  end_date: string | null;
+  region_id: string | null;
+  active_override: boolean | null;
+}) => ({ startDate: r.start_date, endDate: r.end_date, regionId: r.region_id, activeOverride: r.active_override });
+
+/** A 400 message for a database refusal of the trip's dates or region, else null. */
+function tripFieldError(err: unknown): string | null {
+  const code = (err as { code?: string }).code;
+  if (code === "23514") return "The end date can't be before the start date";
+  if (code === "23503") return "Unknown region";
+  return null;
+}
 
 export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
@@ -58,10 +84,11 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
       const userId = request.user!.id;
       const { sourceFolder, destinationFolder } = request.body;
       let name = request.body.name?.trim();
+      if (name && name.length > MAX_NAME_LENGTH) return reply.code(400).send({ error: NAME_TOO_LONG });
       if (!path.isAbsolute(sourceFolder))
         return reply.code(400).send({ error: "sourceFolder must be an absolute folder path" });
       const allowedSource = assertAllowedPath(sourceFolder);
-      if (!existsSync(allowedSource) || !statSync(allowedSource).isDirectory()) {
+      if (!(await isDirectory(allowedSource))) {
         return reply.code(400).send({ error: "That folder doesn't exist on this server" });
       }
       if (!name) {
@@ -72,7 +99,7 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
         name = nextDefaultName("Trip", Number(countRes.rows[0].count));
       }
 
-      const destination = prepareDestinationFolder(destinationFolder ?? path.join(allowedSource, "Wildlife"));
+      const destination = await prepareDestinationFolder(destinationFolder ?? path.join(allowedSource, "Wildlife"));
       if ("error" in destination) return reply.code(400).send({ error: destination.error });
 
       const res = await pool.query<{ id: string }>(
@@ -83,50 +110,50 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // "Build a Trip": creates a new trip folder with an empty "Wildlife" destination inside it.
-  // Photos arrive through the normal upload flow (filed into the destination by tripId) rather
-  // than a scan; every other trip route works as usual.
+  // "Start a trip": made ahead of its photos, with its dates. Its folder is where its photos are
+  // filed: Trips/<name> in the library unless the user picks a folder Lifer may use. That folder is
+  // its source too, so a scan only relinks the photos filed there.
   app.post(
-    "/trips/build",
+    "/trips/start",
     {
       preValidation: requireAuth,
       schema: {
         body: Type.Object(
-          { name: Type.Optional(Type.String()), parentDir: FolderPath },
+          {
+            name: Type.String({ minLength: 1 }),
+            startDate: TripDate,
+            endDate: Type.Optional(Nullable(TripDate)),
+            regionId: Type.Optional(Nullable(Uuid())),
+            folder: Type.Optional(FolderPath),
+          },
           { additionalProperties: false },
         ),
-        response: replies(
-          Type.Object({ id: Uuid(), sourceFolder: Type.String(), destinationFolder: Type.String() }),
-          201,
-        ),
+        response: replies(Type.Object({ id: Uuid(), folder: Type.String() }), 201),
       },
     },
     async (request, reply) => {
       const userId = request.user!.id;
-      const { parentDir } = request.body;
-      let name = request.body.name?.trim();
-      if (!path.isAbsolute(parentDir))
-        return reply.code(400).send({ error: "parentDir must be an absolute folder path" });
-      const allowedParent = assertAllowedPath(parentDir);
-      if (!name) {
-        const countRes = await pool.query(
-          `SELECT count(*) FROM trips WHERE user_id = $1 AND name ~ '^Untitled Trip( [A-Za-z-]+)?$'`,
-          [userId],
-        );
-        name = nextDefaultName("Trip", Number(countRes.rows[0].count));
-      }
-
+      const { startDate, endDate, regionId, folder } = request.body;
+      const name = request.body.name.trim();
+      if (name.length > MAX_NAME_LENGTH) return reply.code(400).send({ error: NAME_TOO_LONG });
       const folderName = sanitizeForFilesystem(name);
-      if (!folderName) return reply.code(400).send({ error: "That name can't be used as a folder name" });
-      const sourceFolder = path.join(allowedParent, folderName);
-      const destinationFolder = path.join(sourceFolder, "Wildlife");
-      mkdirSync(destinationFolder, { recursive: true });
-
-      const res = await pool.query<{ id: string }>(
-        `INSERT INTO trips (user_id, name, source_folder, destination_folder) VALUES ($1, $2, $3, $4) RETURNING id`,
-        [userId, name, sourceFolder, destinationFolder],
-      );
-      return reply.code(201).send({ id: res.rows[0].id, sourceFolder, destinationFolder });
+      if (!name || (!folder && !folderName))
+        return reply.code(400).send({ error: "That name can't be used as a folder name" });
+      if (!folder) await mkdir(path.join(ORIGINALS_DIR, "Trips"), { recursive: true });
+      const prepared = await prepareDestinationFolder(folder ?? path.join(ORIGINALS_DIR, "Trips", folderName));
+      if ("error" in prepared) return reply.code(400).send({ error: prepared.error });
+      try {
+        const res = await pool.query<{ id: string }>(
+          `INSERT INTO trips (user_id, name, source_folder, destination_folder, start_date, end_date, region_id)
+           VALUES ($1, $2, $3, $3, $4, $5, $6) RETURNING id`,
+          [userId, name, prepared.path, startDate, endDate ?? null, regionId ?? null],
+        );
+        return reply.code(201).send({ id: res.rows[0].id, folder: prepared.path });
+      } catch (err) {
+        const message = tripFieldError(err);
+        if (message) return reply.code(400).send({ error: message });
+        throw err;
+      }
     },
   );
 
@@ -137,7 +164,7 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
       const userId = request.user!.id;
       const res = await pool.query(
         `SELECT
-         t.id, t.name, t.source_folder, t.destination_folder, t.cover_layout,
+         t.id, t.name, t.source_folder, t.destination_folder, t.cover_layout, ${DATE_COLUMNS},
          count(DISTINCT c.species_id) AS species_count,
          count(c.id) AS capture_count,
          min(c.taken_at) AS earliest_taken_at,
@@ -161,14 +188,14 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
        LEFT JOIN LATERAL (
          SELECT cc.id, cc.current_photo_id FROM captures cc
          WHERE cc.trip_id = t.id AND cc.current_photo_id IS NOT NULL
-         ORDER BY (cc.id = t.cover_capture_id) DESC, cc.taken_at DESC NULLS LAST
+         ORDER BY (cc.id = t.cover_capture_id) DESC, ${BEST_PHOTO_ORDER_CC}
          LIMIT 1
        ) cover_c ON true
        LEFT JOIN LATERAL (
          SELECT array_agg(sub.photo_id) AS photo_ids FROM (
            SELECT cc.current_photo_id AS photo_id FROM captures cc
            WHERE cc.trip_id = t.id AND cc.current_photo_id IS NOT NULL
-           ORDER BY cc.taken_at DESC NULLS LAST
+           ORDER BY ${BEST_PHOTO_ORDER_CC}
            LIMIT 4
          ) sub
        ) quad ON true
@@ -196,6 +223,7 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
           quadPhotoIds: r.quad_photo_ids ?? [],
           // A scan or import is running: the card shows a loading state instead of a cover.
           processing: isTripBusy(r.id),
+          ...dateFields(r),
         })),
       };
     },
@@ -211,8 +239,9 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const userId = request.user!.id;
       const res = await pool.query(
-        `SELECT id, name, description, source_folder, destination_folder, cover_capture_id, cover_crop_x, cover_crop_y, cover_crop_size, cover_layout
-       FROM trips WHERE id = $1 AND user_id = $2`,
+        `SELECT id, name, description, source_folder, destination_folder, cover_capture_id, cover_crop_x, cover_crop_y, cover_crop_size, cover_layout,
+              ${DATE_COLUMNS}
+       FROM trips t WHERE id = $1 AND user_id = $2`,
         [request.params.id, userId],
       );
       if (res.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
@@ -228,6 +257,7 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
         coverCropY: trip.cover_crop_y == null ? null : Number(trip.cover_crop_y),
         coverCropSize: trip.cover_crop_size == null ? null : Number(trip.cover_crop_size),
         coverLayout: trip.cover_layout,
+        ...dateFields(trip),
       };
     },
   );
@@ -249,6 +279,10 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
             name: Type.Optional(Type.String()),
             description: Type.Optional(Nullable(Type.String())),
             coverLayout: Type.Optional(Type.Enum(["single", "quad"])),
+            startDate: Type.Optional(Nullable(TripDate)),
+            endDate: Type.Optional(Nullable(TripDate)),
+            regionId: Type.Optional(Nullable(Uuid())),
+            activeOverride: Type.Optional(Nullable(Type.Boolean())),
           },
           { additionalProperties: false },
         ),
@@ -258,20 +292,10 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const userId = request.user!.id;
       const { sourceFolder, destinationFolder, name, description, coverLayout } = request.body;
-      if (
-        sourceFolder === undefined &&
-        destinationFolder === undefined &&
-        name === undefined &&
-        description === undefined &&
-        coverLayout === undefined
-      ) {
-        return reply
-          .code(400)
-          .send({ error: "sourceFolder, destinationFolder, name, description, or coverLayout is required" });
-      }
+      if (Object.keys(request.body).length === 0) return reply.code(400).send({ error: "Nothing to change" });
       let allowedDestination: string | undefined;
       if (destinationFolder !== undefined) {
-        const destination = prepareDestinationFolder(destinationFolder);
+        const destination = await prepareDestinationFolder(destinationFolder);
         if ("error" in destination) return reply.code(400).send({ error: destination.error });
         allowedDestination = destination.path;
       }
@@ -280,37 +304,58 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
         if (!path.isAbsolute(sourceFolder))
           return reply.code(400).send({ error: "sourceFolder must be an absolute folder path" });
         allowedSource = assertAllowedPath(sourceFolder);
-        if (!existsSync(allowedSource) || !statSync(allowedSource).isDirectory()) {
+        if (!(await isDirectory(allowedSource))) {
           return reply.code(400).send({ error: "That folder doesn't exist on this server" });
         }
       }
       if (name !== undefined && !name.trim()) {
         return reply.code(400).send({ error: "name can't be empty" });
       }
+      if (name && name.trim().length > MAX_NAME_LENGTH) return reply.code(400).send({ error: NAME_TOO_LONG });
       const tripRes = await pool.query(`SELECT id FROM trips WHERE id = $1 AND user_id = $2`, [
         request.params.id,
         userId,
       ]);
       if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
 
-      await pool.query(
-        `UPDATE trips SET
-           source_folder = COALESCE($2, source_folder),
-           name = COALESCE($3, name),
-           description = CASE WHEN $4::boolean THEN $5 ELSE description END,
-           cover_layout = COALESCE($6, cover_layout),
-           destination_folder = COALESCE($7, destination_folder)
-         WHERE id = $1`,
-        [
-          request.params.id,
-          allowedSource ?? null,
-          name?.trim() ?? null,
-          description !== undefined,
-          description?.trim() || null,
-          coverLayout ?? null,
-          allowedDestination ?? null,
-        ],
-      );
+      // A date, region or override that's sent replaces the stored one, null included.
+      const given = (key: "startDate" | "endDate" | "regionId" | "activeOverride") => key in request.body;
+      try {
+        await pool.query(
+          `UPDATE trips SET
+             source_folder = COALESCE($2, source_folder),
+             name = COALESCE($3, name),
+             description = CASE WHEN $4::boolean THEN $5 ELSE description END,
+             cover_layout = COALESCE($6, cover_layout),
+             destination_folder = COALESCE($7, destination_folder),
+             start_date = CASE WHEN $8::boolean THEN $9::date ELSE start_date END,
+             end_date = CASE WHEN $10::boolean THEN $11::date ELSE end_date END,
+             region_id = CASE WHEN $12::boolean THEN $13::uuid ELSE region_id END,
+             active_override = CASE WHEN $14::boolean THEN $15::boolean ELSE active_override END
+           WHERE id = $1`,
+          [
+            request.params.id,
+            allowedSource ?? null,
+            name?.trim() ?? null,
+            description !== undefined,
+            description?.trim() || null,
+            coverLayout ?? null,
+            allowedDestination ?? null,
+            given("startDate"),
+            request.body.startDate ?? null,
+            given("endDate"),
+            request.body.endDate ?? null,
+            given("regionId"),
+            request.body.regionId ?? null,
+            given("activeOverride"),
+            request.body.activeOverride ?? null,
+          ],
+        );
+      } catch (err) {
+        const message = tripFieldError(err);
+        if (message) return reply.code(400).send({ error: message });
+        throw err;
+      }
       return { ok: true };
     },
   );
@@ -440,45 +485,24 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
       ]);
       if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
 
-      const res = await pool.query(
-        `SELECT
-         s.id AS species_id,
-         s.scientific_name,
-         s.common_name,
-         s.taxon_class,
-         s.family,
-         s.taxon_order,
-         s.reference_photo,
-         s.reference_credit,
-         s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
-         s.reference_focal_x,
-         s.reference_focal_y,
-         r.tier,
-         t.endemic_country_iso3,
-         t.endemic_region_label,
-         us.state,
-         us.is_target,
-         us.cover_photo_id,
-         us.card_crop_x,
-         us.card_crop_y,
-         us.card_crop_size,
-         p.thumb_path IS NOT NULL AS has_cover_photo,
-         sv.label AS cover_volume_label
-       FROM species s
-       LEFT JOIN species_rarity r ON r.species_id = s.id
-       LEFT JOIN species_traits t ON t.species_id = s.id
-       LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
-       LEFT JOIN photos p ON p.id = us.cover_photo_id
-       LEFT JOIN originals o ON o.capture_id = p.capture_id AND o.kind = 'jpeg'
-       LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
-       WHERE EXISTS (SELECT 1 FROM captures tc WHERE tc.trip_id = $2 AND tc.species_id = s.id)
-       ORDER BY s.scientific_name`,
-        [userId, request.params.id],
-      );
+      // Every species in the trip, and its photos in the trip's order for picking the best one.
+      const [species, photos] = await Promise.all([
+        pool.query<{ species_id: string }>(`SELECT DISTINCT species_id FROM captures WHERE trip_id = $1`, [
+          request.params.id,
+        ]),
+        pool.query<SetPhoto>(
+          `SELECT c.species_id, p.id AS photo_id, c.quality_rating
+           FROM captures c JOIN photos p ON p.id = c.current_photo_id
+           WHERE c.trip_id = $1 AND c.user_id = $2
+           ORDER BY c.taken_at DESC NULLS LAST, c.created_at DESC`,
+          [request.params.id, userId],
+        ),
+      ]);
       return {
-        items: await markNameChanged(
+        items: await photoSetSpeciesCards(
           userId,
-          res.rows.map((row) => toCollectionItem(row)),
+          species.rows.map((r) => r.species_id),
+          photos.rows,
         ),
       };
     },
@@ -514,11 +538,11 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
             JOIN user_species us ON us.user_id = $2 AND us.species_id = ts.species_id
             WHERE EXISTS (
               SELECT 1 FROM captures c
-              WHERE c.trip_id = $1 AND c.species_id = ts.species_id AND c.taken_at = us.first_collected
+              WHERE c.trip_id = $1 AND c.species_id = ts.species_id AND c.taken_at::date = us.first_collected
             )) AS lifer_count,
          (SELECT COUNT(*) FROM trip_species ts
             JOIN species_rarity r ON r.species_id = ts.species_id
-            WHERE r.tier IN ('uncommon', 'rare', 'legendary')) AS rare_count,
+            WHERE r.tier IN ('rare', 'legendary')) AS rare_count,
          (SELECT COUNT(*) FROM trip_species ts
             JOIN species_traits t ON t.species_id = ts.species_id
             WHERE t.endemic_country_iso3 IS NOT NULL OR t.endemic_region_label IS NOT NULL) AS endemic_count`,
@@ -554,7 +578,11 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
         `SELECT p.id AS photo_id, p.width, p.height, c.id AS capture_id, c.species_id, s.scientific_name, s.common_name, c.taken_at, c.created_at,
               c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso, c.quality_rating,
               EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = c.id AND ro.kind = 'raw') AS has_raw,
-              o.ref AS original_ref, o.kind AS original_kind
+              o.ref AS original_ref, o.kind AS original_kind, o.managed AS original_managed,
+              c.tags, c.region_id, c.location_label, c.lat, c.lon,
+              (SELECT io.inat_observation_id FROM capture_inaturalist_observations io WHERE io.capture_id = c.id AND io.photo_sent) AS inat_observation_id,
+              -- For the species sorts, as the Gallery's.
+              s.taxon_class, s.taxon_order, s.family, s.sort_order, ${GALLERY_TIER_SQL} AS tier
        FROM captures c
        JOIN photos p ON p.id = c.current_photo_id
        JOIN species s ON s.id = c.species_id
@@ -570,6 +598,8 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
         [request.params.id, userId],
       );
 
+      // A sensitive species' photo comes by region only, as on a share.
+      const hidden = await sensitiveForKey(request, res.rows);
       return {
         items: res.rows.map((row) => ({
           photoId: row.photo_id,
@@ -582,7 +612,14 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
           takenAt: row.taken_at,
           hasRaw: row.has_raw,
           originalRef: row.original_ref,
+          inatObservationId: row.inat_observation_id,
           originalKind: row.original_kind,
+          originalManaged: row.original_managed ?? null,
+          tags: row.tags ?? [],
+          regionId: row.region_id,
+          locationLabel: hidden?.has(row.capture_id) ? null : row.location_label,
+          lat: hidden?.has(row.capture_id) ? null : row.lat,
+          lon: hidden?.has(row.capture_id) ? null : row.lon,
           cameraModel: row.camera_model,
           lens: row.lens,
           focalLengthMm: row.focal_length_mm,
@@ -590,10 +627,17 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
           shutter: row.shutter,
           iso: row.iso,
           qualityRating: row.quality_rating,
+          taxonClass: row.taxon_class,
+          taxonOrder: row.taxon_order,
+          family: row.family,
+          sortOrder: row.sort_order,
+          tier: row.tier,
         })),
       };
     },
   );
 
   await app.register(tripJobRoutes);
+  await app.register(tripMembershipRoutes);
+  await app.register(tripFileMoveRoutes);
 }

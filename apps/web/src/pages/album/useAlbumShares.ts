@@ -1,14 +1,17 @@
 import { useState, type FormEvent } from "react";
 import { api, apiPath, ApiError } from "../../api/client";
 import { useNow } from "../../hooks/useNow";
+import { useConfirm } from "../../hooks/useConfirm";
 import { useToast } from "../../hooks/useToast";
 import type { ShareLink } from "./types";
+import i18n from "../../i18n";
 
+// Labels are i18n keys.
 export const SHARE_EXPIRY_OPTIONS = [
-  { value: "never", label: "Never", days: null },
-  { value: "1", label: "1 day", days: 1 },
-  { value: "7", label: "7 days", days: 7 },
-  { value: "30", label: "30 days", days: 30 },
+  { value: "never", labelKey: "albums.share.expiry.never", days: null },
+  { value: "1", labelKey: "albums.share.expiry.oneDay", days: 1 },
+  { value: "7", labelKey: "albums.share.expiry.sevenDays", days: 7 },
+  { value: "30", labelKey: "albums.share.expiry.thirtyDays", days: 30 },
 ] as const;
 export type ShareExpiry = (typeof SHARE_EXPIRY_OPTIONS)[number]["value"];
 
@@ -16,6 +19,7 @@ export type ShareExpiry = (typeof SHARE_EXPIRY_OPTIONS)[number]["value"];
 // the panel keeps the loaded links and a half-filled form.
 export function useAlbumShares(albumId: string | undefined) {
   const toast = useToast();
+  const confirm = useConfirm();
   const [shares, setShares] = useState<ShareLink[] | null>(null);
   // Compared with each link's expiry; ticking means a link that expires while the page is open greys out.
   const now = useNow(60_000);
@@ -24,6 +28,7 @@ export function useAlbumShares(albumId: string | undefined) {
   const [password, setPassword] = useState("");
   const [allowDownload, setAllowDownload] = useState(false);
   const [showMetadata, setShowMetadata] = useState(false);
+  const [showExactLocations, setShowExactLocations] = useState(false);
   const [expiry, setExpiry] = useState<ShareExpiry>("never");
   const [error, setError] = useState<string | null>(null);
 
@@ -48,14 +53,20 @@ export function useAlbumShares(albumId: string | undefined) {
     setError(null);
     const days = SHARE_EXPIRY_OPTIONS.find((o) => o.value === expiry)?.days ?? null;
     try {
-      await api.post(apiPath("/albums/{id}/shares", { id: albumId }), {
+      const created = await api.post(apiPath("/albums/{id}/shares", { id: albumId }), {
         password: password.trim() || undefined,
         allowDownload,
         showMetadata,
+        showExactLocations,
         expiresAt: days ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() : null,
       });
       setPassword("");
       loadShares();
+      // The clipboard can refuse once the request has used up the click, so failing isn't an error here.
+      (navigator.clipboard?.writeText(`${window.location.origin}/share/${created.token}`) ?? Promise.reject()).then(
+        () => toast.success("Link created and copied"),
+        () => toast.success("Link created. Copy it from the list below."),
+      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't create this share link");
     } finally {
@@ -64,10 +75,26 @@ export function useAlbumShares(albumId: string | undefined) {
   }
 
   async function revokeShare(shareId: string) {
+    const ok = await confirm({
+      title: "Revoke this share link?",
+      message: "Anyone with this link loses access.",
+      confirmLabel: "Revoke",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.delete(apiPath("/shares/{id}", { id: shareId }));
     } catch {
       toast.error("Couldn't revoke this share link.");
+    }
+    loadShares();
+  }
+
+  async function setExactLocations(shareId: string, enabled: boolean) {
+    try {
+      await api.put(apiPath("/shares/{id}/exact-locations", { id: shareId }), { enabled });
+    } catch {
+      toast.error(i18n.t("albums.share.locationsFailed"));
     }
     loadShares();
   }
@@ -92,6 +119,8 @@ export function useAlbumShares(albumId: string | undefined) {
       setAllowDownload,
       showMetadata,
       setShowMetadata,
+      showExactLocations,
+      setShowExactLocations,
       expiry,
       setExpiry,
       error,
@@ -99,6 +128,7 @@ export function useAlbumShares(albumId: string | undefined) {
     },
     createShare,
     revokeShare,
+    setExactLocations,
     copyShareUrl,
   };
 }

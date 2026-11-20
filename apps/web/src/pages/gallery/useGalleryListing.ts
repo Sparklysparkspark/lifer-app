@@ -3,13 +3,35 @@ import { api, apiPath } from "../../api/client";
 import { useLatest } from "../../hooks/useLatest";
 import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
-import { appendNew, describeSearchReading, galleryParams } from "./galleryHelpers";
+import { appendNew, describeSearchReading, galleryParams, type SearchPart } from "./galleryHelpers";
 import type { GalleryItem, GalleryQuery } from "./types";
+import { ignore } from "../../lib/ignore";
+import { onAccountReset } from "../../lib/resource";
 
 // The plain listing loads in pages as you scroll; catch-up loads (select all, keep place on a
 // reload) use the server's largest page.
 const PAGE_SIZE = 200;
 const CATCH_UP_PAGE_SIZE = 500;
+
+// The first page of each plain listing, so coming back to the Gallery or Map draws at once while
+// it reloads. Searches aren't kept: they answer in two passes and are rarely revisited as-is.
+const FIRST_PAGES_MAX = 20;
+const firstPages = new Map<string, { items: GalleryItem[]; nextCursor: string | null; total: number | null }>();
+onAccountReset(() => firstPages.clear());
+
+function listingParams(query: GalleryQuery, allVersions = false): URLSearchParams {
+  const params = galleryParams(query);
+  if (query.sortBy !== "newest") params.set("sort", query.sortBy);
+  if (allVersions) params.set("allVersions", "1");
+  return params;
+}
+
+// Select all and downloads act on photos, never on the versions listed beside them.
+function photoParams(params: URLSearchParams | null): URLSearchParams {
+  const photos = new URLSearchParams(params ?? undefined);
+  photos.delete("allVersions");
+  return photos;
+}
 
 function fetchPage(params: URLSearchParams, cursor: string, limit: number, signal: AbortSignal) {
   const pageParams = new URLSearchParams(params);
@@ -22,12 +44,15 @@ function fetchPage(params: URLSearchParams, cursor: string, limit: number, signa
 // cancels whatever the last one still had in flight, so a slow old answer can't land on top.
 export function useGalleryListing({
   query,
-  groupByRegion,
+  groupBy,
   lightboxIndex,
+  allVersions = false,
 }: {
   query: GalleryQuery;
+  /** Every version of a photo listed as its own item (the View menu's choice). */
+  allVersions?: boolean;
   /** Re-checks the scroll sentinel, which moves when the grid regroups. */
-  groupByRegion: boolean;
+  groupBy: string;
   /** Paging through the lightbox reaches the end of what's loaded before the grid does. */
   lightboxIndex: number | null;
 }) {
@@ -35,11 +60,18 @@ export function useGalleryListing({
   const {
     searchQuery,
     onlyHidden,
-    onlyTopRated,
+    ratingMin,
+    ratingMax,
+    unrated,
+    animalsMin,
+    animalsMax,
     onlyFeatured,
+    notOnInat,
     missingDate,
-    shotKind,
-    tier,
+    missingCoordinates,
+    shotActions,
+    shotFramings,
+    tiers,
     tierRegionId,
     selectedTaxa,
     rawFiles,
@@ -47,18 +79,24 @@ export function useGalleryListing({
     mediaFilter,
     dateFrom,
     dateTo,
-    regionId,
-    tag,
+    regionIds,
+    tags,
+    places,
+    bbox,
     scopeTripId,
     scopeAlbumId,
+    similarTo,
     sortBy,
   } = query;
-  const [items, setItems] = useState<GalleryItem[] | null>(null);
+  const [kept] = useState(() =>
+    searchQuery ? undefined : firstPages.get(listingParams(query, allVersions).toString()),
+  );
+  const [items, setItems] = useState<GalleryItem[] | null>(kept?.items ?? null);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Null once the plain listing is fully loaded (and always for a search, which answers at once).
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(kept?.nextCursor ?? null);
   // Every photo the plain listing's filters match, loaded or not.
-  const [total, setTotal] = useState<number | null>(null);
+  const [total, setTotal] = useState<number | null>(kept?.total ?? null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
@@ -71,12 +109,25 @@ export function useGalleryListing({
   const sentinelRef = useRef<HTMLDivElement>(null);
   // How the server read the current search, shown next to the result count.
   const [searchReading, setSearchReading] = useState<string | null>(null);
+  // The parts a long search was split into, shown as removable tokens.
+  const [searchParts, setSearchParts] = useState<SearchPart[]>([]);
   const [searching, setSearching] = useState(false);
   const requestAbortRef = useRef<AbortController | null>(null);
+  // The listing the shown items belong to, kept in firstPages with every change (more pages,
+  // edits) so coming back never shows a removed photo. Null while a new listing loads.
+  const [shownKey, setShownKey] = useState<string | null>(kept ? listingParams(query, allVersions).toString() : null);
+  useEffect(() => {
+    const key = shownKey;
+    if (!key || !items) return;
+    firstPages.delete(key);
+    firstPages.set(key, { items, nextCursor, total });
+    if (firstPages.size > FIRST_PAGES_MAX) firstPages.delete(firstPages.keys().next().value!);
+  }, [shownKey, items, nextCursor, total]);
 
   // What a new load clears before its requests go out: called while rendering when the filters
   // change (below), and by load() for a reload after an edit.
   function resetForLoad() {
+    setShownKey(null);
     setLoadingMore(false);
     setLoadMoreError(false);
     setLoadError(null);
@@ -100,7 +151,7 @@ export function useGalleryListing({
     requestAbortRef.current = controller;
     loadingMoreRef.current = false;
 
-    const params = galleryParams(query);
+    const params = searchQuery ? galleryParams(query) : listingParams(query, allVersions);
 
     const fail = (err: unknown) => {
       if (controller.signal.aborted) return;
@@ -121,6 +172,7 @@ export function useGalleryListing({
           if (fullArrived) return;
           if (!res.pending || res.items.length > 0) setItems(res.items);
           setSearchReading(describeSearchReading(res.interpretation));
+          setSearchParts(res.interpretation?.parts ?? []);
           if (!res.pending) {
             // Nothing about the picture to match: this is already the whole answer.
             fullArrived = true;
@@ -129,21 +181,22 @@ export function useGalleryListing({
           }
         })
         // The full pass reports failures.
-        .catch(() => {});
+        .catch(ignore("Quick search pass failed"));
       api
         .get(apiPath("/gallery/search", {}, params), { signal: controller.signal })
         .then((res) => {
           fullArrived = true;
           setItems(res.items);
           setSearchReading(describeSearchReading(res.interpretation));
+          setSearchParts(res.interpretation?.parts ?? []);
           setSearching(false);
         })
         .catch(fail);
       return;
     }
 
-    if (sortBy !== "newest") params.set("sort", sortBy);
     listingParamsRef.current = params;
+    const key = params.toString();
     const pageParams = new URLSearchParams(params);
     pageParams.set("limit", String(keepCount > PAGE_SIZE ? CATCH_UP_PAGE_SIZE : PAGE_SIZE));
     api
@@ -157,6 +210,7 @@ export function useGalleryListing({
           cursor = page.nextCursor;
         }
         if (controller.signal.aborted) return;
+        setShownKey(key);
         setItems(loaded);
         setNextCursor(cursor ?? null);
         setTotal(res.total ?? null);
@@ -197,8 +251,12 @@ export function useGalleryListing({
   }
   const loadMoreRef = useLatest(loadMore);
 
-  // Video and RAW capture ids from the last select all, for selected photos not loaded yet.
-  const [selectAllMeta, setSelectAllMeta] = useState<{ video: Set<string>; raw: Set<string> } | null>(null);
+  // Video, RAW and located capture ids from the last select all, for selected photos not loaded yet.
+  const [selectAllMeta, setSelectAllMeta] = useState<{
+    video: Set<string>;
+    raw: Set<string>;
+    located: Set<string>;
+  } | null>(null);
 
   // Select all means every photo matching the filters. Unloaded pages are fetched as ids only:
   // loading and mounting every full item is what made this slow on large libraries.
@@ -208,9 +266,13 @@ export function useGalleryListing({
     if (nextCursorRef.current && params && controller) {
       setSelectingAll(true);
       try {
-        const res = await api.get(apiPath("/gallery/ids", {}, params), { signal: controller.signal });
+        const res = await api.get(apiPath("/gallery/ids", {}, photoParams(params)), { signal: controller.signal });
         if (controller.signal.aborted) return;
-        setSelectAllMeta({ video: new Set(res.videoCaptureIds), raw: new Set(res.rawCaptureIds) });
+        setSelectAllMeta({
+          video: new Set(res.videoCaptureIds),
+          raw: new Set(res.rawCaptureIds),
+          located: new Set(res.locatedCaptureIds),
+        });
         select(new Set(res.captureIds));
       } catch (err) {
         if (!controller.signal.aborted) toast.error(errorMessage(err, "Couldn't select every photo"));
@@ -220,7 +282,13 @@ export function useGalleryListing({
       return;
     }
     setSelectAllMeta(null);
-    select(new Set((itemsRef.current ?? []).map((it) => it.captureId)));
+    select(new Set((itemsRef.current ?? []).flatMap((it) => (it.version ? [] : [it.captureId]))));
+  }
+  // Each matching photo's original, for downloading selected photos that aren't loaded yet.
+  async function fetchOriginals() {
+    const params = photoParams(listingParamsRef.current);
+    params.set("originals", "true");
+    return (await api.get(apiPath("/gallery/ids", {}, params))).originals ?? [];
   }
   const loadRef = useLatest(load);
   const fetchGalleryRef = useLatest(fetchGallery);
@@ -229,11 +297,18 @@ export function useGalleryListing({
   // requests. Compared one by one like an effect's dependencies, so a new but equal Set counts.
   const filters = [
     onlyHidden,
-    onlyTopRated,
+    ratingMin,
+    ratingMax,
+    unrated,
+    animalsMin,
+    animalsMax,
     onlyFeatured,
+    notOnInat,
     missingDate,
-    shotKind,
-    tier,
+    missingCoordinates,
+    shotActions,
+    shotFramings,
+    tiers,
     tierRegionId,
     searchQuery,
     selectedTaxa,
@@ -242,11 +317,15 @@ export function useGalleryListing({
     mediaFilter,
     dateFrom,
     dateTo,
-    regionId,
-    tag,
+    regionIds,
+    tags,
+    places,
+    bbox,
     scopeTripId,
     scopeAlbumId,
+    similarTo,
     sortBy,
+    allVersions,
   ];
   const [loadedFilters, setLoadedFilters] = useState<unknown[] | null>(null);
   if (!loadedFilters || filters.some((value, i) => !Object.is(value, loadedFilters[i]))) {
@@ -259,11 +338,18 @@ export function useGalleryListing({
     [
       fetchGalleryRef,
       onlyHidden,
-      onlyTopRated,
+      ratingMin,
+      ratingMax,
+      unrated,
+      animalsMin,
+      animalsMax,
       onlyFeatured,
+      notOnInat,
       missingDate,
-      shotKind,
-      tier,
+      missingCoordinates,
+      shotActions,
+      shotFramings,
+      tiers,
       tierRegionId,
       searchQuery,
       selectedTaxa,
@@ -272,11 +358,15 @@ export function useGalleryListing({
       mediaFilter,
       dateFrom,
       dateTo,
-      regionId,
-      tag,
+      regionIds,
+      tags,
+      places,
+      bbox,
       scopeTripId,
       scopeAlbumId,
+      similarTo,
       sortBy,
+      allVersions,
     ],
   );
   useEffect(() => () => requestAbortRef.current?.abort(), []);
@@ -296,7 +386,7 @@ export function useGalleryListing({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [nextCursor, loadingMore, loadMoreError, itemCount, groupByRegion, loadMoreRef]);
+  }, [nextCursor, loadingMore, loadMoreError, itemCount, groupBy, loadMoreRef]);
 
   useEffect(() => {
     if (lightboxIndex !== null && nextCursor && lightboxIndex >= itemCount - 5) loadMoreRef.current();
@@ -312,6 +402,7 @@ export function useGalleryListing({
     loadMoreError,
     searching,
     searchReading,
+    searchParts: searchQuery ? searchParts : [],
     selectingAll,
     sentinelRef,
     loadMoreRef,
@@ -319,5 +410,6 @@ export function useGalleryListing({
     loadRef,
     selectAll,
     selectAllMeta,
+    fetchOriginals,
   };
 }

@@ -18,12 +18,14 @@ import { sniffPhotoFormat } from "@lifer/core/uploads/formats.js";
 import { prepareWorkingImage } from "../uploads/workingImage.js";
 import { originalSharpOptions } from "@lifer/core/lib/imageLimits.js";
 import { canonicalPath, isWithin } from "@lifer/core/lib/pathContainment.js";
+import { movingTripId } from "./moveFiles.js";
 import sharp from "sharp";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { createJob, type Job, type JobContext } from "../lib/job.js";
 import { TripImportStatus, TripInspection, TripScanStatus } from "./responses.js";
 import { CULL_MARKS_OPTIONS, idleJobStatus, type CullMarks, type CullMarksOption, type JobStatus } from "@lifer/shared";
 import { scheduleTripRecordsSave } from "../lib/libraryRecords.js";
+import { plainImportError } from "./importError.js";
 
 // A broken model fails every photo the same way, so it's logged once per run.
 let suggestionFailureLogged = false;
@@ -128,7 +130,9 @@ function idleImportStatus(tripId: string): JobStatus<ImportSummary> & ImportExtr
 
 // Lets GET /trips show a loading state on a trip's card while either job runs.
 export function isTripBusy(tripId: string): boolean {
-  return Boolean(scanJobs.get(tripId)?.status.running || importJobs.get(tripId)?.status.running);
+  return Boolean(
+    scanJobs.get(tripId)?.status.running || importJobs.get(tripId)?.status.running || movingTripId() === tripId,
+  );
 }
 
 async function runScanJob(
@@ -167,6 +171,7 @@ async function runImportJob(
   regionId: string | null,
   cullOption: CullMarksOption,
 ): Promise<ImportSummary> {
+  suggestionFailureLogged = false;
   let imported = 0;
   let failed = 0;
   let skipped = 0;
@@ -206,7 +211,7 @@ async function runImportJob(
                 ...(outcome.hidden ? { hidden: true } : {}),
               };
       } catch (err) {
-        result = { relativePath: file.relativePath, error: (err as Error).message };
+        result = { relativePath: file.relativePath, error: plainImportError(err) };
       }
     }
     if (result.error) failed++;
@@ -269,6 +274,7 @@ export async function tripJobRoutes(fastify: FastifyInstance): Promise<void> {
       const tripId = request.params.id;
       if (scanJobs.get(tripId)?.status.running)
         return reply.code(409).send({ error: "A scan is already running for this trip" });
+      if (movingTripId() === tripId) return reply.code(409).send({ error: "This trip's files are moving right now" });
 
       const tripRes = await pool.query<{ source_folder: string; destination_folder: string }>(
         `SELECT source_folder, destination_folder FROM trips WHERE id = $1 AND user_id = $2`,
@@ -399,6 +405,7 @@ export async function tripJobRoutes(fastify: FastifyInstance): Promise<void> {
       const tripId = request.params.id;
       if (importJobs.get(tripId)?.status.running)
         return reply.code(409).send({ error: "An import is already running for this trip" });
+      if (movingTripId() === tripId) return reply.code(409).send({ error: "This trip's files are moving right now" });
 
       const tripRes = await pool.query<{ source_folder: string; destination_folder: string }>(
         `SELECT source_folder, destination_folder FROM trips WHERE id = $1 AND user_id = $2`,
@@ -465,7 +472,7 @@ export async function tripJobRoutes(fastify: FastifyInstance): Promise<void> {
       const [exif, keywords] = [await extractExif(absolutePath, tags), await extractKeywords(absolutePath, tags)];
 
       let suggestions: SpeciesSuggestion[] = regionId
-        ? await suggestSpecies(pool, userId, buffer, regionId, 5, exif.takenAt).catch((err) => {
+        ? await suggestSpecies(pool, userId, buffer, regionId, 5, exif.localTakenAt).catch((err) => {
             logSuggestionFailureOnce(err);
             return [];
           })

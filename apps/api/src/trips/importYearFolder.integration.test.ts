@@ -44,7 +44,7 @@ describe.skipIf(!url)("trip import year folder", () => {
     db = new pg.Pool({ connectionString: url });
     await cleanup();
     await db.query(
-      `INSERT INTO users (id, email, password_hash, organize_originals_by_year) VALUES ($1, 'trip-year@test', 'x', true)`,
+      `INSERT INTO users (id, email, password_hash, folder_layout) VALUES ($1, 'trip-year@test', 'x', '{wildlifeYear,group,species}')`,
       [USER],
     );
     await db.query(

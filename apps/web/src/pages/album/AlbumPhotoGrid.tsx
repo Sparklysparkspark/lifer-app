@@ -1,12 +1,20 @@
-import type { RefObject } from "react";
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { AlbumPhoto } from "@lifer/shared";
-import MasonryGrid from "../../components/MasonryGrid";
-import PhotoTile from "../../components/PhotoTile";
+import PhotoGrid, { type PhotoGridMenu } from "../../components/PhotoGrid";
+import PhotoMenu from "../../components/PhotoMenu";
+import AddToAlbumModal from "../../components/AddToAlbumModal";
+import PhotoTileCaption from "../../components/PhotoTileCaption";
+import type { PhotoCaptionPrefs } from "../../hooks/usePhotoCaptionPrefs";
+import { itemShotData } from "../gallery/galleryHelpers";
 import type { useSelectMode } from "../../hooks/useSelectMode";
-import { downloadFile } from "../../lib/downloadFile";
-import { MENU_ITEM, MENU_ITEM_DANGER, MENU_PANEL, MENU_SEPARATOR } from "../../lib/menuClasses";
+import { MenuItem } from "../../components/Menu";
+import Button from "../../components/Button";
+import { COMPARE_MAX, COMPARE_MIN } from "../../lib/compareZoom";
 import { useSpeciesName } from "../../lib/speciesName";
+import { usePhotoEdits, type PhotoEditPatch } from "../../hooks/usePhotoEdits";
+
+const albumPhotoId = (p: AlbumPhoto) => p.captureId;
 
 // The album's photos, with the remove-selected bar above them in select mode. A tile click opens
 // the lightbox, or fills the quad cover tile being picked.
@@ -14,8 +22,9 @@ export default function AlbumPhotoGrid({
   items,
   select,
   thumbSizePx,
-  showLabels,
+  captions,
   coverPhotoId,
+  coverPicked,
   coverLayout,
   pickingQuadSlot,
   menu,
@@ -25,136 +34,137 @@ export default function AlbumPhotoGrid({
   onSetCover,
   onAdjustCover,
   onRemove,
+  onRate,
+  onCompare,
+  onReload,
+  onUpdateItem,
+  smart = false,
 }: {
+  /** A smart album: taking a photo out excludes it rather than removing it. */
+  smart?: boolean;
   items: AlbumPhoto[];
   select: ReturnType<typeof useSelectMode<AlbumPhoto>>;
   thumbSizePx: number;
-  showLabels: boolean;
+  captions: PhotoCaptionPrefs;
   coverPhotoId: string | null;
+  /** The cover was chosen by hand, so it can be taken back to the automatic one. */
+  coverPicked: boolean;
   coverLayout: "single" | "quad";
   pickingQuadSlot: number | null;
-  menu: { openKey: string | null; setOpenKey: (key: string | null) => void; ref: RefObject<HTMLDivElement | null> };
+  menu: PhotoGridMenu;
   /** So the species page's back link returns to this album. */
   speciesLinkState: object;
   onOpen: (index: number) => void;
   onPickQuadPhoto: (slot: number, photoId: string) => void;
-  onSetCover: (photoId: string) => void;
+  /** Null goes back to the automatic cover. */
+  onSetCover: (photoId: string | null) => void;
   onAdjustCover: (photoUrl: string) => void;
   onRemove: (captureId: string) => Promise<void>;
+  onRate: (captureId: string, rating: number | null) => void;
+  /** Opens these photos side by side. */
+  onCompare?: (captureIds: string[]) => void;
+  /** After an edit the server works something out for (names, covers, counts). */
+  onReload: () => void;
+  onUpdateItem: (captureId: string, patch: PhotoEditPatch) => void;
 }) {
+  const { t } = useTranslation();
   const speciesName = useSpeciesName();
-  const { selectMode, selectedIds, dragPreviewIds, dragProps } = select;
+  const { selectMode, selectedIds } = select;
   const closeMenu = () => menu.setOpenKey(null);
+  const [addingCaptureId, setAddingCaptureId] = useState<string | null>(null);
+  const edits = usePhotoEdits({ reload: onReload, update: onUpdateItem });
 
   return (
     <>
       {selectMode && selectedIds.size > 0 && (
-        <div className="mb-3 flex items-center gap-3 rounded-md border border-line bg-surface-muted p-2 text-sm">
-          <span className="text-muted">{selectedIds.size} selected</span>
-          <button
+        <div className="mb-3 flex items-center gap-3 rounded-control border border-line bg-surface-muted p-2 text-callout">
+          <span className="text-muted">{t("albums.photos.selected", { count: selectedIds.size })}</span>
+          {onCompare && selectedIds.size >= COMPARE_MIN && selectedIds.size <= COMPARE_MAX && (
+            <Button variant="secondary" size="sm" onClick={() => onCompare([...selectedIds])}>
+              {t("gallery.select.compare")}
+            </Button>
+          )}
+          <Button
+            variant="danger"
+            size="sm"
             onClick={async () => {
               const ids = [...selectedIds];
               select.clear();
               for (const captureId of ids) await onRemove(captureId);
             }}
-            className="text-red-600 hover:underline dark:text-red-400"
           >
-            Remove from album
-          </button>
+            {smart ? t("albums.smart.exclude") : t("albums.photos.removeFromAlbum")}
+          </Button>
         </div>
       )}
-      <MasonryGrid
-        items={items.map((item, i) => ({ item, i }))}
+      <PhotoGrid
+        items={items}
+        idFor={albumPhotoId}
+        tileFor={(item) => ({ ...item, alt: speciesName(item) })}
         columnWidth={thumbSizePx}
-        keyFor={({ item }) => item.photoId}
-        aspectRatioFor={({ item }) => (item.width && item.height ? item.width / item.height : null)}
-        renderItem={({ item, i }, aspectRatio) => {
-          const isCover = coverPhotoId === item.photoId;
+        select={select}
+        menu={menu}
+        onOpen={(i) => (pickingQuadSlot != null ? onPickQuadPhoto(pickingQuadSlot, items[i].photoId) : onOpen(i))}
+        renderMenu={(item) => {
+          const isCover = coverPicked && coverPhotoId === item.photoId;
           return (
-            <PhotoTile
-              key={item.photoId}
-              photoId={item.photoId}
-              alt={speciesName(item)}
-              onOpen={() => (pickingQuadSlot != null ? onPickQuadPhoto(pickingQuadSlot, item.photoId) : onOpen(i))}
-              selectMode={selectMode}
-              selected={selectedIds.has(item.captureId) || (dragPreviewIds?.has(item.captureId) ?? false)}
-              onToggleSelect={(shiftKey) => select.toggle(item.captureId, i, shiftKey)}
-              onDragSelectStart={() => dragProps.onDragSelectStart(i)}
-              onDragSelectEnter={() => dragProps.onDragSelectEnter(i)}
-              aspectRatio={aspectRatio}
-              kind={item.kind}
-              durationSeconds={item.durationSeconds != null ? Number(item.durationSeconds) : null}
-              menuOpen={menu.openKey === item.photoId}
-              onToggleMenu={() => menu.setOpenKey(menu.openKey === item.photoId ? null : item.photoId)}
-              menuRef={menu.ref}
-              menuContent={
-                menu.openKey === item.photoId && (
-                  <div className={`absolute right-0 top-full z-10 mt-1 w-44 ${MENU_PANEL}`}>
-                    {item.speciesId && (
-                      <Link
-                        to={`/species/${item.speciesId}`}
-                        state={speciesLinkState}
-                        onClick={closeMenu}
-                        className={MENU_ITEM}
-                      >
-                        View species
-                      </Link>
-                    )}
-                    <button onClick={() => onSetCover(item.photoId)} disabled={isCover} className={MENU_ITEM}>
-                      {isCover ? "Album cover ✓" : "Set as album cover"}
-                    </button>
-                    {isCover && coverLayout === "single" && (
-                      <button
-                        onClick={() => {
-                          closeMenu();
-                          onAdjustCover(`/api/photos/${item.photoId}/display`);
-                        }}
-                        className={MENU_ITEM}
-                      >
-                        Adjust position
-                      </button>
-                    )}
-                    {/* Hidden when the only original on file is the RAW. */}
-                    {item.originalRef && item.originalKind !== "raw" && (
-                      <button
-                        onClick={() => {
-                          closeMenu();
-                          downloadFile(`/api/photos/${item.photoId}/original?download=1`, "original.jpg");
-                        }}
-                        className={MENU_ITEM}
-                      >
-                        Download original
-                      </button>
-                    )}
-                    {item.hasRawOriginal && (
-                      <button
-                        onClick={() => {
-                          closeMenu();
-                          downloadFile(`/api/photos/${item.photoId}/original-raw?download=1`, "original.raw");
-                        }}
-                        className={MENU_ITEM}
-                      >
-                        Download RAW
-                      </button>
-                    )}
-                    <div className={MENU_SEPARATOR} />
-                    <button
-                      onClick={() => {
-                        onRemove(item.captureId);
-                        closeMenu();
-                      }}
-                      className={MENU_ITEM_DANGER}
-                    >
-                      Remove from album
-                    </button>
-                  </div>
-                )
+            <PhotoMenu
+              photo={{ ...item, rating: item.qualityRating, hasRaw: item.hasRawOriginal }}
+              onClose={closeMenu}
+              speciesLinkState={speciesLinkState}
+              onRate={(rating) => onRate(item.captureId, rating)}
+              onAddToAlbum={() => setAddingCaptureId(item.captureId)}
+              {...edits.menuActions(item.captureId)}
+              featured={!!item.isFeatured}
+              onToggleFeatured={
+                item.speciesId
+                  ? () => void edits.toggleFeatured(item.captureId, item.speciesId!, item.photoId, !!item.isFeatured)
+                  : undefined
               }
-              label={showLabels && <p className="mt-1 truncate text-xs text-muted">{speciesName(item)}</p>}
+              location={[item.locationLabel, item.regionName].filter(Boolean).join(", ")}
+              coverItems={
+                <>
+                  <MenuItem onSelect={() => onSetCover(isCover ? null : item.photoId)}>
+                    {isCover ? t("albums.photos.isCover") : t("albums.photos.setCover")}
+                  </MenuItem>
+                  {isCover && coverLayout === "single" && (
+                    <MenuItem
+                      onSelect={() => {
+                        closeMenu();
+                        onAdjustCover(`/api/photos/${item.photoId}/display`);
+                      }}
+                    >
+                      {t("albums.photos.adjustCover")}
+                    </MenuItem>
+                  )}
+                </>
+              }
+              endItems={
+                <MenuItem
+                  danger
+                  onSelect={() => {
+                    void onRemove(item.captureId);
+                    closeMenu();
+                  }}
+                >
+                  {smart ? t("albums.smart.exclude") : t("albums.photos.removeFromAlbum")}
+                </MenuItem>
+              }
             />
           );
         }}
+        renderLabel={(item) => (
+          <PhotoTileCaption
+            {...captions}
+            label={speciesName(item)}
+            rating={item.qualityRating}
+            onRate={(rating) => onRate(item.captureId, rating)}
+            shotLine={captions.showCameraInfo ? itemShotData(item) : null}
+          />
+        )}
       />
+      {edits.dialog((id) => items.find((i) => i.captureId === id))}
+      {addingCaptureId && <AddToAlbumModal captureIds={[addingCaptureId]} onClose={() => setAddingCaptureId(null)} />}
     </>
   );
 }

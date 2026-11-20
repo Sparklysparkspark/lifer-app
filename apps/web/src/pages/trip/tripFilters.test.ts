@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { PhotoFilters } from "../../lib/photoListFilters";
 import type { TripPhoto } from "./types";
-import { visibleTripPhotos, visibleTripSpecies } from "./tripFilters";
+import { groupTripPhotos, tripTaxonFilters, visibleTripPhotos } from "./tripFilters";
 
-const anyPhoto: PhotoFilters = { rawFiles: "show", editedRaw: "any", onlyTopRated: false, dateFrom: "", dateTo: "" };
+const anyPhoto: PhotoFilters = {
+  rawFiles: "show",
+  editedRaw: "any",
+  ratingMin: null,
+  ratingMax: null,
+  unrated: false,
+  missingDate: false,
+  dateFrom: "",
+  dateTo: "",
+};
 
 function photo(partial: Partial<TripPhoto> & { photoId: string }): TripPhoto {
   return {
@@ -15,8 +24,15 @@ function photo(partial: Partial<TripPhoto> & { photoId: string }): TripPhoto {
     commonName: "Moose",
     takenAt: null,
     hasRaw: false,
+    inatObservationId: null,
     originalRef: null,
     originalKind: null,
+    originalManaged: null,
+    tags: [],
+    regionId: null,
+    locationLabel: null,
+    lat: null,
+    lon: null,
     qualityRating: null,
     cameraModel: null,
     lens: null,
@@ -24,6 +40,11 @@ function photo(partial: Partial<TripPhoto> & { photoId: string }): TripPhoto {
     aperture: null,
     shutter: null,
     iso: null,
+    taxonClass: null,
+    taxonOrder: null,
+    family: null,
+    sortOrder: null,
+    tier: null,
     ...partial,
   };
 }
@@ -60,7 +81,7 @@ describe("visibleTripPhotos", () => {
     const photos = [moose, chickadee];
     expect(ids(visibleTripPhotos(photos, "", { ...anyPhoto, editedRaw: "with" }, "newest"))).toEqual(["chickadee"]);
     expect(ids(visibleTripPhotos(photos, "", { ...anyPhoto, editedRaw: "without" }, "newest"))).toEqual(["moose"]);
-    expect(ids(visibleTripPhotos(photos, "", { ...anyPhoto, onlyTopRated: true }, "newest"))).toEqual(["chickadee"]);
+    expect(ids(visibleTripPhotos(photos, "", { ...anyPhoto, ratingMin: 5 }, "newest"))).toEqual(["chickadee"]);
   });
 
   it("sorts what's left", () => {
@@ -68,19 +89,55 @@ describe("visibleTripPhotos", () => {
   });
 });
 
-describe("visibleTripSpecies", () => {
-  const species = [
-    { commonName: "Moose", scientificName: "Alces alces" },
-    { commonName: null, scientificName: "Lithobates sylvaticus" },
-  ];
-
-  it("returns the same list for a blank search", () => {
-    expect(visibleTripSpecies(species, "   ")).toBe(species);
+describe("visibleTripPhotos species picker", () => {
+  const jay = photo({
+    photoId: "jay",
+    speciesId: "jay-sp",
+    commonName: "Blue Jay",
+    scientificName: "Cyanocitta cristata",
   });
 
-  it("matches either name", () => {
-    expect(visibleTripSpecies(species, "moo")).toEqual([species[0]]);
-    expect(visibleTripSpecies(species, "Lithobates")).toEqual([species[1]]);
-    expect(visibleTripSpecies(species, "owl")).toEqual([]);
+  it("keeps only the picked species, and every species when none is picked", () => {
+    expect(ids(visibleTripPhotos([moose, jay], "", anyPhoto, "newest", new Set(["jay-sp"])))).toEqual(["jay"]);
+    expect(ids(visibleTripPhotos([moose, jay], "", anyPhoto, "newest", new Set()))).toEqual(["moose", "jay"]);
+  });
+});
+
+describe("groupTripPhotos", () => {
+  // The page passes useSpeciesName(); the id stands in for it here.
+  const name = (p: TripPhoto) => `name of ${p.speciesId}`;
+  const moose2 = photo({ photoId: "moose2" });
+  const jay = photo({ photoId: "jay", speciesId: "jay-sp", commonName: "Blue Jay", tier: "rare" });
+
+  it("leaves an ungrouped list as it is", () => {
+    const sorted = [moose, jay, moose2];
+    expect(groupTripPhotos(sorted, "none", name)).toEqual({ photos: sorted, groups: null });
+  });
+
+  it("groups by species in sort order and reorders the photos to match the groups", () => {
+    const { photos, groups } = groupTripPhotos([moose, jay, moose2], "species", name);
+    expect(groups!.map((g) => g.label)).toEqual(["name of s", "name of jay-sp"]);
+    expect(ids(photos)).toEqual(["moose", "moose2", "jay"]);
+    // Each entry's index points at its own photo in the reordered list.
+    for (const g of groups!) for (const e of g.entries) expect(photos[e.i]).toBe(e.item);
+  });
+
+  it("groups by rarity, rarest first", () => {
+    const { groups } = groupTripPhotos([moose, jay], "tier", name);
+    expect(groups!.map((g) => g.key)).toEqual(["rare", "common"]);
+  });
+});
+
+describe("tripTaxonFilters", () => {
+  it("lists each taxon class once, in the Collection's order, others after", () => {
+    expect(
+      tripTaxonFilters([
+        { taxonClass: "insecta" },
+        { taxonClass: "mammalia" },
+        { taxonClass: "aves" },
+        { taxonClass: "aves" },
+        { taxonClass: null },
+      ]),
+    ).toEqual(["aves", "mammalia", "insecta"]);
   });
 });

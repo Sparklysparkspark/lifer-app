@@ -7,6 +7,12 @@ import { CullMarks, Invertebrate, NotWildlife, SpeciesSuggestion } from "../uplo
 
 const Percent = Nullable(Type.Number());
 const CoverLayout = Type.Enum(["single", "quad"]);
+const TripDateFields = {
+  startDate: Nullable(Type.String({ format: "date" })),
+  endDate: Nullable(Type.String({ format: "date", description: "None while the trip is still going" })),
+  regionId: Nullable(Uuid()),
+  activeOverride: Nullable(Type.Boolean({ description: "The user's choice over the dates; null goes by them" })),
+};
 
 // TripSummary in @lifer/shared trip.ts.
 export const TripList = Open({
@@ -27,6 +33,7 @@ export const TripList = Open({
       coverLayout: CoverLayout,
       quadPhotoIds: Type.Array(Uuid(), { description: "Up to 4 recent photos, for a quad cover" }),
       processing: Type.Boolean({ description: "A scan or import is running" }),
+      ...TripDateFields,
     }),
   ),
 });
@@ -42,6 +49,7 @@ export const TripDetail = Open({
   coverCropY: Percent,
   coverCropSize: Percent,
   coverLayout: CoverLayout,
+  ...TripDateFields,
 });
 
 export const TripSpecies = CollectionItems;
@@ -66,7 +74,14 @@ export const TripPhotos = Open({
       takenAt: Nullable(DateTime()),
       hasRaw: Type.Boolean(),
       originalRef: Nullable(Type.String()),
+      inatObservationId: Nullable(Type.String()),
       originalKind: Nullable(Type.String()),
+      originalManaged: Nullable(Type.Boolean()),
+      tags: Type.Array(Type.String()),
+      regionId: Nullable(Uuid()),
+      locationLabel: Nullable(Type.String()),
+      lat: Nullable(NumberLike()),
+      lon: Nullable(NumberLike()),
       cameraModel: Nullable(Type.String()),
       lens: Nullable(Type.String()),
       focalLengthMm: Nullable(NumberLike()),
@@ -74,6 +89,11 @@ export const TripPhotos = Open({
       shutter: Nullable(Type.String()),
       iso: Nullable(Type.Integer()),
       qualityRating: Nullable(Type.Integer()),
+      taxonClass: Nullable(Type.String()),
+      taxonOrder: Nullable(Type.String()),
+      family: Nullable(Type.String()),
+      sortOrder: Nullable(Type.Integer()),
+      tier: Nullable(Type.String({ description: "The species' rarity tier (the user's own if set)" })),
     }),
   ),
 });

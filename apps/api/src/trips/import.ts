@@ -139,7 +139,9 @@ export async function importTripFile(
   // This photo may just have become the species' cover: frame the card on the animal.
   if (!hidden) ensureDefaultCardCropLater(userId, speciesId);
   // Best effort, after commit: a lost index entry only costs a manual reassignment later.
-  recordTripIndexEntry(sourceFolder, relativePath, speciesRes.rows[0].scientific_name).catch(() => {});
+  recordTripIndexEntry(sourceFolder, relativePath, speciesRes.rows[0].scientific_name).catch((err: unknown) =>
+    log.warn({ relativePath, err: err instanceof Error ? err.message : err }, "Couldn't record the trip index entry"),
+  );
   // Best effort too: an unlinked RAW is picked up by the next rescan.
   try {
     await linkRawForCapture(captureId, path.basename(absolutePath), exif.takenAt, sourceFolder, cull.managedRaw);

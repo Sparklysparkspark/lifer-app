@@ -1,16 +1,24 @@
-import type { ReactNode } from "react";
+import ProgressiveImg from "../../components/ProgressiveImg";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import SpeciesPicker from "../../components/SpeciesPicker";
 import RegionBrowser from "../../components/RegionBrowser";
 import ImportReviewRow from "../../components/importReview/ImportReviewRow";
+import ImportCompareView from "../../components/importReview/ImportCompareView";
 import Button from "../../components/Button";
-import { pluralize } from "../../lib/pluralize";
 import type { TripScanImport } from "./useTripScanImport";
 import CullMarksChoice from "../../components/importReview/CullMarksChoice";
 import { rejectedRowNote } from "../../lib/cullInfo";
-import { PANEL } from "../../lib/layout";
+import Panel from "../../components/Panel";
 
-function rowStatusText(status: string, error: string | undefined): string | undefined {
-  return status === "done" ? "✓ Imported" : status === "error" ? error : status === "importing" ? "Importing…" : "";
+function rowStatusText(status: string, error: string | undefined, t: TFunction): string | undefined {
+  return status === "done"
+    ? t("trips.scanReview.imported")
+    : status === "error"
+      ? error
+      : status === "importing"
+        ? t("trips.scanReview.importing")
+        : "";
 }
 
 // What a scan found that isn't imported yet: pick a species for each (or several at once), an
@@ -20,43 +28,41 @@ export default function TripScanReview({
   destinationFolder,
   suggestEnabled,
   jobs,
-  onViewSpeciesGallery,
-  speciesGalleryLightbox,
 }: {
   tripId: string | undefined;
   destinationFolder: string;
   suggestEnabled: boolean;
   jobs: TripScanImport;
-  onViewSpeciesGallery: (speciesId: string, label: string) => void;
-  speciesGalleryLightbox: ReactNode;
 }) {
+  const { t } = useTranslation();
   const { reviewRows, readyCount, notWildlifeCount, review, reviewRegionId, importing, cullOption } = jobs;
-  const { selected, setSelected, toggleSelected, focusedRowKey, setFocusedRowKey, activeRow, highlightIndex } = review;
+  const { selected, bulkKeys, toggleSelected, focusedRowKey, setFocusedRowKey, activeRow, highlightIndex } = review;
 
   return (
-    <section className={`space-y-3 ${PANEL}`}>
-      <div className="flex items-center gap-3 text-sm text-muted">
+    <Panel as="section" className="space-y-3">
+      <div className="flex items-center gap-3 text-callout text-muted">
         <span>
-          {pluralize(reviewRows.length, "new photo")} · {readyCount} ready to import
-          {notWildlifeCount > 0 && ` · ${notWildlifeCount} not wildlife, left out`}
+          {t("trips.scanReview.summary", { count: reviewRows.length, ready: readyCount })}
+          {notWildlifeCount > 0 && ` · ${t("trips.scanReview.notWildlife", { count: notWildlifeCount })}`}
         </span>
-        {selected.size > 0 && (
+        {bulkKeys.length > 0 && (
           <div className="flex items-center gap-2">
-            <span>Assign {selected.size} selected to:</span>
+            <span>{t("trips.scanReview.assignSelected", { count: bulkKeys.length })}</span>
             <div className="w-56">
               <SpeciesPicker
-                placeholder="Type a species…"
+                placeholder={t("species.selection.typeSpecies")}
                 regionId={reviewRegionId}
-                onSelect={(r) => {
-                  review.assignSpecies([...selected], r);
-                  setSelected(new Set());
-                }}
+                onSelect={(r) => review.assignSpecies(bulkKeys, r)}
               />
             </div>
           </div>
         )}
         <Button size="sm" onClick={jobs.importReady} disabled={importing || readyCount === 0} className="ml-auto">
-          {importing ? "Importing…" : readyCount ? `Import ${pluralize(readyCount, "photo")}` : "Import photos"}
+          {importing
+            ? t("trips.scanReview.importing")
+            : readyCount
+              ? t("trips.scanReview.importCount", { count: readyCount })
+              : t("trips.scanReview.importPhotos")}
         </Button>
       </div>
       <CullMarksChoice
@@ -67,19 +73,15 @@ export default function TripScanReview({
         disabled={importing}
       />
       <div>
-        <p className="mb-1 text-sm text-muted">
-          {suggestEnabled
-            ? "Region for species suggestions (also saved as each photo's location):"
-            : "Location for this batch (optional):"}
+        <p className="mb-1 text-callout text-muted">
+          {suggestEnabled ? t("trips.scanReview.regionForSuggestions") : t("trips.scanReview.batchLocation")}
         </p>
         <RegionBrowser regionId={reviewRegionId} onChange={jobs.selectReviewRegion} allowAnyRegion={!suggestEnabled} />
         {suggestEnabled && !reviewRegionId && (
-          <p className="mt-1 text-xs text-muted">Pick a region to see species suggestions below.</p>
+          <p className="mt-1 text-footnote text-muted">{t("trips.scanReview.pickRegion")}</p>
         )}
       </div>
-      <p className="text-xs text-muted">
-        Imported photos are copied to {destinationFolder}, sorted by species. The originals stay where they are.
-      </p>
+      <p className="text-footnote text-muted">{t("trips.scanReview.copiedTo", { folder: destinationFolder })}</p>
 
       <div className="divide-y divide-line border-t border-line">
         {reviewRows.map((row) => (
@@ -88,21 +90,21 @@ export default function TripScanReview({
             row={row}
             name={row.key}
             preview={
-              <img
-                src={`/api/trips/${tripId}/scan-preview?file=${encodeURIComponent(row.key)}`}
+              <ProgressiveImg
+                thumbSrc={`/api/trips/${tripId}/scan-preview?file=${encodeURIComponent(row.key)}`}
+                fullSrc={`/api/trips/${tripId}/scan-preview?file=${encodeURIComponent(row.key)}`}
                 alt=""
-                loading="lazy"
-                className="h-14 w-14 rounded-md object-cover"
+                className="h-14 w-14 rounded-badge object-cover"
               />
             }
             status={
-              <span className="text-xs text-muted">
-                {rowStatusText(row.status, row.error) || rejectedRowNote(row, cullOption)}
+              <span className="text-footnote text-muted">
+                {rowStatusText(row.status, row.error, t) || rejectedRowNote(row, cullOption)}
               </span>
             }
             removable={row.status !== "importing" && row.status !== "done"}
             onRemove={() => jobs.removeReviewRow(row.key)}
-            removeLabel="Leave this photo out of the import"
+            removeLabel={t("trips.scanReview.removeRow")}
             selected={selected.has(row.key)}
             onToggleSelected={() => toggleSelected(row.key)}
             focused={focusedRowKey === row.key}
@@ -112,11 +114,25 @@ export default function TripScanReview({
             isActive={row.key === activeRow?.key}
             highlightIndex={highlightIndex}
             onDismissWarning={(warning) => review.dismissWarning(row.key, warning)}
-            onViewSpeciesGallery={onViewSpeciesGallery}
+            onCompare={(speciesId) => review.openCompare(row.key, speciesId)}
+            onNoAnimal={() => review.markNoAnimal([row.key])}
           />
         ))}
       </div>
-      {speciesGalleryLightbox}
-    </section>
+      {review.compare && (
+        <ImportCompareView
+          rows={reviewRows}
+          target={review.compare}
+          regionId={reviewRegionId}
+          photoUrl={(r) => `/api/trips/${tripId}/scan-preview?file=${encodeURIComponent(r.key)}`}
+          nameOf={(r) => r.key}
+          onConfirm={(keys, species) =>
+            keys.length === 1 ? review.assignAndAdvance(keys[0], species) : review.assignSpecies(keys, species)
+          }
+          onNoAnimal={review.markNoAnimal}
+          onClose={review.closeCompare}
+        />
+      )}
+    </Panel>
   );
 }

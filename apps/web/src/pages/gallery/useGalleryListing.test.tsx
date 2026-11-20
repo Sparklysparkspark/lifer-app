@@ -16,11 +16,18 @@ const { useGalleryListing } = await import("./useGalleryListing");
 const query: GalleryQuery = {
   searchQuery: "",
   onlyHidden: false,
-  onlyTopRated: false,
+  ratingMin: null,
+  ratingMax: null,
+  unrated: false,
+  animalsMin: null,
+  animalsMax: null,
   onlyFeatured: false,
+  notOnInat: false,
   missingDate: false,
-  shotKind: null,
-  tier: null,
+  missingCoordinates: false,
+  shotActions: new Set(),
+  shotFramings: new Set(),
+  tiers: [],
   tierRegionId: null,
   selectedTaxa: new Set(),
   rawFiles: "show",
@@ -28,8 +35,9 @@ const query: GalleryQuery = {
   mediaFilter: "both",
   dateFrom: "",
   dateTo: "",
-  regionId: null,
-  tag: null,
+  regionIds: [],
+  tags: [],
+  places: [],
   scopeTripId: null,
   scopeAlbumId: null,
   sortBy: "newest",
@@ -46,7 +54,7 @@ function deferred<T>() {
 function render(initial: GalleryQuery = query) {
   return renderHook(
     ({ q, lightboxIndex }: { q: GalleryQuery; lightboxIndex: number | null }) =>
-      useGalleryListing({ query: q, groupByRegion: false, lightboxIndex }),
+      useGalleryListing({ query: q, groupBy: "none", lightboxIndex }),
     { initialProps: { q: initial, lightboxIndex: null as number | null } },
   );
 }
@@ -74,7 +82,7 @@ describe("useGalleryListing", () => {
     const slow = deferred<unknown>();
     get.mockReturnValueOnce(slow.promise).mockResolvedValueOnce({ items: [photo("fav")], nextCursor: null, total: 1 });
     const { result, rerender } = render();
-    rerender({ q: { ...query, onlyTopRated: true }, lightboxIndex: null });
+    rerender({ q: { ...query, ratingMin: 5 }, lightboxIndex: null });
     await waitFor(() => expect(result.current.items?.map((i) => i.captureId)).toEqual(["fav"]));
     expect((get.mock.calls[0][1].signal as AbortSignal).aborted).toBe(true);
     await act(async () => slow.resolve({ items: [photo("old")], nextCursor: null, total: 1 }));
