@@ -22,7 +22,11 @@ export function slicer(budgetMs = 8, now: () => number = Date.now): () => Promis
 }
 
 /** Runs `fn` over `items` in batches, giving the screen a turn after each. */
-export async function inBatches<T>(items: readonly T[], size: number, fn: (batch: T[]) => Promise<void>): Promise<void> {
+export async function inBatches<T>(
+  items: readonly T[],
+  size: number,
+  fn: (batch: T[]) => Promise<void>,
+): Promise<void> {
   for (let i = 0; i < items.length; i += size) {
     await fn(items.slice(i, i + size));
     await yieldNow();
@@ -30,7 +34,11 @@ export async function inBatches<T>(items: readonly T[], size: number, fn: (batch
 }
 
 /** At most one call per `ms`; the rest are dropped. Pass `force` for a value that must go through. */
-export function throttle<A>(fn: (a: A) => void, ms: number, now: () => number = Date.now): (a: A, force?: boolean) => void {
+export function throttle<A>(
+  fn: (a: A) => void,
+  ms: number,
+  now: () => number = Date.now,
+): (a: A, force?: boolean) => void {
   let at = -Infinity;
   return (a, force = false) => {
     const t = now();

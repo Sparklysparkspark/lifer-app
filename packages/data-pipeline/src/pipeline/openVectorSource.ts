@@ -188,7 +188,13 @@ export function parseState(text: string): JobState {
 /** A species is worked on until done; a done one comes back while it has candidates and is short
  *  of the target, as when Lifer's own open gallery photos were removed after it was done. Only
  *  untried candidates are fetched, so nothing is redone. */
-export function needsWork(state: JobState, species: string, liferOpenVectors: number, perSpecies: number, hasCandidates: boolean): boolean {
+export function needsWork(
+  state: JobState,
+  species: string,
+  liferOpenVectors: number,
+  perSpecies: number,
+  hasCandidates: boolean,
+): boolean {
   if (!state.done.has(species)) return true;
   return hasCandidates && (state.have.get(species) ?? 0) + liferOpenVectors < perSpecies;
 }
@@ -241,12 +247,21 @@ export function encodePrveRow(r: PrveRow, dimension: number): Buffer {
   if (!Number.isInteger(r.licenseCode) || r.licenseCode < 0 || r.licenseCode > 2)
     throw new Error(`closed licence code ${r.licenseCode} for ${r.species}`);
   if (r.vector.length !== dimension * 2) throw new Error(`vector of ${r.species} is not ${dimension} values`);
-  return Buffer.concat([text(r.species), Buffer.from([r.licenseCode]), text(r.photographer), text(r.sourceUrl), r.vector]);
+  return Buffer.concat([
+    text(r.species),
+    Buffer.from([r.licenseCode]),
+    text(r.photographer),
+    text(r.sourceUrl),
+    r.vector,
+  ]);
 }
 
 /** A whole PRVE version 1 file. */
 export function encodePrve(modelVersion: string, dimension: number, rows: PrveRow[]): Buffer {
-  return Buffer.concat([encodePrveHeader(modelVersion, dimension, rows.length), ...rows.map((r) => encodePrveRow(r, dimension))]);
+  return Buffer.concat([
+    encodePrveHeader(modelVersion, dimension, rows.length),
+    ...rows.map((r) => encodePrveRow(r, dimension)),
+  ]);
 }
 
 /** Reads a PRVE version 1 file back the way a conforming reader must: exact length, open codes only. */

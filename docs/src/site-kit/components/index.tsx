@@ -5,7 +5,15 @@ import styles from "./kit.module.css";
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(" ");
 
-export function ButtonLink({ href, variant = "primary", children }: { href: string; variant?: "primary" | "secondary"; children: ReactNode }) {
+export function ButtonLink({
+  href,
+  variant = "primary",
+  children,
+}: {
+  href: string;
+  variant?: "primary" | "secondary";
+  children: ReactNode;
+}) {
   return (
     <Link className={cx(styles.button, styles[variant])} href={href}>
       {children}
@@ -14,7 +22,17 @@ export function ButtonLink({ href, variant = "primary", children }: { href: stri
 }
 
 /** The page's single h1. */
-export function Hero({ title, lede, actions, media }: { title: string; lede?: string; actions?: ReactNode; media?: ReactNode }) {
+export function Hero({
+  title,
+  lede,
+  actions,
+  media,
+}: {
+  title: string;
+  lede?: string;
+  actions?: ReactNode;
+  media?: ReactNode;
+}) {
   return (
     <header className={styles.hero}>
       <div className={styles.heroText}>
@@ -27,7 +45,17 @@ export function Hero({ title, lede, actions, media }: { title: string; lede?: st
   );
 }
 
-export function Section({ title, intro, muted, children }: { title: string; intro?: string; muted?: boolean; children?: ReactNode }) {
+export function Section({
+  title,
+  intro,
+  muted,
+  children,
+}: {
+  title: string;
+  intro?: string;
+  muted?: boolean;
+  children?: ReactNode;
+}) {
   return (
     <section className={cx(styles.section, muted && styles.sectionMuted)}>
       <div className={styles.sectionInner}>
@@ -48,11 +76,33 @@ export interface Shot {
 }
 
 /** A light and a dark screenshot; CSS shows the one for the current theme. */
-export function ScreenshotFrame({ alt, light, dark, caption, priority }: { alt: string; light: Shot; dark?: Shot; caption?: string; priority?: boolean }) {
+export function ScreenshotFrame({
+  alt,
+  light,
+  dark,
+  caption,
+  priority,
+}: {
+  alt: string;
+  light: Shot;
+  dark?: Shot;
+  caption?: string;
+  priority?: boolean;
+}) {
   const base = useBaseUrl("/");
   const url = (p: string) => (p.startsWith("/") ? base + p.slice(1) : p);
   const img = (s: Shot, cls: string, lazy: boolean) => (
-    <img className={cls} src={url(s.src)} srcSet={s.srcSet} sizes="(min-width: 997px) 55vw, 100vw" width={s.width} height={s.height} alt={alt} loading={lazy ? "lazy" : "eager"} decoding="async" />
+    <img
+      className={cls}
+      src={url(s.src)}
+      srcSet={s.srcSet}
+      sizes="(min-width: 997px) 55vw, 100vw"
+      width={s.width}
+      height={s.height}
+      alt={alt}
+      loading={lazy ? "lazy" : "eager"}
+      decoding="async"
+    />
   );
   return (
     <figure className={styles.frame}>
@@ -63,7 +113,17 @@ export function ScreenshotFrame({ alt, light, dark, caption, priority }: { alt: 
   );
 }
 
-export function FeatureRow({ title, children, shot, reverse }: { title: string; children: ReactNode; shot?: ReactNode; reverse?: boolean }) {
+export function FeatureRow({
+  title,
+  children,
+  shot,
+  reverse,
+}: {
+  title: string;
+  children: ReactNode;
+  shot?: ReactNode;
+  reverse?: boolean;
+}) {
   return (
     <div className={cx(styles.feature, reverse && styles.featureReverse)}>
       <div className={styles.featureText}>
@@ -81,7 +141,17 @@ export function CardGrid({ children }: { children: ReactNode }) {
 
 export type Platform = "mac" | "windows" | "linux";
 
-export function DownloadCard({ platform, title, note, links }: { platform: Platform; title: string; note?: string; links: { label: string; href: string; primary?: boolean }[] }) {
+export function DownloadCard({
+  platform,
+  title,
+  note,
+  links,
+}: {
+  platform: Platform;
+  title: string;
+  note?: string;
+  links: { label: string; href: string; primary?: boolean }[];
+}) {
   return (
     <div className={styles.card} data-platform={platform}>
       <h3>{title}</h3>

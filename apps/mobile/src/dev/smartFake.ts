@@ -5,7 +5,14 @@ import type { App } from "../app/AppContext";
 import { setMeta } from "../store/meta";
 import { toHalf } from "../search/vectorTestUtil";
 
-const IDEAS = [/stalking|hunting/, /tree/, /eye contact/, /backlit/, /car|street|text|food|building|computer|furniture|cartoon|airplane|spreadsheet|logo|keyboard/, /blue hour|dusk|twilight/];
+const IDEAS = [
+  /stalking|hunting/,
+  /tree/,
+  /eye contact/,
+  /backlit/,
+  /car|street|text|food|building|computer|furniture|cartoon|airplane|spreadsheet|logo|keyboard/,
+  /blue hour|dusk|twilight/,
+];
 
 function unit(weights: number[]): Float32Array {
   const v = new Float32Array(768);
@@ -42,7 +49,10 @@ export async function smartFake(app: App): Promise<void> {
           JSON.stringify({ luma: 0.3, warmth: -0.05, highlights: 0.02, shadows: 0.2, saturation: 0.3 }),
         ],
       );
-      await app.db.run("INSERT OR REPLACE INTO capture_backgrounds (capture_id, vec) VALUES (?, ?)", [id, half(unit([0, i % 2, 0.1]))]);
+      await app.db.run("INSERT OR REPLACE INTO capture_backgrounds (capture_id, vec) VALUES (?, ?)", [
+        id,
+        half(unit([0, i % 2, 0.1])),
+      ]);
     }
   });
   await setMeta(app.db, "smart.model", { textModelVersion: "dev", files: { encoder: "x" }, complete: true });
@@ -51,6 +61,9 @@ export async function smartFake(app: App): Promise<void> {
   await app.smart.load();
   const embedTexts = async (texts: string[]) =>
     texts.map((t) => unit(IDEAS.reduce((w, re, k) => ((w[k + 1] += re.test(t) ? 1 : 0), w), new Array(8).fill(0.02))));
-  (app.smart as unknown as { embedder: Promise<unknown> }).embedder = Promise.resolve({ embedTexts, release: async () => undefined });
+  (app.smart as unknown as { embedder: Promise<unknown> }).embedder = Promise.resolve({
+    embedTexts,
+    release: async () => undefined,
+  });
   app.bump();
 }

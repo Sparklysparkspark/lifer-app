@@ -2,7 +2,16 @@ import { describe, expect, it } from "vitest";
 import { migratedDb } from "./testDb";
 import { MIGRATIONS, migrate } from "./migrations";
 import { editMark, getMark, listSpecies, speciesCounts } from "./marks";
-import { applyCaptureChanges, favouritePhotoIds, libraryPhotos, applyAlbums, applyMembers, photosForSpecies, listTrips, tripActive } from "./library";
+import {
+  applyCaptureChanges,
+  favouritePhotoIds,
+  libraryPhotos,
+  applyAlbums,
+  applyMembers,
+  photosForSpecies,
+  listTrips,
+  tripActive,
+} from "./library";
 import { regionProgress, removeRegion, saveRegion, targetsToFind } from "./regions";
 
 const NOW = new Date("2026-10-25T10:00:00Z");
@@ -55,9 +64,15 @@ describe("marks and the life list", () => {
   it("handles 5,000 species and 60,000 photos in one query each", async () => {
     const db = await migratedDb();
     await db.tx(async () => {
-      for (let i = 0; i < 5000; i++) await db.run("INSERT INTO species (scientific_name, common_name) VALUES (?, ?)", [`Genus sp${i}`, `Bird ${i}`]);
+      for (let i = 0; i < 5000; i++)
+        await db.run("INSERT INTO species (scientific_name, common_name) VALUES (?, ?)", [`Genus sp${i}`, `Bird ${i}`]);
       for (let i = 0; i < 60000; i++)
-        await db.run("INSERT INTO captures (id, photo_id, scientific_name, taken_at) VALUES (?, ?, ?, ?)", [`c${i}`, `p${i}`, `Genus sp${i % 5000}`, `2025-${String(1 + (i % 12)).padStart(2, "0")}-01T00:00:00Z`]);
+        await db.run("INSERT INTO captures (id, photo_id, scientific_name, taken_at) VALUES (?, ?, ?, ?)", [
+          `c${i}`,
+          `p${i}`,
+          `Genus sp${i % 5000}`,
+          `2025-${String(1 + (i % 12)).padStart(2, "0")}-01T00:00:00Z`,
+        ]);
     });
     const t0 = Date.now();
     expect(await listSpecies(db, "all")).toHaveLength(5000);
@@ -69,8 +84,20 @@ describe("marks and the life list", () => {
 describe("captures", () => {
   it("drops trashed and purged captures, hides hidden ones", async () => {
     const db = await migratedDb();
-    await applyCaptureChanges(db, [cap("1", "A a", "2026-01-01T00:00:00Z"), cap("2", "B b", "2026-02-01T00:00:00Z"), cap("3", "C c", "2026-03-01T00:00:00Z")], []);
-    await applyCaptureChanges(db, [cap("2", "B b", "2026-02-01T00:00:00Z", { hiddenAt: "x" }), cap("3", "C c", null, { deletedAt: "x" })], []);
+    await applyCaptureChanges(
+      db,
+      [
+        cap("1", "A a", "2026-01-01T00:00:00Z"),
+        cap("2", "B b", "2026-02-01T00:00:00Z"),
+        cap("3", "C c", "2026-03-01T00:00:00Z"),
+      ],
+      [],
+    );
+    await applyCaptureChanges(
+      db,
+      [cap("2", "B b", "2026-02-01T00:00:00Z", { hiddenAt: "x" }), cap("3", "C c", null, { deletedAt: "x" })],
+      [],
+    );
     expect((await libraryPhotos(db)).map((p) => p.photoId)).toEqual(["p-1"]);
     await applyCaptureChanges(db, [], ["1"]);
     expect(await libraryPhotos(db)).toEqual([]);
@@ -78,7 +105,14 @@ describe("captures", () => {
 
   it("searches by species names, tags and place", async () => {
     const db = await migratedDb();
-    await applyCaptureChanges(db, [cap("1", "Cygnus olor", "2026-01-01T00:00:00Z"), cap("2", "Anas crecca", "2026-02-01T00:00:00Z", { tags: ["sunset"], locationLabel: "Slimbridge" })], []);
+    await applyCaptureChanges(
+      db,
+      [
+        cap("1", "Cygnus olor", "2026-01-01T00:00:00Z"),
+        cap("2", "Anas crecca", "2026-02-01T00:00:00Z", { tags: ["sunset"], locationLabel: "Slimbridge" }),
+      ],
+      [],
+    );
     expect((await photosForSpecies(db, ["Cygnus olor"], "swans")).map((p) => p.photoId)).toEqual(["p-1"]);
     expect((await photosForSpecies(db, [], "slim")).map((p) => p.photoId)).toEqual(["p-2"]);
     expect((await photosForSpecies(db, [], "100%")).length).toBe(0);
@@ -103,8 +137,20 @@ describe("trips and regions", () => {
 
   it("keeps a checklist, counts progress, lists targets, and removes it", async () => {
     const db = await migratedDb();
-    const item = (n: string, c: string) => ({ scientificName: n, commonName: c, taxonClass: "aves", tier: null, vagrant: false, sensitive: false });
-    await saveRegion(db, { key: "hub:r1", name: "Norfolk", source: "hub", hubRegionId: "r1" }, [item("Cygnus olor", "Mute Swan"), item("Grus grus", "Common Crane")], NOW);
+    const item = (n: string, c: string) => ({
+      scientificName: n,
+      commonName: c,
+      taxonClass: "aves",
+      tier: null,
+      vagrant: false,
+      sensitive: false,
+    });
+    await saveRegion(
+      db,
+      { key: "hub:r1", name: "Norfolk", source: "hub", hubRegionId: "r1" },
+      [item("Cygnus olor", "Mute Swan"), item("Grus grus", "Common Crane")],
+      NOW,
+    );
     await editMark(db, "Cygnus olor", { state: "seen" }, NOW);
     await editMark(db, "Grus grus", { isTarget: true }, NOW);
     expect(await regionProgress(db, "hub:r1")).toEqual({ total: 2, seen: 1 });

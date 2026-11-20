@@ -19,7 +19,23 @@ import { Button, RoundButton, Tap, showActions } from "../ui";
 
 type FullState = "idle" | "loading" | "offline" | "unavailable" | "done";
 
-function ViewerPage({ id, width, height, fullUri, label, onTap, onZoom }: { id: string; width: number; height: number; fullUri: string | undefined; label: string; onTap: () => void; onZoom: (id: string, zoomed: boolean) => void }) {
+function ViewerPage({
+  id,
+  width,
+  height,
+  fullUri,
+  label,
+  onTap,
+  onZoom,
+}: {
+  id: string;
+  width: number;
+  height: number;
+  fullUri: string | undefined;
+  label: string;
+  onTap: () => void;
+  onZoom: (id: string, zoomed: boolean) => void;
+}) {
   const { media } = useApp();
   const { t } = useTranslation();
   const [uri, setUri] = useState<string | null>(null);
@@ -49,7 +65,16 @@ function ViewerPage({ id, width, height, fullUri, label, onTap, onZoom }: { id: 
     else setFailed(true);
   };
   const image = shown ? (
-    <Image accessibilityLabel={label} source={{ uri: shown }} contentFit="contain" style={{ width, height }} transition={0} blurRadius={fullUri || uri ? 0 : 12} onError={drawFailed} accessibilityIgnoresInvertColors />
+    <Image
+      accessibilityLabel={label}
+      source={{ uri: shown }}
+      contentFit="contain"
+      style={{ width, height }}
+      transition={0}
+      blurRadius={fullUri || uri ? 0 : 12}
+      onError={drawFailed}
+      accessibilityIgnoresInvertColors
+    />
   ) : null;
   return (
     <View style={{ width, height, justifyContent: "center" }}>
@@ -80,8 +105,13 @@ function ViewerPage({ id, width, height, fullUri, label, onTap, onZoom }: { id: 
         </AndroidZoom>
       )}
       {failed && !fullUri ? (
-        <View pointerEvents="box-none" style={{ position: "absolute", left: 24, right: 24, bottom: 150, alignItems: "center", gap: 6 }}>
-          <Text style={{ color: ON_BACKDROP, fontSize: type.footnote.size, textAlign: "center" }}>{t(shown ? "viewer.previewFailed" : "viewer.notSaved")}</Text>
+        <View
+          pointerEvents="box-none"
+          style={{ position: "absolute", left: 24, right: 24, bottom: 150, alignItems: "center", gap: 6 }}
+        >
+          <Text style={{ color: ON_BACKDROP, fontSize: type.footnote.size, textAlign: "center" }}>
+            {t(shown ? "viewer.previewFailed" : "viewer.notSaved")}
+          </Text>
           <Button label={t("viewer.retry")} variant="secondary" compact onPress={() => setTries((n) => n + 1)} />
         </View>
       ) : null}
@@ -89,7 +119,19 @@ function ViewerPage({ id, width, height, fullUri, label, onTap, onZoom }: { id: 
   );
 }
 
-function AndroidZoom({ children, width, height, onTap, onZoom }: { children: React.ReactNode; width: number; height: number; onTap: () => void; onZoom: (zoomed: boolean) => void }) {
+function AndroidZoom({
+  children,
+  width,
+  height,
+  onTap,
+  onZoom,
+}: {
+  children: React.ReactNode;
+  width: number;
+  height: number;
+  onTap: () => void;
+  onZoom: (zoomed: boolean) => void;
+}) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded only on Android, so iPhone never pulls it in
   const { ZoomView } = require("../photos/AndroidZoom") as typeof import("../photos/AndroidZoom");
   return (
@@ -112,7 +154,12 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
   const insets = useSafeAreaInsets();
   const [index, setIndex] = useState(Math.min(start, ids.length - 1));
   const [chrome, setChrome] = useState(true);
-  const [info, setInfo] = useState<{ name: string; scientificName: string; date: string | null; sensitive: boolean } | null>(null);
+  const [info, setInfo] = useState<{
+    name: string;
+    scientificName: string;
+    date: string | null;
+    sensitive: boolean;
+  } | null>(null);
   const [full, setFull] = useState<Record<string, FullState>>({});
   const [fullUris, setFullUris] = useState<Record<string, string>>({});
   const list = useRef<FlatList<string>>(null);
@@ -156,12 +203,27 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
     } else setFull((s) => ({ ...s, [id]: res.reason }));
   }, [app.media, id]);
 
-  const share = () => (info?.sensitive ? nav.navigate("ShareSensitive", { photoId: id }) : void shareDisplayCopy(app, id));
+  const share = () =>
+    info?.sensitive ? nav.navigate("ShareSensitive", { photoId: id }) : void shareDisplayCopy(app, id);
   const state = full[id] ?? "idle";
   const more = () =>
     showActions(info?.name ?? t("viewer.photoLabel"), t("common.cancel"), [
-      ...(state === "done" || !app.api ? [] : [{ label: t(state === "loading" ? "viewer.gettingFull" : "viewer.fullSize"), onPress: () => void viewFull() }]),
-      ...(info ? [{ label: t("viewer.openSpecies"), onPress: () => nav.navigate("Species", { scientificName: info.scientificName }) }] : []),
+      ...(state === "done" || !app.api
+        ? []
+        : [
+            {
+              label: t(state === "loading" ? "viewer.gettingFull" : "viewer.fullSize"),
+              onPress: () => void viewFull(),
+            },
+          ]),
+      ...(info
+        ? [
+            {
+              label: t("viewer.openSpecies"),
+              onPress: () => nav.navigate("Species", { scientificName: info.scientificName }),
+            },
+          ]
+        : []),
     ]);
 
   // Drag down to close, as in Photos: the photo follows the finger and shrinks while the backdrop fades.
@@ -182,54 +244,89 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
     .onUpdate((e) => drag.setValue({ x: e.translationX, y: e.translationY > 0 ? e.translationY : e.translationY / 3 }))
     .onEnd((e) => {
       if (shouldDismiss(e.translationY, e.velocityY, height)) {
-        Animated.timing(drag, { toValue: { x: e.translationX, y: height }, duration: 180, useNativeDriver: true }).start(close);
+        Animated.timing(drag, {
+          toValue: { x: e.translationX, y: height },
+          duration: 180,
+          useNativeDriver: true,
+        }).start(close);
         return;
       }
       Animated.spring(drag, { toValue: { x: 0, y: 0 }, useNativeDriver: true, bounciness: 4 }).start();
       if (e.translationY < -INFO_DISTANCE) nav.navigate("PhotoInfo", { photoId: id });
     });
 
-  const near = ids.slice(Math.max(0, index - FILMSTRIP), index + FILMSTRIP + 1).map((p, k) => ({ id: p, at: Math.max(0, index - FILMSTRIP) + k }));
-  const label = (n: string | null) => [info?.name, info?.date, t("viewer.position", { n: index + 1, total: ids.length })].filter(Boolean).join(". ") || (n ?? t("viewer.photoLabel"));
+  const near = ids
+    .slice(Math.max(0, index - FILMSTRIP), index + FILMSTRIP + 1)
+    .map((p, k) => ({ id: p, at: Math.max(0, index - FILMSTRIP) + k }));
+  const label = (n: string | null) =>
+    [info?.name, info?.date, t("viewer.position", { n: index + 1, total: ids.length })].filter(Boolean).join(". ") ||
+    (n ?? t("viewer.photoLabel"));
 
   return (
     // A transparent modal, so the page underneath shows through as the backdrop fades.
     <View style={{ flex: 1 }} accessibilityViewIsModal onAccessibilityEscape={close}>
       <StatusBar style="light" />
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: BACKDROP, opacity: fade }]} />
+      <Animated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, { backgroundColor: BACKDROP, opacity: fade }]}
+      />
       <GestureDetector gesture={pan}>
         <Animated.View style={{ flex: 1, transform: [{ translateY: lift }] }}>
-          <Animated.View style={{ flex: 1, transform: [{ translateX: drag.x }, { translateY: drag.y }, { scale: shrink }] }}>
-          <FlatList
-            ref={list}
-            data={ids}
-            horizontal
-            pagingEnabled
-            initialScrollIndex={Math.min(start, ids.length - 1)}
-            keyExtractor={(p) => p}
-            getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
-            onViewableItemsChanged={onViewable}
-            viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
-            windowSize={3}
-            initialNumToRender={1}
-            maxToRenderPerBatch={2}
-            showsHorizontalScrollIndicator={false}
-            renderItem={({ item }) => (
-              <ViewerPage id={item} width={width} height={height} fullUri={fullUris[item]} label={label(null)} onTap={() => setChrome((c) => !c)} onZoom={onZoom} />
-            )}
-          />
+          <Animated.View
+            style={{ flex: 1, transform: [{ translateX: drag.x }, { translateY: drag.y }, { scale: shrink }] }}
+          >
+            <FlatList
+              ref={list}
+              data={ids}
+              horizontal
+              pagingEnabled
+              initialScrollIndex={Math.min(start, ids.length - 1)}
+              keyExtractor={(p) => p}
+              getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
+              onViewableItemsChanged={onViewable}
+              viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
+              windowSize={3}
+              initialNumToRender={1}
+              maxToRenderPerBatch={2}
+              showsHorizontalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <ViewerPage
+                  id={item}
+                  width={width}
+                  height={height}
+                  fullUri={fullUris[item]}
+                  label={label(null)}
+                  onTap={() => setChrome((c) => !c)}
+                  onZoom={onZoom}
+                />
+              )}
+            />
           </Animated.View>
         </Animated.View>
       </GestureDetector>
 
       {chrome && focused ? (
         <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { opacity: fade }]}>
-          <View pointerEvents="box-none" style={{ position: "absolute", top: insets.top + 6, left: 16, right: 16, flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View
+            pointerEvents="box-none"
+            style={{
+              position: "absolute",
+              top: insets.top + 6,
+              left: 16,
+              right: 16,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+            }}
+          >
             <RoundButton icon="close" label={t("common.close")} onPress={close} onPhoto />
             <View style={{ flex: 1, alignItems: "center" }} accessible accessibilityRole="header">
               {info ? (
                 <>
-                  <Text numberOfLines={1} style={{ color: ON_BACKDROP, fontSize: type.callout.size, fontWeight: "700" }}>
+                  <Text
+                    numberOfLines={1}
+                    style={{ color: ON_BACKDROP, fontSize: type.callout.size, fontWeight: "700" }}
+                  >
                     {info.name}
                   </Text>
                   {info.date ? (
@@ -243,7 +340,10 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
             <RoundButton icon="more" label={t("common.more")} onPress={more} onPhoto />
           </View>
 
-          <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, bottom: Math.max(insets.bottom, 12) + 70 }}>
+          <View
+            pointerEvents="box-none"
+            style={{ position: "absolute", left: 0, right: 0, bottom: Math.max(insets.bottom, 12) + 70 }}
+          >
             {state === "offline" ? <Text style={noteStyle}>{t("viewer.fullOffline")}</Text> : null}
             {state === "unavailable" ? <Text style={noteStyle}>{t("viewer.fullUnavailable")}</Text> : null}
             <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 2 }}>
@@ -261,15 +361,37 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
                     opacity: n.at === index ? 1 : 0.85,
                   }}
                 >
-                  <CachedTile photoId={n.id} size={40} width={n.at === index ? 40 : 28} label={t("viewer.goTo", { n: n.at + 1 })} onPress={() => list.current?.scrollToIndex({ index: n.at, animated: true })} />
+                  <CachedTile
+                    photoId={n.id}
+                    size={40}
+                    width={n.at === index ? 40 : 28}
+                    label={t("viewer.goTo", { n: n.at + 1 })}
+                    onPress={() => list.current?.scrollToIndex({ index: n.at, animated: true })}
+                  />
                 </View>
               ))}
             </View>
           </View>
 
-          <View style={{ position: "absolute", left: 16, right: 16, bottom: Math.max(insets.bottom, 12), flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <View
+            style={{
+              position: "absolute",
+              left: 16,
+              right: 16,
+              bottom: Math.max(insets.bottom, 12),
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
             <RoundButton icon="share" label={t("viewer.share")} size={52} onPress={share} onPhoto />
-            <RoundButton icon="info" label={t("viewer.info")} size={52} onPress={() => nav.navigate("PhotoInfo", { photoId: id })} onPhoto />
+            <RoundButton
+              icon="info"
+              label={t("viewer.info")}
+              size={52}
+              onPress={() => nav.navigate("PhotoInfo", { photoId: id })}
+              onPhoto
+            />
             <RoundButton icon="more" label={t("common.more")} size={52} onPress={more} onPhoto />
           </View>
         </Animated.View>
@@ -278,4 +400,10 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
   );
 }
 
-const noteStyle = { color: ON_BACKDROP, fontSize: type.footnote.size, textAlign: "center", paddingBottom: 10, paddingHorizontal: 20 } as const;
+const noteStyle = {
+  color: ON_BACKDROP,
+  fontSize: type.footnote.size,
+  textAlign: "center",
+  paddingBottom: 10,
+  paddingHorizontal: 20,
+} as const;

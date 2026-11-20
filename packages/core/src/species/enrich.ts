@@ -119,9 +119,9 @@ export async function taxonDetailFromRecord(
   // Nothing publishable on the taxon page (and no publishable default photo): observers often
   // license their own photos openly even when the taxon's chosen ones aren't.
   if (options.publishableOnly && taxon && photos.length === 0 && !excludePhotoUrl)
-    photos = ((await fetchObservationPhotos(taxon.id, INAT_PUBLISHABLE_LICENSE_CODES, MAX_GALLERY_PHOTOS)) ?? []).filter((p) =>
-      isPublishableLicense(toGalleryPhoto(p).license),
-    );
+    photos = (
+      (await fetchObservationPhotos(taxon.id, INAT_PUBLISHABLE_LICENSE_CODES, MAX_GALLERY_PHOTOS)) ?? []
+    ).filter((p) => isPublishableLicense(toGalleryPhoto(p).license));
 
   const gallery: EnrichmentResult["gallery"] = [];
   for (const photo of photos) {

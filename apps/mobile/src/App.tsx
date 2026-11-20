@@ -22,25 +22,41 @@ function Shell() {
   const theme = useMemo(
     () => ({
       ...base,
-      colors: { ...base.colors, primary: colors.link, background: colors.canvas, card: colors.surface, text: colors.ink, border: colors.line },
+      colors: {
+        ...base.colors,
+        primary: colors.link,
+        background: colors.canvas,
+        card: colors.surface,
+        text: colors.ink,
+        border: colors.line,
+      },
     }),
     [base, colors],
   );
   // A phone on its own asks once which regions to keep; a paired one mirrors its hub's with no asking.
   const [setup, setSetup] = useState<boolean | null>(null);
   useEffect(() => {
-    void (async () => setSetup(!!(await getMeta(app.db, REGIONS_SETUP_KEY)) || (await listRegions(app.db)).length > 0))();
+    void (async () =>
+      setSetup(!!(await getMeta(app.db, REGIONS_SETUP_KEY)) || (await listRegions(app.db)).length > 0))();
   }, [app.db, app.mode]);
   const latest = useRef(app);
   latest.current = app;
   useEffect(() => {
     if (!__DEV__) return;
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- dev tooling stays out of release bundles
-    return (require("./dev/devDriver") as { startDevDriver: (get: () => typeof app) => () => void }).startDevDriver(() => latest.current);
+    return (require("./dev/devDriver") as { startDevDriver: (get: () => typeof app) => () => void }).startDevDriver(
+      () => latest.current,
+    );
   }, []);
   return (
     <NavigationContainer theme={theme} ref={navigationRef}>
-      {app.mode === null ? <FirstRun /> : app.mode === "standalone" && setup === false ? <RegionsSetupScreen onDone={() => setSetup(true)} /> : <Main />}
+      {app.mode === null ? (
+        <FirstRun />
+      ) : app.mode === "standalone" && setup === false ? (
+        <RegionsSetupScreen onDone={() => setSetup(true)} />
+      ) : (
+        <Main />
+      )}
       <StatusBar style={appearance === "dark" ? "light" : "dark"} />
     </NavigationContainer>
   );

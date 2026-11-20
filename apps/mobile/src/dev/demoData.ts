@@ -1,12 +1,6 @@
 // Development only (see devDriver.ts): a believable life for the simulator, and an extreme one.
 import type { Db } from "../store/db";
-import {
-  applyAlbums,
-  applyCaptureChanges,
-  applyMembers,
-  applyTrips,
-  type CaptureChange,
-} from "../store/library";
+import { applyAlbums, applyCaptureChanges, applyMembers, applyTrips, type CaptureChange } from "../store/library";
 import { editMark } from "../store/marks";
 import { saveRegion, type RegionSpecies } from "../store/regions";
 

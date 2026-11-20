@@ -31,7 +31,15 @@ interface GalleryView {
   trip: string | null;
   year: string | null;
 }
-const DEFAULT: GalleryView = { columns: 3, layout: "date", aspect: false, favourites: false, group: null, trip: null, year: null };
+const DEFAULT: GalleryView = {
+  columns: 3,
+  layout: "date",
+  aspect: false,
+  favourites: false,
+  group: null,
+  trip: null,
+  year: null,
+};
 
 /** Remembers the grid size and filters between launches. */
 function useGalleryView() {

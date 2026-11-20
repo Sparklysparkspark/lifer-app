@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { buildGrid, monthAt, monthOf, rowOfPhoto } from "./layout";
 
-const photo = (id: string, takenAt: string | null, width: number | null = 100, height: number | null = 100) => ({ photoId: id, takenAt, width, height });
+const photo = (id: string, takenAt: string | null, width: number | null = 100, height: number | null = 100) => ({
+  photoId: id,
+  takenAt,
+  width,
+  height,
+});
 const L = { width: 300, headingHeight: 40, withHeadings: true };
 
 describe("monthOf", () => {
@@ -12,10 +17,22 @@ describe("monthOf", () => {
 });
 
 describe("buildGrid squares", () => {
-  const photos = [photo("a", "2026-05-02"), photo("b", "2026-05-01"), photo("c", "2026-05-01"), photo("d", "2026-05-01"), photo("e", "2026-04-09")];
+  const photos = [
+    photo("a", "2026-05-02"),
+    photo("b", "2026-05-01"),
+    photo("c", "2026-05-01"),
+    photo("d", "2026-05-01"),
+    photo("e", "2026-04-09"),
+  ];
   const grid = buildGrid(photos, L, { columns: 3 });
   it("breaks rows by month and column count, with a heading before each month", () => {
-    expect(grid.rows.map((r) => (r.type === "heading" ? `h:${r.monthKey}` : r.ids.join(""))) ).toEqual(["h:2026-05", "abc", "d", "h:2026-04", "e"]);
+    expect(grid.rows.map((r) => (r.type === "heading" ? `h:${r.monthKey}` : r.ids.join("")))).toEqual([
+      "h:2026-05",
+      "abc",
+      "d",
+      "h:2026-04",
+      "e",
+    ]);
     expect(grid.heights).toEqual([40, 100, 100, 40, 100]);
     expect(grid.offsets).toEqual([0, 40, 140, 240, 280]);
     expect(grid.headings).toEqual([0, 3]);
@@ -33,7 +50,12 @@ describe("buildGrid squares", () => {
 
 describe("buildGrid aspect ratio rows", () => {
   it("fills each row to the full width and keeps every photo's shape", () => {
-    const photos = [photo("a", "2026-05-02", 200, 100), photo("b", "2026-05-02", 100, 100), photo("c", "2026-05-02", 100, 200), photo("d", "2026-05-02", 100, 100)];
+    const photos = [
+      photo("a", "2026-05-02", 200, 100),
+      photo("b", "2026-05-02", 100, 100),
+      photo("c", "2026-05-02", 100, 200),
+      photo("d", "2026-05-02", 100, 100),
+    ];
     const grid = buildGrid(photos, { ...L, withHeadings: false }, { aspect: 120 });
     const first = grid.rows[0];
     expect(first.type).toBe("photos");
@@ -42,12 +64,21 @@ describe("buildGrid aspect ratio rows", () => {
 });
 
 describe("continuous grid", () => {
-  const photos = [photo("a", "2026-05-02"), photo("b", "2026-05-01"), photo("c", "2026-04-01"), photo("d", "2026-04-01"), photo("e", "2026-04-01")];
+  const photos = [
+    photo("a", "2026-05-02"),
+    photo("b", "2026-05-01"),
+    photo("c", "2026-04-01"),
+    photo("d", "2026-04-01"),
+    photo("e", "2026-04-01"),
+  ];
   const grid = buildGrid(photos, { ...L, withHeadings: false }, { columns: 2 });
   it("has no headings, one seamless run of rows, and still knows its months", () => {
     expect(grid.rows.map((r) => (r.type === "photos" ? r.ids.join("") : "h"))).toEqual(["ab", "cd", "e"]);
     expect(grid.headings).toEqual([]);
-    expect(grid.months).toEqual([{ monthKey: "2026-05", row: 0 }, { monthKey: "2026-04", row: 1 }]);
+    expect(grid.months).toEqual([
+      { monthKey: "2026-05", row: 0 },
+      { monthKey: "2026-04", row: 1 },
+    ]);
   });
   it("finds the row holding a photo, with or without headings", () => {
     expect(rowOfPhoto(grid, 4)).toBe(2);

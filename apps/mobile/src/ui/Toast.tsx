@@ -47,15 +47,27 @@ function ToastView({ item, onDone }: { item: ToastItem; onDone: () => void }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   return (
-    <View pointerEvents="box-none" style={{ position: "absolute", left: spacing.gutter, right: spacing.gutter, bottom: insets.bottom + 96 }}>
+    <View
+      pointerEvents="box-none"
+      style={{ position: "absolute", left: spacing.gutter, right: spacing.gutter, bottom: insets.bottom + 96 }}
+    >
       <Glass style={{ borderRadius: 26, overflow: "hidden" }}>
         <View
           accessibilityLiveRegion="polite"
           accessible
           accessibilityLabel={item.message}
-          style={{ flexDirection: "row", alignItems: "center", paddingLeft: 18, paddingRight: 6, minHeight: 52, gap: 8 }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            paddingLeft: 18,
+            paddingRight: 6,
+            minHeight: 52,
+            gap: 8,
+          }}
         >
-          <Text style={{ flex: 1, color: colors.ink, fontSize: type.subheadline.size, paddingVertical: 10 }}>{item.message}</Text>
+          <Text style={{ flex: 1, color: colors.ink, fontSize: type.subheadline.size, paddingVertical: 10 }}>
+            {item.message}
+          </Text>
           {item.undo ? (
             <Tap
               label={t("common.undo")}
@@ -64,8 +76,18 @@ function ToastView({ item, onDone }: { item: ToastItem; onDone: () => void }) {
                 onDone();
               }}
             >
-              <View style={{ minHeight: 44, minWidth: 56, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 }}>
-                <Text style={{ color: colors.link, fontSize: type.subheadline.size, fontWeight: "700" }}>{t("common.undo")}</Text>
+              <View
+                style={{
+                  minHeight: 44,
+                  minWidth: 56,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  paddingHorizontal: 10,
+                }}
+              >
+                <Text style={{ color: colors.link, fontSize: type.subheadline.size, fontWeight: "700" }}>
+                  {t("common.undo")}
+                </Text>
               </View>
             </Tap>
           ) : null}

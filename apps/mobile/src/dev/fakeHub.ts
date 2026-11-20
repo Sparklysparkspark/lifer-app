@@ -6,7 +6,14 @@ import type { MediaFs } from "../media/cache";
 export const FAKE_BASE = "http://fake.lifer";
 export const FAKE_PAIRED: PairedHub = {
   token: "fake",
-  hub: { kind: "server", instanceId: "fake-hub", baseUrl: FAKE_BASE, fallbackUrls: [], deviceId: "fake", scopes: ["companion"] },
+  hub: {
+    kind: "server",
+    instanceId: "fake-hub",
+    baseUrl: FAKE_BASE,
+    fallbackUrls: [],
+    deviceId: "fake",
+    scopes: ["companion"],
+  },
 };
 export const TOTAL = 60000;
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

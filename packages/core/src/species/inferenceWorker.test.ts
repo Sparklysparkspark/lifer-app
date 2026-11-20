@@ -156,13 +156,15 @@ describe("readAnimalDetector", () => {
       [0.001, 0.001, 0.001],
     ].flatMap((q) => q.map(logit)),
   );
-  const boxes = Float32Array.from([
-    [0.5, 0.5, 0.2, 0.4],
-    [0.51, 0.5, 0.2, 0.4],
-    [0.1, 0.1, 0.1, 0.1],
-    [0.8, 0.5, 0.2, 0.5],
-    [0.5, 0.5, 1, 1],
-  ].flat());
+  const boxes = Float32Array.from(
+    [
+      [0.5, 0.5, 0.2, 0.4],
+      [0.51, 0.5, 0.2, 0.4],
+      [0.1, 0.1, 0.1, 0.1],
+      [0.8, 0.5, 0.2, 0.5],
+      [0.5, 0.5, 1, 1],
+    ].flat(),
+  );
 
   it("maps boxes into the photo, best animal first, and drops duplicates of it", () => {
     const { detections } = readAnimalDetector(logits, boxes, { width: 1000, height: 500 });

@@ -57,7 +57,14 @@ export function packChecklist(index: PackIndex, name: string): RegionSpecies[] {
   for (const p of regionPacks(index, name))
     for (const n of p.scientificNames)
       if (!seen.has(n))
-        seen.set(n, { scientificName: n, commonName: null, taxonClass: p.taxon ?? null, tier: null, vagrant: false, sensitive: false });
+        seen.set(n, {
+          scientificName: n,
+          commonName: null,
+          taxonClass: p.taxon ?? null,
+          tier: null,
+          vagrant: false,
+          sensitive: false,
+        });
   return [...seen.values()];
 }
 

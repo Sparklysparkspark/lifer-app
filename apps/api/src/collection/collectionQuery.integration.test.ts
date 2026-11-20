@@ -207,9 +207,9 @@ describe.skipIf(!url)("collection query rewrite", () => {
       // `heard`, `needs_better_photo` and `suggested` are new since the old query; nothing here has any.
       expect(newRes.rows.every((r) => r.heard === false && r.suggested === false)).toBe(true);
       expect(newRes.rows.every((r) => !r.needs_better_photo)).toBe(true);
-      expect(
-        newRes.rows.map(({ heard: _heard, needs_better_photo: _nb, suggested: _s, ...rest }) => rest),
-      ).toEqual(oldRes.rows);
+      expect(newRes.rows.map(({ heard: _heard, needs_better_photo: _nb, suggested: _s, ...rest }) => rest)).toEqual(
+        oldRes.rows,
+      );
     }
     const res = await db.query(collectionQuerySql(60), [USER, null, true]);
     const byId = new Map(res.rows.map((r) => [r.species_id, r]));

@@ -33,7 +33,12 @@ export function StatsScreen() {
         label: t("stats.photosToCount"),
         icon: "filter",
         title: t("stats.photosToCount"),
-        items: COUNTS.map((c) => ({ type: "action", label: t(COUNT_LABEL[c]), checked: count === c, onPress: () => setCount(c) })),
+        items: COUNTS.map((c) => ({
+          type: "action",
+          label: t(COUNT_LABEL[c]),
+          checked: count === c,
+          onPress: () => setCount(c),
+        })),
       },
     ],
   });
@@ -48,12 +53,25 @@ export function StatsScreen() {
   ).sort((a, b) => b.n - a.n);
   const maxGroup = Math.max(1, ...byGroup.map((g) => g.n));
   const maxYear = Math.max(1, ...data.byYear.map((y) => y.n));
-  const line = syncLine({ syncing: false, lastSyncAt: app.sync.lastSyncAt, waiting: 0, now: new Date(), reachable: true, desktop: true });
+  const line = syncLine({
+    syncing: false,
+    lastSyncAt: app.sync.lastSyncAt,
+    waiting: 0,
+    now: new Date(),
+    reachable: true,
+    desktop: true,
+  });
   const { key, ...values } = line;
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.canvas }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ paddingBottom: 32 }}>
-      <Text style={{ color: colors.muted, fontSize: type.subheadline.size, paddingHorizontal: 20, paddingBottom: 12 }}>{t(COUNT_LABEL[count])}</Text>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.canvas }}
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={{ paddingBottom: 32 }}
+    >
+      <Text style={{ color: colors.muted, fontSize: type.subheadline.size, paddingHorizontal: 20, paddingBottom: 12 }}>
+        {t(COUNT_LABEL[count])}
+      </Text>
       <View style={{ paddingHorizontal: 16, gap: 12 }}>
         <View style={{ flexDirection: "row", gap: 12 }}>
           <StatTile value={n(data.photographed)} label={t("stats.photographed")} />
@@ -69,14 +87,37 @@ export function StatsScreen() {
         <>
           <GroupHeader text={t("stats.byGroup")} />
           <InsetGroup>
-            <View style={{ paddingHorizontal: 16, paddingVertical: 10 }} accessible accessibilityLabel={byGroup.map((g) => `${t(g.group.label)}, ${g.n}`).join(". ")}>
+            <View
+              style={{ paddingHorizontal: 16, paddingVertical: 10 }}
+              accessible
+              accessibilityLabel={byGroup.map((g) => `${t(g.group.label)}, ${g.n}`).join(". ")}
+            >
               {byGroup.map((g) => (
                 <View key={g.group.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 30 }}>
-                  <Text numberOfLines={1} style={{ width: 96, color: colors.ink, fontSize: type.subheadline.size }}>{t(g.group.label)}</Text>
+                  <Text numberOfLines={1} style={{ width: 96, color: colors.ink, fontSize: type.subheadline.size }}>
+                    {t(g.group.label)}
+                  </Text>
                   <View style={{ flex: 1 }}>
-                    <View style={{ width: `${Math.max(2, (g.n / maxGroup) * 100)}%`, height: 14, borderRadius: 4, backgroundColor: colors[g.group.color] }} />
+                    <View
+                      style={{
+                        width: `${Math.max(2, (g.n / maxGroup) * 100)}%`,
+                        height: 14,
+                        borderRadius: 4,
+                        backgroundColor: colors[g.group.color],
+                      }}
+                    />
                   </View>
-                  <Text style={{ width: 44, textAlign: "right", color: colors.muted, fontSize: type.subheadline.size, fontVariant: ["tabular-nums"] }}>{n(g.n)}</Text>
+                  <Text
+                    style={{
+                      width: 44,
+                      textAlign: "right",
+                      color: colors.muted,
+                      fontSize: type.subheadline.size,
+                      fontVariant: ["tabular-nums"],
+                    }}
+                  >
+                    {n(g.n)}
+                  </Text>
                 </View>
               ))}
             </View>
@@ -89,14 +130,35 @@ export function StatsScreen() {
           <GroupHeader text={t("stats.byYear")} />
           <InsetGroup>
             <View
-              style={{ flexDirection: "row", alignItems: "flex-end", gap: 10, height: 150, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 }}
+              style={{
+                flexDirection: "row",
+                alignItems: "flex-end",
+                gap: 10,
+                height: 150,
+                paddingHorizontal: 16,
+                paddingTop: 12,
+                paddingBottom: 10,
+              }}
               accessible
               accessibilityLabel={data.byYear.map((y) => `${y.year}, ${y.n}`).join(". ")}
             >
               {data.byYear.slice(-8).map((y) => (
-                <View key={y.year} style={{ flex: 1, alignItems: "center", gap: 6, justifyContent: "flex-end", height: "100%" }}>
+                <View
+                  key={y.year}
+                  style={{ flex: 1, alignItems: "center", gap: 6, justifyContent: "flex-end", height: "100%" }}
+                >
                   <Text style={{ color: colors.muted, fontSize: type.caption.size }}>{n(y.n)}</Text>
-                  <View style={{ width: "100%", height: Math.max(4, (y.n / maxYear) * 80), borderTopLeftRadius: 5, borderTopRightRadius: 5, borderBottomLeftRadius: 2, borderBottomRightRadius: 2, backgroundColor: colors.accent }} />
+                  <View
+                    style={{
+                      width: "100%",
+                      height: Math.max(4, (y.n / maxYear) * 80),
+                      borderTopLeftRadius: 5,
+                      borderTopRightRadius: 5,
+                      borderBottomLeftRadius: 2,
+                      borderBottomRightRadius: 2,
+                      backgroundColor: colors.accent,
+                    }}
+                  />
                   <Text style={{ color: colors.muted, fontSize: type.caption.size }}>{y.year}</Text>
                 </View>
               ))}
@@ -110,7 +172,12 @@ export function StatsScreen() {
           <GroupHeader text={t("stats.mostPhotographed")} />
           <InsetGroup>
             {data.mostPhotographed.map((s) => (
-              <ListRow key={s.scientificName} title={s.commonName ?? s.scientificName} value={t("trips.photoCount", { n: s.n })} onPress={() => nav.navigate("Species", { scientificName: s.scientificName })} />
+              <ListRow
+                key={s.scientificName}
+                title={s.commonName ?? s.scientificName}
+                value={t("trips.photoCount", { n: s.n })}
+                onPress={() => nav.navigate("Species", { scientificName: s.scientificName })}
+              />
             ))}
           </InsetGroup>
         </>
@@ -120,13 +187,19 @@ export function StatsScreen() {
           <GroupHeader text={t("stats.oneAndDone")} />
           <InsetGroup>
             {data.oneAndDone.map((s) => (
-              <ListRow key={s.scientificName} title={s.commonName ?? s.scientificName} onPress={() => nav.navigate("Species", { scientificName: s.scientificName })} />
+              <ListRow
+                key={s.scientificName}
+                title={s.commonName ?? s.scientificName}
+                onPress={() => nav.navigate("Species", { scientificName: s.scientificName })}
+              />
             ))}
           </InsetGroup>
           <GroupFooter text={t("stats.oneAndDoneNote", { n: data.oneAndDoneCount })} />
         </>
       ) : null}
-      <GroupFooter text={t("stats.footer", { synced: app.mode === "paired" ? t(key, values) : t("sync.standalone") })} />
+      <GroupFooter
+        text={t("stats.footer", { synced: app.mode === "paired" ? t(key, values) : t("sync.standalone") })}
+      />
     </ScrollView>
   );
 }

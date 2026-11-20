@@ -28,12 +28,19 @@ export function PhotoTile({ uri, size, width, label, onPress, rounded, crop, den
   const h = dense ? size : Math.max(size, min);
   const body = (
     <View style={{ width: w, height: h, padding: dense ? 0.5 : 1 }}>
-      <View style={{ flex: 1, backgroundColor: colors.placeholder, borderRadius: rounded ? 10 : 0, overflow: "hidden" }}>
+      <View
+        style={{ flex: 1, backgroundColor: colors.placeholder, borderRadius: rounded ? 10 : 0, overflow: "hidden" }}
+      >
         {uri ? <CroppedImage uri={uri} crop={w === h ? crop : null} /> : null}
       </View>
     </View>
   );
-  if (!onPress) return <View accessible accessibilityRole="image" accessibilityLabel={label}>{body}</View>;
+  if (!onPress)
+    return (
+      <View accessible accessibilityRole="image" accessibilityLabel={label}>
+        {body}
+      </View>
+    );
   return (
     <Tap label={label} role="imagebutton" onPress={onPress}>
       {body}

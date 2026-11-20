@@ -20,7 +20,10 @@ interface Props {
 }
 
 /** The scrubber down the right edge: drag to jump through months. A drag has a button-free alternative: swipe up or down with VoiceOver. */
-export const Scrubber = forwardRef<ScrubberHandle, Props>(function Scrubber({ label, bubble, onScrub, onStep, width = 28 }, ref) {
+export const Scrubber = forwardRef<ScrubberHandle, Props>(function Scrubber(
+  { label, bubble, onScrub, onStep, width = 28 },
+  ref,
+) {
   const { colors } = useTheme();
   const [fraction, setFraction] = useState(0);
   const [dragging, setDragging] = useState(false);

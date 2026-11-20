@@ -94,7 +94,7 @@ export async function editMark(
   patch: Partial<Pick<Mark, "state" | "isTarget">>,
   now: Date,
 ): Promise<Mark> {
-  const next = { ...(await getMark(db, scientificName)) ?? blank(scientificName), ...patch };
+  const next = { ...((await getMark(db, scientificName)) ?? blank(scientificName)), ...patch };
   const at = now.toISOString();
   await db.tx(async () => {
     await write(db, next, at);
@@ -219,7 +219,7 @@ export async function speciesCounts(db: Db): Promise<Record<SpeciesFilter, numbe
 
 /** Every species this phone knows (life list, checklists, photos), for name search. */
 export async function allSpecies(db: Db): Promise<SpeciesRow[]> {
-  return (await db.all<RawSpecies>(`${SPECIES_SQL} ORDER BY COALESCE(sp.common_name, sp.scientific_name) COLLATE NOCASE`)).map(
-    speciesFrom,
-  );
+  return (
+    await db.all<RawSpecies>(`${SPECIES_SQL} ORDER BY COALESCE(sp.common_name, sp.scientific_name) COLLATE NOCASE`)
+  ).map(speciesFrom);
 }

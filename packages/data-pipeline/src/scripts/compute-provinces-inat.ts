@@ -119,7 +119,10 @@ async function main() {
         if (!taxonId) continue;
         matchedSpeciesIds.add(row.id);
         if (apply)
-          await pool.query(`UPDATE species SET inat_taxon_id = $1 WHERE id = $2 AND NOT EXISTS (SELECT 1 FROM species o WHERE o.inat_taxon_id = $1 AND o.id <> $2 AND NOT o.is_other_taxa)`, [taxonId, row.id]);
+          await pool.query(
+            `UPDATE species SET inat_taxon_id = $1 WHERE id = $2 AND NOT EXISTS (SELECT 1 FROM species o WHERE o.inat_taxon_id = $1 AND o.id <> $2 AND NOT o.is_other_taxa)`,
+            [taxonId, row.id],
+          );
       }
     }
 

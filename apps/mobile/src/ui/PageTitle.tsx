@@ -6,7 +6,17 @@ import { useTheme } from "../theme/useTheme";
 export function PageTitle({ text }: { text: string }) {
   const { colors } = useTheme();
   return (
-    <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type["large-title"].size, fontWeight: "700", paddingHorizontal: spacing.page, paddingTop: 8, paddingBottom: 6 }}>
+    <Text
+      accessibilityRole="header"
+      style={{
+        color: colors.ink,
+        fontSize: type["large-title"].size,
+        fontWeight: "700",
+        paddingHorizontal: spacing.page,
+        paddingTop: 8,
+        paddingBottom: 6,
+      }}
+    >
       {text}
     </Text>
   );

@@ -90,7 +90,11 @@ const DIM = 768;
 const SAME_PHOTO = 0.95;
 
 const detectorPath =
-  args.detector === "basic" ? BASIC_DETECTOR_MODEL_PATH : args.detector === "auto" ? activeDetectorPath() : args.detector!;
+  args.detector === "basic"
+    ? BASIC_DETECTOR_MODEL_PATH
+    : args.detector === "auto"
+      ? activeDetectorPath()
+      : args.detector!;
 const detectorKey = path.basename(detectorPath, ".onnx") + (args.small ? "-small" : "");
 mkdirSync(args.cache!, { recursive: true });
 mkdirSync(args.out!, { recursive: true });
@@ -212,7 +216,9 @@ interface ClipSpecies {
   gallery: Record<string, number>;
 }
 
-async function loadClipCatalog(species: CatalogSpecies[]): Promise<{ clip: Map<string, ClipSpecies>; data: Float32Array }> {
+async function loadClipCatalog(
+  species: CatalogSpecies[],
+): Promise<{ clip: Map<string, ClipSpecies>; data: Float32Array }> {
   const meta = path.join(args.cache!, "catalog-clip.json");
   const bin = path.join(args.cache!, "catalog-clip.bin");
   if (existsSync(meta) && existsSync(bin)) {
@@ -233,7 +239,12 @@ async function loadClipCatalog(species: CatalogSpecies[]): Promise<{ clip: Map<s
   const clip = new Map<string, ClipSpecies>();
   const ids = species.map((s) => s.id);
   for (let i = 0; i < ids.length; i += 1000) {
-    const res = await pool.query<{ id: string; ref: number[] | null; text: number[] | null; gallery: Array<{ photo: string; v: number[] }> | null }>(
+    const res = await pool.query<{
+      id: string;
+      ref: number[] | null;
+      text: number[] | null;
+      gallery: Array<{ photo: string; v: number[] }> | null;
+    }>(
       `SELECT s.id, r.embedding AS ref, t.embedding AS text,
               (SELECT json_agg(json_build_object('photo', g.reference_photo_id, 'v', g.embedding))
                  FROM species_reference_gallery_embeddings g WHERE g.species_id = s.id AND g.model_version = $1) AS gallery
@@ -289,7 +300,9 @@ function sample(species: CatalogSpecies[], data: Float32Array): Query[] {
       if (onDisk.length === 0) continue;
       const pick = onDisk[Math.floor(random() * onDisk.length)];
       const own = vec(data, pick.at);
-      const keep = [s.ref, ...s.gallery.map((g) => g.at)].filter((at) => at >= 0 && dot(vec(data, at), own) < SAME_PHOTO);
+      const keep = [s.ref, ...s.gallery.map((g) => g.at)].filter(
+        (at) => at >= 0 && dot(vec(data, at), own) < SAME_PHOTO,
+      );
       if (keep.length === 0) continue;
       queries.push({ species: s, photo: pick.photo, display: pick.display!, keep });
       taken++;
@@ -300,13 +313,35 @@ function sample(species: CatalogSpecies[], data: Float32Array): Query[] {
 
 /** --queries: a species missing from the catalog (no vectors) stands in with none, so it's never found. */
 function outsideQueries(file: string, byId: Map<string, CatalogSpecies>): Query[] {
-  const rows: Array<{ species: string; scientific: string; genus: string; family: string | null; cls: string; photo: string; display: string }> =
-    JSON.parse(readFileSync(file, "utf8"));
+  const rows: Array<{
+    species: string;
+    scientific: string;
+    genus: string;
+    family: string | null;
+    cls: string;
+    photo: string;
+    display: string;
+  }> = JSON.parse(readFileSync(file, "utf8"));
   return rows.map((r) => {
     if (!byId.has(r.species))
-      byId.set(r.species, { id: r.species, common: null, scientific: r.scientific, genus: r.genus, family: r.family, cls: r.cls, ref: -1, text: -1, gallery: [] });
+      byId.set(r.species, {
+        id: r.species,
+        common: null,
+        scientific: r.scientific,
+        genus: r.genus,
+        family: r.family,
+        cls: r.cls,
+        ref: -1,
+        text: -1,
+        gallery: [],
+      });
     const s = byId.get(r.species)!;
-    return { species: s, photo: r.photo, display: r.display, keep: [s.ref, ...s.gallery.map((g) => g.at)].filter((at) => at >= 0) };
+    return {
+      species: s,
+      photo: r.photo,
+      display: r.display,
+      keep: [s.ref, ...s.gallery.map((g) => g.at)].filter((at) => at >= 0),
+    };
   });
 }
 
@@ -334,7 +369,8 @@ const hooks = { runStarted() {}, runEnded() {} };
 function readRuns(file: string): Map<string, PhotoRun> {
   const out = new Map<string, PhotoRun>();
   if (!existsSync(file)) return out;
-  for (const line of readFileSync(file, "utf8").split("\n")) if (line) out.set(JSON.parse(line).photo, JSON.parse(line));
+  for (const line of readFileSync(file, "utf8").split("\n"))
+    if (line) out.set(JSON.parse(line).photo, JSON.parse(line));
   return out;
 }
 
@@ -418,16 +454,39 @@ async function runCentre(queries: Query[]): Promise<Map<string, PhotoRun>> {
     const { width = 0, height = 0 } = await img.metadata();
     const bytes = await sharp(q.display)
       .rotate()
-      .extract({ left: Math.round(width * 0.2), top: Math.round(height * 0.2), width: Math.round(width * 0.6), height: Math.round(height * 0.6) })
+      .extract({
+        left: Math.round(width * 0.2),
+        top: Math.round(height * 0.2),
+        width: Math.round(width * 0.6),
+        height: Math.round(height * 0.6),
+      })
       .png()
       .toBuffer();
     const r = (await handleRequest(
-      { op: "analyze", image: { bytes }, key: null, targets: [{ modelPath: idModel.path, missingMessage: "no model", crop: false }], detectorPath, presence: false, cardCrop: false },
+      {
+        op: "analyze",
+        image: { bytes },
+        key: null,
+        targets: [{ modelPath: idModel.path, missingMessage: "no model", crop: false }],
+        detectorPath,
+        presence: false,
+        cardCrop: false,
+      },
       hooks,
     )) as AnalyzeResult;
     const v = r.vectors[0];
     if (!(v instanceof Float32Array)) continue;
-    const run = { photo: q.photo, crop: b64(v), whole: b64(v), unsure: false, box: null, confidence: 0, animal: 0, detectMs: 0, embedMs: 0 };
+    const run = {
+      photo: q.photo,
+      crop: b64(v),
+      whole: b64(v),
+      unsure: false,
+      box: null,
+      confidence: 0,
+      animal: 0,
+      detectMs: 0,
+      embedMs: 0,
+    };
     appendFileSync(file, JSON.stringify(run) + "\n");
     runs.set(q.photo, run);
   }
@@ -443,12 +502,31 @@ async function runClip(queries: Query[]): Promise<Map<string, PhotoRun>> {
   const target = (crop: boolean): EmbedTarget => ({ modelPath: clipModel.path, missingMessage: "no CLIP model", crop });
   for (const q of todo) {
     const r = (await handleRequest(
-      { op: "analyze", image: { path: q.display }, key: `${detectorKey}:${q.photo}`, targets: [target(true), target(false)], detectorPath, presence: false, cardCrop: false, subject: true },
+      {
+        op: "analyze",
+        image: { path: q.display },
+        key: `${detectorKey}:${q.photo}`,
+        targets: [target(true), target(false)],
+        detectorPath,
+        presence: false,
+        cardCrop: false,
+        subject: true,
+      },
       hooks,
     )) as AnalyzeResult;
     const [crop, whole] = r.vectors;
     if (!(crop instanceof Float32Array) || !(whole instanceof Float32Array)) continue;
-    const run = { photo: q.photo, crop: b64(crop), whole: b64(whole), unsure: r.subjectUnsure ?? true, box: null, confidence: 0, animal: 0, detectMs: 0, embedMs: 0 };
+    const run = {
+      photo: q.photo,
+      crop: b64(crop),
+      whole: b64(whole),
+      unsure: r.subjectUnsure ?? true,
+      box: null,
+      confidence: 0,
+      animal: 0,
+      detectMs: 0,
+      embedMs: 0,
+    };
     appendFileSync(file, JSON.stringify(run) + "\n");
     runs.set(q.photo, run);
   }
@@ -534,12 +612,12 @@ function score(
       args.vectors === "whole"
         ? [whole]
         : args.vectors === "crop" || args.vectors === "centre"
-        ? [crop]
-        : args.vectors === "mean"
-          ? [l2Normalize(crop.map((v, i) => v + whole[i]))]
-          : args.vectors === "unsure" && !run.unsure
-            ? [crop]
-            : [crop, whole];
+          ? [crop]
+          : args.vectors === "mean"
+            ? [l2Normalize(crop.map((v, i) => v + whole[i]))]
+            : args.vectors === "unsure" && !run.unsure
+              ? [crop]
+              : [crop, whole];
     const ranked = rankCandidates(entries, new Map(), vectors, 10, null, space, null, false, TUNING);
     const at = ranked.findIndex((r) => r.id === q.species.id);
     const top = ranked[0] ? byId.get(ranked[0].id)! : null;
@@ -551,15 +629,16 @@ function score(
       confident: !!ranked[0]?.confident,
       unsure: run.unsure,
       found: !!run.box && !run.unsure,
-      miss: !top || at === 0
-        ? null
-        : top.cls !== t.cls
-          ? "class"
-          : top.family !== t.family
-            ? "family"
-            : top.genus !== t.genus
-              ? "genus"
-              : "species",
+      miss:
+        !top || at === 0
+          ? null
+          : top.cls !== t.cls
+            ? "class"
+            : top.family !== t.family
+              ? "family"
+              : top.genus !== t.genus
+                ? "genus"
+                : "species",
       top: top?.scientific ?? null,
       toBird: t.cls !== "aves" && top?.cls === "aves",
       group: (() => {
@@ -624,7 +703,8 @@ function table(title: string, groups: Array<[string, ReturnType<typeof summarize
 
 /** Per class: reference vectors per species, how many aren't portraits, and near copies. */
 function referenceStats(species: CatalogSpecies[], data: Float32Array): string {
-  let md = "| Class | Species | Vectors per species (median) | Mean | Species with 1 to 3 | Not portraits | Near copies |\n|---|---|---|---|---|---|---|\n";
+  let md =
+    "| Class | Species | Vectors per species (median) | Mean | Species with 1 to 3 | Not portraits | Near copies |\n|---|---|---|---|---|---|---|\n";
   for (const [cls, list] of [...groupBy(species, (s) => s.cls)].sort()) {
     const counts: number[] = [];
     let total = 0;
@@ -661,10 +741,11 @@ function ensembleSweep(
   const speciesScore = (qs: Float32Array[], refs: Float32Array[], text: Float32Array | null, tw: number) => {
     let best = -Infinity;
     let frame = qs[0];
-    for (const q of qs) for (const r of refs) {
-      const d = dot(q, r);
-      if (d > best) [best, frame] = [d, q];
-    }
+    for (const q of qs)
+      for (const r of refs) {
+        const d = dot(q, r);
+        if (d > best) [best, frame] = [d, q];
+      }
     if (best === -Infinity) return null;
     return text ? (1 - tw) * best + tw * dot(frame, text) : best;
   };
@@ -679,7 +760,9 @@ function ensembleSweep(
     const scores: Array<{ id: string; bio: number; clip: number }> = [];
     for (const s of species) {
       const own = s.id === q.species.id;
-      const bioRefs = (own ? q.keep : [s.ref, ...s.gallery.map((g) => g.at)].filter((at) => at >= 0)).map((at) => vec(data, at));
+      const bioRefs = (own ? q.keep : [s.ref, ...s.gallery.map((g) => g.at)].filter((at) => at >= 0)).map((at) =>
+        vec(data, at),
+      );
       const cs = clipCat.clip.get(s.id);
       let clipAts = cs ? [cs.ref, ...Object.values(cs.gallery)].filter((at) => at >= 0) : [];
       if (own && cs && cs.gallery[q.photo] != null) {
@@ -687,7 +770,12 @@ function ensembleSweep(
         clipAts = clipAts.filter((at) => dot(vec(clipCat.data, at), o) < SAME_PHOTO);
       }
       const bio = speciesScore(bq, bioRefs, s.text >= 0 ? vec(data, s.text) : null, ID_SPACE.textWeight);
-      const clip = speciesScore(cq, clipAts.map((at) => vec(clipCat.data, at)), cs && cs.text >= 0 ? vec(clipCat.data, cs.text) : null, CLIP_SPACE.textWeight);
+      const clip = speciesScore(
+        cq,
+        clipAts.map((at) => vec(clipCat.data, at)),
+        cs && cs.text >= 0 ? vec(clipCat.data, cs.text) : null,
+        CLIP_SPACE.textWeight,
+      );
       if (bio == null || clip == null) continue;
       scores.push({ id: s.id, bio, clip });
     }
@@ -767,7 +855,10 @@ async function main() {
     let refs = all;
     if (leaveOut && c) {
       const own = c.gallery[leaveOut.photo];
-      refs = own == null ? all : all.filter((at) => at !== own && dot(vec(clipCat!.data, at), vec(clipCat!.data, own)) < SAME_PHOTO);
+      refs =
+        own == null
+          ? all
+          : all.filter((at) => at !== own && dot(vec(clipCat!.data, at), vec(clipCat!.data, own)) < SAME_PHOTO);
     }
     return {
       ...speciesVectors(s, data),
@@ -786,7 +877,12 @@ async function main() {
     seasonality: null,
   }));
   const regionRows = (
-    await pool.query<{ species_id: string; is_vagrant: boolean | null; local_tier: string | null; weekly_frequency: number[] | null }>(
+    await pool.query<{
+      species_id: string;
+      is_vagrant: boolean | null;
+      local_tier: string | null;
+      weekly_frequency: number[] | null;
+    }>(
       `SELECT DISTINCT ON (rs.species_id) rs.species_id, rs.is_vagrant, rs.local_tier, rs.weekly_frequency
          FROM region_species rs JOIN regions r ON r.id = rs.region_id
         WHERE $1 = ANY(r.external_codes)
@@ -821,9 +917,19 @@ async function main() {
   let md = `## ${args.label} (detector: ${detectorKey})\n\n`;
   for (const view of args.views!.split(",") as Array<"regional" | "global">) {
     const t = performance.now();
-    const rows = score(clipMode ? clipQueries : queries, runs, { global, regional }, byId, ownVectors, view, clipMode ? CLIP_SPACE : SPACE);
+    const rows = score(
+      clipMode ? clipQueries : queries,
+      runs,
+      { global, regional },
+      byId,
+      ownVectors,
+      view,
+      clipMode ? CLIP_SPACE : SPACE,
+    );
     console.log(`Ranked ${view} in ${Math.round(performance.now() - t)} ms`);
-    const perClass = [...groupBy(rows, (r) => r.cls)].sort().map(([c, rs]) => [c, summarize(rs)] as [string, ReturnType<typeof summarize>]);
+    const perClass = [...groupBy(rows, (r) => r.cls)]
+      .sort()
+      .map(([c, rs]) => [c, summarize(rs)] as [string, ReturnType<typeof summarize>]);
     const families = [...groupBy(rows, (r) => `${r.cls}: ${r.family}`)]
       .filter(([, rs]) => rs.length >= 3)
       .map(([f, rs]) => [f, summarize(rs)] as [string, ReturnType<typeof summarize>])
@@ -831,7 +937,10 @@ async function main() {
       .slice(0, 20);
     const all = summarize(rows);
     report[view] = { all, perClass: Object.fromEntries(perClass), worstFamilies: Object.fromEntries(families) };
-    const name = view === "regional" ? `Within the ${args.region} checklist (plus the true species)` : "Against every catalog species";
+    const name =
+      view === "regional"
+        ? `Within the ${args.region} checklist (plus the true species)`
+        : "Against every catalog species";
     md += table(`${name}: per class`, [...perClass, ["**All**", all]]) + "\n";
     md += table(`${name}: worst 20 families (3+ photos)`, families) + "\n";
   }

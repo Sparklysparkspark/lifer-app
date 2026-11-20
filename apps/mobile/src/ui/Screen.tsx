@@ -18,7 +18,14 @@ interface Props {
 }
 
 /** A scrolling page that respects safe areas and the keyboard (MR13) and grows with Dynamic Type. The navigator owns the title. */
-export function Screen({ children, onRefresh, refreshing = false, safeTop = false, padded = true, inset = true }: Props) {
+export function Screen({
+  children,
+  onRefresh,
+  refreshing = false,
+  safeTop = false,
+  padded = true,
+  inset = true,
+}: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const pull = usePullRefresh(onRefresh, refreshing);
@@ -29,10 +36,20 @@ export function Screen({ children, onRefresh, refreshing = false, safeTop = fals
       keyboardDismissMode="on-drag"
       automaticallyAdjustKeyboardInsets
       contentInsetAdjustmentBehavior={inset && !safeTop ? "automatic" : "never"}
-      refreshControl={pull.onRefresh ? <RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} /> : undefined}
-      contentContainerStyle={{ flexGrow: 1, paddingTop: safeTop ? insets.top + 8 : 0, paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+      refreshControl={
+        pull.onRefresh ? <RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} /> : undefined
+      }
+      contentContainerStyle={{
+        flexGrow: 1,
+        paddingTop: safeTop ? insets.top + 8 : 0,
+        paddingBottom: Math.max(insets.bottom, 16) + 8,
+      }}
     >
-      {padded ? <View style={{ gap: 16, paddingHorizontal: 20, paddingTop: 8, flexGrow: 1 }}>{children}</View> : children}
+      {padded ? (
+        <View style={{ gap: 16, paddingHorizontal: 20, paddingTop: 8, flexGrow: 1 }}>{children}</View>
+      ) : (
+        children
+      )}
     </ScrollView>
   );
   // The scroll view must be the screen's own root on iOS: react-native-screens only sizes a form sheet's scroll

@@ -33,7 +33,13 @@ export function StartTripSheet() {
   return (
     <Screen padded={false}>
       <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
-        <TextField label={t("trips.nameLabel")} value={name} onChangeText={setName} autoCapitalize="words" maxLength={NAME_MAX_LENGTH} />
+        <TextField
+          label={t("trips.nameLabel")}
+          value={name}
+          onChangeText={setName}
+          autoCapitalize="words"
+          maxLength={NAME_MAX_LENGTH}
+        />
       </View>
       {data && data.length > 0 ? (
         <>
@@ -41,7 +47,13 @@ export function StartTripSheet() {
           <InsetGroup>
             <ListRow title={t("trips.noRegion")} selected={region === null} onPress={() => setRegion(null)} />
             {data.map((r) => (
-              <ListRow key={r.key} title={r.name} value={t("regions.speciesCount", { n: r.speciesCount })} selected={region === (r.hubRegionId ?? r.key)} onPress={() => setRegion(r.hubRegionId ?? r.key)} />
+              <ListRow
+                key={r.key}
+                title={r.name}
+                value={t("regions.speciesCount", { n: r.speciesCount })}
+                selected={region === (r.hubRegionId ?? r.key)}
+                onPress={() => setRegion(r.hubRegionId ?? r.key)}
+              />
             ))}
           </InsetGroup>
         </>

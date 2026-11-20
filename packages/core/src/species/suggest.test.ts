@@ -72,7 +72,11 @@ describe("suggestSpecies with the identification model", () => {
   it("ranks from the subject crop and the whole photo, computed in one job", async () => {
     // The crop matches nothing; the whole photo matches species a.
     analyzeImage.mockReturnValueOnce(
-      Promise.resolve({ vectors: [Float32Array.from([0, 1]), Float32Array.from([1, 0])], subjectUnsure: false, presence: null }),
+      Promise.resolve({
+        vectors: [Float32Array.from([0, 1]), Float32Array.from([1, 0])],
+        subjectUnsure: false,
+        presence: null,
+      }),
     );
     const result = await suggestSpecies(fakePool(), "u1", Buffer.from("c"), null);
     expect(analyzeImage).toHaveBeenCalledTimes(1);
@@ -101,7 +105,13 @@ describe("probableGroup", () => {
     ["d", { genus: "Bufo", family: "Bufonidae", taxon_class: "amphibia" }],
   ]);
   const ranked = (...pairs: Array<[string, number]>) =>
-    pairs.map(([id, score]) => ({ id, score, common_name: null, scientific_name: id, source: "reference_photo" as const }));
+    pairs.map(([id, score]) => ({
+      id,
+      score,
+      common_name: null,
+      scientific_name: id,
+      source: "reference_photo" as const,
+    }));
 
   it("offers the genus when the close runners-up share it", () => {
     expect(probableGroup(ranked(["a", 0.8], ["b", 0.795], ["d", 0.7]), taxa)).toEqual({
@@ -144,7 +154,11 @@ describe("rankCandidates with bats", () => {
   // a clearly beats b (margin 0.04), and both share a genus.
   const rank = (order: string) =>
     rankCandidates(
-      [entry("a", [1, 0], "Artibeus", order), entry("b", [0.96, 0.28], "Artibeus", order), entry("c", [0, 1], "Other", order)],
+      [
+        entry("a", [1, 0], "Artibeus", order),
+        entry("b", [0.96, 0.28], "Artibeus", order),
+        entry("c", [0, 1], "Other", order),
+      ],
       new Map(),
       [Float32Array.from([1, 0])],
       5,

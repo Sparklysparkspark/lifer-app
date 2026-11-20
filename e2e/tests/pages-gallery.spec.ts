@@ -97,9 +97,7 @@ test("searches, selects and edits photos in the Gallery", async ({ page }) => {
   // featured, so "Featured" then shows exactly one of the two moose.
   const moose = tiles.filter({ has: page.getByRole("img", { name: SPECIES.moose.commonName }) });
   await moose.first().getByRole("button", { name: "More options" }).click();
-  const firstLabel = await page
-    .getByRole("menuitem", { name: /^(Set as|Remove as) featured photo$/ })
-    .textContent();
+  const firstLabel = await page.getByRole("menuitem", { name: /^(Set as|Remove as) featured photo$/ }).textContent();
   await page.keyboard.press("Escape");
   // Newest first: moose.first() is the 2024 photo, moose.last() the 2022 one.
   const featuredNewest = firstLabel === "Set as featured photo";

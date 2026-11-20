@@ -22,9 +22,18 @@ export const PAGES: Record<string, string> = {
   guide: "/guide",
   "api-keys": "/settings/api-keys",
   ...Object.fromEntries(
-    ["general", "account", "species", "library", "metadata", "storage", "server", "integrations", "regions", "offline-data"].map(
-      (id) => [`settings-${id}`, `/settings/${id}`],
-    ),
+    [
+      "general",
+      "account",
+      "species",
+      "library",
+      "metadata",
+      "storage",
+      "server",
+      "integrations",
+      "regions",
+      "offline-data",
+    ].map((id) => [`settings-${id}`, `/settings/${id}`]),
   ),
 };
 

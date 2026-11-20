@@ -147,7 +147,9 @@ describe.skipIf(!url)("sync key routes", () => {
     const send = (payload: object) =>
       app.inject({ method: "POST", url: "/api/sync/push", headers: { "x-api-key": SYNC_KEY }, payload });
     const feed = async () =>
-      (await app.inject({ method: "GET", url: "/api/sync/species-split-kept", headers: { "x-api-key": SYNC_KEY } })).json();
+      (
+        await app.inject({ method: "GET", url: "/api/sync/species-split-kept", headers: { "x-api-key": SYNC_KEY } })
+      ).json();
     expect((await send({ captures: [], speciesSplitKept: [CAPTURE] })).json().library.members).toEqual({
       applied: 1,
       skipped: 0,

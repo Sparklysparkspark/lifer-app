@@ -43,7 +43,13 @@ const Preferences = Open({
 // The phone's region picker walks it as country > group > province.
 const RegionTree = Open({
   regions: Type.Array(
-    Open({ id: Uuid(), name: Type.String(), parentId: Nullable(Uuid()), depth: Type.Integer(), speciesCount: Type.Integer() }),
+    Open({
+      id: Uuid(),
+      name: Type.String(),
+      parentId: Nullable(Uuid()),
+      depth: Type.Integer(),
+      speciesCount: Type.Integer(),
+    }),
   ),
 });
 
@@ -176,12 +182,9 @@ export async function phoneSyncRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get(
-    "/sync/region-tree",
-    { preValidation: scope, schema: { response: replies(RegionTree) } },
-    async () => {
-      const res = await pool.query<{ id: string; name: string; parent_id: string | null; depth: number; n: number }>(
-        `WITH RECURSIVE counted AS (
+  app.get("/sync/region-tree", { preValidation: scope, schema: { response: replies(RegionTree) } }, async () => {
+    const res = await pool.query<{ id: string; name: string; parent_id: string | null; depth: number; n: number }>(
+      `WITH RECURSIVE counted AS (
            SELECT region_id AS id, count(*)::int AS n FROM region_species GROUP BY region_id
          ), up AS (
            SELECT r.id, r.name, r.parent_id, c.n FROM regions r JOIN counted c ON c.id = r.id
@@ -196,10 +199,17 @@ export async function phoneSyncRoutes(fastify: FastifyInstance): Promise<void> {
          )
          SELECT k.id::text AS id, k.name, k.parent_id::text AS parent_id, d.depth, k.n
            FROM kept k JOIN depth d ON d.id = k.id ORDER BY k.name, k.id`,
-      );
-      return { regions: res.rows.map((r) => ({ id: r.id, name: r.name, parentId: r.parent_id, depth: r.depth, speciesCount: r.n })) };
-    },
-  );
+    );
+    return {
+      regions: res.rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        parentId: r.parent_id,
+        depth: r.depth,
+        speciesCount: r.n,
+      })),
+    };
+  });
 
   app.get(
     "/sync/regions/:id/checklist",

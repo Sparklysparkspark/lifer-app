@@ -94,7 +94,12 @@ describe("rankCandidates", () => {
   });
   it("spreads picks over observers before taking a second photo from anyone", () => {
     const out = rankCandidates([c(1, 10), c(2, 10), c(3, 10), c(4, 20), c(5, 30)]);
-    expect(out.slice(0, 3).map((x) => x.observerId).sort()).toEqual([10, 20, 30]);
+    expect(
+      out
+        .slice(0, 3)
+        .map((x) => x.observerId)
+        .sort(),
+    ).toEqual([10, 20, 30]);
     expect(out).toHaveLength(5);
   });
   it("prefers new places and seasons among new observers", () => {
@@ -106,13 +111,30 @@ describe("rankCandidates", () => {
     expect(out.map((x) => x.photoId)).toEqual([1, 3, 2]);
   });
   it("never ranks a closed licence or an excluded photo", () => {
-    const out = rankCandidates([c(1, 10, { license: "CC-BY-NC" }), c(2, 20, { license: "CC-BY-SA" }), c(3, 30), c(4, 40)], new Set([4]));
+    const out = rankCandidates(
+      [c(1, 10, { license: "CC-BY-NC" }), c(2, 20, { license: "CC-BY-SA" }), c(3, 30), c(4, 40)],
+      new Set([4]),
+    );
     expect(out.map((x) => x.photoId)).toEqual([3]);
   });
 });
 
 const photo = (species: string, photoId: number) =>
-  JSON.stringify({ t: "photo", species, taxonId: 1, photoId, photographer: "a", license: "CC0", attribution: "", sourceUrl: "", photoUrl: "", observedOn: null, latitude: null, longitude: null, v: "" });
+  JSON.stringify({
+    t: "photo",
+    species,
+    taxonId: 1,
+    photoId,
+    photographer: "a",
+    license: "CC0",
+    attribution: "",
+    sourceUrl: "",
+    photoUrl: "",
+    observedOn: null,
+    latitude: null,
+    longitude: null,
+    v: "",
+  });
 
 describe("parseState", () => {
   it("resumes unfinished species, keeps their photos and never retries a photo", () => {
@@ -126,7 +148,10 @@ describe("parseState", () => {
     ].join("\n");
     const state = parseState(text);
     expect([...state.done]).toEqual(["Corvus corax"]);
-    expect([...state.have]).toEqual([["Corvus corax", 2], ["Pica pica", 1]]);
+    expect([...state.have]).toEqual([
+      ["Corvus corax", 2],
+      ["Pica pica", 1],
+    ]);
     expect([...state.tried].sort()).toEqual([1, 2, 3, 4]);
   });
   it("ignores a photo written twice", () => {
@@ -136,18 +161,31 @@ describe("parseState", () => {
 
 describe("needsWork", () => {
   const state = parseState(
-    [photo("Short a", 1), JSON.stringify({ t: "done", species: "Short a", photos: 1 }), JSON.stringify({ t: "done", species: "Full b", photos: 0 })].join("\n"),
+    [
+      photo("Short a", 1),
+      JSON.stringify({ t: "done", species: "Short a", photos: 1 }),
+      JSON.stringify({ t: "done", species: "Full b", photos: 0 }),
+    ].join("\n"),
   );
   it("works on species not done yet", () => expect(needsWork(state, "New c", 0, 6, false)).toBe(true));
-  it("reopens a done species that is short and has candidates", () => expect(needsWork(state, "Short a", 2, 6, true)).toBe(true));
-  it("counts Lifer's open gallery photos towards the target", () => expect(needsWork(state, "Full b", 6, 6, true)).toBe(false));
-  it("leaves a short species alone when it has no candidates", () => expect(needsWork(state, "Short a", 0, 6, false)).toBe(false));
+  it("reopens a done species that is short and has candidates", () =>
+    expect(needsWork(state, "Short a", 2, 6, true)).toBe(true));
+  it("counts Lifer's open gallery photos towards the target", () =>
+    expect(needsWork(state, "Full b", 6, 6, true)).toBe(false));
+  it("leaves a short species alone when it has no candidates", () =>
+    expect(needsWork(state, "Short a", 0, 6, false)).toBe(false));
 });
 
 describe("PRVE", () => {
   it("writes the specification's worked example byte for byte", () => {
     const buf = encodePrve("clip-l14-v1", 2, [
-      { species: "Corvus corax", licenseCode: 1, photographer: "A. Name", sourceUrl: "https://x.org/1", vector: Buffer.from(vectorToBase64([1.0, -0.5]), "base64") },
+      {
+        species: "Corvus corax",
+        licenseCode: 1,
+        photographer: "A. Name",
+        sourceUrl: "https://x.org/1",
+        vector: Buffer.from(vectorToBase64([1.0, -0.5]), "base64"),
+      },
     ]);
     expect(buf.toString("hex")).toBe(
       "5052564501000200010000000b00636c69702d6c31342d76310c00436f7276757320636f726178010700412e204e616d650f0068747470733a2f2f782e6f72672f31003c00b8",

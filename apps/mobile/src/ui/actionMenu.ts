@@ -17,11 +17,15 @@ export function showActions(title: string, cancel: string, actions: MenuAction[]
         title,
         options: [...actions.map((a) => a.label), cancel],
         cancelButtonIndex: actions.length,
-        destructiveButtonIndex: actions.findIndex((a) => a.destructive) >= 0 ? actions.findIndex((a) => a.destructive) : undefined,
+        destructiveButtonIndex:
+          actions.findIndex((a) => a.destructive) >= 0 ? actions.findIndex((a) => a.destructive) : undefined,
       },
       (i) => actions[i]?.onPress(),
     );
     return;
   }
-  Alert.alert(title, undefined, [...actions.slice(0, 2).map((a) => ({ text: a.label, onPress: a.onPress })), { text: cancel, style: "cancel" }]);
+  Alert.alert(title, undefined, [
+    ...actions.slice(0, 2).map((a) => ({ text: a.label, onPress: a.onPress })),
+    { text: cancel, style: "cancel" },
+  ]);
 }

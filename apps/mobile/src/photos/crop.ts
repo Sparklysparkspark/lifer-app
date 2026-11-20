@@ -5,8 +5,11 @@ export interface Crop {
   size: number;
 }
 
-export const toCrop = (x: number | null | undefined, y: number | null | undefined, size: number | null | undefined): Crop | null =>
-  x != null && y != null && size != null && size > 0 ? { x, y, size } : null;
+export const toCrop = (
+  x: number | null | undefined,
+  y: number | null | undefined,
+  size: number | null | undefined,
+): Crop | null => (x != null && y != null && size != null && size > 0 ? { x, y, size } : null);
 
 export interface CropFrame {
   width: string;
@@ -28,5 +31,10 @@ export function cropFrame(crop: Crop | null | undefined, aspect: number | null |
   const x = Math.min(Math.max(0, crop.x), 100 - size);
   const y = Math.min(Math.max(0, crop.y), tall - size);
   const width = (100 * 100) / size;
-  return { width: `${width}%`, height: `${width / aspect}%`, left: `${(-100 * x) / size}%`, top: `${(-100 * y) / size}%` };
+  return {
+    width: `${width}%`,
+    height: `${width / aspect}%`,
+    left: `${(-100 * x) / size}%`,
+    top: `${(-100 * y) / size}%`,
+  };
 }

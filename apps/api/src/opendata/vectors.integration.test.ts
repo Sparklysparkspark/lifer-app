@@ -106,9 +106,16 @@ describe.skipIf(!url)("opendata open vectors (API key)", () => {
       ["https://x/open-cc0.jpg", "https://x/open-ccby.jpg", "https://x/open-pd.jpg"].sort(),
     );
     const cc0 = items.find((i) => i.license === "cc0")!;
-    expect(cc0).toMatchObject({ scientificName: "Vectorus apertus", photographer: "Vector Tagged Name", sourceUrl: "https://x/open-cc0" });
+    expect(cc0).toMatchObject({
+      scientificName: "Vectorus apertus",
+      photographer: "Vector Tagged Name",
+      sourceUrl: "https://x/open-cc0",
+    });
     expect((cc0.embedding as number[]).length).toBe(768);
-    expect(items.find((i) => i.license === "pd")).toMatchObject({ photographer: "Photo Credit", sourceUrl: "https://x/open-pd.jpg" });
+    expect(items.find((i) => i.license === "pd")).toMatchObject({
+      photographer: "Photo Credit",
+      sourceUrl: "https://x/open-pd.jpg",
+    });
 
     const later = await get(`/api/opendata/v1/gallery-vectors?since=${encodeURIComponent(cc0.updatedAt as string)}`);
     expect(later.statusCode).toBe(200);

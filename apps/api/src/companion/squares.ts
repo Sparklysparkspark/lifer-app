@@ -61,14 +61,22 @@ async function bestSource(photoId: string, userId: string, display: string, crop
   for (const kind of ["jpeg", "raw"] as const) {
     const original = await resolveOriginal(photoId, userId, kind);
     if (!original?.connected || !original.ref || !(await statFile(original.ref))) continue;
-    const file = kind === "jpeg" && isJpegPath(original.ref) ? original.ref : await fullRender(photoId, original.ref, kind === "raw");
+    const file =
+      kind === "jpeg" && isJpegPath(original.ref)
+        ? original.ref
+        : await fullRender(photoId, original.ref, kind === "raw");
     const size = file ? await orientedSize(file).catch(() => null) : null;
     if (file && size && size.width > shown.width) return { file, ...size };
   }
   return { file: display, ...shown };
 }
 
-async function squareFile(photoId: string, userId: string, display: string, crop: SquareCrop | null): Promise<string | null> {
+async function squareFile(
+  photoId: string,
+  userId: string,
+  display: string,
+  crop: SquareCrop | null,
+): Promise<string | null> {
   const name = key(photoId, crop);
   const target = path.join(dir(), `${photoId}_${name}.webp`);
   const [made, shown] = await Promise.all([statFile(target), statFile(display)]);
@@ -82,9 +90,16 @@ async function squareFile(photoId: string, userId: string, display: string, crop
       const src = await bestSource(photoId, userId, display, crop);
       if (!src) return null;
       const { width, height } = src;
-      const cut = Math.max(1, Math.min(crop ? Math.round((crop.size / 100) * width) : Math.min(width, height), width, height));
-      const left = crop ? Math.min(Math.max(0, Math.round((crop.x / 100) * width)), width - cut) : Math.floor((width - cut) / 2);
-      const top = crop ? Math.min(Math.max(0, Math.round((crop.y / 100) * width)), height - cut) : Math.floor((height - cut) / 2);
+      const cut = Math.max(
+        1,
+        Math.min(crop ? Math.round((crop.size / 100) * width) : Math.min(width, height), width, height),
+      );
+      const left = crop
+        ? Math.min(Math.max(0, Math.round((crop.x / 100) * width)), width - cut)
+        : Math.floor((width - cut) / 2);
+      const top = crop
+        ? Math.min(Math.max(0, Math.round((crop.y / 100) * width)), height - cut)
+        : Math.floor((height - cut) / 2);
       await ensureDir(dir());
       const tmp = `${target}.${process.pid}.tmp`;
       await sharp(src.file, originalSharpOptions())
@@ -95,7 +110,9 @@ async function squareFile(photoId: string, userId: string, display: string, crop
         .toFile(tmp);
       await rename(tmp, target);
       // The photo's earlier crops are no longer shown.
-      const old = (await readdir(dir())).filter((f) => f.startsWith(`${photoId}_`) && f !== path.basename(target) && !f.endsWith(".tmp"));
+      const old = (await readdir(dir())).filter(
+        (f) => f.startsWith(`${photoId}_`) && f !== path.basename(target) && !f.endsWith(".tmp"),
+      );
       await Promise.all(old.map((f) => rm(path.join(dir(), f), { force: true })));
       return target;
     } catch {
@@ -110,10 +127,17 @@ async function squareFile(photoId: string, userId: string, display: string, crop
 }
 
 const toCrop = (x: unknown, y: unknown, size: unknown): SquareCrop | null =>
-  x != null && y != null && size != null && Number(size) > 0 ? { x: Number(x), y: Number(y), size: Number(size) } : null;
+  x != null && y != null && size != null && Number(size) > 0
+    ? { x: Number(x), y: Number(y), size: Number(size) }
+    : null;
 
 /** The user's crop for this owner, when the photo shown is the cover it was framed for. */
-async function cropFor(kind: "species" | "album" | "trip", id: string, userId: string, photoId: string): Promise<SquareCrop | null> {
+async function cropFor(
+  kind: "species" | "album" | "trip",
+  id: string,
+  userId: string,
+  photoId: string,
+): Promise<SquareCrop | null> {
   if (kind === "species") {
     const r = await pool.query(
       `SELECT us.card_crop_x x, us.card_crop_y y, us.card_crop_size size FROM user_species us JOIN species s ON s.id = us.species_id

@@ -19,15 +19,33 @@ describe("photoKey", () => {
 
 describe("publishableCount", () => {
   it("counts only photos the project may publish", () => {
-    expect(publishableCount([{ license: "cc-by-nc" }, { license: "all-rights-reserved" }, { license: null }, { license: "cc0" }])).toBe(2);
+    expect(
+      publishableCount([
+        { license: "cc-by-nc" },
+        { license: "all-rights-reserved" },
+        { license: null },
+        { license: "cc0" },
+      ]),
+    ).toBe(2);
   });
 });
 
 describe("topUpCandidates", () => {
   it("drops unpublishable licences, the main photo, gallery photos and repeats, keeping order", () => {
     const picked = topUpCandidates(
-      [photo(1, "cc-by"), photo(2, null), photo(3, "cc-by-nc"), photo(4, "CC-BY-SA"), photo(3, "cc-by-nc", "static.inaturalist.org"), photo(5, "cc0")],
-      ["https://static.inaturalist.org/photos/1/large.jpg", "https://inaturalist-open-data.s3.amazonaws.com/photos/5/medium.jpeg", null],
+      [
+        photo(1, "cc-by"),
+        photo(2, null),
+        photo(3, "cc-by-nc"),
+        photo(4, "CC-BY-SA"),
+        photo(3, "cc-by-nc", "static.inaturalist.org"),
+        photo(5, "cc0"),
+      ],
+      [
+        "https://static.inaturalist.org/photos/1/large.jpg",
+        "https://inaturalist-open-data.s3.amazonaws.com/photos/5/medium.jpeg",
+        null,
+      ],
     );
     expect(picked.map((p) => [photoKey(p.photoUrl), p.license])).toEqual([
       ["3", "cc-by-nc"],

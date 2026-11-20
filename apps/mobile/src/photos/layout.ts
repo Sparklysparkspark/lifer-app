@@ -3,8 +3,7 @@
 import type { GridPhoto } from "../store/library";
 
 export type GridRow =
-  | { type: "heading"; key: string; monthKey: string }
-  | { type: "photos"; key: string; ids: string[]; widths: number[] };
+  { type: "heading"; key: string; monthKey: string } | { type: "photos"; key: string; ids: string[]; widths: number[] };
 
 export interface Grid {
   rows: GridRow[];
@@ -20,7 +19,8 @@ export interface Grid {
 
 export type Shaped = GridPhoto & { width?: number | null; height?: number | null; name?: string | null };
 
-export const monthOf = (takenAt: string | null): string => (takenAt && /^\d{4}-\d{2}/.test(takenAt) ? takenAt.slice(0, 7) : "undated");
+export const monthOf = (takenAt: string | null): string =>
+  takenAt && /^\d{4}-\d{2}/.test(takenAt) ? takenAt.slice(0, 7) : "undated";
 
 interface Layout {
   /** Total width of the grid. */

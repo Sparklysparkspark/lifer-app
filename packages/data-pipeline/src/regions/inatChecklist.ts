@@ -584,7 +584,10 @@ export async function matchedSpeciesIdsForRegion(
       matchedSpeciesIds.add(row.id);
       matchedNames.add(row.scientific_name);
       if (taxonId)
-        await pool.query(`UPDATE species SET inat_taxon_id = $1 WHERE id = $2 AND NOT EXISTS (SELECT 1 FROM species o WHERE o.inat_taxon_id = $1 AND o.id <> $2 AND NOT o.is_other_taxa)`, [taxonId, row.id]);
+        await pool.query(
+          `UPDATE species SET inat_taxon_id = $1 WHERE id = $2 AND NOT EXISTS (SELECT 1 FROM species o WHERE o.inat_taxon_id = $1 AND o.id <> $2 AND NOT o.is_other_taxa)`,
+          [taxonId, row.id],
+        );
     }
 
     // Then by synonym, for species iNat renamed or split. The synonym's iNat id isn't stored on
@@ -620,10 +623,10 @@ export async function resolveRemovalRescues(
     const currentTaxonId = await resolveCurrentInatTaxonId(candidate.scientific_name);
     if (currentTaxonId != null && rawTaxonIds.has(currentTaxonId)) {
       // A taxon another catalog species already holds makes this one its duplicate, not a rescue.
-      const linked = await pool.query(`UPDATE species SET inat_taxon_id = $1 WHERE id = $2 AND NOT EXISTS (SELECT 1 FROM species o WHERE o.inat_taxon_id = $1 AND o.id <> $2 AND NOT o.is_other_taxa)`, [
-        currentTaxonId,
-        candidate.id,
-      ]);
+      const linked = await pool.query(
+        `UPDATE species SET inat_taxon_id = $1 WHERE id = $2 AND NOT EXISTS (SELECT 1 FROM species o WHERE o.inat_taxon_id = $1 AND o.id <> $2 AND NOT o.is_other_taxa)`,
+        [currentTaxonId, candidate.id],
+      );
       if (linked.rowCount) rescued.add(candidate.id);
     }
   }

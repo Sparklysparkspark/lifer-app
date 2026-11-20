@@ -33,7 +33,9 @@ function bigCsv(): string {
     const { subId, day, hour } = checklistAt(i);
     const time = `${String(hour > 12 ? hour - 12 : hour).padStart(2, "0")}:00 ${hour >= 12 ? "PM" : "AM"}`;
     for (const sci of BIRDS)
-      rows.push(`${subId},Bird,${sci},1,1,BC,Metro,L${i},"Pond ${i}, north side",49.1,-123.1,${day},${time},Traveling,45,1`);
+      rows.push(
+        `${subId},Bird,${sci},1,1,BC,Metro,L${i},"Pond ${i}, north side",49.1,-123.1,${day},${time},Traveling,45,1`,
+      );
   }
   return rows.join("\n");
 }
@@ -133,7 +135,7 @@ describe.skipIf(!url)("ebird with 4,000 checklists", () => {
   it("pages through every checklist once, newest first", async () => {
     const seen: string[] = [];
     await timed("page all 4,000", async () => {
-      for (let offset = 0; ; ) {
+      for (let offset = 0; ;) {
         const page = (await call("GET", `/api/ebird/checklists?offset=${offset}`)).json();
         expect(page.total).toBe(COUNT);
         if (page.items.length === 0) break;
@@ -161,8 +163,7 @@ describe.skipIf(!url)("ebird with 4,000 checklists", () => {
   }, 60_000);
 
   // Statistics as autovacuum leaves them shortly after a big import.
-  const analyze = () =>
-    db.query(`ANALYZE ebird_checklists; ANALYZE capture_ebird_checklists; ANALYZE captures_all`);
+  const analyze = () => db.query(`ANALYZE ebird_checklists; ANALYZE capture_ebird_checklists; ANALYZE captures_all`);
 
   it("answers a trip with 4,000 checklists quickly", async () => {
     await analyze();
@@ -175,11 +176,15 @@ describe.skipIf(!url)("ebird with 4,000 checklists", () => {
   }, 30_000);
 
   // Known gap (I-07): the trip's list stops at 500 with no way to see the rest.
-  it.fails("lists all of a trip's 4,000 checklists", async () => {
-    await analyze();
-    const res = await call("GET", `/api/trips/${TRIP}/ebird-checklists`);
-    const lists = res.json().checklists as Array<{ subId: string; suggested: number }>;
-    expect(lists).toHaveLength(COUNT);
-    expect(lists.filter((c) => c.suggested === 1)).toHaveLength(PHOTOS);
-  }, 30_000);
+  it.fails(
+    "lists all of a trip's 4,000 checklists",
+    async () => {
+      await analyze();
+      const res = await call("GET", `/api/trips/${TRIP}/ebird-checklists`);
+      const lists = res.json().checklists as Array<{ subId: string; suggested: number }>;
+      expect(lists).toHaveLength(COUNT);
+      expect(lists.filter((c) => c.suggested === 1)).toHaveLength(PHOTOS);
+    },
+    30_000,
+  );
 });

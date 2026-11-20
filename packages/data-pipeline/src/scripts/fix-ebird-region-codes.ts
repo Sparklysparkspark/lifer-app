@@ -114,7 +114,10 @@ export async function fixEbirdRegionCodes(opts: { apply: boolean; log?: (m: stri
     for (const r of ebird) known.add(r.code);
     const matched = list.map((p) => ({ p, to: matchEbirdCode(p, ebird) }));
     // Two provinces on one eBird region would share its list: neither gets it.
-    const taken = groupBy(matched.filter((m) => m.to), (m) => m.to!);
+    const taken = groupBy(
+      matched.filter((m) => m.to),
+      (m) => m.to!,
+    );
     for (const { p, to } of matched) {
       if (to === p.code) continue;
       if (!to || taken.get(to)!.length > 1) unmatched.push(`${p.code} ${p.name}`);
@@ -122,7 +125,9 @@ export async function fixEbirdRegionCodes(opts: { apply: boolean; log?: (m: stri
     }
   }
   for (const c of changes) log(`${c.from} -> ${c.to} ${c.name}`);
-  log(`${changes.length} codes corrected; ${unmatched.length} matching no single eBird region: ${unmatched.join(", ")}`);
+  log(
+    `${changes.length} codes corrected; ${unmatched.length} matching no single eBird region: ${unmatched.join(", ")}`,
+  );
 
   // eBird's species list for each corrected code, and again for one cached empty under a code
   // eBird knows: answered while the hourly limit was spent, or legitimately empty. Each is asked

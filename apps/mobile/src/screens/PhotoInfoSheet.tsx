@@ -16,15 +16,20 @@ export function PhotoInfoSheet({ route }: { route: { params: RootParams["PhotoIn
   const app = useApp();
   const nav = useNav();
   useSheetHeader();
-  const { data } = useLocal(async (db) => {
-    const info = await photoInfo(db, photoId);
-    return { info, species: info ? await getSpecies(db, info.scientificName) : null };
-  }, [photoId]);
+  const { data } = useLocal(
+    async (db) => {
+      const info = await photoInfo(db, photoId);
+      return { info, species: info ? await getSpecies(db, info.scientificName) : null };
+    },
+    [photoId],
+  );
   if (!data?.info) return <Screen>{null}</Screen>;
   const { info, species } = data;
   // Where it was is never shown for a sensitive species.
   const sensitive = app.isSensitive(info.scientificName, !!species?.sensitive);
-  const when = info.takenAt ? [dateText(t, info.takenAt), timeText(info.takenAt)].filter(Boolean).join(", ") : t("photos.undated");
+  const when = info.takenAt
+    ? [dateText(t, info.takenAt), timeText(info.takenAt)].filter(Boolean).join(", ")
+    : t("photos.undated");
   const open = (to: () => void) => () => {
     nav.goBack();
     setTimeout(to, 350);
@@ -42,8 +47,16 @@ export function PhotoInfoSheet({ route }: { route: { params: RootParams["PhotoIn
             onPress={open(() => nav.navigate("Species", { scientificName: info.scientificName }))}
           />
           <ListRow title={when} subtitle={sensitive ? t("viewer.placeHidden") : (info.place ?? undefined)} />
-          {info.trip ? <ListRow title={info.trip.name} subtitle={t("viewer.trip")} onPress={open(() => nav.navigate("Trip", { id: info.trip!.id }))} /> : null}
-          {info.albums.length ? <ListRow title={info.albums.join(", ")} subtitle={t("viewer.albums", { n: info.albums.length })} /> : null}
+          {info.trip ? (
+            <ListRow
+              title={info.trip.name}
+              subtitle={t("viewer.trip")}
+              onPress={open(() => nav.navigate("Trip", { id: info.trip!.id }))}
+            />
+          ) : null}
+          {info.albums.length ? (
+            <ListRow title={info.albums.join(", ")} subtitle={t("viewer.albums", { n: info.albums.length })} />
+          ) : null}
           {info.tags.length ? <ListRow title={info.tags.join(", ")} subtitle={t("viewer.tags")} /> : null}
         </InsetGroup>
       </View>

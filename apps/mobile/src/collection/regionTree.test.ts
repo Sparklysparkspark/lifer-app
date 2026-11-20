@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { TreeNode } from "../sync/regionTree";
 import { buildRegionTree } from "./regionTree";
 
-const n = (id: string, name: string, parentId: string | null, depth: number, speciesCount = 0): TreeNode => ({ id, name, parentId, depth, speciesCount });
+const n = (id: string, name: string, parentId: string | null, depth: number, speciesCount = 0): TreeNode => ({
+  id,
+  name,
+  parentId,
+  depth,
+  speciesCount,
+});
 const nodes = [
   n("w", "World", null, 0),
   n("na", "North America", "w", 1),

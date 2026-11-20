@@ -65,15 +65,42 @@ function fakeHub(
       }
       if (url.pathname === "/sync/user-species") return { items: [...marks.values()] } as never;
       if (url.pathname === "/sync/preferences")
-        return { nameDisplay: null, namingStyles: [], sensitive: { enabled: true, added: [], removed: [], iucnStatuses: [] }, geoprivacy: { spotDefault: "open" }, regions: opts.regions ?? [] } as never;
+        return {
+          nameDisplay: null,
+          namingStyles: [],
+          sensitive: { enabled: true, added: [], removed: [], iucnStatuses: [] },
+          geoprivacy: { spotDefault: "open" },
+          regions: opts.regions ?? [],
+        } as never;
       if (url.pathname === "/companion/v1/albums/smart") return { albums: opts.smart ?? [] } as never;
       if (url.pathname.endsWith("/checklist"))
-        return { regionId: url.pathname.split("/")[3], name: "Norfolk", items: [{ scientificName: "Cygnus olor", commonName: "Mute Swan", taxonClass: "aves", tier: "common", isVagrant: false, sensitiveByDefault: false }] } as never;
+        return {
+          regionId: url.pathname.split("/")[3],
+          name: "Norfolk",
+          items: [
+            {
+              scientificName: "Cygnus olor",
+              commonName: "Mute Swan",
+              taxonClass: "aves",
+              tier: "common",
+              isVagrant: false,
+              sensitiveByDefault: false,
+            },
+          ],
+        } as never;
       if (url.pathname === "/sync/region-tree") return { regions: opts.tree ?? [] } as never;
       if (url.pathname === "/sync/search-vocab")
         return {
           regions: [{ id: "c", name: "Wonderland", parentId: null }],
-          species: [{ scientificName: "Cygnus olor", taxonOrder: "anseriformes", family: "anatidae", aliases: ["mute"], codes: ["mutswa"] }],
+          species: [
+            {
+              scientificName: "Cygnus olor",
+              taxonOrder: "anseriformes",
+              family: "anatidae",
+              aliases: ["mute"],
+              codes: ["mutswa"],
+            },
+          ],
         } as never;
       if (url.pathname === "/gallery") return { items: [], nextCursor: null } as never;
       return { items: [], purged: [], last: null, next: null } as never;
@@ -99,7 +126,12 @@ function fakeHub(
   return { api, calls, marks };
 }
 
-const deps = (db: Awaited<ReturnType<typeof migratedDb>>, api: SyncApi) => ({ db, api, now: () => NOW, sleep: async () => undefined });
+const deps = (db: Awaited<ReturnType<typeof migratedDb>>, api: SyncApi) => ({
+  db,
+  api,
+  now: () => NOW,
+  sleep: async () => undefined,
+});
 
 describe("pull", () => {
   it("pages through 1,200 captures with a cursor and resumes after it", async () => {
@@ -120,7 +152,10 @@ describe("pull", () => {
     await runSync(deps(db, hub.api));
     const online = fakeHub({ marks: [hubMark("Anas crecca", { state: "seen" })] });
     await runSync(deps(db, online.api));
-    expect(await getMark(db, "Anas crecca")).toMatchObject({ state: "seen", hubVersion: "2026-10-01T00:00:00.000000Z" });
+    expect(await getMark(db, "Anas crecca")).toMatchObject({
+      state: "seen",
+      hubVersion: "2026-10-01T00:00:00.000000Z",
+    });
   });
 });
 
@@ -129,8 +164,13 @@ describe("search vocabulary", () => {
     const db = await migratedDb();
     await runSync(deps(db, fakeHub({ captures: [capture(1)] }).api));
     expect(await db.all("SELECT id, name FROM search_regions")).toEqual([{ id: "c", name: "Wonderland" }]);
-    expect(await db.all("SELECT aliases, codes FROM species_names")).toEqual([{ aliases: '["mute"]', codes: '["mutswa"]' }]);
-    expect(await db.get("SELECT taxon_order, family FROM species WHERE scientific_name = 'Cygnus olor'")).toEqual({ taxon_order: "anseriformes", family: "anatidae" });
+    expect(await db.all("SELECT aliases, codes FROM species_names")).toEqual([
+      { aliases: '["mute"]', codes: '["mutswa"]' },
+    ]);
+    expect(await db.get("SELECT taxon_order, family FROM species WHERE scientific_name = 'Cygnus olor'")).toEqual({
+      taxon_order: "anseriformes",
+      family: "anatidae",
+    });
   });
 });
 
@@ -172,7 +212,9 @@ describe("preconfigured regions and smart albums", () => {
     const db = await migratedDb();
     await runSync(deps(db, fakeHub({ smart: [{ id: "s1", captureIds: ["c1", "c2"] }] }).api));
     await runSync(deps(db, fakeHub({ smart: [{ id: "s1", captureIds: ["c2", "c3"] }] }).api));
-    const rows = await db.all<{ capture_id: string }>("SELECT capture_id FROM album_captures WHERE album_id = 's1' ORDER BY 1");
+    const rows = await db.all<{ capture_id: string }>(
+      "SELECT capture_id FROM album_captures WHERE album_id = 's1' ORDER BY 1",
+    );
     expect(rows.map((r) => r.capture_id)).toEqual(["c2", "c3"]);
   });
 });
@@ -233,14 +275,27 @@ describe("push", () => {
 
   it("reports a refused key", async () => {
     const db = await migratedDb();
-    const api: SyncApi = { get: async () => { throw new HubError(401); }, post: async () => { throw new HubError(401); } };
+    const api: SyncApi = {
+      get: async () => {
+        throw new HubError(401);
+      },
+      post: async () => {
+        throw new HubError(401);
+      },
+    };
     expect(await runSync(deps(db, api))).toMatchObject({ unauthorized: true });
   });
 
   it("retries a hub that answers 503 twice, then gives up quietly", async () => {
     const db = await migratedDb();
     let n = 0;
-    const api: SyncApi = { get: async () => { n++; throw new HubError(503); }, post: async () => ({}) as never };
+    const api: SyncApi = {
+      get: async () => {
+        n++;
+        throw new HubError(503);
+      },
+      post: async () => ({}) as never,
+    };
     const res = await runSync(deps(db, api));
     expect(res.reached).toBe(false);
     expect(n).toBe(3);
@@ -249,7 +304,18 @@ describe("push", () => {
 
 describe("conflict rule and backoff", () => {
   it("resolveConflict", () => {
-    const local = { scientificName: "a b", state: "seen" as const, isTarget: false, coverPhotoId: null, firstCollected: null, bestQuality: null, cardCropX: null, cardCropY: null, cardCropSize: null, hubVersion: "v1" };
+    const local = {
+      scientificName: "a b",
+      state: "seen" as const,
+      isTarget: false,
+      coverPhotoId: null,
+      firstCollected: null,
+      bestQuality: null,
+      cardCropX: null,
+      cardCropY: null,
+      cardCropSize: null,
+      hubVersion: "v1",
+    };
     expect(resolveConflict(local, hubMark("a b", { state: null })).mark.state).toBe(null);
     expect(resolveConflict({ ...local, hubVersion: null }, hubMark("a b", { state: null })).requeue).toBe(true);
   });

@@ -66,9 +66,7 @@ test("rates, sorts, edits and deletes photos on a species page", async ({ page }
   // The tile menu: featured photo, tags and a place name.
   const menuButton = tiles.first().getByRole("button", { name: "More options" });
   await menuButton.click();
-  const featured = await page
-    .getByRole("menuitem", { name: /^(Set as|Remove as) featured photo$/ })
-    .textContent();
+  const featured = await page.getByRole("menuitem", { name: /^(Set as|Remove as) featured photo$/ }).textContent();
   if (featured === "Set as featured photo") {
     const saved = page.waitForResponse((res) => res.url().endsWith("/cover") && res.request().method() === "PATCH");
     await page.getByRole("menuitem", { name: "Set as featured photo" }).click();

@@ -172,7 +172,9 @@ function SidebarLink({
           )}
         </span>
         <span className="min-w-0 truncate">{label}</span>
-        {!!count && <span className="ml-auto shrink-0 text-footnote tabular-nums text-muted">{formatNumber(count)}</span>}
+        {!!count && (
+          <span className="ml-auto shrink-0 text-footnote tabular-nums text-muted">{formatNumber(count)}</span>
+        )}
       </NavLink>
       {tip.node}
     </>

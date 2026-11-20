@@ -36,18 +36,45 @@ export const SpeciesRow = memo(function SpeciesRow({ row, onPress, actions, onLo
       onLongPress={onLongPress ? () => onLongPress(row) : undefined}
       actions={actions?.(row)}
     >
-      <View style={{ minHeight: 68, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: colors.canvas }}>
+      <View
+        style={{
+          minHeight: 68,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          paddingHorizontal: 16,
+          paddingVertical: 8,
+          backgroundColor: colors.canvas,
+        }}
+      >
         <View
-          style={{ width: 52, height: 52, borderRadius: 10, overflow: "hidden", backgroundColor: colors["surface-muted"], alignItems: "center", justifyContent: "center" }}
+          style={{
+            width: 52,
+            height: 52,
+            borderRadius: 10,
+            overflow: "hidden",
+            backgroundColor: colors["surface-muted"],
+            alignItems: "center",
+            justifyContent: "center",
+          }}
         >
           {uri ? (
-            <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" recyclingKey={uri} transition={0} accessibilityIgnoresInvertColors />
+            <Image
+              source={{ uri }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              recyclingKey={uri}
+              transition={0}
+              accessibilityIgnoresInvertColors
+            />
           ) : (
             <Icon name={group.id as IconName} size={26} color={colors[group.color]} weight="regular" />
           )}
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={{ color: colors.ink, fontSize: type.body.size, fontStyle: scientificFirst ? "italic" : "normal" }}>
+          <Text
+            style={{ color: colors.ink, fontSize: type.body.size, fontStyle: scientificFirst ? "italic" : "normal" }}
+          >
             {first}
           </Text>
           <Text style={{ color: colors.muted, fontSize: type.subheadline.size }}>

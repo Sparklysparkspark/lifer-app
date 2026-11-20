@@ -76,7 +76,9 @@ describe("downloads", () => {
     const { deps } = await setup({ wifiOnly: true });
     expect(await downloadsAllowed({ ...deps, metered: async () => true })).toBe(false);
     expect(await downloadsAllowed(deps)).toBe(true);
-    expect(await downloadsAllowed({ settings: () => ({ ...DEFAULT_SETTINGS, wifiOnly: false }), metered: async () => true })).toBe(true);
+    expect(
+      await downloadsAllowed({ settings: () => ({ ...DEFAULT_SETTINGS, wifiOnly: false }), metered: async () => true }),
+    ).toBe(true);
   });
 
   it("serves a cached copy without downloading again, and records nothing for a failed download", async () => {
@@ -112,8 +114,16 @@ describe("downloads", () => {
 
 describe("showcase", () => {
   const cap = (id: string, name: string, rating: number | null, photo = `p-${id}`) => ({
-    id, deletedAt: null, hiddenAt: null, scientificName: name, takenAt: "2026-01-01T00:00:00Z", tags: [],
-    qualityRating: rating, locationLabel: null, regionId: null, photo: { id: photo, width: 1, height: 1, kind: "image" },
+    id,
+    deletedAt: null,
+    hiddenAt: null,
+    scientificName: name,
+    takenAt: "2026-01-01T00:00:00Z",
+    tags: [],
+    qualityRating: rating,
+    locationLabel: null,
+    regionId: null,
+    photo: { id: photo, width: 1, height: 1, kind: "image" },
   });
 
   it("is one cover per species plus Favourites, minus what is already saved", async () => {
@@ -153,7 +163,12 @@ describe("MediaQueue", () => {
   it("does not hammer a photo that just failed", async () => {
     let t = 0;
     let n = 0;
-    const q = new MediaQueue(async () => (n++, Promise.reject(new Error("x"))), 1, () => t, 1000);
+    const q = new MediaQueue(
+      async () => (n++, Promise.reject(new Error("x"))),
+      1,
+      () => t,
+      1000,
+    );
     q.request("a");
     await new Promise((r) => setTimeout(r, 0));
     q.request("a");
@@ -174,7 +189,9 @@ describe("reference photos", () => {
     expect(hubPath("thumb", id)).toBe("/companion/v1/reference/Turdus_migratorius/thumb");
     expect(hubPath("view", id)).toBe("/companion/v1/reference/Turdus_migratorius/display");
     expect(hubPath("thumb", "abc")).toBe("/photos/abc/thumb");
-    expect(mediaPath({ dirs: { thumb: "/t", view: "/v", phone: "/p", full: "/f" } }, "thumb", id)).toBe("/t/ref_Turdus_migratorius.img");
+    expect(mediaPath({ dirs: { thumb: "/t", view: "/v", phone: "/p", full: "/f" } }, "thumb", id)).toBe(
+      "/t/ref_Turdus_migratorius.img",
+    );
   });
 });
 

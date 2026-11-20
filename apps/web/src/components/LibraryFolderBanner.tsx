@@ -183,7 +183,11 @@ export default function LibraryFolderBanner() {
             {p.message}
           </p>
         ))}
-      <Modal open={browsing} onClose={() => setBrowsing(false)} title={t("settings.storage.location.chooseConfirm.title")}>
+      <Modal
+        open={browsing}
+        onClose={() => setBrowsing(false)}
+        title={t("settings.storage.location.chooseConfirm.title")}
+      >
         <FolderBrowser initialPath={library?.path} onChoose={apply} onCancel={() => setBrowsing(false)} />
       </Modal>
     </div>

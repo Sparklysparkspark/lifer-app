@@ -219,13 +219,14 @@ describe("SpeciesDetailPage", () => {
 
   describe("opened from a trip", () => {
     // Each photo's caption is its place, named after its capture here.
-    const tiles = () =>
-      screen.queryAllByTestId("photo-tile").map((tile) => tile.textContent?.match(/cap\d/)?.[0]);
+    const tiles = () => screen.queryAllByTestId("photo-tile").map((tile) => tile.textContent?.match(/cap\d/)?.[0]);
     function renderFromTrip(captures: Partial<SpeciesCapture>[]) {
       localStorage.setItem("lifer:showPhotoLabels", "true");
       serve(speciesDetail(captures.map((c, i) => ({ location_label: `cap${i}`, ...c }))));
       return render(
-        <MemoryRouter initialEntries={[{ pathname: "/species/sp1", search: "?trip=t1", state: { backLabel: "Yukon" } }]}>
+        <MemoryRouter
+          initialEntries={[{ pathname: "/species/sp1", search: "?trip=t1", state: { backLabel: "Yukon" } }]}
+        >
           <Routes>
             <Route path="/species/:id" element={<SpeciesDetailPage />} />
           </Routes>

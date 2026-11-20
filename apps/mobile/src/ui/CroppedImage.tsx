@@ -12,7 +12,17 @@ export function CroppedImage({ uri, crop }: { uri: string; crop?: Crop | null })
   const aspect = seen?.uri === uri ? seen.aspect : null;
   const frame = cropFrame(crop, aspect);
   if (!crop) {
-    return <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" recyclingKey={uri} transition={0} testID="cropped-image" accessibilityIgnoresInvertColors />;
+    return (
+      <Image
+        source={{ uri }}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        recyclingKey={uri}
+        transition={0}
+        testID="cropped-image"
+        accessibilityIgnoresInvertColors
+      />
+    );
   }
   return (
     <View style={[StyleSheet.absoluteFill, { overflow: "hidden" }]}>

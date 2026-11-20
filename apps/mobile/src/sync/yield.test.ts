@@ -25,7 +25,11 @@ describe("yield helpers", () => {
   it("throttle drops ticks inside the window and lets a forced one through", () => {
     let t = 0;
     const got: number[] = [];
-    const f = throttle((n: number) => got.push(n), 500, () => t);
+    const f = throttle(
+      (n: number) => got.push(n),
+      500,
+      () => t,
+    );
     f(1);
     t = 100;
     f(2);

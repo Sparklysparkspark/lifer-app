@@ -13,12 +13,38 @@ import { Tap } from "../ui/Tap";
 import { useNav } from "./types";
 
 export type MenuEntry =
-  | { type: "action"; label: string; onPress: () => void; checked?: boolean; icon?: IconName; destructive?: boolean; disabled?: boolean }
+  | {
+      type: "action";
+      label: string;
+      onPress: () => void;
+      checked?: boolean;
+      icon?: IconName;
+      destructive?: boolean;
+      disabled?: boolean;
+    }
   | { type: "submenu"; label: string; description?: string; icon?: IconName; inline?: boolean; items: MenuEntry[] };
 
 export type BarItem =
-  | { type: "button"; key: string; label: string; icon?: IconName; onPress: () => void; badge?: string; separate?: boolean; prominent?: boolean; tint?: string }
-  | { type: "menu"; key: string; label: string; icon: IconName; title?: string; items: MenuEntry[]; separate?: boolean };
+  | {
+      type: "button";
+      key: string;
+      label: string;
+      icon?: IconName;
+      onPress: () => void;
+      badge?: string;
+      separate?: boolean;
+      prominent?: boolean;
+      tint?: string;
+    }
+  | {
+      type: "menu";
+      key: string;
+      label: string;
+      icon: IconName;
+      title?: string;
+      items: MenuEntry[];
+      separate?: boolean;
+    };
 
 export interface HeaderOpts {
   title?: string;
@@ -51,7 +77,8 @@ export function useAccountState(): { label: string; badge: string | undefined } 
   return { label: t("account.labelUpToDate"), badge: undefined };
 }
 
-const flatten = (items: MenuEntry[]): MenuEntry[] => items.flatMap((i) => (i.type === "submenu" ? flatten(i.items) : [i]));
+const flatten = (items: MenuEntry[]): MenuEntry[] =>
+  items.flatMap((i) => (i.type === "submenu" ? flatten(i.items) : [i]));
 
 export function useHeader(opts: HeaderOpts): void {
   const nav = useNav();
@@ -66,12 +93,23 @@ export function useHeader(opts: HeaderOpts): void {
     ...(opts.items ?? []),
     ...(opts.noAccount
       ? []
-      : [{ type: "button", key: "account", label: account.label, icon: "account", onPress: () => nav.navigate("YourLifer"), badge: account.badge } as BarItem]),
+      : [
+          {
+            type: "button",
+            key: "account",
+            label: account.label,
+            icon: "account",
+            onPress: () => nav.navigate("YourLifer"),
+            badge: account.badge,
+          } as BarItem,
+        ]),
   ];
 
   const table = new Map<string, () => void>();
   const collect = (es: MenuEntry[], path: string) =>
-    es.forEach((e, k) => (e.type === "submenu" ? collect(e.items, `${path}.${k}`) : table.set(`${path}.${k}`, e.onPress)));
+    es.forEach((e, k) =>
+      e.type === "submenu" ? collect(e.items, `${path}.${k}`) : table.set(`${path}.${k}`, e.onPress),
+    );
   items.forEach((i, n) => (i.type === "button" ? table.set(`${n}`, i.onPress) : collect(i.items, `${n}`)));
   calls.current = table;
   const register = (path: string) => () => calls.current.get(path)?.();
@@ -94,7 +132,14 @@ export function useHeader(opts: HeaderOpts): void {
       const entries = (es: MenuEntry[], path: string): never[] =>
         es.map((e, k) =>
           e.type === "submenu"
-            ? { type: "submenu", label: e.label, description: e.description, icon: sf(e.icon), inline: e.inline, items: entries(e.items, `${path}.${k}`) }
+            ? {
+                type: "submenu",
+                label: e.label,
+                description: e.description,
+                icon: sf(e.icon),
+                inline: e.inline,
+                items: entries(e.items, `${path}.${k}`),
+              }
             : {
                 type: "action",
                 label: e.label,
@@ -127,19 +172,24 @@ export function useHeader(opts: HeaderOpts): void {
               : showActions(
                   i.title ?? i.label,
                   "Cancel",
-                  flatten(i.items).flatMap((e) => (e.type === "action" ? [{ label: e.label, onPress: e.onPress }] : [])),
+                  flatten(i.items).flatMap((e) =>
+                    e.type === "action" ? [{ label: e.label, onPress: e.onPress }] : [],
+                  ),
                 )
           }
         >
-          <View style={{ width: 48, height: 48, alignItems: "center", justifyContent: "center" }}>{i.icon ? <Icon name={i.icon} color={colors.ink} /> : null}</View>
+          <View style={{ width: 48, height: 48, alignItems: "center", justifyContent: "center" }}>
+            {i.icon ? <Icon name={i.icon} color={colors.ink} /> : null}
+          </View>
         </Tap>
       ))}
     </View>
   );
 
   // Rebuild the bar only when something visible changed.
-  const signature = JSON.stringify([opts.title, opts.search?.placeholder, opts.search?.hideWhenScrolling, colors.ink, items, opts.options], (_k, v) =>
-    typeof v === "function" ? undefined : v,
+  const signature = JSON.stringify(
+    [opts.title, opts.search?.placeholder, opts.search?.hideWhenScrolling, colors.ink, items, opts.options],
+    (_k, v) => (typeof v === "function" ? undefined : v),
   );
   useLayoutEffect(() => {
     const o = latest.current;
@@ -173,6 +223,16 @@ export function useSheetHeader(extra: BarItem[] = [], search?: HeaderOpts["searc
   useHeader({
     noAccount: true,
     search,
-    items: [...extra, { type: "button", key: "done", label: t("common.done"), onPress: () => nav.goBack(), prominent: true, tint: colors.accent }],
+    items: [
+      ...extra,
+      {
+        type: "button",
+        key: "done",
+        label: t("common.done"),
+        onPress: () => nav.goBack(),
+        prominent: true,
+        tint: colors.accent,
+      },
+    ],
   });
 }

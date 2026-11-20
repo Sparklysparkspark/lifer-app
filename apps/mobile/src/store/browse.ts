@@ -69,7 +69,9 @@ export function libraryShapes(db: Db, filter: LibraryFilter = {}, limit = -1): P
       `c.id IN (SELECT ac.capture_id FROM album_captures ac JOIN albums a ON a.id = ac.album_id WHERE lower(a.name) IN ('favourites', 'favorites'))`,
     );
   if (filter.taxonClasses) {
-    where.push(`c.scientific_name IN (SELECT scientific_name FROM species WHERE taxon_class IN (${filter.taxonClasses.map(() => "?").join(",") || "NULL"}))`);
+    where.push(
+      `c.scientific_name IN (SELECT scientific_name FROM species WHERE taxon_class IN (${filter.taxonClasses.map(() => "?").join(",") || "NULL"}))`,
+    );
     params.push(...filter.taxonClasses);
   }
   if (filter.tripId) {
@@ -111,12 +113,20 @@ export interface PhotoInfo {
 }
 
 export async function photoInfo(db: Db, photoId: string): Promise<PhotoInfo | null> {
-  const c = await db.get<{ id: string; scientific_name: string; taken_at: string | null; location_label: string | null; tags: string; trip_id: string | null }>(
-    "SELECT id, scientific_name, taken_at, location_label, tags, trip_id FROM captures WHERE photo_id = ? LIMIT 1",
-    [photoId],
-  );
+  const c = await db.get<{
+    id: string;
+    scientific_name: string;
+    taken_at: string | null;
+    location_label: string | null;
+    tags: string;
+    trip_id: string | null;
+  }>("SELECT id, scientific_name, taken_at, location_label, tags, trip_id FROM captures WHERE photo_id = ? LIMIT 1", [
+    photoId,
+  ]);
   if (!c) return null;
-  const trip = c.trip_id ? await db.get<{ id: string; name: string }>("SELECT id, name FROM trips WHERE id = ?", [c.trip_id]) : null;
+  const trip = c.trip_id
+    ? await db.get<{ id: string; name: string }>("SELECT id, name FROM trips WHERE id = ?", [c.trip_id])
+    : null;
   const albums = await db.all<{ name: string }>(
     "SELECT a.name FROM albums a JOIN album_captures ac ON ac.album_id = a.id WHERE ac.capture_id = ? ORDER BY a.name COLLATE NOCASE",
     [c.id],
@@ -171,7 +181,10 @@ export async function listAlbums(db: Db): Promise<AlbumRow[]> {
       coverCrop: r.cover && r.cover === r.chosen ? toCrop(r.cx, r.cy, r.cs) : null,
       favourites: ["favourites", "favorites"].includes(r.name.trim().toLowerCase()),
     }))
-    .sort((a, b) => Number(b.favourites) - Number(a.favourites) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    .sort(
+      (a, b) =>
+        Number(b.favourites) - Number(a.favourites) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    );
 }
 
 export const albumPhotos = (db: Db, albumId: string): Promise<GridPhoto[]> =>
@@ -213,7 +226,12 @@ export async function tripCoverCrops(db: Db): Promise<Record<string, Crop>> {
     `SELECT t.id, t.cover_crop_x AS cx, t.cover_crop_y AS cy, t.cover_crop_size AS cs FROM trips t
      WHERE EXISTS (SELECT 1 FROM captures c WHERE c.id = t.cover_capture_id AND c.photo_id IS NOT NULL)`,
   );
-  return Object.fromEntries(rows.flatMap((r) => { const c = toCrop(r.cx, r.cy, r.cs); return c ? [[r.id, c]] : []; }));
+  return Object.fromEntries(
+    rows.flatMap((r) => {
+      const c = toCrop(r.cx, r.cy, r.cs);
+      return c ? [[r.id, c]] : [];
+    }),
+  );
 }
 
 export type PhotosToCount = "all" | "featured" | "top";
@@ -288,7 +306,10 @@ export interface NearTarget {
 
 /** Targets not yet seen or photographed, from the given regions (every kept region when none are given). */
 export async function nearTargets(db: Db, keys: string[] | null, limit: number): Promise<NearTarget[]> {
-  const only = keys && keys.length ? `AND m.scientific_name IN (SELECT scientific_name FROM region_species WHERE region_key IN (${keys.map(() => "?").join(",")}))` : "";
+  const only =
+    keys && keys.length
+      ? `AND m.scientific_name IN (SELECT scientific_name FROM region_species WHERE region_key IN (${keys.map(() => "?").join(",")}))`
+      : "";
   return db.all<NearTarget>(
     `SELECT sp.scientific_name AS scientificName, sp.common_name AS commonName, sp.taxon_class AS taxonClass, NULL AS coverPhotoId
      FROM marks m JOIN species sp ON sp.scientific_name = m.scientific_name
@@ -303,8 +324,15 @@ export async function nearTargets(db: Db, keys: string[] | null, limit: number):
  * The person's targets on a region's checklist (every kept region when none given) not yet photographed:
  * seen ones first, then never seen, each by difficulty tier (hardest first) then name. No location is used.
  */
-export async function regionTargets(db: Db, keys: string[] | null, limit: number): Promise<(NearTarget & { seen: boolean })[]> {
-  const only = keys && keys.length ? `AND m.scientific_name IN (SELECT scientific_name FROM region_species WHERE region_key IN (${keys.map(() => "?").join(",")}))` : "";
+export async function regionTargets(
+  db: Db,
+  keys: string[] | null,
+  limit: number,
+): Promise<(NearTarget & { seen: boolean })[]> {
+  const only =
+    keys && keys.length
+      ? `AND m.scientific_name IN (SELECT scientific_name FROM region_species WHERE region_key IN (${keys.map(() => "?").join(",")}))`
+      : "";
   const rows = await db.all<NearTarget & { tier: string | null; seen: number }>(
     `SELECT sp.scientific_name AS scientificName, sp.common_name AS commonName, sp.taxon_class AS taxonClass, NULL AS coverPhotoId,
             sp.tier AS tier, (m.state IS NOT NULL) AS seen
@@ -316,7 +344,12 @@ export async function regionTargets(db: Db, keys: string[] | null, limit: number
   const rank = (t: string | null) => TIER_ORDER.indexOf(t as never);
   const name = (r: NearTarget) => r.commonName ?? r.scientificName;
   return rows
-    .sort((a, b) => b.seen - a.seen || rank(b.tier) - rank(a.tier) || name(a).localeCompare(name(b), undefined, { sensitivity: "base" }))
+    .sort(
+      (a, b) =>
+        b.seen - a.seen ||
+        rank(b.tier) - rank(a.tier) ||
+        name(a).localeCompare(name(b), undefined, { sensitivity: "base" }),
+    )
     .slice(0, limit)
     .map(({ tier: _t, seen, ...r }) => ({ ...r, seen: !!seen }));
 }

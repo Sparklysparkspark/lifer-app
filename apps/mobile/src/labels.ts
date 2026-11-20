@@ -15,8 +15,16 @@ export const ARRANGE_LABEL = {
   targetsFirst: "collection.arrangeBy.targetsFirst",
 } as const;
 export const GROUP_BY_LABEL = { broad: "collection.groupBy.broad", none: "collection.groupBy.none" } as const;
-export const SIZE_LABEL = { large: "collection.size.large", small: "collection.size.small", list: "collection.size.list" } as const;
-export const COUNT_LABEL = { all: "stats.count.all", featured: "stats.count.featured", top: "stats.count.top" } as const;
+export const SIZE_LABEL = {
+  large: "collection.size.large",
+  small: "collection.size.small",
+  list: "collection.size.list",
+} as const;
+export const COUNT_LABEL = {
+  all: "stats.count.all",
+  featured: "stats.count.featured",
+  top: "stats.count.top",
+} as const;
 export const PART_LABEL = { targets: "trips.part.targets", photos: "trips.part.photos" } as const;
 export const ALBUM_ARRANGE_LABEL = { name: "albums.arrangeBy.name", count: "albums.arrangeBy.count" } as const;
 export const NAME_ORDER_LABEL = { common: "settings.namesCommon", scientific: "settings.namesScientific" } as const;

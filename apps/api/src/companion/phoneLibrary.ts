@@ -42,13 +42,20 @@ export async function phoneLibraryRoutes(fastify: FastifyInstance): Promise<void
     "/companion/v1/albums/smart",
     {
       preValidation: scope,
-      schema: { response: replies(Open({ albums: Type.Array(Type.Object({ id: Type.String(), captureIds: Type.Array(Type.String()) })) })) },
+      schema: {
+        response: replies(
+          Open({ albums: Type.Array(Type.Object({ id: Type.String(), captureIds: Type.Array(Type.String()) })) }),
+        ),
+      },
     },
     async (request) => {
       const userId = request.user!.id;
-      const ids = (await pool.query<{ id: string }>(`SELECT id FROM albums WHERE user_id = $1 AND rules IS NOT NULL`, [userId])).rows;
+      const ids = (
+        await pool.query<{ id: string }>(`SELECT id FROM albums WHERE user_id = $1 AND rules IS NOT NULL`, [userId])
+      ).rows;
       const albums = [];
-      for (const { id } of ids) albums.push({ id, captureIds: (await smartAlbumCaptureIds(id, userId, new Set())) ?? [] });
+      for (const { id } of ids)
+        albums.push({ id, captureIds: (await smartAlbumCaptureIds(id, userId, new Set())) ?? [] });
       return { albums };
     },
   );
@@ -57,7 +64,10 @@ export async function phoneLibraryRoutes(fastify: FastifyInstance): Promise<void
     "/companion/v1/reference/:id",
     {
       preValidation: scope,
-      schema: { params: NameParams, response: replies(Open({ credit: Nullable(Type.String()), license: Nullable(Type.String()) })) },
+      schema: {
+        params: NameParams,
+        response: replies(Open({ credit: Nullable(Type.String()), license: Nullable(Type.String()) })),
+      },
     },
     async (request, reply) => {
       const r = await findReference(request.params.id);
@@ -80,11 +90,10 @@ export async function phoneLibraryRoutes(fastify: FastifyInstance): Promise<void
           void queueReferenceDownload(`species:${r.id}`, async () => {
             const got = await downloadAndCacheImage(r.photo_url!, r.id);
             if (got)
-              await pool.query(`UPDATE species SET reference_display_path = $1, reference_thumb_path = $2 WHERE id = $3`, [
-                got.displayPath,
-                got.thumbPath,
-                r.id,
-              ]);
+              await pool.query(
+                `UPDATE species SET reference_display_path = $1, reference_thumb_path = $2 WHERE id = $3`,
+                [got.displayPath, got.thumbPath, r.id],
+              );
           });
         return reply.code(404).send({ error: "Reference photo not found" });
       },

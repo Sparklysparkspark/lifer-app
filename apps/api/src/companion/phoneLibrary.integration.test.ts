@@ -47,7 +47,10 @@ describe.skipIf(!url)("phone albums and reference photos", () => {
     const { installSchemas } = await import("../lib/schema.js");
     await cleanup();
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'lib971@test', 'x')`, [USER]);
-    await db.query(`INSERT INTO api_keys (user_id, name, key_hash, permissions) VALUES ($1, 'Test phone (ios)', $2, '{companion}')`, [USER, hashApiKey(DEVICE)]);
+    await db.query(
+      `INSERT INTO api_keys (user_id, name, key_hash, permissions) VALUES ($1, 'Test phone (ios)', $2, '{companion}')`,
+      [USER, hashApiKey(DEVICE)],
+    );
     await db.query(
       `INSERT INTO species (id, scientific_name, common_name, taxon_class, gbif_key, reference_photo, reference_thumb_path, reference_display_path, reference_credit, reference_license) VALUES
          ($1, 'Zzlib alpha', 'Lib Bird', 'aves', 980971, 'https://example.invalid/a.jpg', $3, $3, 'Jane Doe', 'CC BY 4.0'),
@@ -59,11 +62,20 @@ describe.skipIf(!url)("phone albums and reference photos", () => {
       `INSERT INTO captures_all (id, user_id, species_id, fingerprint, taken_at, tags, remote_id) VALUES ($1, $2, $3, 'lib-1', now(), '{kept}', $4)`,
       [CAPTURE, USER, SPECIES, REMOTE],
     );
-    const photo = (await db.query(`INSERT INTO photos (capture_id, display_path, thumb_path) VALUES ($1, $2, $2) RETURNING id`, [CAPTURE, thumb])).rows[0].id;
+    const photo = (
+      await db.query(`INSERT INTO photos (capture_id, display_path, thumb_path) VALUES ($1, $2, $2) RETURNING id`, [
+        CAPTURE,
+        thumb,
+      ])
+    ).rows[0].id;
     await db.query(`UPDATE captures_all SET current_photo_id = $1 WHERE id = $2`, [photo, CAPTURE]);
     await db.query(`INSERT INTO albums (id, user_id, name) VALUES ($1, $2, 'Hand picked')`, [MANUAL, USER]);
     await db.query(`INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2)`, [MANUAL, CAPTURE]);
-    await db.query(`INSERT INTO albums (id, user_id, name, rules) VALUES ($1, $2, 'Kept ones', $3)`, [SMART, USER, JSON.stringify({ version: 2, query: { tag: ["kept"] } })]);
+    await db.query(`INSERT INTO albums (id, user_id, name, rules) VALUES ($1, $2, 'Kept ones', $3)`, [
+      SMART,
+      USER,
+      JSON.stringify({ version: 2, query: { tag: ["kept"] } }),
+    ]);
     app = Fastify();
     installSchemas(app);
     await app.register(cookie);
@@ -89,17 +101,27 @@ describe.skipIf(!url)("phone albums and reference photos", () => {
   it("names a mirrored capture in album membership by the id the phone's capture feed uses", async () => {
     expect((await get("/sync/changes")).json().items.map((i: { id: string }) => i.id)).toContain(CAPTURE);
     expect((await get("/sync/album-captures")).json().items).toMatchObject([{ albumId: MANUAL, captureId: CAPTURE }]);
-    expect((await get("/sync/albums")).json().items.map((a: { id: string }) => a.id).sort()).toEqual([MANUAL, SMART].sort());
+    expect(
+      (await get("/sync/albums"))
+        .json()
+        .items.map((a: { id: string }) => a.id)
+        .sort(),
+    ).toEqual([MANUAL, SMART].sort());
   });
 
   it("lists a smart album's photos for the phone, minus its exclusions", async () => {
-    expect((await get("/companion/v1/albums/smart")).json()).toEqual({ albums: [{ id: SMART, captureIds: [CAPTURE] }] });
+    expect((await get("/companion/v1/albums/smart")).json()).toEqual({
+      albums: [{ id: SMART, captureIds: [CAPTURE] }],
+    });
     await db.query(`INSERT INTO album_exclusions (album_id, capture_id) VALUES ($1, $2)`, [SMART, CAPTURE]);
     expect((await get("/companion/v1/albums/smart")).json()).toEqual({ albums: [{ id: SMART, captureIds: [] }] });
   });
 
   it("serves a species' reference photo and credit by name, 404 when there is none", async () => {
-    expect((await get("/companion/v1/reference/Zzlib_alpha")).json()).toEqual({ credit: "Jane Doe", license: "CC BY 4.0" });
+    expect((await get("/companion/v1/reference/Zzlib_alpha")).json()).toEqual({
+      credit: "Jane Doe",
+      license: "CC BY 4.0",
+    });
     for (const kind of ["thumb", "display"]) {
       const res = await get(`/companion/v1/reference/Zzlib_alpha/${kind}`);
       expect(res.statusCode).toBe(200);
@@ -109,7 +131,11 @@ describe.skipIf(!url)("phone albums and reference photos", () => {
   });
 
   it("refuses requests with no key", async () => {
-    for (const u of ["/companion/v1/albums/smart", "/companion/v1/reference/Zzlib_alpha", "/companion/v1/reference/Zzlib_alpha/thumb"])
+    for (const u of [
+      "/companion/v1/albums/smart",
+      "/companion/v1/reference/Zzlib_alpha",
+      "/companion/v1/reference/Zzlib_alpha/thumb",
+    ])
       expect((await get(u, null)).statusCode, u).toBe(401);
   });
 });

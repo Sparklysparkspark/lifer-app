@@ -8,7 +8,8 @@ const STATUS_RANK = { photographed: 0, seen: 1, none: 2 } as const;
 // Species with no tier sort after every tiered one.
 const tierRank = (t: string | null) => TIER_ORDER.indexOf(t as never);
 const name = (r: CollectionSpecies) => r.commonName ?? r.scientificName;
-const byName = (a: CollectionSpecies, b: CollectionSpecies) => name(a).localeCompare(name(b), undefined, { sensitivity: "base" });
+const byName = (a: CollectionSpecies, b: CollectionSpecies) =>
+  name(a).localeCompare(name(b), undefined, { sensitivity: "base" });
 
 const ORDER: Record<Arrange, (a: CollectionSpecies, b: CollectionSpecies) => number> = {
   common: byName,
@@ -16,12 +17,19 @@ const ORDER: Record<Arrange, (a: CollectionSpecies, b: CollectionSpecies) => num
   // Rarest first: the species hardest to find lead.
   rarity: (a, b) => tierRank(b.tier) - tierRank(a.tier) || byName(a, b),
   photographedFirst: (a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status] || byName(a, b),
-  seenFirst: (a, b) => Number(b.status === "seen") - Number(a.status === "seen") || STATUS_RANK[a.status] - STATUS_RANK[b.status] || byName(a, b),
+  seenFirst: (a, b) =>
+    Number(b.status === "seen") - Number(a.status === "seen") ||
+    STATUS_RANK[a.status] - STATUS_RANK[b.status] ||
+    byName(a, b),
   targetsFirst: (a, b) => Number(b.isTarget) - Number(a.isTarget) || byName(a, b),
 };
 
 /** The Show choice, the rarity and vagrant filters and the year, applied to a region's species. */
-export function filterSpecies(rows: CollectionSpecies[], v: CollectionView, inYear: Set<string> | null): CollectionSpecies[] {
+export function filterSpecies(
+  rows: CollectionSpecies[],
+  v: CollectionView,
+  inYear: Set<string> | null,
+): CollectionSpecies[] {
   return rows.filter((r) => {
     if (v.show === "photographed" && r.status !== "photographed") return false;
     if (v.show === "seen" && r.status !== "seen") return false;
@@ -34,7 +42,8 @@ export function filterSpecies(rows: CollectionSpecies[], v: CollectionView, inYe
   });
 }
 
-export const sortSpecies = (rows: CollectionSpecies[], arrange: Arrange): CollectionSpecies[] => [...rows].sort(ORDER[arrange]);
+export const sortSpecies = (rows: CollectionSpecies[], arrange: Arrange): CollectionSpecies[] =>
+  [...rows].sort(ORDER[arrange]);
 
 export interface Section {
   group: GroupId;

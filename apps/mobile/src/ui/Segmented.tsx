@@ -1,4 +1,7 @@
-import SegmentedControl, { type NativeSegmentedControlIOSChangeEvent, type SegmentedControlProps } from "@react-native-segmented-control/segmented-control";
+import SegmentedControl, {
+  type NativeSegmentedControlIOSChangeEvent,
+  type SegmentedControlProps,
+} from "@react-native-segmented-control/segmented-control";
 import type { ComponentType } from "react";
 import type { NativeSyntheticEvent } from "react-native";
 import { View } from "react-native";
@@ -24,7 +27,9 @@ export function Segmented({ values, selected, onChange, label }: Props) {
         accessibilityLabel={label}
         values={values}
         selectedIndex={selected}
-        onChange={(e: NativeSyntheticEvent<NativeSegmentedControlIOSChangeEvent>) => onChange(e.nativeEvent.selectedSegmentIndex)}
+        onChange={(e: NativeSyntheticEvent<NativeSegmentedControlIOSChangeEvent>) =>
+          onChange(e.nativeEvent.selectedSegmentIndex)
+        }
         appearance={appearance === "dark" ? "dark" : "light"}
       />
     </View>

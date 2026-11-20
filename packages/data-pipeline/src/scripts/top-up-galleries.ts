@@ -99,17 +99,29 @@ async function thinSpecies(): Promise<{ rows: Row[]; tally: Map<string, ClassTal
   }
   // Thinnest first, so a capped run spends its requests where they help most.
   const perClass = args["per-class"] ? Number(args["per-class"]) : Infinity;
-  const rows = [...byClass.keys()]
-    .sort()
-    .flatMap((c) => byClass.get(c)!.sort((a, b) => a.n - b.n || a.id.localeCompare(b.id)).slice(0, perClass));
+  const rows = [...byClass.keys()].sort().flatMap((c) =>
+    byClass
+      .get(c)!
+      .sort((a, b) => a.n - b.n || a.id.localeCompare(b.id))
+      .slice(0, perClass),
+  );
   return { rows: args.limit ? rows.slice(0, Number(args.limit)) : rows, tally };
 }
 
 function tallyFor(tally: Map<string, ClassTally>, cls: string): ClassTally {
   if (!tally.has(cls))
     tally.set(cls, {
-      candidates: 0, thin: 0, run: 0, toppedUp: 0, reachedMin: 0, noOpenPhotos: 0, unanswered: 0,
-      photosAdded: 0, downloadFailed: 0, nonPortrait: {}, licenses: {},
+      candidates: 0,
+      thin: 0,
+      run: 0,
+      toppedUp: 0,
+      reachedMin: 0,
+      noOpenPhotos: 0,
+      unanswered: 0,
+      photosAdded: 0,
+      downloadFailed: 0,
+      nonPortrait: {},
+      licenses: {},
     });
   return tally.get(cls)!;
 }

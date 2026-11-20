@@ -37,10 +37,23 @@ const OF: Record<string, GroupId> = {
 };
 
 /** The broad group a taxon class belongs to (the desktop's grouping), with its taxa colour. */
-export const groupOf = (taxonClass: string | null): Group => GROUPS[(taxonClass && OF[taxonClass.toLowerCase()]) || "other"];
+export const groupOf = (taxonClass: string | null): Group =>
+  GROUPS[(taxonClass && OF[taxonClass.toLowerCase()]) || "other"];
 
 /** Display order of the broad groups. */
-export const GROUP_ORDER: GroupId[] = ["birds", "mammals", "reptiles", "amphibians", "fish", "insects", "arachnids", "other"];
+export const GROUP_ORDER: GroupId[] = [
+  "birds",
+  "mammals",
+  "reptiles",
+  "amphibians",
+  "fish",
+  "insects",
+  "arachnids",
+  "other",
+];
 
 /** The taxon classes that make up a broad group (not "other", which is whatever is left). */
-export const classesOf = (id: GroupId): string[] => Object.entries(OF).filter(([, g]) => g === id).map(([c]) => c);
+export const classesOf = (id: GroupId): string[] =>
+  Object.entries(OF)
+    .filter(([, g]) => g === id)
+    .map(([c]) => c);

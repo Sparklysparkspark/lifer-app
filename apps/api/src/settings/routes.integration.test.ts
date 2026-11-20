@@ -236,7 +236,10 @@ describe.skipIf(!url)("settings routes", () => {
     expect(res.statusCode).toBe(200);
     expect(existsSync(res.json().path)).toBe(true);
     // Already there: it's simply used.
-    const again = await call("POST", "/api/settings/browse-directory/new-folder", { parent: dataDir, name: "Wildlife" });
+    const again = await call("POST", "/api/settings/browse-directory/new-folder", {
+      parent: dataDir,
+      name: "Wildlife",
+    });
     expect(again.json()).toEqual(res.json());
     for (const name of ["..", "a/b", "a\\b"]) {
       const bad = await call("POST", "/api/settings/browse-directory/new-folder", { parent: dataDir, name });

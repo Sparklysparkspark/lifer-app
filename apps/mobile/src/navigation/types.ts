@@ -8,7 +8,10 @@ export type RootParams = {
   Species: { scientificName: string };
   Trip: { id: string };
   Viewer: { ids: string[]; index: number };
-  Photos: { title: string; scope: { kind: "album"; id: string } | { kind: "species"; name: string } | { kind: "trip"; id: string } };
+  Photos: {
+    title: string;
+    scope: { kind: "album"; id: string } | { kind: "species"; name: string } | { kind: "trip"; id: string };
+  };
   Stats: undefined;
   Regions: undefined;
   Settings: undefined;

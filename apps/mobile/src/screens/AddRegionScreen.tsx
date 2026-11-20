@@ -14,7 +14,14 @@ import { Body, Button, GroupFooter, InlineError, InsetGroup, ListRow, Note, Scre
 interface Checklist {
   regionId: string;
   name: string;
-  items: { scientificName: string; commonName: string | null; taxonClass: string; tier: string | null; isVagrant: boolean; sensitiveByDefault: boolean }[];
+  items: {
+    scientificName: string;
+    commonName: string | null;
+    taxonClass: string;
+    tier: string | null;
+    isVagrant: boolean;
+    sensitiveByDefault: boolean;
+  }[];
 }
 
 /** Keep another region's species list on the phone. The size is shown before anything is downloaded. */
@@ -26,10 +33,14 @@ export function AddRegionScreen() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   useSheetHeader();
-  const { data } = useLocal(async (db) => ({ kept: await listRegions(db), prefs: await getMeta<Preferences>(db, "prefs") }));
+  const { data } = useLocal(async (db) => ({
+    kept: await listRegions(db),
+    prefs: await getMeta<Preferences>(db, "prefs"),
+  }));
   const keptKeys = new Set(data?.kept.map((r) => r.key));
 
-  const size = (n: number) => `${t("regions.speciesCount", { n })}, ${t("regions.about", { size: sizeText(t, n * BYTES_PER_SPECIES) })}`;
+  const size = (n: number) =>
+    `${t("regions.speciesCount", { n })}, ${t("regions.about", { size: sizeText(t, n * BYTES_PER_SPECIES) })}`;
 
   async function keepHub(regionId: string) {
     setBusy(regionId);
@@ -39,7 +50,14 @@ export function AddRegionScreen() {
       await saveRegion(
         app.db,
         { key: regionKeyForHub(regionId), name: list.name, source: "hub", hubRegionId: regionId },
-        list.items.map((i) => ({ scientificName: i.scientificName, commonName: i.commonName, taxonClass: i.taxonClass, tier: i.tier, vagrant: i.isVagrant, sensitive: i.sensitiveByDefault })),
+        list.items.map((i) => ({
+          scientificName: i.scientificName,
+          commonName: i.commonName,
+          taxonClass: i.taxonClass,
+          tier: i.tier,
+          vagrant: i.isVagrant,
+          sensitive: i.sensitiveByDefault,
+        })),
         new Date(),
       );
       app.bump();
@@ -53,7 +71,12 @@ export function AddRegionScreen() {
   async function keepPack(name: string) {
     if (!index) return;
     setBusy(name);
-    await saveRegion(app.db, { key: regionKeyForPack(name), name, source: "pack", hubRegionId: null }, packChecklist(index, name), new Date());
+    await saveRegion(
+      app.db,
+      { key: regionKeyForPack(name), name, source: "pack", hubRegionId: null },
+      packChecklist(index, name),
+      new Date(),
+    );
     app.bump();
     setBusy(null);
   }
@@ -73,15 +96,24 @@ export function AddRegionScreen() {
   const packRegions = useMemo(() => {
     if (!index) return [];
     const q = query.trim().toLowerCase();
-    return listPackRegions(index).filter((r) => !keptKeys.has(regionKeyForPack(r.name)) && r.name.toLowerCase().includes(q));
+    return listPackRegions(index).filter(
+      (r) => !keptKeys.has(regionKeyForPack(r.name)) && r.name.toLowerCase().includes(q),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, query, data]);
 
-  const hubRegions = (data?.prefs?.regions ?? []).filter((r) => r.regionId && !keptKeys.has(regionKeyForHub(r.regionId)));
+  const hubRegions = (data?.prefs?.regions ?? []).filter(
+    (r) => r.regionId && !keptKeys.has(regionKeyForHub(r.regionId)),
+  );
   return (
     <Screen padded={false}>
       <View style={{ paddingHorizontal: 20, paddingTop: 8, gap: 12 }}>
-        {error ? <InlineError message={error} retry={app.mode === "paired" ? undefined : { label: t("pair.tryAgain"), onPress: () => void getList() }} /> : null}
+        {error ? (
+          <InlineError
+            message={error}
+            retry={app.mode === "paired" ? undefined : { label: t("pair.tryAgain"), onPress: () => void getList() }}
+          />
+        ) : null}
         {app.mode === "paired" ? <Note text={t("regions.fromHub")} /> : null}
       </View>
       {app.mode === "paired" ? (
@@ -89,7 +121,14 @@ export function AddRegionScreen() {
           <View style={{ paddingTop: 12 }}>
             <InsetGroup>
               {hubRegions.map((r) => (
-                <ListRow key={r.regionId!} title={r.name} subtitle={size(r.speciesCount)} value={busy === r.regionId ? t("regions.downloading") : t("regions.keep")} chevron={false} onPress={() => void keepHub(r.regionId!)} />
+                <ListRow
+                  key={r.regionId!}
+                  title={r.name}
+                  subtitle={size(r.speciesCount)}
+                  value={busy === r.regionId ? t("regions.downloading") : t("regions.keep")}
+                  chevron={false}
+                  onPress={() => void keepHub(r.regionId!)}
+                />
               ))}
             </InsetGroup>
           </View>
@@ -101,20 +140,39 @@ export function AddRegionScreen() {
       ) : !index ? (
         <View style={{ padding: 20, gap: 16 }}>
           <Body text={t("regions.getListHint")} />
-          {busy === "index" ? <Spinner label={t("regions.downloading")} /> : <Button label={t("regions.getList")} icon="regions" onPress={() => void getList()} />}
+          {busy === "index" ? (
+            <Spinner label={t("regions.downloading")} />
+          ) : (
+            <Button label={t("regions.getList")} icon="regions" onPress={() => void getList()} />
+          )}
         </View>
       ) : (
         <>
           <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
-            <TextField label={t("regions.searchLabel")} value={query} onChangeText={setQuery} autoCapitalize="none" returnKeyType="search" />
+            <TextField
+              label={t("regions.searchLabel")}
+              value={query}
+              onChangeText={setQuery}
+              autoCapitalize="none"
+              returnKeyType="search"
+            />
           </View>
           <View style={{ paddingTop: 12 }}>
             <InsetGroup>
               {packRegions.slice(0, 80).map((r) => (
-                <ListRow key={r.name} title={r.name} subtitle={size(r.speciesCount)} value={busy === r.name ? t("regions.downloading") : t("regions.keep")} chevron={false} onPress={() => void keepPack(r.name)} />
+                <ListRow
+                  key={r.name}
+                  title={r.name}
+                  subtitle={size(r.speciesCount)}
+                  value={busy === r.name ? t("regions.downloading") : t("regions.keep")}
+                  chevron={false}
+                  onPress={() => void keepPack(r.name)}
+                />
               ))}
             </InsetGroup>
-            {packRegions.length > 80 ? <GroupFooter text={t("regions.searchToNarrow", { n: packRegions.length })} /> : null}
+            {packRegions.length > 80 ? (
+              <GroupFooter text={t("regions.searchToNarrow", { n: packRegions.length })} />
+            ) : null}
           </View>
         </>
       )}

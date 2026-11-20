@@ -21,7 +21,9 @@ describe("matchEbirdCode", () => {
   it("falls back to the name, ignoring accents, commas and admin words", () => {
     expect(matchEbirdCode({ code: "CN-BJ", name: "Beijing" }, [{ code: "CN-11", name: "Beijing" }])).toBe("CN-11");
     expect(matchEbirdCode({ code: "BD-C", name: "Dhaka" }, [{ code: "BD-3", name: "Dhaka bibhag" }])).toBe("BD-3");
-    expect(matchEbirdCode({ code: "VN-SG", name: "Hồ Chí Minh" }, [{ code: "VN-79", name: "Ho Chi Minh" }])).toBe("VN-79");
+    expect(matchEbirdCode({ code: "VN-SG", name: "Hồ Chí Minh" }, [{ code: "VN-79", name: "Ho Chi Minh" }])).toBe(
+      "VN-79",
+    );
   });
 
   it("takes the province over a one-province community of the same name", () => {

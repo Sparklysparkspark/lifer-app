@@ -7,7 +7,9 @@ describe("phone-only vectors", () => {
   });
 
   it("does nothing without the image encoder", async () => {
-    expect(await computePhotoVectors({ pending: async () => ["a"], embed: null, store: async () => undefined })).toBe(0);
+    expect(await computePhotoVectors({ pending: async () => ["a"], embed: null, store: async () => undefined })).toBe(
+      0,
+    );
   });
 
   it("embeds each added photo in turn with progress, and stops when asked", async () => {

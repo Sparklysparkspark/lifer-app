@@ -25,21 +25,43 @@ export function useSpeciesActions() {
     const was = s.status === "seen";
     await changeMark(app, s.scientificName, { state: was ? null : "seen" });
     haptics.selection();
-    toast.show(t(was ? "toast.seenRemoved" : "toast.seen", { name: name(s) }), () => void changeMark(app, s.scientificName, { state: was ? "seen" : null }));
+    toast.show(
+      t(was ? "toast.seenRemoved" : "toast.seen", { name: name(s) }),
+      () => void changeMark(app, s.scientificName, { state: was ? "seen" : null }),
+    );
   };
   const toggleTarget = async (s: Target) => {
     await changeMark(app, s.scientificName, { isTarget: !s.isTarget });
     haptics.selection();
-    toast.show(t(s.isTarget ? "toast.targetRemoved" : "toast.target", { name: name(s) }), () => void changeMark(app, s.scientificName, { isTarget: s.isTarget }));
+    toast.show(
+      t(s.isTarget ? "toast.targetRemoved" : "toast.target", { name: name(s) }),
+      () => void changeMark(app, s.scientificName, { isTarget: s.isTarget }),
+    );
   };
   const share = (s: Target) => void Share.share({ message: name(s) });
 
   const actions = (s: Target): TapAction[] => [
-    ...(s.status === "photographed" ? [] : [{ name: "seen", label: t(s.status === "seen" ? "species.unmarkSeen" : "species.markSeen"), onPress: () => void toggleSeen(s) }]),
-    { name: "target", label: t(s.isTarget ? "species.unmarkTarget" : "species.markTarget"), onPress: () => void toggleTarget(s) },
+    ...(s.status === "photographed"
+      ? []
+      : [
+          {
+            name: "seen",
+            label: t(s.status === "seen" ? "species.unmarkSeen" : "species.markSeen"),
+            onPress: () => void toggleSeen(s),
+          },
+        ]),
+    {
+      name: "target",
+      label: t(s.isTarget ? "species.unmarkTarget" : "species.markTarget"),
+      onPress: () => void toggleTarget(s),
+    },
     { name: "share", label: t("common.share"), onPress: () => share(s) },
   ];
   const menu = (s: Target) =>
-    showActions(name(s), t("common.cancel"), actions(s).map((a) => ({ label: a.label, onPress: a.onPress })));
+    showActions(
+      name(s),
+      t("common.cancel"),
+      actions(s).map((a) => ({ label: a.label, onPress: a.onPress })),
+    );
   return { toggleSeen, toggleTarget, share, actions, menu };
 }

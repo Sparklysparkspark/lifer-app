@@ -145,9 +145,7 @@ async function vocabulary(db: Db, rows: LocalRow[]) {
     cameras,
     species: [...seen.values()],
     places: [
-      ...regions
-        .filter((r) => r.parent_id)
-        .map((r): PlaceEntry => ({ kind: "region", id: r.id, name: r.name })),
+      ...regions.filter((r) => r.parent_id).map((r): PlaceEntry => ({ kind: "region", id: r.id, name: r.name })),
       ...trips.map((r): PlaceEntry => ({ kind: "trip", ...r })),
       ...albums.map((r): PlaceEntry => ({ kind: "album", ...r })),
       ...labels.map((l): PlaceEntry => ({ kind: "location", id: l, name: l })),

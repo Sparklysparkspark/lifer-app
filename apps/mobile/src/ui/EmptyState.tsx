@@ -19,7 +19,10 @@ export function EmptyState({ icon, title, line, action }: Props) {
   return (
     <View style={{ alignItems: "center", justifyContent: "center", padding: spacing.page * 1.5, gap: 8 }}>
       {icon ? <Icon name={icon} size={40} color={colors.muted} weight="regular" /> : null}
-      <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: type["title-3"].size, fontWeight: "600", textAlign: "center" }}>
+      <Text
+        accessibilityRole="header"
+        style={{ color: colors.ink, fontSize: type["title-3"].size, fontWeight: "600", textAlign: "center" }}
+      >
         {title}
       </Text>
       {line ? <Text style={{ color: colors.muted, fontSize: type.body.size, textAlign: "center" }}>{line}</Text> : null}

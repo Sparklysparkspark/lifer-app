@@ -22,7 +22,10 @@ const urlFor = (db: string) => {
   u.pathname = `/${db}`;
   return u.toString();
 };
-const MIGRATE = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../packages/data-pipeline/src/migrate.ts");
+const MIGRATE = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../../packages/data-pipeline/src/migrate.ts",
+);
 
 // Each install has its own user id; the protocol never sends one.
 const USER = {
@@ -191,8 +194,9 @@ describe.skipIf(!url)("journeys E and G: two desktops on one server", () => {
     expect((await server.query(`SELECT 1 FROM species_split_kept WHERE capture_id = $1`, [CAPTURE])).rowCount).toBe(1);
     await pull(laptop);
     const mine = (await one(laptop, `SELECT id FROM captures_all WHERE remote_id = $1`, [CAPTURE])).id;
-    expect(await one(laptop, `SELECT 1 AS x FROM album_captures WHERE album_id = $1 AND capture_id = $2`, [ALBUM, mine]))
-      .toBeTruthy();
+    expect(
+      await one(laptop, `SELECT 1 AS x FROM album_captures WHERE album_id = $1 AND capture_id = $2`, [ALBUM, mine]),
+    ).toBeTruthy();
     expect(await one(laptop, `SELECT 1 AS x FROM species_split_kept WHERE capture_id = $1`, [mine])).toBeTruthy();
     // The desktop pulling its own change back changes nothing and sends nothing.
     await pull(desktop);
@@ -208,9 +212,11 @@ describe.skipIf(!url)("journeys E and G: two desktops on one server", () => {
     await pull(desktop);
     expect(await one(desktop, `SELECT 1 AS x FROM trips WHERE id = $1`, [TRIP])).toBeUndefined();
     expect(
-      await one(desktop, `SELECT 1 AS x FROM species_split_kept k JOIN captures_all c ON c.id = k.capture_id WHERE c.remote_id = $1`, [
-        CAPTURE,
-      ]),
+      await one(
+        desktop,
+        `SELECT 1 AS x FROM species_split_kept k JOIN captures_all c ON c.id = k.capture_id WHERE c.remote_id = $1`,
+        [CAPTURE],
+      ),
     ).toBeUndefined();
     await pull(laptop);
     for (const i of [laptop, desktop]) {
@@ -222,11 +228,10 @@ describe.skipIf(!url)("journeys E and G: two desktops on one server", () => {
   it("journey G: a photo the old Migrate already copied is matched by fingerprint, not uploaded again", async () => {
     const { laptop } = installs;
     const { applyPushedCaptures } = await import("./pushServer.js");
-    await server.query(`INSERT INTO captures_all (id, user_id, species_id, fingerprint) VALUES ($1, $2, $3, 'je-moved')`, [
-      MOVED_SERVER,
-      USER.server,
-      SPECIES,
-    ]);
+    await server.query(
+      `INSERT INTO captures_all (id, user_id, species_id, fingerprint) VALUES ($1, $2, $3, 'je-moved')`,
+      [MOVED_SERVER, USER.server, SPECIES],
+    );
     // Imported on the laptop, copied up by the old Migrate, never pushed by sync.
     await laptop.pool.query(
       `INSERT INTO captures_all (id, user_id, species_id, fingerprint, origin) VALUES ($1, $2, $3, 'je-moved', 'local')`,

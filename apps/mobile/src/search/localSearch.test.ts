@@ -187,9 +187,13 @@ const regionOf = (id: string) => (id === "1" ? "prov" : null);
 
 async function library() {
   const db = await migratedDb();
-  for (const r of TREE) await db.run("INSERT INTO search_regions (id, name, parent_id) VALUES (?, ?, ?)", [r.id, r.name, r.parent]);
+  for (const r of TREE)
+    await db.run("INSERT INTO search_regions (id, name, parent_id) VALUES (?, ?, ?)", [r.id, r.name, r.parent]);
   for (const [sci, aliases] of Object.entries(ALIASES))
-    await db.run("INSERT INTO species_names (scientific_name, aliases, codes) VALUES (?, ?, '[]')", [sci, JSON.stringify(aliases)]);
+    await db.run("INSERT INTO species_names (scientific_name, aliases, codes) VALUES (?, ?, '[]')", [
+      sci,
+      JSON.stringify(aliases),
+    ]);
   const seen = new Map(PHOTOS.map((p) => [p.sci, p]));
   await saveRegion(
     db,
@@ -331,7 +335,14 @@ async function both(q: string) {
   const cameras = [...new Set(PHOTOS.flatMap((p) => (p.camera ? [p.camera] : [])))];
   const parsed = parseSearchQuery(
     q,
-    { species, places: TREE.filter((r) => r.parent).map((r) => ({ kind: "region" as const, id: r.id, name: r.name })), latinGroups, catalogHeads, cameras, now: NOW },
+    {
+      species,
+      places: TREE.filter((r) => r.parent).map((r) => ({ kind: "region" as const, id: r.id, name: r.name })),
+      latinGroups,
+      catalogHeads,
+      cameras,
+      now: NOW,
+    },
     { partialWordPicksSpecies: false },
   );
   const exact = new Map(PHOTOS.map((p) => [p.id, unit(p.vec)] as const));
@@ -340,7 +351,14 @@ async function both(q: string) {
     q,
     parsed,
     rows,
-    async (ids) => new Set(TREE.filter((r) => ids.some((id) => r.id === id || r.parent === id || (r.parent && TREE.find((x) => x.id === r.parent)?.parent === id))).map((r) => r.id)),
+    async (ids) =>
+      new Set(
+        TREE.filter((r) =>
+          ids.some(
+            (id) => r.id === id || r.parent === id || (r.parent && TREE.find((x) => x.id === r.parent)?.parent === id),
+          ),
+        ).map((r) => r.id),
+      ),
     makePictureScorer(embed, async () => exact),
     { backgroundScore: makePictureScorer(embed, async () => exactBehind) },
   );
@@ -360,7 +378,10 @@ describe("phone search ranks like the shared code on the same data", () => {
 describe("region tree and aliases on the phone", () => {
   it("finds a photo by its country, its province and an alias", async () => {
     for (const q of ["wonderland", "northshire"])
-      expect((await both(q)).ours.photos.map((p) => p.photoId), q).toEqual(["p-1"]);
+      expect(
+        (await both(q)).ours.photos.map((p) => p.photoId),
+        q,
+      ).toEqual(["p-1"]);
     expect((await both("duck hawk")).ours.photos.map((p) => p.photoId)).toContain("p-1");
   });
 });

@@ -91,7 +91,8 @@ async function main() {
     const kind = classifyReferencePhoto(clipVec(at)).kind;
     if (!["habitat", "map", "drawing", "text"].includes(kind)) continue;
     const display = photoDisplay.get(photo);
-    if (display && existsSync(display)) negatives.push({ group: `not an animal: ${kind}`, vector: clipVec(at), file: display });
+    if (display && existsSync(display))
+      negatives.push({ group: `not an animal: ${kind}`, vector: clipVec(at), file: display });
   }
   negatives.splice(Number(args["proxy-limit"]));
   for (const file of args.negatives!.split(",").filter(Boolean))

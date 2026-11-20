@@ -51,7 +51,8 @@ export function describeReason(s: SyncStatus): string | null {
 
 /** What the last send of photos did. */
 export function describePush(s: SyncStatus): string {
-  if (s.push.running) return t("settings.sync.sending", {
+  if (s.push.running)
+    return t("settings.sync.sending", {
       done: formatNumber(s.push.processed ?? 0),
       total: s.push.total == null ? "?" : formatNumber(s.push.total),
     });

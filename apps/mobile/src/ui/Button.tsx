@@ -45,8 +45,16 @@ export function Button({ label, onPress, variant = "primary", icon, busy, disabl
           borderColor: colors["control-line"],
         }}
       >
-        {busy ? <ActivityIndicator color={ink} /> : icon ? <Icon name={icon} size={20} color={ink} weight="semibold" /> : null}
-        <Text style={{ color: ink, fontSize: type.headline.size, fontWeight: "600", flexShrink: 1, textAlign: "center" }}>{label}</Text>
+        {busy ? (
+          <ActivityIndicator color={ink} />
+        ) : icon ? (
+          <Icon name={icon} size={20} color={ink} weight="semibold" />
+        ) : null}
+        <Text
+          style={{ color: ink, fontSize: type.headline.size, fontWeight: "600", flexShrink: 1, textAlign: "center" }}
+        >
+          {label}
+        </Text>
       </View>
     </Tap>
   );

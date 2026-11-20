@@ -32,14 +32,21 @@ describe.skipIf(!url)("phone squares", () => {
   const get = (u: string, headers: Record<string, string> = {}) =>
     app.inject({ method: "GET", url: `/api/companion/v1/square/${u}`, headers: { "x-api-key": DEVICE, ...headers } });
   const setCrop = (x: number, y: number, size: number) =>
-    db.query(`UPDATE user_species SET card_crop_x = $1, card_crop_y = $2, card_crop_size = $3 WHERE user_id = $4`, [x, y, size, USER]);
+    db.query(`UPDATE user_species SET card_crop_x = $1, card_crop_y = $2, card_crop_size = $3 WHERE user_id = $4`, [
+      x,
+      y,
+      size,
+      USER,
+    ]);
 
   beforeAll(async () => {
     const displayDir = path.join(dirs.base, "app", "display");
     mkdirSync(displayDir, { recursive: true });
     // Left half red, right half blue, so a crop's side shows in its pixels.
     const halves = await sharp({ create: { width: 2000, height: 1000, channels: 3, background: "#ff0000" } })
-      .composite([{ input: { create: { width: 1000, height: 1000, channels: 3, background: "#0000ff" } }, left: 1000, top: 0 }])
+      .composite([
+        { input: { create: { width: 1000, height: 1000, channels: 3, background: "#0000ff" } }, left: 1000, top: 0 },
+      ])
       .webp()
       .toBuffer();
     const file = path.join(displayDir, "p.webp");
@@ -54,19 +61,44 @@ describe.skipIf(!url)("phone squares", () => {
       await db.query(`DELETE FROM users WHERE id = $1`, [id]);
     }
     await db.query(`DELETE FROM species WHERE id = $1`, [SPECIES]);
-    await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'sq721@test', 'x'), ($2, 'sq722@test', 'x')`, [USER, OTHER]);
-    await db.query(`INSERT INTO api_keys (user_id, name, key_hash, permissions) VALUES ($1, 'Test phone (ios)', $2, '{companion}')`, [USER, hashApiKey(DEVICE)]);
-    await db.query(`INSERT INTO species (id, scientific_name, common_name, taxon_class, gbif_key) VALUES ($1, 'Zzsquare alpha', 'Square Bird', 'aves', 980721)`, [SPECIES]);
+    await db.query(
+      `INSERT INTO users (id, email, password_hash) VALUES ($1, 'sq721@test', 'x'), ($2, 'sq722@test', 'x')`,
+      [USER, OTHER],
+    );
+    await db.query(
+      `INSERT INTO api_keys (user_id, name, key_hash, permissions) VALUES ($1, 'Test phone (ios)', $2, '{companion}')`,
+      [USER, hashApiKey(DEVICE)],
+    );
+    await db.query(
+      `INSERT INTO species (id, scientific_name, common_name, taxon_class, gbif_key) VALUES ($1, 'Zzsquare alpha', 'Square Bird', 'aves', 980721)`,
+      [SPECIES],
+    );
     const mk = async (user: string, tag: string) => {
-      const capture = (await db.query(`INSERT INTO captures_all (user_id, species_id, fingerprint, taken_at) VALUES ($1, $2, $3, now()) RETURNING id`, [user, SPECIES, tag])).rows[0].id;
-      const id = (await db.query(`INSERT INTO photos (capture_id, display_path, thumb_path) VALUES ($1, $2, $2) RETURNING id`, [capture, file])).rows[0].id;
+      const capture = (
+        await db.query(
+          `INSERT INTO captures_all (user_id, species_id, fingerprint, taken_at) VALUES ($1, $2, $3, now()) RETURNING id`,
+          [user, SPECIES, tag],
+        )
+      ).rows[0].id;
+      const id = (
+        await db.query(`INSERT INTO photos (capture_id, display_path, thumb_path) VALUES ($1, $2, $2) RETURNING id`, [
+          capture,
+          file,
+        ])
+      ).rows[0].id;
       await db.query(`UPDATE captures_all SET current_photo_id = $1 WHERE id = $2`, [id, capture]);
       return id as string;
     };
     photo = await mk(USER, "sq-1");
     theirs = await mk(OTHER, "sq-2");
-    await db.query(`INSERT INTO user_species (user_id, species_id, state, cover_photo_id) VALUES ($1, $2, 'collected', $3)`, [USER, SPECIES, photo]);
-    await db.query(`INSERT INTO albums (id, user_id, name, cover_photo_id, cover_crop_x, cover_crop_y, cover_crop_size) VALUES ($1, $2, 'Covers', $3, 0, 0, 40)`, [ALBUM, USER, photo]);
+    await db.query(
+      `INSERT INTO user_species (user_id, species_id, state, cover_photo_id) VALUES ($1, $2, 'collected', $3)`,
+      [USER, SPECIES, photo],
+    );
+    await db.query(
+      `INSERT INTO albums (id, user_id, name, cover_photo_id, cover_crop_x, cover_crop_y, cover_crop_size) VALUES ($1, $2, 'Covers', $3, 0, 0, 40)`,
+      [ALBUM, USER, photo],
+    );
     app = Fastify();
     installSchemas(app);
     await app.register(cookie);
@@ -127,7 +159,10 @@ describe.skipIf(!url)("phone squares", () => {
 
   it("refuses another account's photo and a request with no key", async () => {
     expect((await get(`species/Zzsquare_alpha?photo=${theirs}`)).statusCode).toBe(404);
-    const bare = await app.inject({ method: "GET", url: `/api/companion/v1/square/species/Zzsquare_alpha?photo=${photo}` });
+    const bare = await app.inject({
+      method: "GET",
+      url: `/api/companion/v1/square/species/Zzsquare_alpha?photo=${photo}`,
+    });
     expect(bare.statusCode).toBe(401);
   });
 });

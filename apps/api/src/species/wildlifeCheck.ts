@@ -80,11 +80,7 @@ const ANIMALS = [
 const PLANTS = ["a photo of a plant", "a photo of a flower", "a photo of a mushroom", "a photo of a tree"];
 // Counted only by the scenery rule, which needs no animal anywhere: without them a river or lake
 // shot reads its reflections as "a fish" and is kept.
-const WATER_SCENERY = [
-  "trees reflected in calm water",
-  "a river",
-  "a lake",
-];
+const WATER_SCENERY = ["trees reflected in calm water", "a river", "a lake"];
 const WILDLIFE = [...ANIMALS, ...PLANTS, ...WATER_SCENERY, "wildlife in nature"];
 const NOT_WILDLIFE_MIN = 0.75;
 // A person the detector is this sure of, with CLIP at least this sure the photo is about people,

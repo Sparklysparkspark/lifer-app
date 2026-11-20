@@ -18,7 +18,11 @@ const LONG = `Companion ${"app with a very long name ".repeat(8)}`.slice(0, 200)
 const UNSPACED = "N".repeat(200);
 
 const SCENES = [
-  { name: "launched", consent: { name: "Field Kit", scopes: ["userdata.read", "imports.write"], code: null }, wait: 1500 },
+  {
+    name: "launched",
+    consent: { name: "Field Kit", scopes: ["userdata.read", "imports.write"], code: null },
+    wait: 1500,
+  },
   { name: "just-opened", consent: { name: "Field Kit", scopes: ["userdata.read"], code: null }, wait: 300 },
   { name: "code", consent: { name: "Field Kit", scopes: ALL, code: "482913" }, wait: 1500 },
   { name: "long-name", consent: { name: LONG, scopes: ALL, code: "000417" }, wait: 1500 },
@@ -51,8 +55,15 @@ for (const theme of THEMES) {
           win.__LIFER_PLATFORM__ = "darwin";
           win.__TAURI__ = { core: { invoke: async () => null } };
         });
-        expect((await context.request.post("/api/auth/login", { headers: HEADERS, data: EXTREME_ACCOUNT })).ok()).toBe(true);
-        const consent = { id: "a".repeat(64), pluginId: "com.example.fieldkit", expiresAt: new Date().toISOString(), ...scene.consent };
+        expect((await context.request.post("/api/auth/login", { headers: HEADERS, data: EXTREME_ACCOUNT })).ok()).toBe(
+          true,
+        );
+        const consent = {
+          id: "a".repeat(64),
+          pluginId: "com.example.fieldkit",
+          expiresAt: new Date().toISOString(),
+          ...scene.consent,
+        };
         // The e2e server is a multi-user one; the dialog only asks on the desktop.
         await context.route("**/api/settings", async (route) => {
           const res = await route.fetch();

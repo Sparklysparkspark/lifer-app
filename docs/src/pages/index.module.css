@@ -1,4 +1,22 @@
-.strip { display: grid; gap: var(--spacing-item); grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); margin: 0; padding: 0; list-style: none; }
-.strip li { padding: var(--spacing-panel); background: var(--color-control); border: 1px solid var(--color-line); border-radius: var(--radius-panel); }
-.strip strong { display: block; margin-bottom: 0.25rem; }
-.strip span { color: var(--color-muted); font-size: var(--text-callout); }
+.strip {
+  display: grid;
+  gap: var(--spacing-item);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.strip li {
+  padding: var(--spacing-panel);
+  background: var(--color-control);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-panel);
+}
+.strip strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+.strip span {
+  color: var(--color-muted);
+  font-size: var(--text-callout);
+}

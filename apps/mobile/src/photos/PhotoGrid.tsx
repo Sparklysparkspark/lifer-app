@@ -13,7 +13,6 @@ import { DENSE_FROM, pinchGate } from "./pinch";
 import { Scrubber, type ScrubberHandle } from "./Scrubber";
 import { usePullRefresh } from "../ui/usePullRefresh";
 
-
 /** Day and month in words for a tile's spoken label, "12 May 2026". */
 function dateLabel(t: (k: string) => string, takenAt: string | null): string | null {
   const m = takenAt && /^(\d{4})-(\d{2})-(\d{2})/.exec(takenAt);
@@ -44,7 +43,22 @@ interface Props {
 }
 
 /** A virtualized grid with fixed row heights, so 60,000 photos scroll without measuring. */
-export function PhotoGrid({ photos, byMonth, continuous, columns = 3, aspect, places, onOpen, onPinch, header, footer, underBar, empty, onRefresh, refreshing }: Props) {
+export function PhotoGrid({
+  photos,
+  byMonth,
+  continuous,
+  columns = 3,
+  aspect,
+  places,
+  onOpen,
+  onPinch,
+  header,
+  footer,
+  underBar,
+  empty,
+  onRefresh,
+  refreshing,
+}: Props) {
   const { width, fontScale: scale } = useWindowDimensions();
   const { t } = useTranslation();
   const { colors } = useTheme();
@@ -53,7 +67,12 @@ export function PhotoGrid({ photos, byMonth, continuous, columns = 3, aspect, pl
   const lines = scale > 1.3 ? 3 : 1;
   const headingHeight = Math.round(18 + 26 * Math.min(scale, 3.2) * lines);
   const grid = useMemo<Grid>(
-    () => buildGrid(photos, { width, headingHeight, withHeadings: !!byMonth && !continuous }, aspect ? { aspect: width >= 700 ? 200 : 130 } : { columns }),
+    () =>
+      buildGrid(
+        photos,
+        { width, headingHeight, withHeadings: !!byMonth && !continuous },
+        aspect ? { aspect: width >= 700 ? 200 : 130 } : { columns },
+      ),
     [photos, width, headingHeight, byMonth, continuous, aspect, columns],
   );
   const dense = !aspect && columns >= DENSE_FROM;
@@ -64,8 +83,11 @@ export function PhotoGrid({ photos, byMonth, continuous, columns = 3, aspect, pl
   const offsetY = useRef(0);
 
   const monthLabel = (monthKey: string) =>
-    monthKey === "undated" ? t("photos.undated") : `${t(MONTH_KEYS[Number(monthKey.slice(5, 7)) - 1])} ${monthKey.slice(0, 4)}`;
-  const scrubTo = (f: number) => list.current?.scrollToOffset({ offset: f * Math.max(0, total - viewport.current), animated: false });
+    monthKey === "undated"
+      ? t("photos.undated")
+      : `${t(MONTH_KEYS[Number(monthKey.slice(5, 7)) - 1])} ${monthKey.slice(0, 4)}`;
+  const scrubTo = (f: number) =>
+    list.current?.scrollToOffset({ offset: f * Math.max(0, total - viewport.current), animated: false });
 
   // The photo under the fingers stays there: remember it when a step commits, then scroll it back once the new grid is laid out.
   const headerHeight = useRef(0);
@@ -101,7 +123,11 @@ export function PhotoGrid({ photos, byMonth, continuous, columns = 3, aspect, pl
           anchor.current = { index: g.firstIndex[row] + at, y: e.focalY };
         }
         haptics.step();
-        if (!reduceMotion.current) Animated.sequence([Animated.timing(fade, { toValue: 0.6, duration: 60, useNativeDriver: true }), Animated.timing(fade, { toValue: 1, duration: 140, useNativeDriver: true })]).start();
+        if (!reduceMotion.current)
+          Animated.sequence([
+            Animated.timing(fade, { toValue: 0.6, duration: 60, useNativeDriver: true }),
+            Animated.timing(fade, { toValue: 1, duration: 140, useNativeDriver: true }),
+          ]).start();
         onPinch?.(steps);
       });
   }, [onPinch, fade]);
@@ -111,7 +137,10 @@ export function PhotoGrid({ photos, byMonth, continuous, columns = 3, aspect, pl
     if (!a) return;
     const row = rowOfPhoto(grid, a.index);
     if (row < 0) return;
-    list.current?.scrollToOffset({ offset: Math.max(0, headerHeight.current + grid.offsets[row] + grid.heights[row] / 2 - a.y), animated: false });
+    list.current?.scrollToOffset({
+      offset: Math.max(0, headerHeight.current + grid.offsets[row] + grid.heights[row] / 2 - a.y),
+      animated: false,
+    });
   }, [grid]);
 
   const body = (
@@ -123,7 +152,11 @@ export function PhotoGrid({ photos, byMonth, continuous, columns = 3, aspect, pl
       contentInsetAdjustmentBehavior={underBar ? "never" : "automatic"}
       keyboardDismissMode="on-drag"
       ListFooterComponent={footer}
-      ListHeaderComponent={header ? <View onLayout={(e) => (headerHeight.current = e.nativeEvent.layout.height)}>{header}</View> : undefined}
+      ListHeaderComponent={
+        header ? (
+          <View onLayout={(e) => (headerHeight.current = e.nativeEvent.layout.height)}>{header}</View>
+        ) : undefined
+      }
       ListEmptyComponent={empty}
       stickyHeaderIndices={grid.headings}
       drawDistance={dense ? 600 : 400}
@@ -140,12 +173,23 @@ export function PhotoGrid({ photos, byMonth, continuous, columns = 3, aspect, pl
           <View
             accessible
             accessibilityRole="header"
-            style={{ height: headingHeight, justifyContent: "flex-end", paddingHorizontal: spacing.page, paddingBottom: 6, backgroundColor: colors.canvas }}
+            style={{
+              height: headingHeight,
+              justifyContent: "flex-end",
+              paddingHorizontal: spacing.page,
+              paddingBottom: 6,
+              backgroundColor: colors.canvas,
+            }}
           >
-            <Text numberOfLines={lines} style={{ color: colors.ink, fontSize: type["title-3"].size, fontWeight: "700" }}>
+            <Text
+              numberOfLines={lines}
+              style={{ color: colors.ink, fontSize: type["title-3"].size, fontWeight: "700" }}
+            >
               {monthLabel(item.monthKey)}
               {places?.[item.monthKey] ? (
-                <Text style={{ color: colors.muted, fontSize: type.subheadline.size, fontWeight: "400" }}>{`  ${places[item.monthKey]}`}</Text>
+                <Text
+                  style={{ color: colors.muted, fontSize: type.subheadline.size, fontWeight: "400" }}
+                >{`  ${places[item.monthKey]}`}</Text>
               ) : null}
             </Text>
           </View>

@@ -20,8 +20,13 @@ export const statusWord = (s: CollectionSpecies["status"]) =>
 /** What VoiceOver says for a species: names, status with photo count, then rarity. */
 export function speciesLabel(t: (k: string, o?: Record<string, unknown>) => string, row: CollectionSpecies): string {
   const names = row.commonName ? `${row.commonName}, ${row.scientificName}` : row.scientificName;
-  const status = row.status === "photographed" ? t("species.photographedCount", { n: row.photos }) : t(statusWord(row.status));
-  return [`${names}.`, `${status}${row.isTarget ? `, ${t("species.target")}` : ""}.`, row.tier && TIER_LABEL[row.tier] ? `${t(TIER_LABEL[row.tier])}.` : null]
+  const status =
+    row.status === "photographed" ? t("species.photographedCount", { n: row.photos }) : t(statusWord(row.status));
+  return [
+    `${names}.`,
+    `${status}${row.isTarget ? `, ${t("species.target")}` : ""}.`,
+    row.tier && TIER_LABEL[row.tier] ? `${t(TIER_LABEL[row.tier])}.` : null,
+  ]
     .filter(Boolean)
     .join(" ");
 }
@@ -41,7 +46,15 @@ interface Props {
 }
 
 /** The desktop's species card: a square photo, a name box, at most one badge. */
-export const SpeciesCard = memo(function SpeciesCard({ row, onPress, actions, onLongPress, allTiers, scientificFirst, hideNames }: Props) {
+export const SpeciesCard = memo(function SpeciesCard({
+  row,
+  onPress,
+  actions,
+  onLongPress,
+  allTiers,
+  scientificFirst,
+  hideNames,
+}: Props) {
   const { t } = useTranslation();
   const { colors, appearance } = useTheme();
   const { uri, crop } = useFeatured("species", row.scientificName, row.coverPhotoId, row.cardCrop);
@@ -69,7 +82,15 @@ export const SpeciesCard = memo(function SpeciesCard({ row, onPress, actions, on
             transform: [{ scale: pressed ? 0.97 : 1 }],
           }}
         >
-          <View style={{ aspectRatio: 1, backgroundColor: colors["surface-muted"], alignItems: "center", justifyContent: "center", opacity: none ? 0.55 : 1 }}>
+          <View
+            style={{
+              aspectRatio: 1,
+              backgroundColor: colors["surface-muted"],
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: none ? 0.55 : 1,
+            }}
+          >
             {uri ? (
               <CroppedImage uri={uri} crop={crop} />
             ) : (
@@ -81,9 +102,23 @@ export const SpeciesCard = memo(function SpeciesCard({ row, onPress, actions, on
           {badge ? (
             <View style={{ position: "absolute", top: 8, right: 8 }}>
               <Glass style={{ height: 28, minWidth: 28, borderRadius: 14, overflow: "hidden" }}>
-                <View style={{ height: 28, minWidth: 28, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingHorizontal: badge === "seen" ? 8 : 0 }}>
+                <View
+                  style={{
+                    height: 28,
+                    minWidth: 28,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 4,
+                    paddingHorizontal: badge === "seen" ? 8 : 0,
+                  }}
+                >
                   <Icon name={badge} size={15} color={colors.ink} weight="semibold" />
-                  {badge === "seen" ? <Text style={{ color: colors.ink, fontSize: type.caption.size, fontWeight: "600" }}>{t("species.statusSeen")}</Text> : null}
+                  {badge === "seen" ? (
+                    <Text style={{ color: colors.ink, fontSize: type.caption.size, fontWeight: "600" }}>
+                      {t("species.statusSeen")}
+                    </Text>
+                  ) : null}
                 </View>
               </Glass>
             </View>
@@ -91,18 +126,49 @@ export const SpeciesCard = memo(function SpeciesCard({ row, onPress, actions, on
           {hideNames ? null : (
             <View style={{ paddingTop: 9, paddingBottom: 11, paddingHorizontal: 12, opacity: none ? 0.7 : 1 }}>
               <Text
-                style={{ color: colors.ink, fontSize: type.subheadline.size, fontWeight: "600", letterSpacing: -0.2, fontStyle: scientificFirst ? "italic" : "normal" }}
+                style={{
+                  color: colors.ink,
+                  fontSize: type.subheadline.size,
+                  fontWeight: "600",
+                  letterSpacing: -0.2,
+                  fontStyle: scientificFirst ? "italic" : "normal",
+                }}
               >
                 {scientificFirst ? row.scientificName : (row.commonName ?? row.scientificName)}
               </Text>
               {row.commonName ? (
-                <Text style={{ color: colors.muted, fontSize: type.footnote.size, fontStyle: scientificFirst ? "normal" : "italic" }}>
+                <Text
+                  style={{
+                    color: colors.muted,
+                    fontSize: type.footnote.size,
+                    fontStyle: scientificFirst ? "normal" : "italic",
+                  }}
+                >
                   {scientificFirst ? row.commonName : row.scientificName}
                 </Text>
               ) : null}
               {showTier ? (
-                <View style={{ alignSelf: "flex-start", marginTop: 6, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, backgroundColor: colors.accentTint }}>
-                  <Text style={{ color: colors.link, fontSize: type.micro.size, fontWeight: "600", letterSpacing: 0.2, textTransform: "uppercase" }}>{t(TIER_LABEL[row.tier ?? ""] ?? "tiers.common")}</Text>
+                <View
+                  style={{
+                    alignSelf: "flex-start",
+                    marginTop: 6,
+                    paddingHorizontal: 7,
+                    paddingVertical: 2,
+                    borderRadius: 6,
+                    backgroundColor: colors.accentTint,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: colors.link,
+                      fontSize: type.micro.size,
+                      fontWeight: "600",
+                      letterSpacing: 0.2,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    {t(TIER_LABEL[row.tier ?? ""] ?? "tiers.common")}
+                  </Text>
                 </View>
               ) : null}
             </View>

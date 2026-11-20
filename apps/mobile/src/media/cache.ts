@@ -51,7 +51,12 @@ export type SquareKind = "species" | "album" | "trip";
 /** A featured photo cut square by the hub (1024 px, the user's crop): kept in the showcase under an id that
  *  carries the crop, so a new crop is a new id and the old file is dropped. The owner is a species' slug
  *  (as referenceId spells it) or an album or trip id. */
-export const squareId = (kind: SquareKind, owner: string, photoId: string, crop: { x: number; y: number; size: number } | null): string =>
+export const squareId = (
+  kind: SquareKind,
+  owner: string,
+  photoId: string,
+  crop: { x: number; y: number; size: number } | null,
+): string =>
   `sq~${kind}~${owner}~${photoId}~${crop ? [crop.x, crop.y, crop.size].map((n) => n.toFixed(3)).join("_") : "centre"}`;
 
 /** "view" is a 2048 px copy kept under the thumbnail cap; "phone" is the same size, kept in the showcase. */
@@ -59,8 +64,8 @@ export const hubPath = (kind: MediaKind, photoId: string): string =>
   photoId.startsWith("sq~")
     ? `/companion/v1/square/${photoId.split("~")[1]}/${photoId.split("~")[2]}?photo=${photoId.split("~")[3]}`
     : photoId.startsWith("ref~")
-    ? `/companion/v1/reference/${photoId.slice(4)}/${kind === "thumb" ? "thumb" : "display"}`
-    : `/photos/${photoId}/${kind === "full" ? "full" : kind === "thumb" ? "thumb" : "phone"}`;
+      ? `/companion/v1/reference/${photoId.slice(4)}/${kind === "thumb" ? "thumb" : "display"}`
+      : `/photos/${photoId}/${kind === "full" ? "full" : kind === "thumb" ? "thumb" : "phone"}`;
 
 /** MR14: with Wi-Fi only on, no photo is downloaded over a metered connection. */
 export async function downloadsAllowed(d: Pick<MediaDeps, "settings" | "metered">): Promise<boolean> {
@@ -110,7 +115,11 @@ export async function forgetMedia(d: MediaDeps, kind: MediaKind, photoId: string
 export async function enforceThumbCap(d: MediaDeps, cap = d.settings().thumbCapBytes): Promise<number> {
   const rows = await d.db.all<MediaRow>("SELECT * FROM media WHERE kind IN ('thumb', 'view')");
   const doomed = planEviction(rows, cap);
-  for (const r of doomed) await drop(d, rows.find((x) => x.photo_id === r.photo_id)!);
+  for (const r of doomed)
+    await drop(
+      d,
+      rows.find((x) => x.photo_id === r.photo_id)!,
+    );
   return doomed.length;
 }
 
@@ -162,10 +171,7 @@ export const ESTIMATED_SHOWCASE_BYTES = 750 * 1024;
  * The showcase: every species' cover photo and the Favourites album, or Favourites only. Ids with no
  * copy yet, covers first. The size to show before the person turns it on is count * 750 KB.
  */
-export async function showcaseMissing(
-  d: MediaDeps,
-  favourites: string[],
-): Promise<{ ids: string[]; total: number }> {
+export async function showcaseMissing(d: MediaDeps, favourites: string[]): Promise<{ ids: string[]; total: number }> {
   const covers = d.settings().showcaseFavouritesOnly
     ? []
     : (
@@ -185,11 +191,10 @@ export async function showcaseMissing(
 /** Removes this owner's squares cut for an earlier photo or crop. */
 export async function dropStaleSquares(d: MediaDeps, kind: SquareKind, owner: string, keep: string): Promise<void> {
   const prefix = `sq~${kind}~${owner}~`;
-  for (const r of await d.db.all<MediaRow>("SELECT * FROM media WHERE kind = 'phone' AND substr(photo_id, 1, ?) = ? AND photo_id <> ?", [
-    prefix.length,
-    prefix,
-    keep,
-  ]))
+  for (const r of await d.db.all<MediaRow>(
+    "SELECT * FROM media WHERE kind = 'phone' AND substr(photo_id, 1, ?) = ? AND photo_id <> ?",
+    [prefix.length, prefix, keep],
+  ))
     await drop(d, r);
 }
 

@@ -29,7 +29,9 @@ describe("AlbumsScreen", () => {
       paired: true,
       seed: async (db) => {
         await seedLife(db);
-        await db.run("INSERT INTO albums (id, name, cover_photo_id, cover_crop_x, cover_crop_y, cover_crop_size) VALUES ('a1', 'Hand picked', 'p-1', 10, 20, 40)");
+        await db.run(
+          "INSERT INTO albums (id, name, cover_photo_id, cover_crop_x, cover_crop_y, cover_crop_size) VALUES ('a1', 'Hand picked', 'p-1', 10, 20, 40)",
+        );
         await db.run("INSERT INTO album_captures (album_id, capture_id) VALUES ('a1', '1')");
       },
     });
@@ -46,7 +48,9 @@ describe("AlbumsScreen", () => {
       seed: async (db) => {
         await seedLife(db);
         await db.run("INSERT INTO albums (id, name) VALUES ('a1', 'Hand picked')");
-        await db.run("INSERT INTO trips (id, name, start_date, end_date, local) VALUES ('t1', 'Norfolk weekend', '2020-05-01', '2020-05-03', 0)");
+        await db.run(
+          "INSERT INTO trips (id, name, start_date, end_date, local) VALUES ('t1', 'Norfolk weekend', '2020-05-01', '2020-05-03', 0)",
+        );
       },
     });
     await renderApp(<AlbumsScreen />, h);
@@ -56,7 +60,9 @@ describe("AlbumsScreen", () => {
     expect(await screen.findByRole("button", { name: /Norfolk weekend/ })).toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: /Hand picked/ })).toBeNull();
     expect(JSON.stringify(await h.db.all("SELECT value FROM meta WHERE key = 'settings'"))).toContain("trips");
-    await fireEvent(screen.getByLabelText("Show albums or trips"), "change", { nativeEvent: { selectedSegmentIndex: 0 } });
+    await fireEvent(screen.getByLabelText("Show albums or trips"), "change", {
+      nativeEvent: { selectedSegmentIndex: 0 },
+    });
     expect(await screen.findByRole("button", { name: /Hand picked/ })).toBeOnTheScreen();
   });
 
@@ -68,7 +74,10 @@ describe("AlbumsScreen", () => {
         seed: async (db) => {
           await seedLife(db);
           await db.run("INSERT INTO albums (id, name) VALUES ('a1', ?)", [long]);
-          await db.run("INSERT INTO trips (id, name, start_date, end_date, local) VALUES ('t1', ?, '2020-05-01', '2020-05-03', 0)", [long]);
+          await db.run(
+            "INSERT INTO trips (id, name, start_date, end_date, local) VALUES ('t1', ?, '2020-05-01', '2020-05-03', 0)",
+            [long],
+          );
         },
       });
     const wraps = (el: { props: { numberOfLines?: number } }) => expect(el.props.numberOfLines).toBeUndefined();
@@ -77,7 +86,10 @@ describe("AlbumsScreen", () => {
       wraps(await screen.findByText(long));
     });
     it("album page title", async () => {
-      await renderApp(<PhotosScreen route={{ params: { title: long, scope: { kind: "album", id: "a1" } } }} />, await seeded());
+      await renderApp(
+        <PhotosScreen route={{ params: { title: long, scope: { kind: "album", id: "a1" } } }} />,
+        await seeded(),
+      );
       wraps(await screen.findByText(long));
     });
     it("trip page title", async () => {

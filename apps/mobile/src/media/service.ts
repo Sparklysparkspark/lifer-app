@@ -169,13 +169,24 @@ export class MediaService {
         await fetchMedia(this.d, "phone", ids[i]).catch(() => undefined);
       }
       // The card squares of photographed species, so the Collection stays sharp offline.
-      const cards = await this.d.db.all<{ scientific_name: string; cover: string; crop_x: number | null; crop_y: number | null; crop_size: number | null }>(
+      const cards = await this.d.db.all<{
+        scientific_name: string;
+        cover: string;
+        crop_x: number | null;
+        crop_y: number | null;
+        crop_size: number | null;
+      }>(
         `SELECT scientific_name, cover, crop_x, crop_y, crop_size FROM (${SPECIES_SQL}) WHERE cover IS NOT NULL AND photos > 0`,
       );
       for (const c of cards) {
         if (!this.hasHub()) break;
         await settled();
-        await this.square("species", referenceId(c.scientific_name).slice(4), c.cover, toCrop(c.crop_x, c.crop_y, c.crop_size));
+        await this.square(
+          "species",
+          referenceId(c.scientific_name).slice(4),
+          c.cover,
+          toCrop(c.crop_x, c.crop_y, c.crop_size),
+        );
       }
       onProgress?.(0);
     } finally {

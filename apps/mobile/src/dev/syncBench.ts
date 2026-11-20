@@ -12,7 +12,9 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const TABS = ["Collection", "Gallery", "Albums", "Identify"];
 
 export async function syncBench(app: App, get: () => App, label = "run"): Promise<void> {
-  await app.db.exec("DELETE FROM captures; DELETE FROM capture_vectors; DELETE FROM capture_frames; DELETE FROM capture_backgrounds; DELETE FROM album_captures; DELETE FROM media;");
+  await app.db.exec(
+    "DELETE FROM captures; DELETE FROM capture_vectors; DELETE FROM capture_frames; DELETE FROM capture_backgrounds; DELETE FROM album_captures; DELETE FROM media;",
+  );
   await app.db.exec("DELETE FROM meta WHERE key LIKE 'cursor.%' OR key LIKE 'smart.%'");
   await app.media.load();
   app.bump();

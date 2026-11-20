@@ -28,7 +28,10 @@ const Stack = createNativeStackNavigator<RootParams>();
 /** A native form sheet: grabber, rounded top, detents; its own small title bar with the close button. */
 function useSheet() {
   const { colors } = useTheme();
-  return (detents: number[] | "fitToContents", extra: NativeStackNavigationOptions = {}): NativeStackNavigationOptions => ({
+  return (
+    detents: number[] | "fitToContents",
+    extra: NativeStackNavigationOptions = {},
+  ): NativeStackNavigationOptions => ({
     presentation: "formSheet",
     sheetAllowedDetents: detents,
     sheetGrabberVisible: true,
@@ -52,7 +55,12 @@ export function FirstRun() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.canvas } }}>
       <Stack.Screen name="Welcome">
-        {({ navigation }) => <WelcomeScreen onConnect={() => navigation.navigate("Connect")} onStandalone={() => void app.chooseStandalone()} />}
+        {({ navigation }) => (
+          <WelcomeScreen
+            onConnect={() => navigation.navigate("Connect")}
+            onStandalone={() => void app.chooseStandalone()}
+          />
+        )}
       </Stack.Screen>
       <Stack.Screen name="Connect" component={ConnectScreen} />
     </Stack.Navigator>
@@ -65,26 +73,77 @@ export function Main() {
   const stack = useStackOptions();
   const sheet = useSheet();
   // Pushed pages keep the transparent bar; the species and viewer pages draw their own chrome over a photo.
-  const page: NativeStackNavigationOptions = { ...stack, headerLargeTitleEnabled: false, headerTransparent: Platform.OS === "ios" };
+  const page: NativeStackNavigationOptions = {
+    ...stack,
+    headerLargeTitleEnabled: false,
+    headerTransparent: Platform.OS === "ios",
+  };
   return (
-    <Stack.Navigator screenOptions={{ headerBackButtonDisplayMode: "minimal", contentStyle: { backgroundColor: colors.canvas } }}>
+    <Stack.Navigator
+      screenOptions={{ headerBackButtonDisplayMode: "minimal", contentStyle: { backgroundColor: colors.canvas } }}
+    >
       <Stack.Screen name="Tabs" component={Tabs} options={{ headerShown: false }} />
-      <Stack.Screen name="Species" component={SpeciesScreen} options={{ ...page, title: "", headerTransparent: true }} />
+      <Stack.Screen
+        name="Species"
+        component={SpeciesScreen}
+        options={{ ...page, title: "", headerTransparent: true }}
+      />
       <Stack.Screen name="Trip" component={TripScreen} options={{ ...stack, title: "" }} />
       <Stack.Screen name="Photos" component={PhotosScreen} options={{ ...stack, title: "" }} />
       <Stack.Screen name="Stats" component={StatsScreen} options={{ ...stack, title: t("stats.title") }} />
       <Stack.Screen name="Regions" component={RegionsScreen} options={{ ...stack, title: t("regions.title") }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ ...stack, title: t("settings.title") }} />
       <Stack.Screen name="Connect" component={ConnectScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="Viewer" component={ViewerScreen} options={{ headerShown: false, presentation: "transparentModal", animation: "fade", contentStyle: { backgroundColor: "transparent" } }} />
-      <Stack.Screen name="YourLifer" component={YourLiferSheet} options={sheet([0.62, 1], { title: t("account.title") })} />
-      <Stack.Screen name="RegionPicker" component={RegionPickerSheet} options={sheet([0.7, 1], { title: t("regionPicker.title") })} />
-      <Stack.Screen name="MoreFilters" component={MoreFiltersSheet} options={sheet([0.75, 1], { title: t("collection.moreFilters") })} />
-      <Stack.Screen name="StartTrip" component={StartTripSheet} options={sheet([0.7, 1], { title: t("trips.start") })} />
-      <Stack.Screen name="PhotoInfo" component={PhotoInfoSheet} options={sheet([0.5, 1], { title: t("viewer.info") })} />
-      <Stack.Screen name="ShareSensitive" component={ShareSensitiveSheet} options={sheet([0.4], { title: t("viewer.shareSensitiveTitle") })} />
-      <Stack.Screen name="IdentifyResult" component={IdentifyResultSheet} options={sheet([0.55, 1], { title: t("identify.resultTitle") })} />
-      <Stack.Screen name="AddRegion" component={AddRegionScreen} options={sheet([0.85, 1], { title: t("regions.add") })} />
+      <Stack.Screen
+        name="Viewer"
+        component={ViewerScreen}
+        options={{
+          headerShown: false,
+          presentation: "transparentModal",
+          animation: "fade",
+          contentStyle: { backgroundColor: "transparent" },
+        }}
+      />
+      <Stack.Screen
+        name="YourLifer"
+        component={YourLiferSheet}
+        options={sheet([0.62, 1], { title: t("account.title") })}
+      />
+      <Stack.Screen
+        name="RegionPicker"
+        component={RegionPickerSheet}
+        options={sheet([0.7, 1], { title: t("regionPicker.title") })}
+      />
+      <Stack.Screen
+        name="MoreFilters"
+        component={MoreFiltersSheet}
+        options={sheet([0.75, 1], { title: t("collection.moreFilters") })}
+      />
+      <Stack.Screen
+        name="StartTrip"
+        component={StartTripSheet}
+        options={sheet([0.7, 1], { title: t("trips.start") })}
+      />
+      <Stack.Screen
+        name="PhotoInfo"
+        component={PhotoInfoSheet}
+        options={sheet([0.5, 1], { title: t("viewer.info") })}
+      />
+      <Stack.Screen
+        name="ShareSensitive"
+        component={ShareSensitiveSheet}
+        options={sheet([0.4], { title: t("viewer.shareSensitiveTitle") })}
+      />
+      <Stack.Screen
+        name="IdentifyResult"
+        component={IdentifyResultSheet}
+        options={sheet([0.55, 1], { title: t("identify.resultTitle") })}
+      />
+      <Stack.Screen
+        name="AddRegion"
+        component={AddRegionScreen}
+        options={sheet([0.85, 1], { title: t("regions.add") })}
+      />
     </Stack.Navigator>
   );
 }

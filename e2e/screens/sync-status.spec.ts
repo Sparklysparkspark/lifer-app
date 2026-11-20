@@ -74,7 +74,9 @@ for (const theme of THEMES) {
           // The app's own library, linked to a server.
           win.liferSetup = { getConfig: async () => ({ mode: "local" }) };
         });
-        expect((await context.request.post("/api/auth/login", { headers: HEADERS, data: EXTREME_ACCOUNT })).ok()).toBe(true);
+        expect((await context.request.post("/api/auth/login", { headers: HEADERS, data: EXTREME_ACCOUNT })).ok()).toBe(
+          true,
+        );
         await context.route("**/api/settings", async (route) => {
           const res = await route.fetch();
           await route.fulfill({ response: res, json: { ...(await res.json()), deploymentMode: "desktop" } });

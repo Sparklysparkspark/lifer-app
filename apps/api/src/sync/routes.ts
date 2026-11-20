@@ -174,11 +174,13 @@ export async function syncRoutes(fastify: FastifyInstance): Promise<void> {
   const libraryFeeds: [
     string,
     EntityName,
-    | typeof AlbumPageSchema
-    | typeof TripPageSchema
-    | typeof MemberPageSchema
-    | typeof SpotPageSchema
-    | typeof KeptPageSchema,
+    (
+      | typeof AlbumPageSchema
+      | typeof TripPageSchema
+      | typeof MemberPageSchema
+      | typeof SpotPageSchema
+      | typeof KeptPageSchema
+    ),
   ][] = [
     ["/sync/albums", "albums", AlbumPageSchema],
     ["/sync/trips", "trips", TripPageSchema],

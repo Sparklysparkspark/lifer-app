@@ -656,7 +656,10 @@ const ANIMAL_NOISE = 0.15;
  *  the boat, a post at the margin. It doesn't count as an animal in the photo. */
 const edgeSpeck = (cx: number, cy: number, w: number, h: number) =>
   w * h < UNSURE_BOX_SHARE &&
-  (cx - w / 2 <= EDGE_MARGIN || cy - h / 2 <= EDGE_MARGIN || cx + w / 2 >= 1 - EDGE_MARGIN || cy + h / 2 >= 1 - EDGE_MARGIN);
+  (cx - w / 2 <= EDGE_MARGIN ||
+    cy - h / 2 <= EDGE_MARGIN ||
+    cx + w / 2 >= 1 - EDGE_MARGIN ||
+    cy + h / 2 >= 1 - EDGE_MARGIN);
 
 /** The animal detector's output: per query, class logits and a (cx, cy, w, h) box as fractions of
  *  the image. Returns the subject candidates in the image's pixel space and the presence reading. */
@@ -721,7 +724,13 @@ async function detectPass(
     box: [f(d.box[0], 0) + offsetX, f(d.box[1], 1) + offsetY, f(d.box[2], 0) + offsetX, f(d.box[3], 1) + offsetY],
   });
   if (isAnimalDetector(session)) {
-    const [logits, boxes] = await runOutputs(session, await squashed(bytes), [1, 3, DETECT_SIZE, DETECT_SIZE], hooks, "detect");
+    const [logits, boxes] = await runOutputs(
+      session,
+      await squashed(bytes),
+      [1, 3, DETECT_SIZE, DETECT_SIZE],
+      hooks,
+      "detect",
+    );
     const read = readAnimalDetector(logits.data as Float32Array, boxes.data as Float32Array, size);
     return { detections: read.detections.map((d) => shift(d, (v) => v)), presence: read.presence };
   }

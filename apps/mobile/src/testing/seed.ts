@@ -5,7 +5,12 @@ import { saveRegion } from "../store/regions";
 
 export const NOW = new Date("2026-10-25T10:00:00Z");
 
-export const capture = (id: string, scientificName: string, takenAt: string | null = "2026-09-01T10:00:00Z", extra: Partial<CaptureChange> = {}): CaptureChange => ({
+export const capture = (
+  id: string,
+  scientificName: string,
+  takenAt: string | null = "2026-09-01T10:00:00Z",
+  extra: Partial<CaptureChange> = {},
+): CaptureChange => ({
   id,
   deletedAt: null,
   hiddenAt: null,
@@ -33,7 +38,13 @@ export async function seedLife(db: Db): Promise<void> {
   await saveRegion(
     db,
     { key: "hub:r1", name: "Norfolk", source: "hub", hubRegionId: "r1" },
-    [item("Cygnus olor", "Mute Swan"), item("Cygnus columbianus", "Tundra Swan"), item("Grus grus", "Common Crane"), item("Anas crecca", "Eurasian Teal"), item("Tyto alba", "Barn Owl", true)],
+    [
+      item("Cygnus olor", "Mute Swan"),
+      item("Cygnus columbianus", "Tundra Swan"),
+      item("Grus grus", "Common Crane"),
+      item("Anas crecca", "Eurasian Teal"),
+      item("Tyto alba", "Barn Owl", true),
+    ],
     NOW,
   );
   await applyCaptureChanges(

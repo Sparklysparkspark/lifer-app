@@ -20,7 +20,11 @@ export function RoundButton({ icon, label, onPress, size = 44, onPhoto, disabled
   const { colors } = useTheme();
   return (
     <Tap label={label} onPress={onPress} disabled={disabled}>
-      <Glass interactive onPhoto={onPhoto} style={{ width: size, height: size, borderRadius: size / 2, overflow: "hidden" }}>
+      <Glass
+        interactive
+        onPhoto={onPhoto}
+        style={{ width: size, height: size, borderRadius: size / 2, overflow: "hidden" }}
+      >
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
           <Icon name={icon} size={Math.round(size * 0.42)} color={onPhoto ? ON_BACKDROP : colors.ink} />
         </View>
@@ -45,7 +49,11 @@ export function RoundCapsule({
       {items.map((i) => (
         <Tap key={i.label} label={i.label} onPress={i.onPress}>
           <View style={{ width: size + 2, height: size, alignItems: "center", justifyContent: "center" }}>
-            <Icon name={i.icon} size={Math.round(size * 0.42)} color={onPhoto ? ON_BACKDROP : i.active ? colors.link : colors.ink} />
+            <Icon
+              name={i.icon}
+              size={Math.round(size * 0.42)}
+              color={onPhoto ? ON_BACKDROP : i.active ? colors.link : colors.ink}
+            />
           </View>
         </Tap>
       ))}

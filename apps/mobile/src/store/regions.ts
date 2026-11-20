@@ -45,7 +45,15 @@ export async function saveRegion(
              taxon_order = COALESCE(excluded.taxon_order, species.taxon_order),
              family = COALESCE(excluded.family, species.family),
              tier = COALESCE(excluded.tier, species.tier), sensitive = MAX(species.sensitive, excluded.sensitive)`,
-          [s.scientificName, s.commonName, s.taxonClass, s.tier, s.sensitive ? 1 : 0, s.taxonOrder ?? null, s.family ?? null],
+          [
+            s.scientificName,
+            s.commonName,
+            s.taxonClass,
+            s.tier,
+            s.sensitive ? 1 : 0,
+            s.taxonOrder ?? null,
+            s.family ?? null,
+          ],
         );
         await db.run("INSERT OR REPLACE INTO region_species (region_key, scientific_name, vagrant) VALUES (?, ?, ?)", [
           region.key,
@@ -58,7 +66,15 @@ export async function saveRegion(
   await db.run(
     `INSERT INTO regions (key, name, source, hub_region_id, species_count, bytes, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (key) DO UPDATE SET name = excluded.name, species_count = excluded.species_count, bytes = excluded.bytes`,
-    [region.key, region.name, region.source, region.hubRegionId, items.length, items.length * BYTES_PER_SPECIES, now.toISOString()],
+    [
+      region.key,
+      region.name,
+      region.source,
+      region.hubRegionId,
+      items.length,
+      items.length * BYTES_PER_SPECIES,
+      now.toISOString(),
+    ],
   );
 }
 
@@ -77,9 +93,14 @@ export async function removeRegion(db: Db, key: string): Promise<void> {
 
 export async function listRegions(db: Db): Promise<RegionRow[]> {
   return (
-    await db.all<{ key: string; name: string; source: "hub" | "pack"; hub_region_id: string | null; species_count: number; bytes: number }>(
-      "SELECT * FROM regions ORDER BY name COLLATE NOCASE",
-    )
+    await db.all<{
+      key: string;
+      name: string;
+      source: "hub" | "pack";
+      hub_region_id: string | null;
+      species_count: number;
+      bytes: number;
+    }>("SELECT * FROM regions ORDER BY name COLLATE NOCASE")
   ).map((r) => ({
     key: r.key,
     name: r.name,
@@ -95,9 +116,9 @@ export const regionKeyForPack = (name: string): string => `pack:${name}`;
 
 /** The kept checklists a region id stands for: a hub region id, or a standalone region's own key. */
 export const regionKeysByHubId = async (db: Db, regionId: string): Promise<string[]> =>
-  (await db.all<{ key: string }>("SELECT key FROM regions WHERE hub_region_id = ? OR key = ?", [regionId, regionId])).map(
-    (r) => r.key,
-  );
+  (
+    await db.all<{ key: string }>("SELECT key FROM regions WHERE hub_region_id = ? OR key = ?", [regionId, regionId])
+  ).map((r) => r.key);
 
 export interface Progress {
   total: number;

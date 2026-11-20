@@ -30,7 +30,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "@lifer/core/db.js";
 import { PROVINCES_WITH_COUNTRY_SQL, provinceIdsSql } from "@lifer/core/regions/regionTree.js";
-import { deleteListings, ESCAPE_MAX_RECORDS, ESTABLISHED_MIN_RECORDS, knownFeral, referenceListings } from "./remove-escapes.js";
+import {
+  deleteListings,
+  ESCAPE_MAX_RECORDS,
+  ESTABLISHED_MIN_RECORDS,
+  knownFeral,
+  referenceListings,
+} from "./remove-escapes.js";
 import { cachedEbirdRegions, exoticRegionCode } from "./fix-ebird-region-codes.js";
 import { requirePostgis } from "../pipeline/requirePostgis.js";
 import { ebirdGet, ebirdRequests } from "../regions/ebirdApi.js";
@@ -158,14 +164,20 @@ export async function applyEbirdExotics(opts: {
   const log = opts.log ?? ((m) => console.log(`[ebird-exotics] ${m}`));
   // Each province with its country and, when grouped, its group.
   const provinces = (
-    await pool.query<{ id: string; own: string; country_id: string; group_id: string | null; group_name: string | null }>(
+    await pool.query<{
+      id: string;
+      own: string;
+      country_id: string;
+      group_id: string | null;
+      group_name: string | null;
+    }>(
       `SELECT p.id, r.ebird_region_code AS own, p.country_id, g.id AS group_id, g.name AS group_name
        FROM (${PROVINCES_WITH_COUNTRY_SQL}) p JOIN regions r ON r.id = p.id
        LEFT JOIN regions g ON g.id = r.parent_id AND g.id <> p.country_id
        WHERE r.ebird_region_code IS NOT NULL`,
     )
-  )
-    .rows.map((p) => ({ ...p, code: exoticRegionCode(p.own, p.group_name, cachedEbirdRegions(p.own.slice(0, 2))) }))
+  ).rows
+    .map((p) => ({ ...p, code: exoticRegionCode(p.own, p.group_name, cachedEbirdRegions(p.own.slice(0, 2))) }))
     .filter((p): p is typeof p & { code: string } => p.code !== null);
   const birdRows = `SELECT rs.region_id, rs.species_id, s.ebird_code, s.scientific_name,
                            greatest(COALESCE(rs.local_frequency, 0), COALESCE(rs.inat_rg_count, 0))::int AS n
@@ -209,7 +221,8 @@ export async function applyEbirdExotics(opts: {
     }
     if (done < due.length) log(`${due.length - done} provinces left for the next run (--max-requests=${maxRequests})`);
     // Past a few, the lists would depend on how this run's fetches went.
-    if (failed > (opts.maxFailed ?? 20)) throw new Error(`${failed} provinces failed; nothing was changed, rerun to retry`);
+    if (failed > (opts.maxFailed ?? 20))
+      throw new Error(`${failed} provinces failed; nothing was changed, rerun to retry`);
   }
 
   // Categories per (region, species code), pooled up to groups and countries.
@@ -253,7 +266,8 @@ export async function applyEbirdExotics(opts: {
   const { escapeeSomewhere, wildAt } = wildRanges(regionCats);
   const allSci = new Map<string, string>();
   for (const m of regionCats.values()) for (const [sci, code] of m.sci) allSci.set(sci, code);
-  const codeOf = (l: Listing) => (l.ebird_code && escapeeSomewhere.has(l.ebird_code) ? l.ebird_code : allSci.get(l.scientific_name));
+  const codeOf = (l: Listing) =>
+    l.ebird_code && escapeeSomewhere.has(l.ebird_code) ? l.ebird_code : allSci.get(l.scientific_name);
   const doubtful = unseen.filter((l) => l.n < ESCAPE_MAX_RECORDS && escapeeSomewhere.has(codeOf(l) ?? ""));
   const doubtfulSpecies = new Map(doubtful.map((l) => [l.species_id, codeOf(l)!]));
   const provinceIdSet = new Set(provinces.map((p) => p.id));
@@ -368,7 +382,12 @@ export async function applyEbirdExotics(opts: {
          FROM unnest($1::uuid[], $2::uuid[]) AS v(region_id, species_id) JOIN species s ON s.id = v.species_id JOIN regions r ON r.id = v.region_id
          LEFT JOIN unnest($3::uuid[], $4::uuid[]) AS i(region_id, species_id) ON i.region_id = v.region_id AND i.species_id = v.species_id
          ORDER BY 1`,
-        [[...gone, ...above].map((x) => x.region_id), [...gone, ...above].map((x) => x.species_id), inferred.map((x) => x.region_id), inferred.map((x) => x.species_id)],
+        [
+          [...gone, ...above].map((x) => x.region_id),
+          [...gone, ...above].map((x) => x.species_id),
+          inferred.map((x) => x.region_id),
+          inferred.map((x) => x.species_id),
+        ],
       );
       for (const row of all.rows) console.log(row.s);
     }
@@ -381,7 +400,11 @@ export async function applyEbirdExotics(opts: {
     );
     await client.query(opts.apply ? "COMMIT" : "ROLLBACK");
     log(opts.apply ? "applied" : "preview only (pass --apply)");
-    return { removed: gone.length + above.length, naturalized: naturalized.rowCount, provisional: provisional.rowCount };
+    return {
+      removed: gone.length + above.length,
+      naturalized: naturalized.rowCount,
+      provisional: provisional.rowCount,
+    };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     throw err;

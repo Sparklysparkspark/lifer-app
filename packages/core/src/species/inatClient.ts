@@ -153,7 +153,10 @@ export async function fetchFirstTaxonPhoto(taxonId: number): Promise<INaturalist
 }
 
 interface ObservationPhotos {
-  results: Array<{ taxon: { id: number }; photos: Array<{ url: string; license_code: string | null; attribution: string }> }>;
+  results: Array<{
+    taxon: { id: number };
+    photos: Array<{ url: string; license_code: string | null; attribution: string }>;
+  }>;
 }
 
 function isObservationPhotos(v: unknown): v is ObservationPhotos {
@@ -167,7 +170,11 @@ function isObservationPhotos(v: unknown): v is ObservationPhotos {
         typeof o.taxon.id === "number" &&
         Array.isArray(o.photos) &&
         o.photos.every(
-          (p) => isRecord(p) && typeof p.url === "string" && isOptionalString(p.license_code) && typeof p.attribution === "string",
+          (p) =>
+            isRecord(p) &&
+            typeof p.url === "string" &&
+            isOptionalString(p.license_code) &&
+            typeof p.attribution === "string",
         ),
     )
   );
@@ -191,7 +198,11 @@ export async function fetchObservationPhotos(
   return ranked
     .flatMap((o) => o.photos.slice(0, 1))
     .slice(0, limit)
-    .map((p) => ({ medium_url: p.url.replace("/square.", "/medium."), license_code: p.license_code, attribution: p.attribution }));
+    .map((p) => ({
+      medium_url: p.url.replace("/square.", "/medium."),
+      license_code: p.license_code,
+      attribution: p.attribution,
+    }));
 }
 
 type FoundTaxon = { id: number; defaultPhoto: INaturalistPhoto | null };

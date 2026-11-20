@@ -25,7 +25,11 @@ export function SwitchRow({ label, hint, value, onChange, separator }: Props) {
         gap: 12,
       }}
     >
-      {separator ? <View style={{ position: "absolute", top: 0, right: 0, left: spacing.item, height: 1, backgroundColor: colors.sep }} /> : null}
+      {separator ? (
+        <View
+          style={{ position: "absolute", top: 0, right: 0, left: spacing.item, height: 1, backgroundColor: colors.sep }}
+        />
+      ) : null}
       <View style={{ flex: 1 }}>
         <Text style={{ color: colors.ink, fontSize: type.body.size }}>{label}</Text>
         {hint ? <Text style={{ color: colors.muted, fontSize: type.footnote.size }}>{hint}</Text> : null}

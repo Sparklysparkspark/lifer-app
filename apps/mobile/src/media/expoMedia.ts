@@ -5,7 +5,13 @@ import { Directory, File, Paths } from "expo-file-system";
 import { MediaHttpError, type MediaFs, type MediaKind } from "./cache";
 
 interface Native {
-  download(o: { url: string; headers: Record<string, string>; certSha256: string; path: string; timeoutMs: number }): Promise<{
+  download(o: {
+    url: string;
+    headers: Record<string, string>;
+    certSha256: string;
+    path: string;
+    timeoutMs: number;
+  }): Promise<{
     status: number;
     bytes: number;
   }>;
@@ -59,4 +65,7 @@ export const expoMediaFs: MediaFs = {
 };
 
 /** True on cellular or Low Data Mode; false when the check itself fails (the person is not blocked by it). */
-export const isMetered = (): Promise<boolean> => native().isMetered().catch(() => false);
+export const isMetered = (): Promise<boolean> =>
+  native()
+    .isMetered()
+    .catch(() => false);

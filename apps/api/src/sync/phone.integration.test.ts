@@ -346,10 +346,19 @@ describe.skipIf(!url)("phone sync routes", () => {
         ]),
       );
       expect(v.species).toEqual([
-        { scientificName: "Zzphone alpha", taxonOrder: "Zzorder", family: "Zzfamily", aliases: ["Alpha Alias", "Zzphone oldname"], codes: ["alpbir"] },
+        {
+          scientificName: "Zzphone alpha",
+          taxonOrder: "Zzorder",
+          family: "Zzfamily",
+          aliases: ["Alpha Alias", "Zzphone oldname"],
+          codes: ["alpbir"],
+        },
       ]);
       expect((await get("/sync/search-vocab", OTHER_DEVICE)).json().species).toEqual([]);
-      expect((await get(`/sync/regions/${REGION}/checklist`)).json().items[0]).toMatchObject({ taxonOrder: "Zzorder", family: "Zzfamily" });
+      expect((await get(`/sync/regions/${REGION}/checklist`)).json().items[0]).toMatchObject({
+        taxonOrder: "Zzorder",
+        family: "Zzfamily",
+      });
     } finally {
       await db.query(`UPDATE regions SET parent_id = NULL WHERE id = $1`, [REGION]);
       await db.query(`DELETE FROM captures_all WHERE id = $1`, [VOCAB_CAPTURE]);

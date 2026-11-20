@@ -37,7 +37,9 @@ export async function changeLibraryFolder(dataDir: string): Promise<LibraryFolde
   } catch (err) {
     return { kind: "launchConfigFailed", error: userMessage(err), dataDir: saved };
   }
-  return (await restartLifer()) ? { kind: "restarting" } : { kind: "restartManually", filesMoved: res.filesMoved === true };
+  return (await restartLifer())
+    ? { kind: "restarting" }
+    : { kind: "restartManually", filesMoved: res.filesMoved === true };
 }
 
 /** Relaunches the desktop app, noting running pack downloads so they pick up again afterwards.

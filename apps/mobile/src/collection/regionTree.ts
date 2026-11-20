@@ -4,7 +4,8 @@ import type { TreeNode } from "../sync/regionTree";
 const COUNTRY_DEPTH = 2;
 const byName = (a: TreeNode, b: TreeNode) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 // Regions with a list of their own lead; a group that only holds provinces follows.
-const listedFirst = (a: TreeNode, b: TreeNode) => Number(b.speciesCount > 0) - Number(a.speciesCount > 0) || byName(a, b);
+const listedFirst = (a: TreeNode, b: TreeNode) =>
+  Number(b.speciesCount > 0) - Number(a.speciesCount > 0) || byName(a, b);
 
 export interface RegionTree {
   /** Countries, those with a species list first. */
@@ -28,7 +29,12 @@ export function buildRegionTree(nodes: TreeNode[]): RegionTree {
   const top = (countries.length ? countries : nodes.filter((n) => n.depth === shallow)).sort(listedFirst);
   const trail = (id: string): TreeNode[] => {
     const out: TreeNode[] = [];
-    for (let n = byId.get(id); n && n.depth >= (countries.length ? COUNTRY_DEPTH : shallow); n = n.parentId ? byId.get(n.parentId) : undefined) out.unshift(n);
+    for (
+      let n = byId.get(id);
+      n && n.depth >= (countries.length ? COUNTRY_DEPTH : shallow);
+      n = n.parentId ? byId.get(n.parentId) : undefined
+    )
+      out.unshift(n);
     return out;
   };
   return {
@@ -40,7 +46,14 @@ export function buildRegionTree(nodes: TreeNode[]): RegionTree {
       if (!q) return [];
       const low = countries.length ? COUNTRY_DEPTH : shallow;
       return nodes
-        .filter((n) => n.depth >= low && n.name.toLowerCase().split(/[\s-]+/).some((w) => w.startsWith(q)))
+        .filter(
+          (n) =>
+            n.depth >= low &&
+            n.name
+              .toLowerCase()
+              .split(/[\s-]+/)
+              .some((w) => w.startsWith(q)),
+        )
         .sort((a, b) => a.depth - b.depth || byName(a, b));
     },
     get: (id) => byId.get(id),

@@ -33,16 +33,19 @@ export function TripScreen({ route }: { route: { params: RootParams["Trip"] } })
   const app = useApp();
   const [part, setPart] = useState<Part>("targets");
 
-  const { data } = useLocal(async (db) => {
-    const trip = (await listTrips(db, today())).find((x) => x.id === id) ?? null;
-    const keys = trip?.regionId ? await regionKeysByHubId(db, trip.regionId) : [];
-    return {
-      trip,
-      progress: keys.length ? await regionProgress(db, keys[0]) : null,
-      targets: await nearTargets(db, keys.length ? keys : null, 300),
-      photos: await tripPhotos(db, id),
-    };
-  }, [id]);
+  const { data } = useLocal(
+    async (db) => {
+      const trip = (await listTrips(db, today())).find((x) => x.id === id) ?? null;
+      const keys = trip?.regionId ? await regionKeysByHubId(db, trip.regionId) : [];
+      return {
+        trip,
+        progress: keys.length ? await regionProgress(db, keys[0]) : null,
+        targets: await nearTargets(db, keys.length ? keys : null, 300),
+        photos: await tripPhotos(db, id),
+      };
+    },
+    [id],
+  );
 
   const trip = data?.trip ?? null;
   useHeader({
@@ -65,13 +68,23 @@ export function TripScreen({ route }: { route: { params: RootParams["Trip"] } })
                   onPress: () =>
                     Alert.alert(t("trips.endTitle"), t("trips.endBody"), [
                       { text: t("common.cancel"), style: "cancel" },
-                      { text: t("trips.end"), style: "destructive", onPress: () => void endLocalTrip(app.db, id, today()).then(app.bump) },
+                      {
+                        text: t("trips.end"),
+                        style: "destructive",
+                        onPress: () => void endLocalTrip(app.db, id, today()).then(app.bump),
+                      },
                     ]),
                 } as const,
               ]
             : []),
           ...(app.settings.hiddenTripBar === id
-            ? [{ type: "action", label: t("trips.showAccessory"), onPress: () => void app.updateSettings({ hiddenTripBar: null }) } as const]
+            ? [
+                {
+                  type: "action",
+                  label: t("trips.showAccessory"),
+                  onPress: () => void app.updateSettings({ hiddenTripBar: null }),
+                } as const,
+              ]
             : []),
         ],
       },
@@ -88,12 +101,22 @@ export function TripScreen({ route }: { route: { params: RootParams["Trip"] } })
         {dates ? <Text style={{ color: colors.muted, fontSize: type.subheadline.size }}>{dates}</Text> : null}
         {data.progress ? (
           <View style={{ gap: 6 }}>
-            <Text style={{ color: colors.ink, fontSize: type.headline.size, fontWeight: "600" }}>{t("trips.progress", { seen: data.progress.seen, total: data.progress.total })}</Text>
-            <ProgressBar fraction={data.progress.total ? data.progress.seen / data.progress.total : 0} label={t("trips.progress", { seen: data.progress.seen, total: data.progress.total })} />
+            <Text style={{ color: colors.ink, fontSize: type.headline.size, fontWeight: "600" }}>
+              {t("trips.progress", { seen: data.progress.seen, total: data.progress.total })}
+            </Text>
+            <ProgressBar
+              fraction={data.progress.total ? data.progress.seen / data.progress.total : 0}
+              label={t("trips.progress", { seen: data.progress.seen, total: data.progress.total })}
+            />
           </View>
         ) : null}
       </View>
-      <Segmented label={t("trips.parts")} values={PARTS.map((p) => t(PART_LABEL[p]))} selected={PARTS.indexOf(part)} onChange={(i) => setPart(PARTS[i])} />
+      <Segmented
+        label={t("trips.parts")}
+        values={PARTS.map((p) => t(PART_LABEL[p]))}
+        selected={PARTS.indexOf(part)}
+        onChange={(i) => setPart(PARTS[i])}
+      />
     </View>
   );
 
@@ -123,7 +146,16 @@ export function TripScreen({ route }: { route: { params: RootParams["Trip"] } })
           const name = item.commonName ?? item.scientificName;
           const g = groupOf(item.taxonClass ?? null);
           return (
-            <View style={{ flexDirection: "row", alignItems: "center", paddingLeft: 16, paddingRight: 16, minHeight: 64, gap: 12 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                paddingLeft: 16,
+                paddingRight: 16,
+                minHeight: 64,
+                gap: 12,
+              }}
+            >
               <View style={{ flex: 1 }}>
                 <ListRow
                   title={name}
@@ -141,4 +173,3 @@ export function TripScreen({ route }: { route: { params: RootParams["Trip"] } })
     </View>
   );
 }
-

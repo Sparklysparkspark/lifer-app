@@ -665,7 +665,10 @@ export function rankCandidates(
   scored.sort((a, b) => b.score - a.score);
   markConfidence(scored, space);
   // Bat species look too alike in photos for a sure species answer; the genus or family can still be.
-  if (scored[0]?.confident && entries.find((e) => e.species.species_id === scored[0].id)?.species.taxon_order === BAT_ORDER)
+  if (
+    scored[0]?.confident &&
+    entries.find((e) => e.species.species_id === scored[0].id)?.species.taxon_order === BAT_ORDER
+  )
     scored[0].confident = false;
   assignDisplayPercents(scored, space);
   if (scored[0] && !scored[0].confident) {
@@ -711,7 +714,8 @@ export function probableGroup(
       members++;
     });
     // One member is just the top species again, nothing more general to say.
-    if (members >= 2 && share / total >= tuning.groupShareMin) return { rank, name, taxonClass: top?.taxon_class ?? null };
+    if (members >= 2 && share / total >= tuning.groupShareMin)
+      return { rank, name, taxonClass: top?.taxon_class ?? null };
   }
   return null;
 }

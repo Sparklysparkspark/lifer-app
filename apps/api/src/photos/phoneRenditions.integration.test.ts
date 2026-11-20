@@ -175,7 +175,9 @@ describe.skipIf(!url)("phone renditions", () => {
       expect(res.statusCode, id).toBe(200);
       expect(res.headers["content-type"]).toBe("image/webp");
       expect((await sharp(res.rawPayload).metadata()).width).toBe(64);
-      expect((await get(`/photos/${id}/phone`, { ...key, "if-none-match": res.headers.etag as string })).statusCode).toBe(304);
+      expect(
+        (await get(`/photos/${id}/phone`, { ...key, "if-none-match": res.headers.etag as string })).statusCode,
+      ).toBe(304);
     }
   });
 

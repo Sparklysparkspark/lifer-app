@@ -22,7 +22,12 @@ export function PhotosScreen({ route }: { route: { params: RootParams["Photos"] 
 
   useEffect(() => {
     let alive = true;
-    const load = scope.kind === "album" ? albumPhotos(app.db, scope.id) : scope.kind === "trip" ? tripPhotos(app.db, scope.id) : speciesPhotos(app.db, scope.name);
+    const load =
+      scope.kind === "album"
+        ? albumPhotos(app.db, scope.id)
+        : scope.kind === "trip"
+          ? tripPhotos(app.db, scope.id)
+          : speciesPhotos(app.db, scope.name);
     void load.then((p) => alive && setPhotos(p));
     return () => {
       alive = false;
@@ -36,7 +41,11 @@ export function PhotosScreen({ route }: { route: { params: RootParams["Photos"] 
         byMonth={scope.kind !== "species"}
         header={<PageTitle text={title} />}
         onOpen={(index) => nav.navigate("Viewer", { ids: (photos ?? []).map((p) => p.photoId), index })}
-        empty={photos ? <EmptyState icon="gallery" title={t(scope.kind === "album" ? "albums.emptyAlbum" : "species.noPhotos")} /> : undefined}
+        empty={
+          photos ? (
+            <EmptyState icon="gallery" title={t(scope.kind === "album" ? "albums.emptyAlbum" : "species.noPhotos")} />
+          ) : undefined
+        }
       />
     </View>
   );

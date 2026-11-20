@@ -1,5 +1,11 @@
 import type { ReactNode } from "react";
-import { Pressable, type AccessibilityActionEvent, type AccessibilityRole, type StyleProp, type ViewStyle } from "react-native";
+import {
+  Pressable,
+  type AccessibilityActionEvent,
+  type AccessibilityRole,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 
 export interface TapAction {
   name: string;
@@ -25,19 +31,40 @@ interface Props {
 }
 
 /** The one touchable the screens build on: always labelled, never a bare Pressable (MR15). */
-export function Tap({ label, onPress, onLongPress, hint, role = "button", selected, checked, disabled, actions, style, children }: Props) {
+export function Tap({
+  label,
+  onPress,
+  onLongPress,
+  hint,
+  role = "button",
+  selected,
+  checked,
+  disabled,
+  actions,
+  style,
+  children,
+}: Props) {
   return (
     <Pressable
       accessibilityRole={role}
       accessibilityLabel={label}
       accessibilityHint={hint}
-      accessibilityState={{ disabled: !!disabled, ...(selected === undefined ? {} : { selected }), ...(checked === undefined ? {} : { checked }) }}
+      accessibilityState={{
+        disabled: !!disabled,
+        ...(selected === undefined ? {} : { selected }),
+        ...(checked === undefined ? {} : { checked }),
+      }}
       accessibilityActions={actions?.map((a) => ({ name: a.name, label: a.label }))}
-      onAccessibilityAction={(e: AccessibilityActionEvent) => actions?.find((a) => a.name === e.nativeEvent.actionName)?.onPress()}
+      onAccessibilityAction={(e: AccessibilityActionEvent) =>
+        actions?.find((a) => a.name === e.nativeEvent.actionName)?.onPress()
+      }
       disabled={disabled}
       onPress={onPress}
       onLongPress={onLongPress}
-      style={({ pressed }) => [{ opacity: disabled ? 0.5 : pressed && typeof children !== "function" ? 0.7 : 1 }, style]}
+      style={({ pressed }) => [
+        { opacity: disabled ? 0.5 : pressed && typeof children !== "function" ? 0.7 : 1 },
+        style,
+      ]}
     >
       {({ pressed }) => (typeof children === "function" ? children(pressed) : children)}
     </Pressable>

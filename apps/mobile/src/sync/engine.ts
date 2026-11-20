@@ -261,8 +261,10 @@ async function fillNames(d: SyncDeps, maxPages = 6): Promise<void> {
     );
   let cursor: string | null = null;
   for (let page = 0; page < maxPages && Number((await missing())?.n) > 0; page++) {
-    const res: { items: { scientificName: string; commonName: string | null; taxonClass: string | null }[]; nextCursor: string | null } =
-      await d.api.get(`/gallery?limit=500${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+    const res: {
+      items: { scientificName: string; commonName: string | null; taxonClass: string | null }[];
+      nextCursor: string | null;
+    } = await d.api.get(`/gallery?limit=500${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
     await inBatches(res.items, 100, (batch) =>
       d.db.tx(async () => {
         for (const i of batch)

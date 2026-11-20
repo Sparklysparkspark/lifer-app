@@ -21,7 +21,13 @@ describe("mergeSnapshots", () => {
   it("pools every window, so a native sighting in one keeps an Escapee in another", () => {
     const { cats, sci } = mergeSnapshots({
       "2026-01-10": { native: ["muscov"], exotic: { budger: { sci: "Melopsittacus undulatus", cats: "X" } } },
-      "2026-06-10": { native: [], exotic: { muscov: { sci: "Cairina moschata", cats: "X" }, budger: { sci: "Melopsittacus undulatus", cats: "X" } } },
+      "2026-06-10": {
+        native: [],
+        exotic: {
+          muscov: { sci: "Cairina moschata", cats: "X" },
+          budger: { sci: "Melopsittacus undulatus", cats: "X" },
+        },
+      },
     });
     expect(classifyExotic(cats.get("muscov")!)).toBe("native");
     expect(classifyExotic(cats.get("budger")!)).toBe("escapee");
@@ -32,7 +38,15 @@ describe("mergeSnapshots", () => {
 describe("wildRanges", () => {
   it("places a cage bird where it lives wild or naturalized, not where it only escapes", () => {
     const regions = new Map([
-      ["US-FL", { cats: new Map([["chifla1", "X"], ["mutswa", "X"]]) }],
+      [
+        "US-FL",
+        {
+          cats: new Map([
+            ["chifla1", "X"],
+            ["mutswa", "X"],
+          ]),
+        },
+      ],
       ["US-NY", { cats: new Map([["mutswa", "N"]]) }],
       ["CL-AN", { cats: new Map([["chifla1", "-"]]) }],
     ]);
@@ -47,7 +61,10 @@ describe("withReintroduced", () => {
   it("keeps a reintroduced native native, whatever eBird calls it", () => {
     const turkey = { region_id: "on", species_id: "wiltur" };
     const finch = { region_id: "on", species_id: "houfin" };
-    const by = withReintroduced({ native: [], naturalized: [turkey, finch], provisional: [], escapee: [] }, new Set(["on|wiltur"]));
+    const by = withReintroduced(
+      { native: [], naturalized: [turkey, finch], provisional: [], escapee: [] },
+      new Set(["on|wiltur"]),
+    );
     expect(by.native).toEqual([turkey]);
     expect(by.naturalized).toEqual([finch]);
   });

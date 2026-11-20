@@ -75,7 +75,11 @@ describe("checkSubject maybe band", () => {
   });
 
   it("never asks about a bird on a tree, or a photo the detector finds an animal in", async () => {
-    const trunk = await photoWith({ "a photo of a tree": 0.57, "a bird on a tree trunk": 0.09, "a photo of a plant": 0.05 });
+    const trunk = await photoWith({
+      "a photo of a tree": 0.57,
+      "a bird on a tree trunk": 0.09,
+      "a photo of a plant": 0.05,
+    });
     expect((await checkSubject(Buffer.alloc(0), trunk)).maybeNotWildlife ?? null).toBeNull();
     presence.animal = 0.3;
     const scene = await photoWith({ "a landscape": 0.4, "a mountain landscape": 0.15, "a photo of a tree": 0.1 });
@@ -113,7 +117,11 @@ describe("no confident name without an animal", () => {
   });
 
   it("keeps a bird deep in foliage, and anything the detector finds", async () => {
-    const trunk = await photoWith({ "a photo of a tree": 0.57, "a bird on a tree trunk": 0.12, "a photo of a plant": 0.05 });
+    const trunk = await photoWith({
+      "a photo of a tree": 0.57,
+      "a bird on a tree trunk": 0.12,
+      "a photo of a plant": 0.05,
+    });
     expect(unsureWithoutAnimal(suggestions(), await checkSubject(Buffer.alloc(0), trunk))[0].confident).toBe(true);
     presence.animal = 0.6;
     const river = await photoWith({ "a river": 0.4, "a landscape": 0.2 });
@@ -124,4 +132,3 @@ describe("no confident name without an animal", () => {
     expect(unsureWithoutAnimal(suggestions(), { notWildlife: null, invertebrate: null })[0].confident).toBe(true);
   });
 });
-

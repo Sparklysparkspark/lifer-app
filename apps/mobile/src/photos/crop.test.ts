@@ -4,7 +4,12 @@ import { cropFrame, toCrop } from "./crop";
 describe("cropFrame", () => {
   it("places a landscape photo so the crop square fills the box", () => {
     // A 50% wide square at the left edge of a 3:2 photo: shown twice the box wide.
-    expect(cropFrame({ x: 0, y: 0, size: 50 }, 1.5)).toEqual({ width: "200%", height: "133.33333333333334%", left: "0%", top: "0%" });
+    expect(cropFrame({ x: 0, y: 0, size: 50 }, 1.5)).toEqual({
+      width: "200%",
+      height: "133.33333333333334%",
+      left: "0%",
+      top: "0%",
+    });
     expect(cropFrame({ x: 25, y: 10, size: 50 }, 1.5)).toMatchObject({ left: "-50%", top: "-20%" });
   });
 

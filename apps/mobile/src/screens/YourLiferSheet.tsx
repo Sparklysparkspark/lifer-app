@@ -15,7 +15,16 @@ import { GroupFooter, Icon, InsetGroup, ListRow, Screen, type IconName } from ".
 
 function Tile({ icon, color }: { icon: IconName; color: string }) {
   return (
-    <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: color, alignItems: "center", justifyContent: "center" }}>
+    <View
+      style={{
+        width: 30,
+        height: 30,
+        borderRadius: 8,
+        backgroundColor: color,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
       <Icon name={icon} size={17} color={ON_BACKDROP} weight="semibold" />
     </View>
   );
@@ -29,7 +38,10 @@ export function YourLiferSheet() {
   const progress = useSyncProgress();
   const nav = useNav();
   useSheetHeader();
-  const { data } = useLocal(async (db) => ({ used: (await usage(db)).thumb + (await usage(db)).phone, regions: (await listRegions(db)).length }));
+  const { data } = useLocal(async (db) => ({
+    used: (await usage(db)).thumb + (await usage(db)).phone,
+    regions: (await listRegions(db)).length,
+  }));
 
   const hub = app.paired ? t(hubLabelKey(app.paired.hub.kind)) : "";
   const line = syncLine({
@@ -82,8 +94,22 @@ export function YourLiferSheet() {
             bold
             leadingSize={40}
             leading={
-              <View style={{ width: 40, height: 40, borderRadius: 11, backgroundColor: app.sync.reachable || app.mode === "standalone" ? colors.accent : colors.muted, alignItems: "center", justifyContent: "center" }}>
-                <Icon name={app.mode === "standalone" || app.sync.reachable ? "sync" : "offline"} size={20} color={colors["accent-fg"]} weight="semibold" />
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 11,
+                  backgroundColor: app.sync.reachable || app.mode === "standalone" ? colors.accent : colors.muted,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Icon
+                  name={app.mode === "standalone" || app.sync.reachable ? "sync" : "offline"}
+                  size={20}
+                  color={colors["accent-fg"]}
+                  weight="semibold"
+                />
               </View>
             }
           />
@@ -92,7 +118,12 @@ export function YourLiferSheet() {
       </View>
       <View style={{ paddingTop: 16 }}>
         <InsetGroup>
-          <ListRow title={t("stats.title")} leadingSize={30} leading={<Tile icon="stats" color={colors["taxa-fish"]} />} onPress={go(() => nav.navigate("Stats"))} />
+          <ListRow
+            title={t("stats.title")}
+            leadingSize={30}
+            leading={<Tile icon="stats" color={colors["taxa-fish"]} />}
+            onPress={go(() => nav.navigate("Stats"))}
+          />
           <ListRow
             title={t("regions.title")}
             value={t("account.regionsOnPhone", { n: data?.regions ?? 0 })}
@@ -100,7 +131,12 @@ export function YourLiferSheet() {
             leading={<Tile icon="regions" color={colors["taxa-birds"]} />}
             onPress={go(() => nav.navigate("Regions"))}
           />
-          <ListRow title={t("settings.title")} leadingSize={30} leading={<Tile icon="settings" color={colors.muted} />} onPress={go(() => nav.navigate("Settings"))} />
+          <ListRow
+            title={t("settings.title")}
+            leadingSize={30}
+            leading={<Tile icon="settings" color={colors.muted} />}
+            onPress={go(() => nav.navigate("Settings"))}
+          />
         </InsetGroup>
       </View>
       <GroupFooter text={t("account.storage", { size: sizeText(t, data?.used ?? 0) })} />

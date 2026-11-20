@@ -18,7 +18,11 @@ for (const f of files(src)) {
   const text = readFileSync(f, "utf8");
   if (!rel.startsWith("theme/") && /#[0-9a-fA-F]{3,8}\b|\brgba?\(/.test(text))
     errors.push(`${rel}: raw colour, use the theme`);
-  if (!rel.startsWith("photos/") && rel !== "screens/ViewerScreen.tsx" && /<(ScrollView|FlatList|FlashList)\b[^>]*\bhorizontal\b/.test(text))
+  if (
+    !rel.startsWith("photos/") &&
+    rel !== "screens/ViewerScreen.tsx" &&
+    /<(ScrollView|FlatList|FlashList)\b[^>]*\bhorizontal\b/.test(text)
+  )
     errors.push(`${rel}: horizontal list outside photos/ and the viewer`);
   if (
     !rel.startsWith("ui/") &&

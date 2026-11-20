@@ -67,10 +67,10 @@ describe.skipIf(!url)("species search rebuild under concurrent writes (integrati
         await new Promise((r) => setTimeout(r, 20));
       }
 
-      const capture = pool.query(`INSERT INTO captures (user_id, species_id, fingerprint) VALUES ($1, $2, 'rebuild-fp')`, [
-        USER,
-        B,
-      ]);
+      const capture = pool.query(
+        `INSERT INTO captures (user_id, species_id, fingerprint) VALUES ($1, $2, 'rebuild-fp')`,
+        [USER, B],
+      );
       const rename = pool.query(`UPDATE species SET common_name = 'Renamed Dee' WHERE id = $1`, [D]);
       await pack.query(`UPDATE species SET common_name = 'Renamed Bee' WHERE id = $1`, [B]);
       await pack.query(`DELETE FROM species WHERE id = $1`, [C]);

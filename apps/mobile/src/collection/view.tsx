@@ -50,4 +50,3 @@ export function useCollectionView(): Ctx {
   if (!c) throw new Error("CollectionViewProvider is missing");
   return c;
 }
-

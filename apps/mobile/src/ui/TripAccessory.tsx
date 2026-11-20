@@ -26,7 +26,8 @@ export function TripAccessory({ trip, placement, onOpen, onMenu }: Props) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const uri = useThumb(trip.coverPhotoId);
-  const progress = trip.seen != null && trip.total ? t("trips.progress", { seen: trip.seen, total: trip.total }) : t("trips.active");
+  const progress =
+    trip.seen != null && trip.total ? t("trips.progress", { seen: trip.seen, total: trip.total }) : t("trips.active");
   const compact = placement === "inline";
   return (
     <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 8, paddingRight: 6 }}>
@@ -40,16 +41,40 @@ export function TripAccessory({ trip, placement, onOpen, onMenu }: Props) {
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           {compact ? null : (
-            <View style={{ width: 38, height: 38, borderRadius: 19, overflow: "hidden", backgroundColor: colors["surface-muted"] }}>
-              {uri ? <Image source={{ uri }} style={{ flex: 1 }} contentFit="cover" transition={0} accessibilityIgnoresInvertColors /> : null}
+            <View
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 19,
+                overflow: "hidden",
+                backgroundColor: colors["surface-muted"],
+              }}
+            >
+              {uri ? (
+                <Image
+                  source={{ uri }}
+                  style={{ flex: 1 }}
+                  contentFit="cover"
+                  transition={0}
+                  accessibilityIgnoresInvertColors
+                />
+              ) : null}
             </View>
           )}
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={{ color: colors.ink, fontSize: type.subheadline.size, fontWeight: "600" }}>
+            <Text
+              numberOfLines={1}
+              maxFontSizeMultiplier={1.3}
+              style={{ color: colors.ink, fontSize: type.subheadline.size, fontWeight: "600" }}
+            >
               {trip.name}
             </Text>
             {compact ? null : (
-              <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={{ color: colors.muted, fontSize: type.footnote.size }}>
+              <Text
+                numberOfLines={1}
+                maxFontSizeMultiplier={1.3}
+                style={{ color: colors.muted, fontSize: type.footnote.size }}
+              >
                 {progress}
               </Text>
             )}

@@ -63,21 +63,28 @@ export function ListRow({
     >
       {separator ? (
         <View
-          style={{ position: "absolute", top: 0, right: 0, left: spacing.item + (leadingSize ? leadingSize + 12 : 0), height: 1, backgroundColor: colors.sep }}
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            left: spacing.item + (leadingSize ? leadingSize + 12 : 0),
+            height: 1,
+            backgroundColor: colors.sep,
+          }}
         />
       ) : null}
       {leading}
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text
-          style={{ color: destructive ? colors.danger : link ? colors.link : colors.ink, fontSize: type.body.size, fontWeight: bold || link ? "600" : "400" }}
+          style={{
+            color: destructive ? colors.danger : link ? colors.link : colors.ink,
+            fontSize: type.body.size,
+            fontWeight: bold || link ? "600" : "400",
+          }}
         >
           {title}
         </Text>
-        {subtitle ? (
-          <Text style={{ color: colors.muted, fontSize: type.subheadline.size }}>
-            {subtitle}
-          </Text>
-        ) : null}
+        {subtitle ? <Text style={{ color: colors.muted, fontSize: type.subheadline.size }}>{subtitle}</Text> : null}
       </View>
       {value ? (
         <Text numberOfLines={1} style={{ color: colors.muted, fontSize: type.body.size, maxWidth: "45%" }}>
@@ -109,7 +116,11 @@ export function InsetGroup({ children }: { children: ReactNode }) {
   // Rows may arrive inside fragments (a conditional pair of rows); each one gets its own separator.
   const flat = (nodes: ReactNode): ReactElement<{ separator?: boolean }>[] =>
     Children.toArray(nodes).flatMap((n) =>
-      isValidElement(n) ? (n.type === Fragment ? flat((n.props as { children?: ReactNode }).children) : [n as ReactElement<{ separator?: boolean }>]) : [],
+      isValidElement(n)
+        ? n.type === Fragment
+          ? flat((n.props as { children?: ReactNode }).children)
+          : [n as ReactElement<{ separator?: boolean }>]
+        : [],
     );
   const rows = flat(children);
   return (
@@ -153,6 +164,15 @@ export function GroupHeader({ text }: { text: string }) {
 export function GroupFooter({ text }: { text: string }) {
   const { colors } = useTheme();
   return (
-    <Text style={{ color: colors.muted, fontSize: type.footnote.size, paddingHorizontal: spacing.gutter * 2, paddingTop: 8 }}>{text}</Text>
+    <Text
+      style={{
+        color: colors.muted,
+        fontSize: type.footnote.size,
+        paddingHorizontal: spacing.gutter * 2,
+        paddingTop: 8,
+      }}
+    >
+      {text}
+    </Text>
   );
 }

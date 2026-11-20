@@ -14,7 +14,16 @@ import { useTheme } from "../theme/useTheme";
 
 interface Checklist {
   name: string;
-  items: { scientificName: string; commonName: string | null; taxonClass: string; tier: string | null; isVagrant: boolean; sensitiveByDefault: boolean; taxonOrder?: string | null; family?: string | null }[];
+  items: {
+    scientificName: string;
+    commonName: string | null;
+    taxonClass: string;
+    tier: string | null;
+    isVagrant: boolean;
+    sensitiveByDefault: boolean;
+    taxonOrder?: string | null;
+    family?: string | null;
+  }[];
 }
 
 /**
@@ -33,7 +42,9 @@ export function RegionPickerSheet({ route }: { route?: { params?: { at?: string 
   const [error, setError] = useState<string | null>(null);
   const { data } = useLocal(async (db) => {
     const regions = await listRegions(db);
-    const progress = Object.fromEntries(await Promise.all(regions.map(async (r) => [r.key, await regionProgress(db, r.key)] as const)));
+    const progress = Object.fromEntries(
+      await Promise.all(regions.map(async (r) => [r.key, await regionProgress(db, r.key)] as const)),
+    );
     return { regions, progress, nodes: await getRegionTree(db) };
   });
   const tree = useMemo(() => (data?.nodes.length ? buildRegionTree(data.nodes) : null), [data]);
@@ -41,7 +52,13 @@ export function RegionPickerSheet({ route }: { route?: { params?: { at?: string 
 
   const q = query.trim().toLowerCase();
   const all = useMemo(() => (data?.regions ?? []).filter((r) => !q || r.name.toLowerCase().includes(q)), [data, q]);
-  const recent = useMemo(() => (q ? [] : view.recent.map((k) => data?.regions.find((r) => r.key === k)).filter((r): r is NonNullable<typeof r> => !!r)), [data, view.recent, q]);
+  const recent = useMemo(
+    () =>
+      q
+        ? []
+        : view.recent.map((k) => data?.regions.find((r) => r.key === k)).filter((r): r is NonNullable<typeof r> => !!r),
+    [data, view.recent, q],
+  );
   const choose = (region: string | null) => {
     update({ region });
     nav.goBack();
@@ -50,7 +67,11 @@ export function RegionPickerSheet({ route }: { route?: { params?: { at?: string 
     <ListRow
       key={`${prefix}${r.key}`}
       title={r.name}
-      value={data ? t("regions.progress", { seen: data.progress[r.key]?.seen ?? 0, total: data.progress[r.key]?.total ?? 0 }) : undefined}
+      value={
+        data
+          ? t("regions.progress", { seen: data.progress[r.key]?.seen ?? 0, total: data.progress[r.key]?.total ?? 0 })
+          : undefined
+      }
       selected={view.region === r.key}
       onPress={() => choose(r.key)}
     />
@@ -68,7 +89,16 @@ export function RegionPickerSheet({ route }: { route?: { params?: { at?: string 
         await saveRegion(
           app.db,
           { key, name: list.name, source: "hub", hubRegionId: node.id },
-          list.items.map((i) => ({ scientificName: i.scientificName, commonName: i.commonName, taxonClass: i.taxonClass, tier: i.tier, vagrant: i.isVagrant, sensitive: i.sensitiveByDefault, taxonOrder: i.taxonOrder, family: i.family })),
+          list.items.map((i) => ({
+            scientificName: i.scientificName,
+            commonName: i.commonName,
+            taxonClass: i.taxonClass,
+            tier: i.tier,
+            vagrant: i.isVagrant,
+            sensitive: i.sensitiveByDefault,
+            taxonOrder: i.taxonOrder,
+            family: i.family,
+          })),
           new Date(),
         );
         app.bump();
@@ -94,7 +124,15 @@ export function RegionPickerSheet({ route }: { route?: { params?: { at?: string 
         key={node.id}
         title={node.name}
         subtitle={subtitle}
-        value={busy === node.id ? t("regions.downloading") : drills ? undefined : kept ? t("regions.progress", { seen: kept.seen, total: kept.total }) : t("regions.speciesCount", { n: node.speciesCount })}
+        value={
+          busy === node.id
+            ? t("regions.downloading")
+            : drills
+              ? undefined
+              : kept
+                ? t("regions.progress", { seen: kept.seen, total: kept.total })
+                : t("regions.speciesCount", { n: node.speciesCount })
+        }
         selected={drills ? undefined : view.region === key}
         chevron={drills}
         onPress={() => (drills ? open(node) : void pick(node))}
@@ -111,7 +149,13 @@ export function RegionPickerSheet({ route }: { route?: { params?: { at?: string 
     return (
       <Screen padded={false}>
         <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
-          <TextField label={t("regions.searchLabel")} value={query} onChangeText={setQuery} autoCapitalize="none" returnKeyType="search" />
+          <TextField
+            label={t("regions.searchLabel")}
+            value={query}
+            onChangeText={setQuery}
+            autoCapitalize="none"
+            returnKeyType="search"
+          />
         </View>
         {error ? (
           <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
@@ -119,12 +163,35 @@ export function RegionPickerSheet({ route }: { route?: { params?: { at?: string 
           </View>
         ) : null}
         {!q && here ? (
-          <View style={{ flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 20, paddingTop: 12, alignItems: "center", gap: 4 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              paddingHorizontal: 20,
+              paddingTop: 12,
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
             {[{ id: null as string | null, name: t("regionPicker.allRegions") }, ...trail].map((n, i, all) => (
               <View key={n.id ?? "top"} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                 {i > 0 ? <Icon name="chevronRight" size={11} color={colors.muted} weight="bold" /> : null}
-                <Tap label={n.name} hint={i < all.length - 1 ? t("regionPicker.crumbHint") : undefined} disabled={i === all.length - 1} onPress={() => setAt(n.id)} style={{ minHeight: 44, justifyContent: "center" }}>
-                  <Text style={{ color: i === all.length - 1 ? colors.ink : colors.link, fontSize: type.subheadline.size, fontWeight: i === all.length - 1 ? "600" : "400" }}>{n.name}</Text>
+                <Tap
+                  label={n.name}
+                  hint={i < all.length - 1 ? t("regionPicker.crumbHint") : undefined}
+                  disabled={i === all.length - 1}
+                  onPress={() => setAt(n.id)}
+                  style={{ minHeight: 44, justifyContent: "center" }}
+                >
+                  <Text
+                    style={{
+                      color: i === all.length - 1 ? colors.ink : colors.link,
+                      fontSize: type.subheadline.size,
+                      fontWeight: i === all.length - 1 ? "600" : "400",
+                    }}
+                  >
+                    {n.name}
+                  </Text>
                 </Tap>
               </View>
             ))}
@@ -155,7 +222,9 @@ export function RegionPickerSheet({ route }: { route?: { params?: { at?: string 
             <InsetGroup>
               <ListRow
                 title={t("regionPicker.allOf", { name: here.name })}
-                value={busy === here.id ? t("regions.downloading") : t("regions.speciesCount", { n: here.speciesCount })}
+                value={
+                  busy === here.id ? t("regions.downloading") : t("regions.speciesCount", { n: here.speciesCount })
+                }
                 selected={view.region === regionKeyForHub(here.id)}
                 onPress={() => void pick(here)}
               />
@@ -164,8 +233,29 @@ export function RegionPickerSheet({ route }: { route?: { params?: { at?: string 
         ) : null}
         {list.length > 0 ? (
           <>
-            <GroupHeader text={q ? t("regionPicker.results") : here ? t("regionPicker.within", { name: here.name }) : t("regionPicker.countries")} />
-            <InsetGroup>{list.slice(0, 200).map((node) => nodeRow(node, q ? tree.trail(node.id).slice(0, -1).map((x) => x.name).join(", ") || undefined : undefined))}</InsetGroup>
+            <GroupHeader
+              text={
+                q
+                  ? t("regionPicker.results")
+                  : here
+                    ? t("regionPicker.within", { name: here.name })
+                    : t("regionPicker.countries")
+              }
+            />
+            <InsetGroup>
+              {list.slice(0, 200).map((node) =>
+                nodeRow(
+                  node,
+                  q
+                    ? tree
+                        .trail(node.id)
+                        .slice(0, -1)
+                        .map((x) => x.name)
+                        .join(", ") || undefined
+                    : undefined,
+                ),
+              )}
+            </InsetGroup>
           </>
         ) : q ? (
           <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
@@ -180,7 +270,13 @@ export function RegionPickerSheet({ route }: { route?: { params?: { at?: string 
   return (
     <Screen padded={false}>
       <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
-        <TextField label={t("regions.searchLabel")} value={query} onChangeText={setQuery} autoCapitalize="none" returnKeyType="search" />
+        <TextField
+          label={t("regions.searchLabel")}
+          value={query}
+          onChangeText={setQuery}
+          autoCapitalize="none"
+          returnKeyType="search"
+        />
       </View>
       {!q ? (
         <View style={{ paddingTop: 16 }}>

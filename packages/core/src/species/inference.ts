@@ -56,7 +56,11 @@ const PRIORITIES: Priority[] = ["interactive", "commit", "background"];
 
 /** The basic detector (YOLOv8n: birds and nine mammals), bundled with the source so it ships with
  *  Docker and the desktop app as is. Used until the animal detector is downloaded. */
-export const BASIC_DETECTOR_MODEL_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "models", "yolov8n.onnx");
+export const BASIC_DETECTOR_MODEL_PATH = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "models",
+  "yolov8n.onnx",
+);
 
 // The animal detector (every kind of animal), downloaded with the species-matching models. Set by
 // whoever knows the model folder (detectorModel.ts, the desktop's inference server).

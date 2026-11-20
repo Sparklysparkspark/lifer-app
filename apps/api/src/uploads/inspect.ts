@@ -224,9 +224,7 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
             !dup && embedSource
               ? photoVectors(embedSource.image, {
                   key: photoKey,
-                  kinds: suggestionModel
-                    ? ["clip", suggestionModel.kind, WHOLE_KIND[suggestionModel.kind]]
-                    : ["clip"],
+                  kinds: suggestionModel ? ["clip", suggestionModel.kind, WHOLE_KIND[suggestionModel.kind]] : ["clip"],
                   subject: !!suggestionModel,
                   priority: "interactive",
                 })

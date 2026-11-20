@@ -231,7 +231,9 @@ describe.skipIf(!url)("trip route validation", () => {
       );
     }
     const photos = (await call("GET", `/api/trips/${id}/photos`)).json().items;
-    expect(photos.map((p: { captureId: string; originalKind: string }) => [p.captureId, p.originalKind]).sort()).toEqual(
+    expect(
+      photos.map((p: { captureId: string; originalKind: string }) => [p.captureId, p.originalKind]).sort(),
+    ).toEqual(
       [
         [capture, "jpeg"],
         [rawCapture, "raw"],

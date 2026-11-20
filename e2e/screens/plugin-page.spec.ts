@@ -24,7 +24,14 @@ function plugins(count: number, surface: string) {
     id: `com.example.app${i}`,
     name: `App ${i}`,
     page: {
-      label: i === 0 ? (count > 3 ? LONG : "Field Kit") : count > 3 ? `Companion app ${i}` : ["Field Kit", "Notebook", "Tools"][i],
+      label:
+        i === 0
+          ? count > 3
+            ? LONG
+            : "Field Kit"
+          : count > 3
+            ? `Companion app ${i}`
+            : ["Field Kit", "Notebook", "Tools"][i],
       icon: ICON,
       accent: ["#2f7d5b", "#b45309", "#1d4ed8"][i % 3],
       surface: i === 0 ? surface : "default",
@@ -47,7 +54,10 @@ async function shell(context: BrowserContext, mode: Mode, count: number, surface
             if (cmd === "plugin_status") {
               if (mode === "running") return { state: "running", endpoint, error: null };
               if (mode === "starting") return { state: "starting", endpoint: null, error: null };
-              const error = { stopped: "It stopped unexpectedly. Restart it to carry on.", closed: "Field Kit was closed." }[mode as string];
+              const error = {
+                stopped: "It stopped unexpectedly. Restart it to carry on.",
+                closed: "Field Kit was closed.",
+              }[mode as string];
               return { state: "stopped", endpoint: null, error: error ?? null };
             }
             if (cmd === "plugin_start") return new Promise(() => undefined);
@@ -68,7 +78,11 @@ async function shell(context: BrowserContext, mode: Mode, count: number, surface
     (url) => url.pathname === "/apps/" || url.pathname.startsWith("/apps/"),
     async (route) => {
       const res = await route.fetch();
-      const headers = { ...res.headers(), "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; connect-src * ipc:; frame-src http://127.0.0.1:*" };
+      const headers = {
+        ...res.headers(),
+        "content-security-policy":
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; connect-src * ipc:; frame-src http://127.0.0.1:*",
+      };
       await route.fulfill({ response: res, headers });
     },
   );
@@ -119,7 +133,9 @@ for (const theme of THEMES) {
         test.setTimeout(90_000);
         const context = await browser.newContext({ viewport: size, colorScheme: theme });
         await context.addInitScript((t) => localStorage.setItem("lifer-theme", t), theme);
-        expect((await context.request.post("/api/auth/login", { headers: HEADERS, data: EXTREME_ACCOUNT })).ok()).toBe(true);
+        expect((await context.request.post("/api/auth/login", { headers: HEADERS, data: EXTREME_ACCOUNT })).ok()).toBe(
+          true,
+        );
         await shell(context, scene.mode, scene.count, scene.surface);
         await fakeApp(context, scene.surface === "dark" || theme === "dark", scene.answers);
         const page = await context.newPage();

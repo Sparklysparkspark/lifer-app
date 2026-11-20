@@ -21,7 +21,9 @@ const list = new Map<string, SensitiveScope>([
 
 describe("unmatchedSensitiveLabels", () => {
   it("lists this country's labels no province matches, once each", () => {
-    expect(unmatchedSensitiveLabels([{ name: "Ontario" }, { name: "Quebec" }], "Canada", "CA", list)).toEqual(["Ontairo-CA"]);
+    expect(unmatchedSensitiveLabels([{ name: "Ontario" }, { name: "Quebec" }], "Canada", "CA", list)).toEqual([
+      "Ontairo-CA",
+    ]);
   });
 
   it("ignores other countries' labels and plain country names", () => {
@@ -29,6 +31,8 @@ describe("unmatchedSensitiveLabels", () => {
   });
 
   it("matches province names case-insensitively", () => {
-    expect(unmatchedSensitiveLabels([{ name: "Kent", groupName: "England - South East" }], "United Kingdom", "GB", list)).toEqual([]);
+    expect(
+      unmatchedSensitiveLabels([{ name: "Kent", groupName: "England - South East" }], "United Kingdom", "GB", list),
+    ).toEqual([]);
   });
 });

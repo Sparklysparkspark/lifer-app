@@ -42,6 +42,9 @@ export function pinchGate(now: () => number = Date.now): { begin(): void; update
 
 /** The column count `steps` steps away (positive: fewer columns), kept inside the ladder. A count off the ladder snaps to the nearest. */
 export function stepColumns(columns: number, steps: number): Columns {
-  const nearest = COLUMN_STEPS.reduce((best, c, i) => (Math.abs(c - columns) < Math.abs(COLUMN_STEPS[best] - columns) ? i : best), 0);
+  const nearest = COLUMN_STEPS.reduce(
+    (best, c, i) => (Math.abs(c - columns) < Math.abs(COLUMN_STEPS[best] - columns) ? i : best),
+    0,
+  );
   return COLUMN_STEPS[Math.max(0, Math.min(COLUMN_STEPS.length - 1, nearest - steps))];
 }

@@ -41,7 +41,15 @@ export function SectionHeader({ title, count, group, label, onToggle, collapsed,
       }}
     >
       {g ? <Icon name={g.id as IconName} size={22} color={colors[g.color]} weight="semibold" /> : null}
-      <Text style={{ flex: stacked ? 0 : 1, flexShrink: 1, color: colors.ink, fontSize: type["title-3"].size, fontWeight: "700" }}>
+      <Text
+        style={{
+          flex: stacked ? 0 : 1,
+          flexShrink: 1,
+          color: colors.ink,
+          fontSize: type["title-3"].size,
+          fontWeight: "700",
+        }}
+      >
         {title}
       </Text>
       {count ? (
@@ -49,7 +57,9 @@ export function SectionHeader({ title, count, group, label, onToggle, collapsed,
           {count}
         </Text>
       ) : null}
-      {onToggle ? <Icon name={collapsed ? "chevronRight" : "chevronDown"} size={14} color={colors.muted} weight="bold" /> : null}
+      {onToggle ? (
+        <Icon name={collapsed ? "chevronRight" : "chevronDown"} size={14} color={colors.muted} weight="bold" />
+      ) : null}
     </View>
   );
   return onToggle ? (

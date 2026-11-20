@@ -13,7 +13,8 @@ const wanted = process.env.SCREENS_PAGES?.split(",").includes("modals");
 test.skip(!wanted, "only with --pages=modals");
 test.describe.configure({ mode: "serial" });
 
-const button = (page: Page, name: string | RegExp) => page.getByRole("button", { name }).first().click({ timeout: 5_000 });
+const button = (page: Page, name: string | RegExp) =>
+  page.getByRole("button", { name }).first().click({ timeout: 5_000 });
 
 const SCENES: Array<{ name: string; path: string; open: (page: Page) => Promise<unknown> }> = [
   { name: "confirm-empty-trash", path: "/trash", open: (p) => button(p, "Empty trash") },
@@ -46,7 +47,9 @@ for (const theme of THEMES) {
     test(`${theme} ${size.width}`, async ({ browser }) => {
       const context = await browser.newContext({ viewport: size, colorScheme: theme });
       await context.addInitScript((t) => localStorage.setItem("lifer-theme", t), theme);
-      expect((await context.request.post("/api/auth/login", { headers: HEADERS, data: EXTREME_ACCOUNT })).ok()).toBe(true);
+      expect((await context.request.post("/api/auth/login", { headers: HEADERS, data: EXTREME_ACCOUNT })).ok()).toBe(
+        true,
+      );
       const only = process.env.SCREENS_SCENES?.split(",");
       for (const scene of SCENES.filter((s) => !only || only.includes(s.name))) {
         const page = await context.newPage();

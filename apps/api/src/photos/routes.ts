@@ -177,7 +177,11 @@ async function siblingRendition(
 // The file routes below look photos up in captures_all, not the `captures` view: the view leaves
 // out hidden and trashed photos, which their owner still sees in the Gallery's Hidden filter and
 // on the Trash page. Ownership (user_id) is still checked on every lookup.
-export async function resolvePhotoPath(photoId: string, userId: string, kind: "display" | "thumb"): Promise<string | null> {
+export async function resolvePhotoPath(
+  photoId: string,
+  userId: string,
+  kind: "display" | "thumb",
+): Promise<string | null> {
   const column = kind === "display" ? "p.display_path" : "p.thumb_path";
   const res = await pool.query<{ path: string }>(
     // captures_all (see ownedCaptures), so hidden and trashed photos still show to their owner.
@@ -371,7 +375,10 @@ const DEVICE_NO_ORIGINALS = "A phone can't download originals";
 // X-Lifer-Reason header the phone can show.
 async function phoneImage(request: FastifyRequest, reply: FastifyReply, photoId: string, userId: string) {
   const refuse = (code: 404 | 409, reason: string, error: string, extra: object = {}) =>
-    reply.code(code).header("X-Lifer-Reason", reason).send({ error, ...extra });
+    reply
+      .code(code)
+      .header("X-Lifer-Reason", reason)
+      .send({ error, ...extra });
   const display = async () => {
     const p = await resolvePhotoPath(photoId, userId, "display");
     const st = p ? await statFile(p) : null;

@@ -20,7 +20,16 @@ function Cover({ album, onPress }: { album: AlbumRow; onPress: () => void }) {
   const { uri, crop } = useFeatured("album", album.id, album.coverPhotoId, album.coverCrop);
   return (
     <Tap label={t("albums.cardLabel", { name: album.name, n: album.count })} onPress={onPress} style={{ flex: 1 }}>
-      <View style={{ aspectRatio: 1, borderRadius: radius.cover, overflow: "hidden", backgroundColor: colors.placeholder, alignItems: "center", justifyContent: "center" }}>
+      <View
+        style={{
+          aspectRatio: 1,
+          borderRadius: radius.cover,
+          overflow: "hidden",
+          backgroundColor: colors.placeholder,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
         {uri ? (
           <CroppedImage uri={uri} crop={crop} />
         ) : (
@@ -63,7 +72,12 @@ function AlbumsList({ header }: { header: ReactNode }) {
         key: "arrange",
         label: t("albums.arrange"),
         icon: "filter",
-        items: (["name", "count"] as const).map((a) => ({ type: "action", label: t(ALBUM_ARRANGE_LABEL[a]), checked: arrange === a, onPress: () => setArrange(a) })),
+        items: (["name", "count"] as const).map((a) => ({
+          type: "action",
+          label: t(ALBUM_ARRANGE_LABEL[a]),
+          checked: arrange === a,
+          onPress: () => setArrange(a),
+        })),
       },
     ],
   });
@@ -72,11 +86,16 @@ function AlbumsList({ header }: { header: ReactNode }) {
     const q = query.trim().toLowerCase();
     const rows = (data ?? []).filter((a) => !q || a.name.toLowerCase().includes(q));
     // Favourites always lead; the rest follow the choice.
-    return arrange === "count" ? [...rows].sort((a, b) => Number(b.favourites) - Number(a.favourites) || b.count - a.count) : rows;
+    return arrange === "count"
+      ? [...rows].sort((a, b) => Number(b.favourites) - Number(a.favourites) || b.count - a.count)
+      : rows;
   }, [data, query, arrange]);
   const columns = width >= 700 ? 4 : 2;
   // Whole rows only, so the last row's cover keeps its width.
-  const padded = shown.length % columns ? [...shown, ...Array.from({ length: columns - (shown.length % columns) }, () => null)] : shown;
+  const padded =
+    shown.length % columns
+      ? [...shown, ...Array.from({ length: columns - (shown.length % columns) }, () => null)]
+      : shown;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.canvas }}>
@@ -94,7 +113,14 @@ function AlbumsList({ header }: { header: ReactNode }) {
         onRefresh={app.mode === "paired" ? () => void app.sync.run() : undefined}
         refreshing={app.sync.syncing}
         renderItem={({ item }) =>
-          item ? <Cover album={item} onPress={() => nav.navigate("Photos", { title: item.name, scope: { kind: "album", id: item.id } })} /> : <View style={{ flex: 1 }} />
+          item ? (
+            <Cover
+              album={item}
+              onPress={() => nav.navigate("Photos", { title: item.name, scope: { kind: "album", id: item.id } })}
+            />
+          ) : (
+            <View style={{ flex: 1 }} />
+          )
         }
         ListEmptyComponent={
           data ? (

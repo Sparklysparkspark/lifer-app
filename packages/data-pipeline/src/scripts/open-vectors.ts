@@ -21,7 +21,18 @@
 //      exactly as Lifer's gallery vectors are, append it to rows.jsonl.
 //   4. Rewrite the PRVE file and its provenance table from rows.jsonl.
 import { createHash } from "node:crypto";
-import { appendFileSync, createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { setPriority } from "node:os";
 import path from "node:path";
 import readline from "node:readline";
@@ -114,7 +125,9 @@ async function matchesEtag(file: string, size: number, etag: string): Promise<bo
   }
   const parts = Number(partsText);
   const MiB = 1024 * 1024;
-  const sizes = [8, 16, 32, 64, 100, 128, 256, 500, 512, 1000, 1024].map((m) => m * MiB).filter((p) => Math.ceil(size / p) === parts);
+  const sizes = [8, 16, 32, 64, 100, 128, 256, 500, 512, 1000, 1024]
+    .map((m) => m * MiB)
+    .filter((p) => Math.ceil(size / p) === parts);
   if (!sizes.length) return null;
   const runs = sizes.map((partSize) => ({ partSize, done: [] as Buffer[], h: createHash("md5"), inPart: 0 }));
   for await (const chunk of createReadStream(file, { highWaterMark: 4 * MiB }) as AsyncIterable<Buffer>) {
@@ -257,13 +270,23 @@ async function loadSpecies(): Promise<Species[]> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN READ ONLY");
-    const species = await client.query<{ scientific_name: string; inat_taxon_id: number | null; taxon_class: string; synonyms: string[] }>(
+    const species = await client.query<{
+      scientific_name: string;
+      inat_taxon_id: number | null;
+      taxon_class: string;
+      synonyms: string[];
+    }>(
       `SELECT s.scientific_name, s.inat_taxon_id, s.taxon_class,
               coalesce(array_agg(ss.synonym_name) FILTER (WHERE ss.synonym_name IS NOT NULL), '{}') AS synonyms
        FROM species s LEFT JOIN species_synonyms ss ON ss.species_id = s.id
        WHERE NOT s.is_other_taxa GROUP BY s.id`,
     );
-    const gallery = await client.query<{ scientific_name: string; photo_url: string; license: string; embedded: boolean }>(
+    const gallery = await client.query<{
+      scientific_name: string;
+      photo_url: string;
+      license: string;
+      embedded: boolean;
+    }>(
       `SELECT s.scientific_name, p.photo_url, p.license, ge.reference_photo_id IS NOT NULL AS embedded
        FROM species_reference_photos p JOIN species s ON s.id = p.species_id
        LEFT JOIN species_reference_gallery_embeddings ge ON ge.reference_photo_id = p.id AND ge.model_version = $1`,
@@ -313,7 +336,9 @@ async function writeOutputs(): Promise<number> {
   const gz = createGzip();
   const done = pipeline(gz, createWriteStream(`${PRVE_FILE}.tmp`));
   const provenance = createWriteStream(`${PROVENANCE_FILE}.tmp`);
-  provenance.write("row\tspecies\tinat_taxon_id\tinat_photo_id\tphotographer\tlicense\tattribution\tsource_url\tobserved_on\n");
+  provenance.write(
+    "row\tspecies\tinat_taxon_id\tinat_photo_id\tphotographer\tlicense\tattribution\tsource_url\tobserved_on\n",
+  );
   gz.write(encodePrveHeader(EMBEDDING_MODEL_VERSION, DIMENSION, count));
   let row = 0;
   const clean = (s: string | number | null) => String(s ?? "").replace(/[\t\n]/g, " ");
@@ -321,12 +346,20 @@ async function writeOutputs(): Promise<number> {
     const code = prveLicenseCode(p.license);
     if (code === null) throw new Error(`rows.jsonl holds photo ${p.photoId} with closed licence ${p.license}`);
     const chunk = encodePrveRow(
-      { species: p.species, licenseCode: code, photographer: p.photographer, sourceUrl: p.sourceUrl, vector: Buffer.from(p.v, "base64") },
+      {
+        species: p.species,
+        licenseCode: code,
+        photographer: p.photographer,
+        sourceUrl: p.sourceUrl,
+        vector: Buffer.from(p.v, "base64"),
+      },
       DIMENSION,
     );
     if (!gz.write(chunk)) await new Promise((r) => gz.once("drain", r));
     provenance.write(
-      [row++, p.species, p.taxonId, p.photoId, p.photographer, p.license, p.attribution, p.sourceUrl, p.observedOn].map(clean).join("\t") + "\n",
+      [row++, p.species, p.taxonId, p.photoId, p.photographer, p.license, p.attribution, p.sourceUrl, p.observedOn]
+        .map(clean)
+        .join("\t") + "\n",
     );
   }
   gz.end();
@@ -346,7 +379,11 @@ async function writeOutputs(): Promise<number> {
 /** The medium photo, re-encoded the way Lifer stores gallery photos before embedding them
  *  (uploads/image.ts generateReferenceDerivatives: rotate, at most 1200 px wide, WebP 82). */
 export async function embedPhoto(image: Buffer): Promise<number[]> {
-  const display = await sharp(image).rotate().resize({ width: 1200, withoutEnlargement: true }).webp({ quality: 82 }).toBuffer();
+  const display = await sharp(image)
+    .rotate()
+    .resize({ width: 1200, withoutEnlargement: true })
+    .webp({ quality: 82 })
+    .toBuffer();
   const v = await computeEmbedding(display);
   if (v.length !== DIMENSION) throw new Error(`CLIP gave ${v.length} values, not ${DIMENSION}`);
   return v;
@@ -370,7 +407,11 @@ async function fetchPhoto(c: Candidate): Promise<Buffer> {
 
 function duration(ms: number): string {
   const h = Math.floor(ms / 3_600_000);
-  return h >= 48 ? `${Math.round(h / 24)} days` : h >= 1 ? `${h} h ${Math.round((ms % 3_600_000) / 60_000)} min` : `${Math.round(ms / 60_000)} min`;
+  return h >= 48
+    ? `${Math.round(h / 24)} days`
+    : h >= 1
+      ? `${h} h ${Math.round((ms % 3_600_000) / 60_000)} min`
+      : `${Math.round(ms / 60_000)} min`;
 }
 
 async function main() {
@@ -394,7 +435,9 @@ async function main() {
     // Already started at low priority (nice); raising it back isn't allowed, nor needed.
   }
   mkdirSync(INAT_DIR, { recursive: true });
-  log(`start: ${process.argv.slice(2).join(" ") || "(all groups)"}; model ${EMBEDDING_MODEL_VERSION}; ${perSpecies} per species`);
+  log(
+    `start: ${process.argv.slice(2).join(" ") || "(all groups)"}; model ${EMBEDDING_MODEL_VERSION}; ${perSpecies} per species`,
+  );
 
   const files = {} as Record<string, string>;
   for (const name of METADATA) files[name] = await downloadMetadata(name, values["refresh-metadata"]!);
@@ -403,7 +446,10 @@ async function main() {
   const species = await loadSpecies();
   await pool.end();
   const groups = new Set(species.map((s) => s.group));
-  const order = [...GROUP_ORDER.filter((g) => groups.has(g)), ...[...groups].filter((g) => !GROUP_ORDER.includes(g)).sort()];
+  const order = [
+    ...GROUP_ORDER.filter((g) => groups.has(g)),
+    ...[...groups].filter((g) => !GROUP_ORDER.includes(g)).sort(),
+  ];
   const wanted = values.taxa
     ? values.taxa.split(",").flatMap((t) => {
         const key = t.trim().toLowerCase();
@@ -414,16 +460,25 @@ async function main() {
     : order;
   const selected = species
     .filter((s) => wanted.includes(s.group))
-    .sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group) || a.scientificName.localeCompare(b.scientificName));
+    .sort(
+      (a, b) => order.indexOf(a.group) - order.indexOf(b.group) || a.scientificName.localeCompare(b.scientificName),
+    );
 
   const db = duck(":memory:");
-  const taxa = await db.all<{ taxon_id: number; taxon_name: string }>(`SELECT DISTINCT taxon_id, taxon_name FROM '${CANDIDATES}'`);
-  const taxonToSpecies = mapTaxaToSpecies(species, taxa.map((t) => ({ taxonId: t.taxon_id, name: t.taxon_name })));
+  const taxa = await db.all<{ taxon_id: number; taxon_name: string }>(
+    `SELECT DISTINCT taxon_id, taxon_name FROM '${CANDIDATES}'`,
+  );
+  const taxonToSpecies = mapTaxaToSpecies(
+    species,
+    taxa.map((t) => ({ taxonId: t.taxon_id, name: t.taxon_name })),
+  );
   const taxaOf = new Map<string, number[]>();
   for (const [taxonId, name] of taxonToSpecies) taxaOf.set(name, [...(taxaOf.get(name) ?? []), taxonId]);
 
   const state = parseState(existsSync(ROWS) ? readFileSync(ROWS, "utf8") : "");
-  const open = selected.filter((s) => needsWork(state, s.scientificName, s.openVectors, perSpecies, taxaOf.has(s.scientificName)));
+  const open = selected.filter((s) =>
+    needsWork(state, s.scientificName, s.openVectors, perSpecies, taxaOf.has(s.scientificName)),
+  );
   const todo = open.slice(0, limit);
   const doneBefore = selected.length - open.length;
   log(
@@ -451,9 +506,18 @@ async function main() {
     const batch = todo.slice(b, b + BATCH);
     const ids = batch.flatMap((s) => taxaOf.get(s.scientificName) ?? []);
     const rows = ids.length
-      ? await db.all<{ taxon_id: number; photo_id: number; extension: string; license: string; position: number; observer_id: number; latitude: number | null; longitude: number | null; observed_on: string | null; photographer: string | null }>(
-          `SELECT * FROM '${CANDIDATES}' WHERE taxon_id IN (${ids.join(",")})`,
-        )
+      ? await db.all<{
+          taxon_id: number;
+          photo_id: number;
+          extension: string;
+          license: string;
+          position: number;
+          observer_id: number;
+          latitude: number | null;
+          longitude: number | null;
+          observed_on: string | null;
+          photographer: string | null;
+        }>(`SELECT * FROM '${CANDIDATES}' WHERE taxon_id IN (${ids.join(",")})`)
       : [];
     const byTaxon = new Map<number, typeof rows>();
     for (const r of rows) byTaxon.set(r.taxon_id, [...(byTaxon.get(r.taxon_id) ?? []), r]);
@@ -480,7 +544,9 @@ async function main() {
       );
       if (dryRun) {
         const picks = ranked.slice(0, Math.max(0, perSpecies - have));
-        log(`dry run: ${name}: ${s.openVectors} open in Lifer, ${cands.length} candidates, picks ${picks.map((p) => `${p.photoId} (${p.license}, observer ${p.observerId}, ${p.observedOn})`).join("; ") || "none"}`);
+        log(
+          `dry run: ${name}: ${s.openVectors} open in Lifer, ${cands.length} candidates, picks ${picks.map((p) => `${p.photoId} (${p.license}, observer ${p.observerId}, ${p.observedOn})`).join("; ") || "none"}`,
+        );
       } else {
         let next = 0;
         // A few attempts past the target, so a run of missing photos can't stall on one species.
@@ -517,7 +583,8 @@ async function main() {
               photos++;
             } catch (err) {
               // Missing or unreadable photos are recorded; network trouble is retried next run.
-              const permanent = err instanceof PermanentError || /unsupported image|Input buffer/i.test((err as Error).message);
+              const permanent =
+                err instanceof PermanentError || /unsupported image|Input buffer/i.test((err as Error).message);
               if (permanent) append({ t: "failed", species: name, photoId: c.photoId, reason: (err as Error).message });
               else log(`warn: ${name} photo ${c.photoId}: ${(err as Error).message}`);
             }
@@ -525,7 +592,8 @@ async function main() {
         }
         if (stopping && have < perSpecies && next < ranked.length) break;
         // A reopened species that found nothing new adds no line.
-        if (!state.done.has(name) || have > haveBefore) append({ t: "done", species: name, photos: have - s.openVectors });
+        if (!state.done.has(name) || have > haveBefore)
+          append({ t: "done", species: name, photos: have - s.openVectors });
       }
       speciesDone++;
       if (Date.now() - lastLog > 60_000 || speciesDone === todo.length) {

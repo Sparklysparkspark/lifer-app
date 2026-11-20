@@ -22,7 +22,11 @@ export function ConnectScreen({ done }: { done?: () => void }) {
     await app.connected(paired);
   };
   const connectByCode: ConnectByCode = async (code) => {
-    const paired = await pairWithCode(code, device(), { transport: transportFor, discover: discoverHubs, random: nativeRandom });
+    const paired = await pairWithCode(code, device(), {
+      transport: transportFor,
+      discover: discoverHubs,
+      random: nativeRandom,
+    });
     await app.connected(paired);
   };
   // Back to wherever pairing was started from once it worked (Settings), when there is somewhere to go.

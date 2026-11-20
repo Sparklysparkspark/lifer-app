@@ -64,7 +64,13 @@ function useActiveTrip(): AccessoryTrip | null {
     if (!trip) return null;
     const keys = trip.regionId ? await regionKeysByHubId(db, trip.regionId) : [];
     const progress = keys.length ? await regionProgress(db, keys[0]) : null;
-    return { id: trip.id, name: trip.name, seen: progress?.seen ?? null, total: progress?.total ?? null, coverPhotoId: (await tripCovers(db))[trip.id] ?? null };
+    return {
+      id: trip.id,
+      name: trip.name,
+      seen: progress?.seen ?? null,
+      total: progress?.total ?? null,
+      coverPhotoId: (await tripCovers(db))[trip.id] ?? null,
+    };
   });
   return data ?? null;
 }
@@ -75,7 +81,9 @@ function useAndroidTabIcons(color: string) {
   useEffect(() => {
     if (Platform.OS !== "android") return;
     void Promise.all(
-      TABS.map(async (t) => [t.name, await unstable_getMaterialSymbolSourceAsync(ICONS[t.icon].android, 24, color)] as const),
+      TABS.map(
+        async (t) => [t.name, await unstable_getMaterialSymbolSourceAsync(ICONS[t.icon].android, 24, color)] as const,
+      ),
     ).then((e) => setIcons(Object.fromEntries(e)));
   }, [color]);
   return icons;
@@ -109,34 +117,35 @@ export function Tabs() {
   const clearance = Platform.OS === "ios" ? TAB_BAR + (showBar ? TRIP_BAR : 0) : 0;
   return (
     <TabClearanceContext.Provider value={clearance}>
-    <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: colors.link,
-        tabBarInactiveTintColor: colors.muted,
-        tabBarActiveIndicatorColor: colors.accentTint,
-        tabBarLabelStyle: { fontSize: 10, fontWeight: "600" },
-      }}
-    >
-      {TABS.map((tab) => (
-        <Tab.Screen
-          key={tab.name}
-          name={tab.name}
-          component={STACKS[tab.name]}
-          options={{
-            title: t(tab.label),
-            tabBarLabel: t(tab.label),
-            tabBarIcon: Platform.OS === "ios"
-              ? { type: "sfSymbol", name: ICONS[tab.icon].ios }
-              : androidIcons[tab.name]
-                ? { type: "image", source: androidIcons[tab.name] as never }
-                : undefined,
-            tabBarMinimizeBehavior: tab.name === "Gallery" || tab.name === "Albums" ? "onScrollDown" : "none",
-            bottomAccessory: accessory,
-          }}
-        />
-      ))}
-    </Tab.Navigator>
+      <Tab.Navigator
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: colors.link,
+          tabBarInactiveTintColor: colors.muted,
+          tabBarActiveIndicatorColor: colors.accentTint,
+          tabBarLabelStyle: { fontSize: 10, fontWeight: "600" },
+        }}
+      >
+        {TABS.map((tab) => (
+          <Tab.Screen
+            key={tab.name}
+            name={tab.name}
+            component={STACKS[tab.name]}
+            options={{
+              title: t(tab.label),
+              tabBarLabel: t(tab.label),
+              tabBarIcon:
+                Platform.OS === "ios"
+                  ? { type: "sfSymbol", name: ICONS[tab.icon].ios }
+                  : androidIcons[tab.name]
+                    ? { type: "image", source: androidIcons[tab.name] as never }
+                    : undefined,
+              tabBarMinimizeBehavior: tab.name === "Gallery" || tab.name === "Albums" ? "onScrollDown" : "none",
+              bottomAccessory: accessory,
+            }}
+          />
+        ))}
+      </Tab.Navigator>
     </TabClearanceContext.Provider>
   );
 }

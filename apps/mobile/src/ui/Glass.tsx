@@ -33,7 +33,11 @@ export function Glass({ style, children, onPhoto, interactive }: Props) {
   return (
     <View
       style={[
-        { backgroundColor: onPhoto ? BACKDROP_GLASS : colors.glass, borderColor: colors.hairline, borderWidth: StyleSheet.hairlineWidth },
+        {
+          backgroundColor: onPhoto ? BACKDROP_GLASS : colors.glass,
+          borderColor: colors.hairline,
+          borderWidth: StyleSheet.hairlineWidth,
+        },
         style,
       ]}
     >

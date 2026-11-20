@@ -136,7 +136,12 @@ const PHOTO_ORDER: Record<PhotoSort, string> = {
   oldest: "taken_at IS NULL, taken_at ASC",
 };
 
-export const speciesPhotos = (db: Db, scientificName: string, sort: PhotoSort = "best", limit = 5000): Promise<GridPhoto[]> =>
+export const speciesPhotos = (
+  db: Db,
+  scientificName: string,
+  sort: PhotoSort = "best",
+  limit = 5000,
+): Promise<GridPhoto[]> =>
   db.all<{ photoId: string; takenAt: string | null }>(
     `SELECT photo_id AS photoId, taken_at AS takenAt FROM captures WHERE ${SHOWN} AND scientific_name = ?
      ORDER BY ${PHOTO_ORDER[sort]}, id LIMIT ?`,
@@ -317,7 +322,10 @@ interface RawTrip {
 }
 
 /** A trip is active when forced on, or when today falls within its dates and it isn't forced off. */
-export function tripActive(t: { startDate: string | null; endDate: string | null; override: number | null }, today: string): boolean {
+export function tripActive(
+  t: { startDate: string | null; endDate: string | null; override: number | null },
+  today: string,
+): boolean {
   if (t.override != null) return !!t.override;
   return !!t.startDate && t.startDate <= today && (!t.endDate || t.endDate >= today);
 }
