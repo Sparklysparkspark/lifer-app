@@ -294,28 +294,27 @@ export async function userdataWriteRoutes(fastify: FastifyInstance): Promise<voi
   );
 
   // "Needs a better photo": PUT sets the mark, DELETE clears it.
-  const needsBetter =
-    (on: boolean) => async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const userId = request.user!.id;
-      const speciesId = request.params.id;
-      // The self-join reads the row as it was before this update.
-      const res = await pool.query<{ was: boolean }>(
-        `UPDATE user_species us SET needs_better_photo = $3 FROM user_species old
+  const needsBetter = (on: boolean) => async (request: FastifyRequest, reply: FastifyReply) => {
+    const userId = request.user!.id;
+    const { id: speciesId } = request.params as { id: string };
+    // The self-join reads the row as it was before this update.
+    const res = await pool.query<{ was: boolean }>(
+      `UPDATE user_species us SET needs_better_photo = $3 FROM user_species old
        WHERE us.user_id = $1 AND us.species_id = $2 AND old.user_id = us.user_id AND old.species_id = us.species_id
        RETURNING old.needs_better_photo AS was`,
-        [userId, speciesId, on],
-      );
-      const row = res.rows[0];
-      if (!row) return reply.code(404).send({ error: "Species not found" });
-      if (row.was === on) return { ok: true, changeId: null };
-      const name = await speciesName(speciesId);
-      const changeId = await recordChange(
-        request,
-        on ? `Marked ${name} as needing a better photo` : `Cleared "needs a better photo" on ${name}`,
-        [{ op: "restoreSpecies", speciesId, needsBetterPhoto: row.was }],
-      );
-      return { ok: true, changeId };
-    };
+      [userId, speciesId, on],
+    );
+    const row = res.rows[0];
+    if (!row) return reply.code(404).send({ error: "Species not found" });
+    if (row.was === on) return { ok: true, changeId: null };
+    const name = await speciesName(speciesId);
+    const changeId = await recordChange(
+      request,
+      on ? `Marked ${name} as needing a better photo` : `Cleared "needs a better photo" on ${name}`,
+      [{ op: "restoreSpecies", speciesId, needsBetterPhoto: row.was }],
+    );
+    return { ok: true, changeId };
+  };
   const needsBetterOptions = {
     ...auth,
     config: speciesNotFound,
