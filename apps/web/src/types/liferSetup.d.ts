@@ -9,7 +9,6 @@ export interface DesktopBridgeConfig {
   localNetworkName?: string;
   // Try-order, top to bottom.
   externalUrls?: string[];
-  offlineMode?: boolean;
 }
 
 export interface DesktopBridgeChoice {
@@ -18,7 +17,6 @@ export interface DesktopBridgeChoice {
   localUrl?: string;
   localNetworkName?: string;
   externalUrls?: string[];
-  offlineMode?: boolean;
 }
 
 declare global {
