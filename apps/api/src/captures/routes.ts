@@ -88,7 +88,7 @@ async function cleanupStaleUserSpecies(
   }
 
   // The cover may have been the photo that left: repoint it at the newest remaining photo and
-  // clear the crop.
+  // clear the crop (a trigger brings in that photo's own crop, migration 197).
   const coverMoved = !!vacatedPhotoId && row.cover_photo_id === vacatedPhotoId;
   if (coverMoved) {
     await db.query(

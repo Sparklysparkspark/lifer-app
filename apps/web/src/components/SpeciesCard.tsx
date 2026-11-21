@@ -112,9 +112,10 @@ function SpeciesCard({
   // Only your own featured photo can be cropped; a reference photo isn't yours to adjust.
   const ownCoverPhotoId = item.coverPhotoUrl?.match(/^\/api\/photos\/([^/]+)\/thumb/)?.[1] ?? null;
   const [croppingCover, setCroppingCover] = useState(false);
-  // Errors propagate so CardCropEditor stays open and shows them.
+  // Errors propagate so CardCropEditor stays open and shows them. The shown photo's id: on a trip
+  // or album card it can differ from the featured photo, and keeps its own crop.
   async function saveCrop(body: object) {
-    await api.patch(apiPath("/species/{id}/card-crop", { id: item.speciesId }), body);
+    await api.patch(apiPath("/species/{id}/card-crop", { id: item.speciesId }), { ...body, photoId: ownCoverPhotoId });
     onChanged?.(item.speciesId, "reload");
   }
   // The badges sit inside the card's link: open the tier's details instead of following it.

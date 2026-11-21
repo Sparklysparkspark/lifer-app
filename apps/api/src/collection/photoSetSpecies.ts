@@ -48,10 +48,10 @@ export async function photoSetSpeciesCards(userId: string, speciesIds: string[],
        us.needs_better_photo,
        COALESCE(pick.photo_id, us.cover_photo_id) AS cover_photo_id,
        pick.photo_id IS NOT NULL AS picked,
-       -- The user's crop was framed for their featured photo, so it only carries over to that one.
-       CASE WHEN pick.photo_id IS NULL OR pick.photo_id = us.cover_photo_id THEN us.card_crop_x END AS card_crop_x,
-       CASE WHEN pick.photo_id IS NULL OR pick.photo_id = us.cover_photo_id THEN us.card_crop_y END AS card_crop_y,
-       CASE WHEN pick.photo_id IS NULL OR pick.photo_id = us.cover_photo_id THEN us.card_crop_size END AS card_crop_size,
+       -- The featured photo's crop lives on user_species, any other photo's on the photo itself.
+       CASE WHEN pick.photo_id IS NULL OR pick.photo_id = us.cover_photo_id THEN us.card_crop_x ELSE p.card_crop_x END AS card_crop_x,
+       CASE WHEN pick.photo_id IS NULL OR pick.photo_id = us.cover_photo_id THEN us.card_crop_y ELSE p.card_crop_y END AS card_crop_y,
+       CASE WHEN pick.photo_id IS NULL OR pick.photo_id = us.cover_photo_id THEN us.card_crop_size ELSE p.card_crop_size END AS card_crop_size,
        p.thumb_path IS NOT NULL AS has_cover_photo,
        sv.label AS cover_volume_label
      FROM species s

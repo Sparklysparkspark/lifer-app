@@ -31920,6 +31920,8 @@ export interface paths {
             y?: number;
             size?: number;
             reset?: boolean;
+            /** Format: uuid */
+            photoId?: string;
           };
         };
       };

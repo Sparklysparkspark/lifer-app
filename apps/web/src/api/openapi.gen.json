@@ -27586,7 +27586,8 @@
                   "x": { "type": "number", "minimum": 0, "maximum": 100 },
                   "y": { "type": "number", "minimum": 0, "maximum": 100 },
                   "size": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 },
-                  "reset": { "type": "boolean" }
+                  "reset": { "type": "boolean" },
+                  "photoId": { "type": "string", "format": "uuid" }
                 },
                 "additionalProperties": false
               }

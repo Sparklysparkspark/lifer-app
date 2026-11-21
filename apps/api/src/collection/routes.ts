@@ -49,8 +49,15 @@ export async function setSpeciesCover(userId: string, speciesId: string, photoId
   }
   // Confirm this photo belongs to a capture the user owns, for this species: its main one or
   // one it also features.
-  const ownershipRes = await pool.query<{ capture_id: string; display_path: string | null }>(
-    `SELECT c.id AS capture_id, p.display_path FROM photos p
+  const ownershipRes = await pool.query<{
+    capture_id: string;
+    display_path: string | null;
+    x: string | null;
+    y: string | null;
+    size: string | null;
+  }>(
+    `SELECT c.id AS capture_id, p.display_path, p.card_crop_x AS x, p.card_crop_y AS y, p.card_crop_size AS size
+     FROM photos p
      JOIN captures c ON c.id = p.capture_id
      WHERE p.id = $1 AND c.user_id = $2
        AND (c.species_id = $3
@@ -59,14 +66,17 @@ export async function setSpeciesCover(userId: string, speciesId: string, photoId
   );
   if (ownershipRes.rows.length === 0) return false;
 
-  // The saved crop was framed for the old cover, so clear it and try an automatic crop centered
-  // on the subject. A detection miss leaves the plain center crop.
-  const displayPath = ownershipRes.rows[0].display_path;
-  const defaultCrop = displayPath
-    ? await readFile(displayPath)
-        .then((buf) => detectDefaultCardCrop(buf, { priority: "interactive" }))
-        .catch(() => null)
-    : null;
+  // The saved crop was framed for the old cover: use the photo's own crop, else try an automatic
+  // crop centered on the subject. A detection miss leaves the plain center crop.
+  const { display_path: displayPath, x, y, size } = ownershipRes.rows[0];
+  const defaultCrop =
+    x != null
+      ? { x, y, size }
+      : displayPath
+        ? await readFile(displayPath)
+            .then((buf) => detectDefaultCardCrop(buf, { priority: "interactive" }))
+            .catch(() => null)
+        : null;
   await pool.query(
     `UPDATE user_species SET cover_photo_id = $1, cover_chosen_photo_id = $1,
        card_crop_x = $2, card_crop_y = $3, card_crop_size = $4
@@ -470,12 +480,14 @@ export async function collectionRoutes(fastify: FastifyInstance): Promise<void> 
       schema: {
         params: IdParams,
         // Either `reset: true`, or all of x, y and size (checked below, since reset makes them optional).
+        // `photoId`: a photo other than the featured one, as on a trip or album card, keeps its own crop.
         body: Type.Object(
           {
             x: Type.Optional(Percent),
             y: Type.Optional(Percent),
             size: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 100 })),
             reset: Type.Optional(Type.Boolean()),
+            photoId: Type.Optional(Uuid()),
           },
           { additionalProperties: false },
         ),
@@ -484,31 +496,48 @@ export async function collectionRoutes(fastify: FastifyInstance): Promise<void> 
     },
     async (request, reply) => {
       const { id: speciesId } = request.params;
-      const { x, y, size, reset } = request.body;
+      const { x, y, size, reset, photoId } = request.body;
       const userId = request.user!.id;
 
-      if (reset) {
+      if (!reset && !isValidCrop(x, y, size)) {
+        return reply.code(400).send({ error: "x, y, size must be numbers; x/y in [0,100], size in (0,100]" });
+      }
+      const crop = reset ? [null, null, null] : [x, y, size];
+
+      const coverRes = await pool.query<{ cover_photo_id: string | null }>(
+        `SELECT cover_photo_id FROM user_species WHERE user_id = $1 AND species_id = $2`,
+        [userId, speciesId],
+      );
+      const coverPhotoId = coverRes.rows[0]?.cover_photo_id ?? null;
+
+      if (photoId && photoId !== coverPhotoId) {
         const res = await pool.query(
-          `UPDATE user_species SET card_crop_x = NULL, card_crop_y = NULL, card_crop_size = NULL
-           WHERE user_id = $1 AND species_id = $2`,
-          [userId, speciesId],
+          `UPDATE photos p SET card_crop_x = $1, card_crop_y = $2, card_crop_size = $3
+           FROM captures c
+           WHERE p.id = $4 AND c.id = p.capture_id AND c.user_id = $5
+             AND (c.species_id = $6
+                  OR EXISTS (SELECT 1 FROM capture_species cs WHERE cs.capture_id = c.id AND cs.species_id = $6))`,
+          [...crop, photoId, userId, speciesId],
         );
-        if (res.rowCount === 0) return reply.code(404).send({ error: "No cover photo set for this species yet" });
+        if (res.rowCount === 0)
+          return reply.code(403).send({ error: "That photo doesn't belong to you for this species" });
         return { ok: true };
       }
 
-      if (!isValidCrop(x, y, size)) {
-        return reply.code(400).send({ error: "x, y, size must be numbers; x/y in [0,100], size in (0,100]" });
-      }
-
+      // The featured photo's crop lives on user_species alone, so a stale per-photo one goes.
       const res = await pool.query(
         `UPDATE user_species SET card_crop_x = $1, card_crop_y = $2, card_crop_size = $3
-         WHERE user_id = $4 AND species_id = $5 AND cover_photo_id IS NOT NULL`,
-        [x, y, size, userId, speciesId],
+         WHERE user_id = $4 AND species_id = $5 AND (cover_photo_id IS NOT NULL OR $6)`,
+        [...crop, userId, speciesId, !!reset],
       );
       if (res.rowCount === 0) {
         return reply.code(404).send({ error: "No cover photo set for this species yet" });
       }
+      await pool.query(
+        `UPDATE photos SET card_crop_x = NULL, card_crop_y = NULL, card_crop_size = NULL
+         WHERE id = $1 AND card_crop_x IS NOT NULL`,
+        [coverPhotoId],
+      );
       return { ok: true };
     },
   );
