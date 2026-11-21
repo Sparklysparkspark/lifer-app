@@ -28,7 +28,7 @@ test("scans, imports and manages a trip's photos", async ({ page }) => {
   await page.goto(`/trips/${tripId}`);
   await expect(page.getByText("Nothing imported yet")).toBeVisible();
   // The API stores the folder's real path, which can differ from `folder` by a symlink.
-  await expect(page.getByText(/\/e2e-trips\/trip-detail$/)).toBeVisible();
+  await expect(page.getByText(/[\\/]e2e-trips[\\/]trip-detail$/)).toBeVisible();
   await expect(page.getByText("· 0 photos")).toBeVisible();
 
   // The scan lists both files for review; each gets a species, then they import together.
