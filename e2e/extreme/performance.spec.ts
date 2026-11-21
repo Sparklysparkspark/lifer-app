@@ -34,6 +34,8 @@ const results: Record<string, Sample> = {};
 
 test.beforeAll(async () => {
   test.skip(test.info().project.name !== "extreme", "budgets are measured on the extreme seed only");
+  // Shared runners are several times slower than the baseline machine; only the perf job records them.
+  test.skip(!!process.env.CI && !process.env.PERF_RECORD, "speed budgets gate locally, CI records them in the perf job");
   test.setTimeout(300_000);
   const db = new pg.Client({ connectionString: process.env.E2E_DATABASE_URL ?? LOCAL_DATABASE_URL });
   await db.connect();
