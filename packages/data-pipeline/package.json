@@ -45,13 +45,13 @@
   "dependencies": {
     "@lifer/core": "*",
     "@lifer/shared": "*",
-    "dotenv": "^18.0.7",
+    "dotenv": "^18.0.10",
     "duckdb": "^1.4.4",
     "exceljs": "^4.4.0",
     "onnxruntime-node": "^1.29.0",
     "pg": "^8.23.1",
     "sharp": "^0.35.5",
-    "tar": "^7.5.22"
+    "tar": "^7.5.23"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
