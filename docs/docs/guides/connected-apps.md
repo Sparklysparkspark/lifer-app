@@ -1,6 +1,6 @@
 ---
 title: Connected apps
-description: Apps that work with your Lifer library on the desktop: allowing one, what each may do, opening one inside Lifer, and disconnecting.
+description: "Apps that work with your Lifer library on the desktop: allowing one, what each may do, opening one inside Lifer, and disconnecting."
 ---
 
 # Connected apps
