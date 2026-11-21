@@ -226,6 +226,7 @@ export const RESERVED_CHORDS: readonly string[] = [
   "Mod+BracketRight",
   "Mod+E",
   "Mod+Alt+F",
+  "H",
 ];
 
 /** The parts of a DOM or React keyboard event the registry reads. */

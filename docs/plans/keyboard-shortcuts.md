@@ -123,7 +123,7 @@ and after), `V` (black and white).
 
 Reserved for the companion culling app, so the two apps stay consistent: `T` (show or hide the culling app's
 decision bar, Lightroom's Show/Hide Toolbar, which Lifer already reserves) and `Mod+Alt+Shift+E` (Export
-with Previous, a Lightroom chord) and `Mod+Alt+F` (the culling app's second pass view).
+with Previous, a Lightroom chord) and `Mod+Alt+F` (the culling app's second pass view) and `H` (zoom to the animal's eye, 100 percent).
 
 ## Conflicts in Lifer today
 
