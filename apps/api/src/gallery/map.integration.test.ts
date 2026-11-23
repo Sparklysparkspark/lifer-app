@@ -226,5 +226,5 @@ describe.skipIf(!url)("GET /gallery/map", () => {
     expect(body.gridDegrees).toBeCloseTo(0.1);
     expect(body.cells.length).toBeLessThanOrEqual(MAP_CELL_CAP);
     expect(body.cells.reduce((n: number, c: { count: number }) => n + c.count, 0)).toBe(MAP_CELL_CAP + 1);
-  }, 60_000); // 20,000 rows take a while to insert on a busy database
+  }, 180_000); // 20,000 rows take a while to insert on a busy database or a shared runner
 });
