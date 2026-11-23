@@ -177,10 +177,11 @@
 .dark .cover-uncollected img {
   filter: grayscale(0.95) contrast(0.95) brightness(0.85);
 }
-/* The Collection's "Show uncollected species in colour" switch; the dark rule needs its own copy to win. */
+/* The Collection's "Show uncollected species in colour" switch: full colour, but a touch dimmer than
+   collected species so the two still read apart. The dark rule needs its own copy to win. */
 [data-uncollected-colour] .cover-uncollected img,
 .dark [data-uncollected-colour] .cover-uncollected img {
-  filter: none;
+  filter: brightness(0.88) saturate(0.88);
 }
 .text-uncollected p {
   color: var(--color-muted);
