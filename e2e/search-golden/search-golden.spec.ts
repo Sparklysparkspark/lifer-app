@@ -6,7 +6,7 @@ import pg from "pg";
 import golden from "../support/searchGolden.json" with { type: "json" };
 import { LOCAL_DATABASE_URL } from "../support/constants.js";
 import { markKnownFailure } from "../support/knownFailures.js";
-import { EXTREME_ACCOUNT } from "../support/extremeLibrary.js";
+import { EXTREME_ACCOUNT, SEED_COLLECTION } from "../support/extremeLibrary.js";
 import { HEADERS } from "../support/library.js";
 import { GOLDEN_SPECIES, seedSearchGolden } from "../support/searchGoldenSeed.js";
 
@@ -106,7 +106,9 @@ for (const entry of QUERIES.filter((e) => e.surfaces.includes("palette"))) {
 
 for (const entry of QUERIES.filter((e) => e.surfaces.includes("collection"))) {
   test(`collection filter: ${entry.q}`, async ({ page }) => {
-    await page.goto("/");
+    // The earlier projects downloaded Canada too, and a bare / with two countries shows the
+    // first-run prompt, so open the golden library's country directly.
+    await page.goto(SEED_COLLECTION);
     const search = page.getByLabel("Search species");
     // The page clears a search typed before its region settles, so wait for the cards first.
     await expect(page.getByText("Pileated Woodpecker").first()).toBeVisible({ timeout: 30_000 });
