@@ -5,9 +5,8 @@
 // either moved and recorded or untouched. Files Lifer doesn't manage (the user's own, linked
 // where they are) move only when the user asks, by the same steps. Relinking only changes stored paths, after checking each file is
 // at the new place.
-import { createHash } from "node:crypto";
-import { constants, createReadStream, existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
-import { access, copyFile, link, mkdir, rename, rm, rmdir, stat, unlink, utimes } from "node:fs/promises";
+import { constants, existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { access, mkdir, rmdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
@@ -16,14 +15,7 @@ import { pool } from "@lifer/core/db.js";
 import { APP_DATA_DIR } from "@lifer/core/config.js";
 import { assertAllowedPath, isDirectory } from "@lifer/core/lib/allowedPaths.js";
 import { canonicalPath, isWithin } from "@lifer/core/lib/pathContainment.js";
-import {
-  DiskFullError,
-  ROOM_MARGIN,
-  ensureRoom,
-  formatBytes,
-  freeSpace,
-  isDiskFull,
-} from "@lifer/core/lib/freeSpace.js";
+import { DiskFullError, ROOM_MARGIN, formatBytes, freeSpace } from "@lifer/core/lib/freeSpace.js";
 import { uniqueDestination } from "@lifer/core/lib/safeFs.js";
 import { log } from "@lifer/core/lib/log.js";
 import { requireAuth, requireScope } from "../auth/session.js";
@@ -31,6 +23,7 @@ import { createJob, type JobContext } from "../lib/job.js";
 import { IdParams, Nullable, Open, jobStatusFields, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { writeFileAtomicSync } from "../lib/atomicWrite.js";
 import { removeEmptyDirsUpward } from "../lib/fsCleanup.js";
+import { linkOrCopyOriginal, removeOriginal } from "../lib/originalsWrite.js";
 import { locateManagedOriginal } from "../uploads/managedFolders.js";
 import { findSidecarPath, metadataGoesInFile, sidecarPathFor } from "../uploads/exif.js";
 import { tagWithRegisteredVolume, type VolumeTag } from "../storageVolumes/resolve.js";
@@ -274,21 +267,6 @@ async function planMove(userId: string, trip: TripRow, folder: string, includeLi
   return { target, items, already, skipped, missing, offline, bytes, neededBytes, freeBytes, problem, message };
 }
 
-async function sha256(file: string): Promise<string> {
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(file)) hash.update(chunk as Buffer);
-  return hash.digest("hex");
-}
-
-/** The same file (a hard link of it) or the same bytes. */
-async function sameContent(a: string, b: string): Promise<boolean> {
-  const [sa, sb] = await Promise.all([stat(a, { bigint: true }), stat(b, { bigint: true })]);
-  if (sa.ino > 0n && sa.ino === sb.ino && sa.dev === sb.dev) return true;
-  if (sa.size !== sb.size) return false;
-  const [ha, hb] = await Promise.all([sha256(a), sha256(b)]);
-  return ha === hb;
-}
-
 /** The very same file reached by two spellings: already where it should be, so left untouched. */
 async function isSameEntry(a: string, b: string): Promise<boolean> {
   const [sa, sb] = await Promise.all([stat(a, { bigint: true }), stat(b, { bigint: true })]);
@@ -298,43 +276,6 @@ async function isSameEntry(a: string, b: string): Promise<boolean> {
 async function isSecondLink(a: string, b: string): Promise<boolean> {
   const [sa, sb] = await Promise.all([stat(a, { bigint: true }), stat(b, { bigint: true })]);
   return sa.ino > 0n && sa.ino === sb.ino && sa.dev === sb.dev && sa.nlink > 1n;
-}
-
-/** Puts a second copy of `from` at `dest` without touching `from`: a hard link on the same drive,
- *  else a copy under a temporary name, checked against the original before it takes its name. */
-async function placeVerified(from: string, dest: string, size: number): Promise<void> {
-  try {
-    await link(from, dest);
-    return;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "EEXIST") throw err;
-    // Another drive, or a filesystem without hard links: copy.
-  }
-  const partial = `${dest}.lifer-partial`;
-  // Only ever left by a run cut short, since the name is Lifer's own.
-  await rm(partial, { force: true });
-  await ensureRoom(path.dirname(dest), size);
-  try {
-    await copyFile(from, partial, constants.COPYFILE_EXCL).catch((err: unknown) => {
-      throw isDiskFull(err) ? new DiskFullError(0, 0, dest) : err;
-    });
-    // Archive health reads a new mtime as an edit, so the copy keeps the original's.
-    const { atime, mtime } = await stat(from);
-    await utimes(partial, atime, mtime);
-    if (!(await sameContent(from, partial))) throw new Error("The copy didn't match the original");
-    // link fails on a taken name, where rename would replace the file.
-    try {
-      await link(partial, dest);
-      await unlink(partial);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "EEXIST") throw err;
-      if (existsSync(dest)) throw Object.assign(new Error("Another file took that name"), { code: "EEXIST" });
-      await rename(partial, dest);
-    }
-  } catch (err) {
-    await rm(partial, { force: true }).catch(() => {});
-    throw err;
-  }
 }
 
 /** The stored path for a file now at `dest` under `target`, on the target's volume when it has one. */
@@ -358,7 +299,7 @@ async function moveOne(item: PlanItem, target: string, tag: VolumeTag): Promise<
   const placedBefore = existsSync(dest) && (await isSecondLink(item.from, dest));
   if (!placedBefore) {
     dest = await uniqueDestination(dir, name);
-    await placeVerified(item.from, dest, item.size);
+    await linkOrCopyOriginal(item.from, dest);
   }
   try {
     const res = await pool.query(
@@ -368,11 +309,11 @@ async function moveOne(item: PlanItem, target: string, tag: VolumeTag): Promise<
     if (res.rowCount === 0) throw new Error("The photo was deleted while its files were moving");
   } catch (err) {
     // Not recorded, so the original stays the photo; the spare copy goes.
-    await rm(dest, { force: true }).catch(() => {});
+    await removeOriginal(dest).catch(() => {});
     throw err;
   }
   // Recorded: a failed delete only leaves a spare copy behind.
-  await unlink(item.from).catch((err: unknown) =>
+  await removeOriginal(item.from).catch((err: unknown) =>
     log.warn({ err, ref: item.from }, "[trip-move] Moved a file but couldn't delete the old copy"),
   );
   return dest;
@@ -384,8 +325,8 @@ async function moveSidecar(from: string, dest: string): Promise<void> {
   const sidecar = await findSidecarPath(from);
   const to = sidecarPathFor(dest);
   if (!sidecar || existsSync(to)) return;
-  await placeVerified(sidecar, to, (await stat(sidecar)).size);
-  await unlink(sidecar);
+  await linkOrCopyOriginal(sidecar, to);
+  await removeOriginal(sidecar);
 }
 
 /** The trip's recovery record (tripIndex.ts) goes with its files. */
@@ -394,8 +335,8 @@ async function moveTripIndex(oldRoot: string, target: string): Promise<void> {
   const to = path.join(target, ".lifer", "index.json");
   if (!existsSync(from) || existsSync(to)) return;
   await mkdir(path.dirname(to), { recursive: true });
-  await placeVerified(from, to, (await stat(from)).size);
-  await unlink(from);
+  await linkOrCopyOriginal(from, to);
+  await removeOriginal(from);
   await rmdir(path.dirname(from)).catch(() => {});
 }
 

@@ -44,15 +44,15 @@ vi.mock("../auth/session.js", () => ({
     if (request.headers["x-test-signed-in"] !== "1") reply.code(401).send({ error: "Sign in" });
   },
 }));
-// Real rename/cp unless a test swaps one in: EXDEV acts out a move to another drive.
+// Real rename/open unless a test swaps one in: EXDEV acts out a move to another drive.
 type FsCall = (...args: unknown[]) => Promise<unknown>;
-const fsFake = vi.hoisted(() => ({ rename: null as FsCall | null, cp: null as FsCall | null }));
+const fsFake = vi.hoisted(() => ({ rename: null as FsCall | null, open: null as FsCall | null }));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const real = await importOriginal<typeof import("node:fs/promises")>();
   return {
     ...real,
     rename: (...args: unknown[]) => (fsFake.rename ?? (real.rename as FsCall))(...args),
-    cp: (...args: unknown[]) => (fsFake.cp ?? (real.cp as FsCall))(...args),
+    open: (...args: unknown[]) => (fsFake.open ?? (real.open as FsCall))(...args),
   };
 });
 
@@ -75,7 +75,7 @@ beforeEach(() => {
   db.relinks = [];
   db.fail = false;
   db.during = null;
-  fsFake.rename = fsFake.cp = null;
+  fsFake.rename = fsFake.open = null;
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
@@ -156,13 +156,11 @@ describe("moveDirectoryContents", () => {
   it("copies then deletes across drives, noting the copy finished before deleting anything", async () => {
     fsFake.rename = () => Promise.reject(fsError("EXDEV"));
     const events: string[] = [];
-    fsFake.cp = async (...args) => {
-      const { cp } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
-      await cp(args[0] as string, args[1] as string, args[2] as object);
-      events.push(`copied, old still there: ${existsSync(from)}`);
-    };
-    await moveDirectoryContents(from, to, () => events.push(`onCopied, old still there: ${existsSync(from)}`));
-    expect(events).toEqual(["copied, old still there: true", "onCopied, old still there: true"]);
+    const copied = path.join(to, "Birds", "osprey.jpg");
+    await moveDirectoryContents(from, to, () =>
+      events.push(`copied: ${existsSync(copied)}, old still there: ${existsSync(from)}`),
+    );
+    expect(events).toEqual(["copied: true, old still there: true"]);
     expect(readFileSync(path.join(to, "Birds", "osprey.jpg"), "utf8")).toBe("osprey");
     expect(existsSync(from)).toBe(false);
   });
@@ -178,13 +176,19 @@ describe("moveDirectoryContents", () => {
 
   it("clears a partial copy and keeps the originals when the copy fails", async () => {
     fsFake.rename = () => Promise.reject(fsError("EXDEV"));
-    fsFake.cp = async () => {
-      mkdirSync(path.join(to, "Birds"), { recursive: true });
-      writeFileSync(path.join(to, "Birds", "half.jpg"), "partial");
-      throw fsError("ENOSPC");
+    // The drive fills up part way through writing the first file.
+    fsFake.open = async (...args) => {
+      const real = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+      const handle = await real.open(args[0] as string, args[1] as string);
+      return Object.assign(handle, {
+        write: async () => {
+          await real.appendFile(args[0] as string, "part");
+          throw fsError("ENOSPC");
+        },
+      });
     };
     const onCopied = vi.fn();
-    await expect(moveDirectoryContents(from, to, onCopied)).rejects.toMatchObject({ code: "ENOSPC" });
+    await expect(moveDirectoryContents(from, to, onCopied)).rejects.toMatchObject({ code: "disk_full" });
     expect(existsSync(to)).toBe(false);
     expect(readFileSync(path.join(from, "Birds", "osprey.jpg"), "utf8")).toBe("osprey");
     expect(onCopied).not.toHaveBeenCalled();
@@ -389,7 +393,7 @@ describe("storage routes", () => {
 
   it("keeps the library where it was and says why when the move fails", async () => {
     fsFake.rename = () => Promise.reject(fsError("EXDEV"));
-    fsFake.cp = () => Promise.reject(new Error("disk full"));
+    fsFake.open = () => Promise.reject(new Error("disk full"));
     const res = await put(to);
     expect(res.statusCode).toBe(500);
     expect(res.json()).toEqual({ error: "Couldn't move your library: disk full", code: "storage_move_failed" });

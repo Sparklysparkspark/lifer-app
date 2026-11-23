@@ -12,11 +12,16 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return {
     ...actual,
     // A drive that fills up part way through the copy.
-    copyFile: vi.fn(async (from: string, to: string) => {
-      if (!copyFillsDisk.next) return actual.copyFile(from, to);
+    open: vi.fn(async (file: string, flags: string) => {
+      const handle = await actual.open(file, flags);
+      if (!copyFillsDisk.next) return handle;
       copyFillsDisk.next = false;
-      await actual.writeFile(to, "pho");
-      throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
+      return Object.assign(handle, {
+        write: async () => {
+          await actual.appendFile(file, "pho");
+          throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
+        },
+      });
     }),
     // Simulates a move across drives, where a rename can't work and the file is copied instead.
     rename: vi.fn(async (from: string, to: string) => {
@@ -116,6 +121,7 @@ describe("moveOriginalFile", () => {
     await expect(moveOriginalFile(current, dest, saveRef)).rejects.toBeInstanceOf(DiskFullError);
     expect(saveRef).not.toHaveBeenCalled();
     expect(existsSync(dest)).toBe(false);
+    expect(existsSync(`${dest}.lifer-partial`)).toBe(false);
     expect(readFileSync(current, "utf8")).toBe("photo");
   });
 });

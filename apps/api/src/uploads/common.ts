@@ -1,8 +1,7 @@
 // Helpers shared by the upload endpoints (inspect.ts, raw.ts, photo.ts, video.ts).
 import { randomUUID } from "node:crypto";
 import { rmSync, existsSync } from "node:fs";
-import { copyFile, link, rm, unlink } from "node:fs/promises";
-import { constants } from "node:fs";
+import { link, unlink } from "node:fs/promises";
 import path from "node:path";
 import { pool } from "@lifer/core/db.js";
 import { APP_DATA_DIR, ORIGINALS_DIR } from "@lifer/core/config.js";
@@ -10,6 +9,7 @@ import { ensureDir, moveToFolder } from "@lifer/core/lib/safeFs.js";
 import { uploadTempDir } from "../lib/uploadWorkDir.js";
 import { createLimiter } from "@lifer/core/lib/concurrency.js";
 import { removeEmptyDirsUpward } from "../lib/fsCleanup.js";
+import { copyOriginal, removeOriginal } from "../lib/originalsWrite.js";
 import {
   photoVectors,
   storeCaptureEmbedding,
@@ -62,7 +62,7 @@ function candidateName(filename: string, attempt: number): string {
 
 /** Files `source` into `dir` under a free name ("-2", "-3"... like writeNewFile) and returns the
  *  path used. A hard link then unlink never overwrites a file that appeared meanwhile, and is a
- *  rename in effect; on another drive (or a filesystem without links) it copies exclusively. */
+ *  rename in effect; on another drive (or a filesystem without links) it makes a verified copy. */
 export async function moveIntoLibrary(source: string, dir: string, filename: string): Promise<string> {
   await ensureDir(dir);
   for (let attempt = 1; attempt <= MAX_NAME_ATTEMPTS; attempt++) {
@@ -78,13 +78,12 @@ export async function moveIntoLibrary(source: string, dir: string, filename: str
         throw err;
     }
     try {
-      await copyFile(source, candidate, constants.COPYFILE_EXCL);
+      await copyOriginal(source, candidate);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "EEXIST") continue;
-      await rm(candidate, { force: true }).catch(() => {});
       throw err;
     }
-    await rm(source, { force: true });
+    await removeOriginal(source);
     return candidate;
   }
   throw new Error(`Couldn't find a free file name for ${filename} in ${dir}`);

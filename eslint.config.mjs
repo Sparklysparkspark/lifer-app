@@ -51,6 +51,83 @@ export default tseslint.config(
       ],
     },
   },
+  // Original photos are written, moved and deleted only through apps/api/src/lib/originalsWrite.ts
+  // (verified copies, nothing replaced). Server code may not import fs write functions, except
+  // the files listed below.
+  {
+    files: ["apps/api/src/**/*.ts", "packages/core/src/**/*.ts"],
+    ignores: [
+      "**/*.test.ts",
+      "apps/api/src/lib/originalsWrite.ts",
+      "packages/core/src/lib/verifiedCopy.ts",
+      // Still write originals directly. Migrate each to originalsWrite.ts and delete its line;
+      // never add to this list.
+      "apps/api/src/library/routes.ts",
+      "apps/api/src/settings/deleteLocalLibrary.ts",
+      "apps/api/src/trips/import.ts",
+      "apps/api/src/uploads/common.ts",
+      "apps/api/src/uploads/exif.ts",
+      "apps/api/src/uploads/photo.ts",
+      "apps/api/src/uploads/raw.ts",
+      "apps/api/src/uploads/uploadSource.ts",
+      "apps/api/src/uploads/video.ts",
+      "packages/core/src/lib/safeFs.ts",
+      // Write only Lifer's own files (app data, caches, derivatives, temp files, exports), never an
+      // original. A new file here needs the same guarantee.
+      "apps/api/src/albums/albumIndex.ts",
+      "apps/api/src/albums/export.ts",
+      "apps/api/src/captures/suggest.ts",
+      "apps/api/src/companion/squares.ts",
+      "apps/api/src/crashReports/report.ts",
+      "apps/api/src/integrations/ebird/routes.ts",
+      "apps/api/src/integrations/immich/client.ts",
+      "apps/api/src/integrations/immich/sync.ts",
+      "apps/api/src/integrations/lightroom/apply.ts",
+      "apps/api/src/integrations/lightroom/catalog.ts",
+      "apps/api/src/lib/atomicWrite.ts",
+      "apps/api/src/lib/fsCleanup.ts",
+      "apps/api/src/lib/libraryRecords.ts",
+      "apps/api/src/lib/secretBox.ts",
+      "apps/api/src/lib/stagedUploads.ts",
+      "apps/api/src/lib/tusUploads.ts",
+      "apps/api/src/lib/writableDir.ts",
+      "apps/api/src/offlinePacks/**",
+      "apps/api/src/photos/fullRender.ts",
+      "apps/api/src/photos/routes.ts",
+      "apps/api/src/portfolio/routes.ts",
+      "apps/api/src/settings/assets.ts",
+      "apps/api/src/species/**",
+      "apps/api/src/sync/mirror.ts",
+      "apps/api/src/trips/moveFiles.ts",
+      "apps/api/src/uploads/migrateDerivativesLocation.ts",
+      "apps/api/src/uploads/preparedAhead.ts",
+      "apps/api/src/uploads/videoFrame.ts",
+      "apps/api/src/uploads/workingImage.ts",
+      "packages/core/src/lib/resumableDownload.ts",
+      "packages/core/src/localSettings.ts",
+      "packages/core/src/rawCache.ts",
+      "packages/core/src/species/**",
+      "packages/core/src/uploads/image.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        ...["fs", "node:fs", "fs/promises", "node:fs/promises"].map((name) => ({
+          name,
+          importNames: [
+            ...["appendFile", "copyFile", "cp", "link", "rename", "rm", "symlink", "truncate", "unlink"],
+            ...["utimes", "writeFile"],
+          ].flatMap((f) => [f, `${f}Sync`]),
+          message: "Write, move or delete original photos through apps/api/src/lib/originalsWrite.ts.",
+        })),
+        ...["fs", "node:fs"].map((name) => ({
+          name,
+          importNames: ["createWriteStream"],
+          message: "Write, move or delete original photos through apps/api/src/lib/originalsWrite.ts.",
+        })),
+      ],
+    },
+  },
   // TypeScript already reports undefined names, with type information ESLint lacks.
   { files: ["**/*.{ts,tsx}"], rules: { "no-undef": "off" } },
   {

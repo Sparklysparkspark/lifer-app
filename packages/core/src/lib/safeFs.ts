@@ -5,6 +5,7 @@ import { constants } from "node:fs";
 import { access, mkdir, stat, writeFile, copyFile, link, unlink, rm } from "node:fs/promises";
 import path from "node:path";
 import { explainMissingLibraryFolder } from "./libraryFolder.js";
+import { copyVerified } from "./verifiedCopy.js";
 
 // Far more than any real folder of same-named photos needs.
 const MAX_NAME_ATTEMPTS = 10_000;
@@ -116,7 +117,7 @@ export async function copyToNewFile(dir: string, filename: string, source: strin
 }
 
 /** Moves `source` into `dir` under a free name and returns the new path. Links when it can,
- *  and copies then deletes when the destination is on another drive. Never overwrites. */
+ *  and makes a verified copy then deletes when the destination is on another drive. Never overwrites. */
 export async function moveToFolder(source: string, dir: string, filename = path.basename(source)): Promise<string> {
   await ensureDir(dir);
   for (let attempt = 1; attempt <= MAX_NAME_ATTEMPTS; attempt++) {
@@ -126,10 +127,15 @@ export async function moveToFolder(source: string, dir: string, filename = path.
       await link(source, candidate);
     } catch (err) {
       if (isCode(err, "EEXIST")) continue;
-      // Other drive, or a filesystem without hard links.
-      const dest = await copyToNewFile(dir, filename, source);
+      // Other drive, or a filesystem without hard links: the source goes only once the copy is proven.
+      try {
+        await copyVerified(source, candidate);
+      } catch (copyErr) {
+        if (isCode(copyErr, "EEXIST")) continue;
+        throw copyErr;
+      }
       await rm(source, { force: true });
-      return dest;
+      return candidate;
     }
     await unlink(source);
     return candidate;

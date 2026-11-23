@@ -1,5 +1,5 @@
 import { dirSizeBytes, ensureRoom } from "@lifer/core/lib/freeSpace.js";
-import { cp, mkdir, opendir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, opendir, stat } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { PoolClient } from "pg";
@@ -9,6 +9,7 @@ import { requireAuth } from "../auth/session.js";
 import { DATA_DIR, SINGLE_USER_MODE } from "@lifer/core/config.js";
 import { readLocalSettings, writeLocalSettings } from "@lifer/core/localSettings.js";
 import { createJob, type JobContext } from "../lib/job.js";
+import { copyOriginalsFolder, removeOriginalsFolder, renameOriginal } from "../lib/originalsWrite.js";
 import { log } from "@lifer/core/lib/log.js";
 import { Flag, replies, withSchemas } from "../lib/schema.js";
 import { desktopOnly } from "./requireDesktopMode.js";
@@ -37,21 +38,21 @@ interface StorageMoveResult {
 export async function moveDirectoryContents(oldDir: string, newDir: string, onCopied?: () => void): Promise<void> {
   await mkdir(path.dirname(newDir), { recursive: true });
   try {
-    await rename(oldDir, newDir);
+    await renameOriginal(oldDir, newDir);
   } catch {
     await ensureRoom(newDir, await dirSizeBytes(oldDir));
     try {
-      await cp(oldDir, newDir, { recursive: true, preserveTimestamps: true });
+      await copyOriginalsFolder(oldDir, newDir);
     } catch (err) {
       // The caller only gets here with an empty (or missing) destination, so a partial copy is
       // safe to clear; the originals are still intact under oldDir.
-      await rm(newDir, { recursive: true, force: true }).catch(() => {});
+      await removeOriginalsFolder(newDir).catch(() => {});
       throw err;
     }
-    // The new folder is complete from here on, so a crash while deleting the old one must finish
-    // the move at startup, never roll it back.
+    // The new folder is complete and verified from here on, so a crash while deleting the old one
+    // must finish the move at startup, never roll it back.
     onCopied?.();
-    await rm(oldDir, { recursive: true, force: true });
+    await removeOriginalsFolder(oldDir);
   }
 }
 
@@ -89,7 +90,7 @@ export async function recoverInterruptedStorageMigration(): Promise<void> {
 
   const moveNeverCompleted = !migration.copied && (await hasEntries(from));
   if (moveNeverCompleted) {
-    await rm(to, { recursive: true, force: true });
+    await removeOriginalsFolder(to);
     writeLocalSettings({ dataDir: from, migration: undefined });
     log.warn(
       `[storage] An interrupted move to ${to} was rolled back on startup, still using ${from}. Retry from Settings when ready.`,
@@ -98,7 +99,7 @@ export async function recoverInterruptedStorageMigration(): Promise<void> {
   }
 
   // A finished copy whose old folder was only partly deleted: delete the rest.
-  if (migration.copied) await rm(from, { recursive: true, force: true });
+  if (migration.copied) await removeOriginalsFolder(from);
   await withTransaction((client) => relinkAbsolutePaths(client, from, to));
   writeLocalSettings({ dataDir: to, migration: undefined });
   log.warn(

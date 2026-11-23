@@ -3,14 +3,15 @@
 // metadata. Each file stays under the folder it was filed under, never moved to another, except
 // when its photo's trip changed (ReorganizeOnly.followTrip).
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, rename, rm, stat, utimes } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { pool } from "@lifer/core/db.js";
 import { ORIGINALS_DIR } from "@lifer/core/config.js";
 import { log } from "@lifer/core/lib/log.js";
-import { DiskFullError, ensureRoom, isDiskFull } from "@lifer/core/lib/freeSpace.js";
-import { createJob, type JobContext } from "../lib/job.js";
+import { DiskFullError } from "@lifer/core/lib/freeSpace.js";
+import { createJob, describeError, type JobContext } from "../lib/job.js";
 import { removeEmptyDirsUpward } from "../lib/fsCleanup.js";
+import { moveOriginal, renameOriginal } from "../lib/originalsWrite.js";
 import { getUserFileSettings } from "../lib/userFileSettings.js";
 import { createLimiter } from "@lifer/core/lib/concurrency.js";
 import { PLACE_FOLDER_LEVELS, keepsOriginalName } from "@lifer/shared";
@@ -81,36 +82,7 @@ export const REORGANIZE_IDLE_COUNTS: ReorganizeCounts = { moved: 0, skipped: 0, 
 /** Moves `current` to `dest` (a rename, or a copy across drives) and then runs `saveRef`. If
  *  saving fails the file is put back, so the stored path still points at it. */
 export async function moveOriginalFile(current: string, dest: string, saveRef: () => Promise<void>): Promise<void> {
-  let copied = false;
-  try {
-    await rename(current, dest);
-  } catch {
-    try {
-      await ensureRoom(dest, (await stat(current)).size);
-      await copyFile(current, dest).catch((err: unknown) => {
-        throw isDiskFull(err) ? new DiskFullError(0, 0, dest) : err;
-      });
-      // Archive health treats a new mtime as an edit, so a copy keeps the original's.
-      const { atime, mtime } = await stat(current);
-      await utimes(dest, atime, mtime);
-    } catch (err) {
-      await rm(dest, { force: true }).catch(() => {});
-      throw err;
-    }
-    copied = true;
-  }
-  try {
-    await saveRef();
-  } catch (err) {
-    if (copied) await rm(dest, { force: true }).catch(() => {});
-    else await rename(dest, current).catch(() => {});
-    throw err;
-  }
-  // The move already happened and is recorded, so a leftover source isn't a failed move.
-  if (copied)
-    await rm(current, { force: true }).catch((err) =>
-      log.warn({ err, ref: current }, "[reorganize] Moved an original but couldn't delete its old copy"),
-    );
+  await moveOriginal(current, dest, saveRef);
 }
 
 /** A RAW's or video's sidecar follows it, so other apps' edits stay with the file. */
@@ -118,7 +90,7 @@ async function moveSidecar(from: string, to: string): Promise<void> {
   const sidecar = await findSidecarPath(from);
   const target = sidecarPathFor(to);
   if (!sidecar || existsSync(target)) return;
-  await rename(sidecar, target).catch((err: unknown) =>
+  await renameOriginal(sidecar, target).catch((err: unknown) =>
     log.warn({ err, ref: sidecar }, "[reorganize] Couldn't move a sidecar with its file"),
   );
 }
@@ -288,7 +260,7 @@ export async function runReorganize(
       }
     } catch (err) {
       counts.failed++;
-      counts.lastError = `${path.basename(current)}: ${(err as Error).message}`;
+      counts.lastError = `${path.basename(current)}: ${describeError(err)}`;
       log.warn({ err, ref: current, dest }, "[reorganize] Couldn't move an original");
       // Every later copy to that drive would fail the same way.
       if (err instanceof DiskFullError) {

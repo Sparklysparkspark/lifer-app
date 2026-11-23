@@ -1,4 +1,4 @@
-import { readdir, unlink } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
@@ -10,6 +10,7 @@ import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { repointCoversOffTrashedCaptures, restoreCoversForCapture, syncCollectedState } from "../lib/userSpecies.js";
 import { APP_DATA_DIR, ORIGINALS_DIR } from "@lifer/core/config.js";
 import { removeEmptyDirsUpward } from "../lib/fsCleanup.js";
+import { removeOriginal } from "../lib/originalsWrite.js";
 import { canonicalPath, isWithinResolved } from "@lifer/core/lib/pathContainment.js";
 import { resolveOriginalPaths } from "../storageVolumes/resolve.js";
 import { Flag, IdParams, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
@@ -238,7 +239,7 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
   async function removeFileQuietly(file: string | null): Promise<void> {
     if (!file) return;
     try {
-      await unlink(file);
+      await removeOriginal(file);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT")
         app.log.warn({ err, file }, "Couldn't delete a purged file");

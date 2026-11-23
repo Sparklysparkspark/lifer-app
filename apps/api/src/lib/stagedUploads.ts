@@ -2,12 +2,13 @@
 // Filed by user and sha256, rechecked before use, and removed once imported or after
 // STAGE_MAX_AGE_MS.
 import { createHash } from "node:crypto";
-import { constants, createReadStream, createWriteStream } from "node:fs";
-import { copyFile, readdir, rename, rm, stat } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { ensureDir } from "@lifer/core/lib/safeFs.js";
+import { moveOriginal } from "./originalsWrite.js";
 import { uploadStagingDir, uploadTempDir } from "./uploadWorkDir.js";
 
 export const STAGE_MAX_AGE_MS = 2 * 60 * 60_000;
@@ -28,17 +29,9 @@ export async function hashFile(filePath: string): Promise<string> {
   return hash.digest("hex");
 }
 
-/** Renames `source` to `dest`, copying then deleting when they are on different drives. Never
- *  overwrites an existing `dest` when it has to copy. */
-export async function moveFile(source: string, dest: string): Promise<void> {
-  try {
-    await rename(source, dest);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
-    await copyFile(source, dest, constants.COPYFILE_EXCL);
-    await rm(source, { force: true });
-  }
-}
+/** Renames `source` to `dest`, or copies (verified) then deletes when they are on different
+ *  drives. Never overwrites an existing `dest`. */
+export const moveFile = (source: string, dest: string): Promise<void> => moveOriginal(source, dest);
 
 /** Moves a just-inspected temp file into the staging area. Best-effort: on failure the import
  *  simply sends the file again. */
