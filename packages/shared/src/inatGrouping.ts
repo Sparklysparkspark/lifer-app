@@ -1,11 +1,39 @@
 // One observation per sighting: Import tab candidates are grouped by species, then split where
-// neighbors are more than an hour apart (splitSessions).
+// neighbors are more than an hour apart (splitSessions), more than SPLIT_DISTANCE_M apart, or
+// shot on a different camera or lens (each only when both photos carry that data).
 import { splitSessions } from "./sessions.js";
 
 export interface ClusterableCapture {
   id: string;
   speciesId: string;
   takenAt: string | null;
+  lat?: number | null;
+  lon?: number | null;
+  cameraModel?: string | null;
+  lens?: string | null;
+}
+
+/** Consecutive photos of a species farther apart than this are different sightings. */
+export const SPLIT_DISTANCE_M = 200;
+
+function distanceM(a: ClusterableCapture, b: ClusterableCapture): number | null {
+  if (a.lat == null || a.lon == null || b.lat == null || b.lon == null) return null;
+  const rad = Math.PI / 180;
+  const h =
+    Math.sin(((b.lat - a.lat) * rad) / 2) ** 2 +
+    Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(((b.lon - a.lon) * rad) / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.sqrt(h));
+}
+
+const differs = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a !== b;
+
+// Compared with the session's latest photo, so a slow walk is one sighting but a jump is two.
+function startsNewSighting(session: readonly ClusterableCapture[], next: ClusterableCapture): boolean {
+  const last = session.at(-1)!;
+  const d = distanceM(last, next);
+  return (
+    (d !== null && d > SPLIT_DISTANCE_M) || differs(last.cameraModel, next.cameraModel) || differs(last.lens, next.lens)
+  );
 }
 
 export interface ObservationCluster {
@@ -27,7 +55,7 @@ export function clusterForImport(captures: ClusterableCapture[]): ObservationClu
   const clusters: ObservationCluster[] = [];
   for (const [speciesId, speciesCaptures] of bySpecies) {
     const withTime = speciesCaptures.filter((c) => c.takenAt !== null);
-    for (const session of splitSessions(withTime, (c) => new Date(c.takenAt!).getTime()))
+    for (const session of splitSessions(withTime, (c) => new Date(c.takenAt!).getTime(), startsNewSighting))
       clusters.push(toCluster(speciesId, session));
     for (const capture of speciesCaptures.filter((c) => c.takenAt === null))
       clusters.push(toCluster(speciesId, [capture]));

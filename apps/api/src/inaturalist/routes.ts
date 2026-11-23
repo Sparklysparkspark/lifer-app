@@ -54,6 +54,24 @@ import {
   syncObservations,
 } from "./observationMatch.js";
 
+interface ClusterRow {
+  id: string;
+  species_id: string;
+  taken_at: string | null;
+  lat: string | null;
+  lon: string | null;
+  camera_model: string | null;
+  lens: string | null;
+}
+
+// The place and gear a sighting is split on (clusterForImport); numeric columns arrive as strings.
+const clusterFields = (r: ClusterRow) => ({
+  lat: r.lat === null ? null : Number(r.lat),
+  lon: r.lon === null ? null : Number(r.lon),
+  cameraModel: r.camera_model,
+  lens: r.lens,
+});
+
 // Maps the OAuth redirect back to the user who clicked Connect. One-time, short-lived, in memory.
 interface PendingConnect {
   userId: string;
@@ -441,10 +459,15 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
         taxon_class: string | null;
         location_label: string | null;
         region_name: string | null;
+        lat: string | null;
+        lon: string | null;
+        camera_model: string | null;
+        lens: string | null;
       }>(
         `SELECT c.id, c.species_id, s.scientific_name, s.common_name, c.taken_at, c.current_photo_id,
               (c.lat IS NOT NULL AND c.lon IS NOT NULL) AS has_location, (s.inat_taxon_id IS NOT NULL) AS matched,
-              s.taxon_class, c.location_label, rg.name AS region_name
+              s.taxon_class, c.location_label, rg.name AS region_name,
+              c.lat, c.lon, c.camera_model, c.lens
        FROM captures c
        JOIN species s ON s.id = c.species_id
        LEFT JOIN regions rg ON rg.id = c.region_id
@@ -458,6 +481,7 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
         id: r.id,
         speciesId: r.species_id,
         takenAt: r.taken_at,
+        ...clusterFields(r),
       }));
       const clusters = clusterForImport(captures);
       // Counted as sightings, the way the Ignored view lists them.
@@ -465,13 +489,13 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
         ? clusters.length
         : clusterForImport(
             (
-              await pool.query<{ id: string; species_id: string; taken_at: string | null }>(
-                `SELECT c.id, c.species_id, c.taken_at FROM captures c
+              await pool.query<ClusterRow>(
+                `SELECT c.id, c.species_id, c.taken_at, c.lat, c.lon, c.camera_model, c.lens FROM captures c
                  WHERE c.user_id = $1 AND c.inat_ignored_at IS NOT NULL
                    AND NOT EXISTS (SELECT 1 FROM capture_inaturalist_observations o WHERE o.capture_id = c.id AND o.photo_sent)`,
                 [request.user!.id],
               )
-            ).rows.map((r) => ({ id: r.id, speciesId: r.species_id, takenAt: r.taken_at })),
+            ).rows.map((r) => ({ id: r.id, speciesId: r.species_id, takenAt: r.taken_at, ...clusterFields(r) })),
           ).length;
       const byId = new Map(res.rows.map((r) => [r.id, r]));
       const onInat = new Set(
@@ -1328,14 +1352,13 @@ async function runSendBatch(
   groups: string[][] | null,
   ignoreExistingGuard = false,
 ): Promise<SendBatchResult> {
-  const res = await pool.query<{
-    id: string;
-    species_id: string;
-    taken_at: string | null;
-    inat_taxon_id: number | null;
-    linked: boolean | null;
-  }>(
-    `SELECT c.id, c.species_id, c.taken_at, s.inat_taxon_id, o.photo_sent AS linked
+  const res = await pool.query<
+    ClusterRow & {
+      inat_taxon_id: number | null;
+      linked: boolean | null;
+    }
+  >(
+    `SELECT c.id, c.species_id, c.taken_at, c.lat, c.lon, c.camera_model, c.lens, s.inat_taxon_id, o.photo_sent AS linked
      FROM captures c
      JOIN species s ON s.id = c.species_id
      LEFT JOIN capture_inaturalist_observations o ON o.capture_id = c.id
@@ -1359,7 +1382,9 @@ async function runSendBatch(
   const ok = new Set(sendable.map((r) => r.id));
   const clusters = groups
     ? groups.map((g) => ({ captureIds: g.filter((id) => ok.has(id)) })).filter((g) => g.captureIds.length > 0)
-    : clusterForImport(sendable.map((r) => ({ id: r.id, speciesId: r.species_id, takenAt: r.taken_at })));
+    : clusterForImport(
+        sendable.map((r) => ({ id: r.id, speciesId: r.species_id, takenAt: r.taken_at, ...clusterFields(r) })),
+      );
   ctx.update({ phase: "observations", processed: 0, total: clusters.length });
   let lastEditUrl: string | null = null;
   for (const [i, cluster] of clusters.entries()) {
