@@ -13,6 +13,11 @@ import { originalSharpOptions } from "../lib/imageLimits.js";
 import { isHeicBytes, isHeicFile } from "./formats.js";
 import { heicToJpegBuffer } from "./heic.js";
 
+// libvips' cache keeps recently read originals open, which on Windows locks them against edits,
+// moves and deletes (and blocks ejecting a card anywhere). Originals are read once per step, so it
+// buys little. Process-wide, so this covers every sharp caller.
+sharp.cache(false);
+
 const execFileAsync = promisify(execFile);
 // ffmpeg-static is plain CJS but its types declare an ESM default export, so it's loaded with
 // require.
