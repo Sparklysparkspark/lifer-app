@@ -48,15 +48,6 @@ describe("clusterPoints", () => {
     const trail = Array.from({ length: 40 }, (_, i) => at(i * 80, 0, `2026-0${1 + (i % 2)}-01`));
     expect(clusterPoints(trail, []).every((s) => s.count < 40 && s.radiusM <= 1000)).toBe(true);
   });
-
-  it("handles 50,000 photos quickly", () => {
-    const big = Array.from({ length: 50_000 }, (_, i) =>
-      at((i % 500) * 37, Math.floor(i / 500) * 41, `2026-01-0${1 + (i % 5)}`),
-    );
-    const t = performance.now();
-    clusterPoints(big, []);
-    expect(performance.now() - t).toBeLessThan(3000);
-  });
 });
 
 describe("spot containment SQL", () => {

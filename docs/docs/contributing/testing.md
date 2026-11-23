@@ -17,6 +17,18 @@ npx vitest run src/lib/safeFs.test.ts   # one file, from inside the workspace
 
 Unit tests are files named `*.test.ts`, next to the code they test. They don't need a database or network, and should run in seconds.
 
+### Accessibility tests
+
+`apps/web/src/components/a11y.test.tsx` runs axe-core over the shared components (buttons, fields, tooltip, menu, modal) in jsdom, which can't judge colour contrast. `e2e/visual/a11y.spec.ts` runs axe in Chromium over the main pages of the realistic library, contrast included; it runs in the advisory behavioural job, and pages with known violations are listed in `e2e/known-failures.json`.
+
+### Licences
+
+`npm run check:licences` fails when an npm or cargo dependency has a licence outside the allowlist in `scripts/check-licences.mjs`, or when `scripts/licences-ledger.txt` is out of date. After reviewing a new dependency, run `npm run check:licences -- --update`.
+
+### Timing tests
+
+A test that asserts a time budget (`performance.now()` against a limit) goes in its own `*.timing.test.ts` file. In `apps/api`, `npm test` runs those in a separate `timing` Vitest project after the rest, one file at a time, so a busy neighbour can't blow the budget. Run them alone with `npx vitest run --project timing`. On a heavily loaded machine they can still fail.
+
 ## Integration tests
 
 Tests that need a real Postgres are named `*.integration.test.ts`. They're skipped unless `TEST_DATABASE_URL` points at a database.
