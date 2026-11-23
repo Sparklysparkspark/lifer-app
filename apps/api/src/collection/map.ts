@@ -89,7 +89,7 @@ export const collectionMapSql = (hasOutline: boolean) => `WITH RECURSIVE ${REGIO
 
 // Outlines only change with a catalog update, which keeps region ids: parsed once per process.
 const outlines = new Map<string, Promise<Outline | null>>();
-function outlineOf(regionId: string): Promise<Outline | null> {
+export function outlineOf(regionId: string): Promise<Outline | null> {
   let found = outlines.get(regionId);
   if (!found) {
     found = pool

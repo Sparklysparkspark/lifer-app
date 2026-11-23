@@ -304,6 +304,18 @@ describe("Include photos from", () => {
     expect(speciesCalls().some((p) => p.includes("/species?") && p.includes("photographedIn=province"))).toBe(true);
   });
 
+  it("updates the header's count and progress when the choice changes, without a reload", async () => {
+    serveScoped("Freedonia", "North Freedonia");
+    renderAt("/collection?region=p1");
+    await screen.findByText("50% found (1 of 2)");
+    openView();
+    fireEvent.click(radio("North Freedonia"));
+    await screen.findByText("0% found (0 of 2)");
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("0");
+    fireEvent.click(radio("Anywhere"));
+    await screen.findByText("50% found (1 of 2)");
+  });
+
   it("reads a saved province choice as the country on a country page", async () => {
     localStorage.setItem("lifer:photographedIn", JSON.stringify("province"));
     serveScoped("Freedonia", null);

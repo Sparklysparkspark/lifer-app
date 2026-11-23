@@ -10,6 +10,8 @@ import { IdParams, Open, notFoundOnInvalidId, replies, withSchemas } from "../li
 import { toCollectionItem } from "../collection/collectionItem.js";
 import { AggregateSpecies, RegionSpecies } from "./responses.js";
 import { markNameChanged } from "../species/speciesSplits.js";
+import { outlineOf } from "../collection/map.js";
+import { NEAR_KM, inOutline, nearOutline, prefilterBoxes } from "../collection/pinOutline.js";
 import {
   obscureSpeciesSql,
   REGION_VAGRANT_SQL,
@@ -98,6 +100,48 @@ function photoScopeRegionId(
   return level === "province" && scope.provinceName ? regionId : scope.countryId;
 }
 
+/** The photographed species whose photos with a position were taken in the scope region: inside
+ *  its outline (or a province of it shown under its continent), or filed under it and within
+ *  NEAR_KM, so a photo from a boat off its coast still counts. Position beats filing, since an
+ *  import files every photo under the batch's region wherever its camera says it was. Null when
+ *  the region has no outline: filing alone decides then. */
+async function placedInScope(userId: string, scopeId: string | null): Promise<string[] | null> {
+  if (!scopeId) return null;
+  const parts = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE id = $1 OR home_country_id = $1`, [
+    scopeId,
+  ]);
+  const outline = (await Promise.all(parts.rows.map((r) => outlineOf(r.id)))).flatMap((o) => o ?? []);
+  if (outline.length === 0) return null;
+  // shortcut: positions rounded to ~100 m so repeat shots test once; a photo within that of the
+  // border can land on the wrong side. Test exact positions if that ever matters.
+  const res = await pool.query<{ species_id: string; lon: number; lat: number; filed: boolean }>(
+    `WITH RECURSIVE ${regionTreeCte("photo_scope_tree", "$2")},
+     shots AS (
+       SELECT c.id, c.species_id, c.lat, c.lon, c.region_id IN (SELECT id FROM photo_scope_tree) AS filed
+       FROM captures c
+       WHERE c.user_id = $1 AND c.lat IS NOT NULL AND c.lon IS NOT NULL
+         AND EXISTS (SELECT 1 FROM jsonb_to_recordset($3::jsonb) b(w float8, s float8, e float8, n float8)
+                     WHERE c.lat BETWEEN b.s AND b.n AND c.lon BETWEEN b.w AND b.e)
+     ),
+     tagged AS (
+       SELECT species_id, lat, lon, filed FROM shots WHERE species_id IS NOT NULL
+       UNION ALL
+       SELECT cs.species_id, sh.lat, sh.lon, sh.filed FROM shots sh JOIN capture_species cs ON cs.capture_id = sh.id
+     )
+     SELECT t.species_id, round(t.lon, 3)::float8 AS lon, round(t.lat, 3)::float8 AS lat, bool_or(t.filed) AS filed
+     FROM tagged t JOIN user_species us ON us.user_id = $1 AND us.species_id = t.species_id AND us.state = 'collected'
+     GROUP BY 1, 2, 3
+     ORDER BY bool_or(t.filed) DESC`,
+    [userId, scopeId, JSON.stringify(prefilterBoxes(outline, NEAR_KM))],
+  );
+  const found = new Set<string>();
+  for (const r of res.rows) {
+    if (found.has(r.species_id)) continue;
+    if (inOutline(outline, r.lon, r.lat) || (r.filed && nearOutline(outline, r.lon, r.lat))) found.add(r.species_id);
+  }
+  return [...found];
+}
+
 // A region_species row doesn't mean its taxon's pack was downloaded (the catalog seed ships every
 // taxon's rows), so a species shows only when its taxon's pack for the country is installed. A
 // NULL country matches nothing. Hand-imported species have no region_species rows (they're
@@ -130,6 +174,7 @@ const P = {
   packRegion: "$7",
   hasPack: "$8",
   photoScope: "$9",
+  placedInScope: "$10",
 } as const;
 
 function regionViewParams(v: {
@@ -142,6 +187,7 @@ function regionViewParams(v: {
   packRegionName: string | null;
   needsPack: boolean;
   photoScopeId: string | null;
+  placedInScope: string[] | null;
 }): unknown[] {
   return [
     v.userId,
@@ -153,6 +199,7 @@ function regionViewParams(v: {
     v.packRegionName,
     !v.needsPack,
     v.photoScopeId,
+    v.placedInScope,
   ];
 }
 
@@ -176,7 +223,7 @@ const REGION_VIEW_SPECIES_CTE = `WITH RECURSIVE region_tree AS (
            ${userAddedInSeaZonesSql(P.user, P.seaZones)}
          ),
          -- photographedIn: the scope region's tree and the species with a live photo there.
-         ${photographedInTreeCtes("photo_scope_tree", "photographed_in_scope", P.photoScope)},
+         ${photographedInTreeCtes("photo_scope_tree", "photographed_in_scope", P.photoScope, P.placedInScope)},
          -- The Photos taken filter: the same for the viewed region itself, and every species with
          -- a photo that has a place at all.
          ${photographedInTreeCtes("here_tree", "photographed_here", P.region)},
@@ -193,18 +240,28 @@ const PHOTOGRAPHED_WHERE_SQL = `CASE WHEN s.id IN (SELECT species_id FROM photog
              WHEN s.id IN (SELECT species_id FROM photographed_located) THEN 'elsewhere' END`;
 
 // A region's subtree (groups included) plus provinces shown under their continent that belong
-// to it, and the species with a live photo there. Photos without a region (no GPS) are in none.
-function photographedInTreeCtes(tree: string, photographed: string, rootParam: string): string {
-  const inTree = `${rootParam}::uuid IS NOT NULL AND c.user_id = ${P.user} AND c.region_id IN (SELECT id FROM ${tree})`;
+// to it.
+function regionTreeCte(tree: string, rootParam: string): string {
   return `${tree} AS (
            SELECT id FROM regions WHERE id = ${rootParam} OR home_country_id = ${rootParam}
            UNION ALL
            SELECT r.id FROM regions r JOIN ${tree} pt ON r.parent_id = pt.id
-         ),
+         )`;
+}
+
+// The region's tree and the species with a live photo filed there. Photos without a region are in
+// none. With placedParam (placedInScope's species, null without an outline) a photo with a
+// position counts by it instead.
+function photographedInTreeCtes(tree: string, photographed: string, rootParam: string, placedParam?: string): string {
+  const unplaced = placedParam ? ` AND (${placedParam}::uuid[] IS NULL OR c.lat IS NULL OR c.lon IS NULL)` : "";
+  const inTree = `${rootParam}::uuid IS NOT NULL AND c.user_id = ${P.user} AND c.region_id IN (SELECT id FROM ${tree})${unplaced}`;
+  return `${regionTreeCte(tree, rootParam)},
          ${photographed} AS (
            SELECT c.species_id FROM captures c WHERE ${inTree}
            UNION
-           SELECT cs.species_id FROM capture_species cs JOIN captures c ON c.id = cs.capture_id WHERE ${inTree}
+           SELECT cs.species_id FROM capture_species cs JOIN captures c ON c.id = cs.capture_id WHERE ${inTree}${
+             placedParam ? `\n           UNION\n           SELECT unnest(${placedParam}::uuid[])` : ""
+           }
          )`;
 }
 
@@ -356,6 +413,7 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
         resolvePhotoScope(regionId),
       ]);
       const photoScopeId = photoScopeRegionId(regionId, photoScope, request.query.photographedIn);
+      const placed = await placedInScope(userId, photoScopeId);
 
       // Per-user state as in GET /collection. Sea-zone-only species have no local_tier: they were
       // never ranked against this region's checklist.
@@ -389,6 +447,7 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
           packRegionName,
           needsPack,
           photoScopeId,
+          placedInScope: placed,
         }),
       );
 
@@ -577,6 +636,7 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
         resolvePhotoScope(regionId),
       ]);
       const photoScopeId = photoScopeRegionId(regionId, photoScope, request.query.photographedIn);
+      const placed = await placedInScope(userId, photoScopeId);
 
       const res = await pool.query<{ total: string; collected: string; seen: string }>(
         `${REGION_VIEW_SPECIES_CTE}
@@ -603,6 +663,7 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
           packRegionName,
           needsPack,
           photoScopeId,
+          placedInScope: placed,
         }),
       );
       const row = res.rows[0];
