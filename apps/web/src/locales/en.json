@@ -1322,6 +1322,7 @@
       "changeSpecies": "Click to change, or see other suggestions again",
       "findingSuggestions": "Finding species suggestions",
       "rawMatch": "· RAW for your photo already in the library",
+      "editedVersion": "· Edited version of the photo you already have",
       "suggestError": "{error}. Pick a species by hand.",
       "remove": "Remove",
       "importAnyway": "Import anyway",

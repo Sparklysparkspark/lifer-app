@@ -62,6 +62,8 @@ import {
 } from "./common.js";
 import { moveManagedOriginalToSpeciesFolder, speciesFolder, type Subfolder } from "./managedFolders.js";
 import { insertCapture, insertOriginal } from "./captureRows.js";
+import { findEditedVersionTarget, linkImportedVersionTx, type EditedVersionTarget } from "./versionGrouping.js";
+import { invalidateUserVectors } from "@lifer/core/species/embeddings.js";
 
 type UploadMode = "store" | "link";
 
@@ -375,6 +377,34 @@ export async function importPhoto(
     hidden: decision === "hide",
   };
 
+  // An edited copy of a RAW already imported joins that photo as a version, under its species,
+  // trip and place. Not one with its own RAW, nor one a culling app rejected.
+  const versionOf =
+    raw || meta.hidden
+      ? null
+      : await findEditedVersionTarget(
+          userId,
+          source.fileName ?? path.basename(source.path),
+          tags as Record<string, unknown>,
+          meta.exifFingerprint.strict,
+        ).catch(() => null);
+  if (versionOf) {
+    const joined = await pool.query<SpeciesRow & { trip_folder: string | null }>(
+      `SELECT s.id, s.common_name, s.scientific_name, s.taxon_class, s.family,
+              (SELECT destination_folder FROM trips WHERE id = $2) AS trip_folder
+       FROM species s WHERE s.id = $1`,
+      [versionOf.speciesId, versionOf.tripId],
+    );
+    const { trip_folder, ...species } = joined.rows[0];
+    target.species = species;
+    if (versionOf.tripId) {
+      target.tripId = versionOf.tripId;
+      target.tripBaseDir = mode === "store" ? trip_folder : null;
+    }
+    target.regionId = versionOf.regionId ?? target.regionId;
+    target.locationLabel = versionOf.locationLabel ?? target.locationLabel;
+  }
+
   // Looked up before the transaction so file reads and exiftool never hold a pool connection.
   const filenameVerifiedRaw = raw ? null : await findFilenameVerifiedRaw(userId, source.fileName, meta.exif.takenAt);
 
@@ -382,6 +412,7 @@ export async function importPhoto(
   const { captureId, claimedRaw } = await insertCaptureTx(target, source, meta, files, {
     rawSent: raw !== null,
     filenameVerifiedRaw,
+    versionOf,
   });
   await afterCommit(request.log, target, meta, files, captureId, claimedRaw, source.fingerprint);
   return result(201, {
@@ -611,7 +642,7 @@ async function insertCaptureTx(
   source: PhotoSource,
   meta: PhotoMetadata,
   files: PreparedFiles,
-  rawLinking: { rawSent: boolean; filenameVerifiedRaw: RawRef | null },
+  rawLinking: { rawSent: boolean; filenameVerifiedRaw: RawRef | null; versionOf: EditedVersionTarget | null },
 ): Promise<{ captureId: string; claimedRaw: RawRef | null }> {
   const { userId, species } = target;
   // Connected inside the try, so a failed connect still undoes the file work.
@@ -684,6 +715,11 @@ async function insertCaptureTx(
       }
     }
 
+    const recrop: string[] = [];
+    const { versionOf } = rawLinking;
+    if (versionOf)
+      await linkImportedVersionTx(client, userId, captureId, versionOf.captureId, versionOf.evidence, recrop);
+
     if (target.albumId) {
       await client.query(`INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [
         target.albumId,
@@ -695,6 +731,10 @@ async function insertCaptureTx(
     if (meta.hidden) await client.query(`UPDATE captures_all SET hidden_at = now() WHERE id = $1`, [captureId]);
 
     await client.query("COMMIT");
+    if (versionOf) {
+      invalidateUserVectors(userId);
+      for (const speciesId of new Set(recrop)) ensureDefaultCardCropLater(userId, speciesId);
+    }
     return { captureId, claimedRaw };
   } catch (err) {
     await client?.query("ROLLBACK").catch(() => {});

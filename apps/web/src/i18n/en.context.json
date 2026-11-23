@@ -541,6 +541,7 @@
     },
     "review": {
       "rawMatch": "After the picked species, joined by a middle dot: this RAW file pairs with a photo already imported.",
+      "editedVersion": "After the picked species, joined by a middle dot: this edited file (such as a JPEG exported from a RAW) joins a photo already imported as one of its versions.",
       "suggestError": "{error} is an English error message from species matching.",
       "duplicateExact": "{species} is the earlier photo's species; {date} is its formatted capture date, shown only when known (dated is yes or no).",
       "duplicateSimilar": "Same as duplicateExact, for a near-duplicate.",

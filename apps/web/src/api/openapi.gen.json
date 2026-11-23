@@ -36474,6 +36474,7 @@
                     "notWildlife",
                     "invertebrate",
                     "rawMatch",
+                    "editedVersionOf",
                     "subject",
                     "gps"
                   ],
@@ -36673,6 +36674,33 @@
                             "speciesName": { "type": "string" },
                             "scientificName": { "type": "string" },
                             "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                          },
+                          "additionalProperties": true
+                        },
+                        { "type": "null" }
+                      ]
+                    },
+                    "editedVersionOf": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "required": [
+                            "captureId",
+                            "photoId",
+                            "speciesId",
+                            "speciesName",
+                            "scientificName",
+                            "commonName",
+                            "takenAt"
+                          ],
+                          "properties": {
+                            "captureId": { "type": "string", "format": "uuid" },
+                            "photoId": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] },
+                            "speciesId": { "type": "string", "format": "uuid" },
+                            "speciesName": { "type": "string" },
+                            "scientificName": { "type": "string" },
+                            "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                            "takenAt": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] }
                           },
                           "additionalProperties": true
                         },

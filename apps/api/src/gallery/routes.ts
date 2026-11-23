@@ -81,6 +81,10 @@ export const GALLERY_TIER_SQL = `COALESCE(
     (SELECT gsr.tier FROM species_rarity gsr WHERE gsr.species_id = c.species_id)
   )`;
 
+// A RAW of capture c's photo: its own, or the one of the capture whose file it shows (an edited
+// JPEG shown for its RAW, say), so the "with RAW" filters and has_raw_original agree.
+const RAW_OF_PHOTO = (o: string) => `${o}.kind = 'raw' AND ${o}.capture_id IN (c.id, ${filesCaptureOf("c")})`;
+
 // Columns shared by /gallery and /gallery/search, so filters stay in sync between them.
 export const GALLERY_ITEM_COLUMNS = `
   c.id AS capture_id, p.id AS photo_id, p.width, p.height, c.species_id, s.scientific_name, s.common_name, s.taxon_class,
@@ -88,11 +92,11 @@ export const GALLERY_ITEM_COLUMNS = `
   c.lat, c.lon, c.region_id, reg.name AS region_name, c.location_label, p.kind AS photo_kind, p.duration_seconds, c.tags,
   c.cull_verdict, c.cull_label, c.hidden_at IS NOT NULL AS hidden, c.life_stage, c.sex, c.plumage, c.morph,
   (p.id = us.cover_photo_id) AS is_featured,
-  EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = ${filesCaptureOf("c")} AND ro.kind = 'raw') AS has_raw_original,
+  EXISTS (SELECT 1 FROM originals ro WHERE ${RAW_OF_PHOTO("ro")}) AS has_raw_original,
   (SELECT io.status FROM capture_inaturalist_observations io WHERE io.capture_id = c.id AND io.photo_sent) AS inat_status,
   (SELECT io.inat_observation_id FROM capture_inaturalist_observations io WHERE io.capture_id = c.id AND io.photo_sent) AS inat_observation_id,
   o.ref AS original_ref, o.managed AS original_managed, o.kind AS original_kind,
-  (SELECT rr.ref FROM originals rr WHERE rr.capture_id = ${filesCaptureOf("c")} AND rr.kind = 'raw' LIMIT 1) AS raw_ref,
+  (SELECT rr.ref FROM originals rr WHERE ${RAW_OF_PHOTO("rr")} ORDER BY rr.capture_id = c.id LIMIT 1) AS raw_ref,
   s.taxon_order, s.family, s.sort_order, s.is_other_taxa, s.inat_iconic_taxon,
   ${GALLERY_TIER_SQL} AS tier,
   cfr.box AS frame_box, cfr.box_unsure AS frame_unsure, cfr.aspect AS frame_aspect, cfr.light AS light_stats,
@@ -512,9 +516,9 @@ export function galleryFilterSql(f: GalleryFilters, param: (v: unknown) => strin
     f.onlyRaw ? "AND o.kind = 'raw'" : "",
     // The "with RAW" pair of filters is about edited photos, so a RAW-only photo passes both.
     f.excludeHasRaw
-      ? "AND (o.kind = 'raw' OR NOT EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw'))"
+      ? `AND (o.kind = 'raw' OR NOT EXISTS (SELECT 1 FROM originals hr WHERE ${RAW_OF_PHOTO("hr")}))`
       : f.onlyHasRaw
-        ? "AND EXISTS (SELECT 1 FROM originals hr WHERE hr.capture_id = c.id AND hr.kind = 'raw')"
+        ? `AND EXISTS (SELECT 1 FROM originals hr WHERE ${RAW_OF_PHOTO("hr")})`
         : "",
     f.onlyVideo ? "AND p.kind = 'video'" : "",
     f.onlyAudio ? "AND p.kind = 'audio'" : "",

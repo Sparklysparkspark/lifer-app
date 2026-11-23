@@ -18,6 +18,7 @@ import {
   extractEmbeddedPreview,
 } from "./exif.js";
 import { findRawRelatedCaptures } from "./rawMatching.js";
+import { findEditedVersionTarget } from "./versionGrouping.js";
 import {
   claimedPhotoFormat,
   isRawFile,
@@ -252,11 +253,23 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
                 .then((matches) => (matches.length === 1 ? matches[0] : null))
                 .catch(() => null)
             : null;
+          // An edited JPEG of a RAW already imported joins that photo as a version on import, so
+          // it has its species too. Only on the evidence that links versions on its own.
+          const editedVersion =
+            !isRaw && !dup
+              ? await findEditedVersionTarget(
+                  userId,
+                  file.filename ?? "",
+                  tags as Record<string, unknown>,
+                  (await computeExifFingerprint(file.path, tags)).strict,
+                ).catch(() => null)
+              : null;
+          const knownPhoto = Boolean(rawMatch || editedVersion);
           let embedding: Float32Array | null = null;
 
           // No identical file, so look for a visually near-identical one (a black-and-white
           // conversion, a re-export, a light crop) by embedding.
-          if (analysis && !rawMatch) {
+          if (analysis && !knownPhoto) {
             try {
               embedding = await analysis.vectors.clip;
               const near = await findNearDuplicate(pool, userId, embedding);
@@ -297,7 +310,7 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
           // The other frames of this photo's burst, which the import screen gives the same ranking.
           let burst: { uploadIds: string[]; suggestions: SpeciesSuggestion[] } | null = null;
           if (cameraRegion && regionId) regionId = (await gpsRead)?.regionId ?? regionId;
-          if (!possibleDuplicate && !rawMatch && regionId && embedSource && analysis && suggestionModel) {
+          if (!possibleDuplicate && !knownPhoto && regionId && embedSource && analysis && suggestionModel) {
             try {
               // The identification model when it's ready, CLIP otherwise: the subject crop and the
               // whole photo, pooled with the rest of the burst.
@@ -368,7 +381,7 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
 
           // Keywords in the file that name exactly one species (common name, alias or synonym, the
           // same matching reimport.ts uses) are certain, so that species goes first with score 1.
-          if (!possibleDuplicate && !rawMatch && keywords.length > 0) {
+          if (!possibleDuplicate && !knownPhoto && keywords.length > 0) {
             try {
               const matched = await matchSpeciesByKeywords(pool, keywords);
               const byName = groupByScientificName(matched);
@@ -402,7 +415,7 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
           // or spider is named so it can point to iNaturalist. Skipped for duplicates and photos whose
           // own keywords name a species.
           const subjectCheck: SubjectCheck =
-            !possibleDuplicate && !rawMatch && embedSource && embedding && suggestions[0]?.source !== "keyword_tag"
+            !possibleDuplicate && !knownPhoto && embedSource && embedding && suggestions[0]?.source !== "keyword_tag"
               ? await bytesForChecks()
                   .then((bytes) => checkSubject(bytes, Array.from(embedding!)))
                   .catch(() => ({ notWildlife: null, invertebrate: null, maybeNotWildlife: null }))
@@ -452,6 +465,15 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
               speciesName: rawMatch.common_name ?? rawMatch.scientific_name,
               scientificName: rawMatch.scientific_name,
               commonName: rawMatch.common_name,
+            },
+            editedVersionOf: editedVersion && {
+              captureId: editedVersion.captureId,
+              photoId: editedVersion.photoId,
+              speciesId: editedVersion.speciesId,
+              speciesName: editedVersion.commonName ?? editedVersion.scientificName,
+              scientificName: editedVersion.scientificName,
+              commonName: editedVersion.commonName,
+              takenAt: editedVersion.takenAt,
             },
             subject,
             gps,

@@ -41567,6 +41567,21 @@ export interface paths {
                     [key: string]: unknown;
                   })
                 | null;
+              editedVersionOf:
+                | ({
+                    /** Format: uuid */
+                    captureId: string;
+                    photoId: string | null;
+                    /** Format: uuid */
+                    speciesId: string;
+                    speciesName: string;
+                    scientificName: string;
+                    commonName: string | null;
+                    takenAt: string | null;
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
               subject:
                 | ({
                     x: number;

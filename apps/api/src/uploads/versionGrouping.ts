@@ -441,11 +441,13 @@ async function folderRule(
 }
 
 /** With no file chosen by hand, a group shows its newest edit, else its camera original. An
- *  export is only shown when the user picks it. */
+ *  export is only shown when the user picks it, or when the group's only other file is a RAW,
+ *  whose embedded preview is never the edit a person made. */
 async function showPreferredVersion(client: PoolClient, groupId: string, recrop: string[]): Promise<void> {
   const res = await client.query<{ capture_id: string; is_group: boolean; displayed: boolean; rank: number }>(
     `SELECT m.capture_id, m.capture_id = $1 AS is_group, COALESCE(cv.displayed, false) AS displayed,
-            min(CASE o.role WHEN 'edit' THEN 0 WHEN 'original' THEN 1 ELSE 2 END) AS rank,
+            CASE WHEN bool_and(o.kind = 'raw') THEN 3
+                 ELSE min(CASE o.role WHEN 'edit' THEN 0 WHEN 'original' THEN 1 ELSE 2 END) END AS rank,
             max(o.verified_mtime) AS newest
      FROM (SELECT $1::uuid AS capture_id
            UNION SELECT capture_id FROM capture_versions WHERE group_capture_id = $1 AND state = 'linked') m
@@ -460,6 +462,78 @@ async function showPreferredVersion(client: PoolClient, groupId: string, recrop:
   const best = res.rows[0];
   if (!best) return;
   await showVersionTx(client, groupId, best.is_group ? null : best.capture_id, recrop);
+}
+
+export interface EditedVersionTarget {
+  /** The photo to join: the RAW's capture, or the group it is already shown under. */
+  captureId: string;
+  photoId: string | null;
+  speciesId: string;
+  commonName: string | null;
+  scientificName: string;
+  takenAt: Date | null;
+  tripId: string | null;
+  regionId: string | null;
+  locationLabel: string | null;
+  evidence: VersionEvidence;
+}
+
+/** The RAW-only photo a non-RAW file being imported was made from (an edited JPEG of a RAW
+ *  already imported), on the two rules that link on their own: the same XMP document, or the
+ *  same shutter press with a name that differs only by an editor's suffix. Null when nothing,
+ *  or more than one photo, matches. A look-alike by content alone is never enough. */
+export async function findEditedVersionTarget(
+  userId: string,
+  fileName: string,
+  tags: Record<string, unknown>,
+  strictFingerprint: string | null,
+): Promise<EditedVersionTarget | null> {
+  const { documentId } = classifyFile(fileName, tags);
+  const press =
+    strictFingerprint != null &&
+    text(String(tags.SubSecTimeOriginal ?? "")) != null &&
+    text(String(tags.SerialNumber ?? "")) != null;
+  if (!documentId && !press) return null;
+  const res = await pool.query<{ head: string; ref: string; document_id: string | null; by_document: boolean }>(
+    `SELECT COALESCE(cv.group_capture_id, c.id) AS head, o.ref, o.document_id, o.document_id = $3 AS by_document
+     FROM captures_all c
+     JOIN originals o ON o.capture_id = c.id AND o.kind = 'raw'
+     LEFT JOIN capture_versions cv ON cv.capture_id = c.id AND cv.state = 'linked'
+     WHERE c.user_id = $1 AND c.deleted_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM originals j WHERE j.capture_id = c.id AND j.kind <> 'raw')
+       AND (o.document_id = $3 OR c.exif_fingerprint = $2)`,
+    [userId, press ? strictFingerprint : null, documentId],
+  );
+  const stem = baseStem(fileName);
+  // Both carry a document and they differ: two documents, whatever the names say.
+  const matches = res.rows.filter((r) => r.by_document || (baseStem(r.ref) === stem && !(documentId && r.document_id)));
+  const heads = [...new Set(matches.map((r) => r.head))];
+  if (heads.length !== 1) return null;
+  // Only a photo on show: one the user hid stays out of it.
+  const head = await pool.query<Omit<EditedVersionTarget, "evidence">>(
+    `SELECT c.id AS "captureId", c.current_photo_id AS "photoId", c.species_id AS "speciesId",
+            s.common_name AS "commonName", s.scientific_name AS "scientificName", c.taken_at AS "takenAt",
+            c.trip_id AS "tripId", c.region_id AS "regionId", c.location_label AS "locationLabel"
+     FROM captures c JOIN species s ON s.id = c.species_id WHERE c.id = $1`,
+    [heads[0]],
+  );
+  if (!head.rows[0]) return null;
+  return { ...head.rows[0], evidence: matches.some((r) => r.by_document) ? "document_id" : "time_serial_suffix" };
+}
+
+/** Links a just-imported capture as a version of `groupId` inside the import's transaction and
+ *  shows the group's preferred file (an edit over a RAW's preview). False when it can't link. */
+export async function linkImportedVersionTx(
+  client: PoolClient,
+  userId: string,
+  versionId: string,
+  groupId: string,
+  evidence: VersionEvidence,
+  recrop: string[],
+): Promise<boolean> {
+  if (!(await linkVersionTx(client, userId, versionId, groupId, evidence, { covers: [], recrop }))) return false;
+  await showPreferredVersion(client, groupId, recrop);
+  return true;
 }
 
 export const versionGroupingJob = createJob<{ linked: number; suggested: number }>("version-grouping");

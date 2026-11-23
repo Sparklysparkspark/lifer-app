@@ -173,4 +173,45 @@ describe("PhotoImportRows", () => {
     await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByRole("button", { name: /Undo last import/ })).toBeNull());
   });
+
+  it("files an edited copy of a RAW you have with that photo's species, without a duplicate warning", async () => {
+    post.mockImplementation((path: string) => {
+      if (path === "/uploads/inspect")
+        return Promise.resolve({
+          possibleDuplicate: null,
+          suggestions: [],
+          previewDataUrl: null,
+          editedVersionOf: {
+            captureId: "cap-raw",
+            photoId: "ph-raw",
+            speciesId: "sp-kingfisher",
+            speciesName: "American Pygmy Kingfisher",
+            scientificName: "Chloroceryle aenea",
+            commonName: "American Pygmy Kingfisher",
+            takenAt: "2026-11-11T07:12:33Z",
+          },
+        });
+      if (path === "/uploads") return Promise.resolve({ captureId: "cap-1" });
+      return Promise.reject(new Error(`unexpected POST ${path}`));
+    });
+    const { container } = render(
+      <MemoryRouter>
+        <ToastContext.Provider value={toast}>
+          <PhotoImportRows />
+        </ToastContext.Provider>
+      </MemoryRouter>,
+    );
+    const input = container.querySelector<HTMLInputElement>('input[type="file"][accept]')!;
+    fireEvent.change(input, { target: { files: [new File(["jpeg"], "6F9A6672.jpg", { type: "image/jpeg" })] } });
+
+    expect(await screen.findByText("· Edited version of the photo you already have")).toBeTruthy();
+    expect(screen.getByText("American Pygmy Kingfisher")).toBeTruthy();
+    expect(screen.queryByText(/already imported/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Import anyway" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 photo" }));
+    expect(await screen.findByText("✓ Imported")).toBeTruthy();
+    const commit = post.mock.calls.find((c) => c[0] === "/uploads")!;
+    expect(formFields(commit[1]).speciesId).toBe("sp-kingfisher");
+  });
 });

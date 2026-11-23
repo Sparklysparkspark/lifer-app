@@ -462,6 +462,7 @@ export default function PhotoImportRows({
         const keyword = own[0]?.source === "keyword_tag" ? own[0] : null;
         return keyword ? [keyword, ...burst!.suggestions.filter((s) => s.id !== keyword.id)] : burst!.suggestions;
       };
+      const known = res.rawMatch ?? res.editedVersionOf;
       setRows((prev) =>
         prev.map((r) =>
           r.key !== key && r.uploadId && mates.has(r.uploadId) && !r.isInspecting
@@ -476,10 +477,10 @@ export default function PhotoImportRows({
                   maybeNotWildlife: res.maybeNotWildlife ?? null,
                   invertebrate: res.invertebrate ?? null,
                   rawMatch: res.rawMatch ?? null,
-                  // A RAW of a photo you already have takes that photo's species (unless one was picked).
-                  ...(res.rawMatch && !r.speciesId
-                    ? { speciesId: res.rawMatch.speciesId, speciesLabel: speciesName(res.rawMatch) }
-                    : {}),
+                  editedVersionOf: res.editedVersionOf ?? null,
+                  // A RAW or an edited copy of a photo you already have takes that photo's species
+                  // (unless one was picked).
+                  ...(known && !r.speciesId ? { speciesId: known.speciesId, speciesLabel: speciesName(known) } : {}),
                   cull: res.cull ?? null,
                   subject: res.subject ?? null,
                   gps: res.gps ?? null,

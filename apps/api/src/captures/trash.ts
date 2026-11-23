@@ -15,6 +15,7 @@ import { canonicalPath, isWithinResolved } from "@lifer/core/lib/pathContainment
 import { resolveOriginalPaths } from "../storageVolumes/resolve.js";
 import { Flag, IdParams, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { TrashList } from "./responses.js";
+import { showVersionTx } from "../uploads/versionGrouping.js";
 
 // Trash: deleting a capture hides it for TRASH_RETENTION_DAYS, then it's purged for good.
 export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
@@ -25,6 +26,14 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
   async function trashCaptures(userId: string, captureIds: string[], deleteRaw: boolean): Promise<string[]> {
     const recropSpecies: string[] = [];
     const trashed = await withTransaction(async (client) => {
+      // A version shown as its group's photo hands the group its own photo back first, so neither
+      // photo leaves with the other's capture (an undone import of an edited copy, say).
+      const shown = await client.query<{ group_capture_id: string }>(
+        `SELECT group_capture_id FROM capture_versions
+         WHERE capture_id = ANY($1::uuid[]) AND user_id = $2 AND state = 'linked' AND displayed`,
+        [captureIds, userId],
+      );
+      for (const r of shown.rows) await showVersionTx(client, r.group_capture_id, null, recropSpecies);
       const res = await client.query<{ id: string }>(
         `UPDATE captures_all SET deleted_at = now(), pending_delete_raw = $1
          WHERE id = ANY($2::uuid[]) AND user_id = $3 AND deleted_at IS NULL RETURNING id`,

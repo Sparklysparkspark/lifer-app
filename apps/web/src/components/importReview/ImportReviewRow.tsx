@@ -120,6 +120,9 @@ export default function ImportReviewRow({
                 </Button>
               )}
               {row.rawMatch && <span className="text-footnote text-muted">{t("import.review.rawMatch")}</span>}
+              {row.editedVersionOf && (
+                <span className="text-footnote text-muted">{t("import.review.editedVersion")}</span>
+              )}
               {!row.isInspecting && !row.speciesId && row.suggestError && (
                 <span className="text-footnote text-muted">
                   {t("import.review.suggestError", { error: row.suggestError })}

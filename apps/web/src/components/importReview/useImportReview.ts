@@ -23,6 +23,8 @@ export interface ReviewRowBase {
   maybeNotWildlife?: { looksLike: string; share: number } | null;
   /** A RAW of a photo already imported: it's filed with that photo, so its species is set. */
   rawMatch?: { captureId: string; speciesName: string } | null;
+  /** An edited copy of a RAW already imported: it joins that photo as a version, so its species is set. */
+  editedVersionOf?: { captureId: string; speciesName: string } | null;
   /** An insect, spider or the like (wildlifeCheck.ts), which the checklists rarely cover. */
   invertebrate?: { looksLike: string } | null;
   /** Suggestions are being worked out: a spinner instead of "no suggestions". */
@@ -167,7 +169,7 @@ export function useImportReview<R extends ReviewRowBase>(
 
   // Backspace: the photo goes back to its suggestions, its pick highlighted, undoably.
   function clearSpecies(row: R) {
-    if (!row.speciesId || row.rawMatch) return;
+    if (!row.speciesId || row.rawMatch || row.editedVersionOf) return;
     remember([row.key]);
     reopen(row);
   }
@@ -189,7 +191,7 @@ export function useImportReview<R extends ReviewRowBase>(
   function toggleSelected(key: string) {
     // A tick means confirmed, so unticking a confirmed photo reopens its suggestions.
     const row = rows.find((r) => r.key === key);
-    if (row?.speciesId && !row.rawMatch && selected.has(key)) {
+    if (row?.speciesId && !row.rawMatch && !row.editedVersionOf && selected.has(key)) {
       reopen(row);
       setCursorKey(key);
       return;

@@ -84,6 +84,19 @@ export const UploadInspection = Open({
       commonName: Nullable(Type.String()),
     }),
   ),
+  /** An edited copy of a RAW already imported (the same XMP document, or the same shutter press and
+   *  name): the import links it to that photo as a version, under its species, and shows it. */
+  editedVersionOf: Nullable(
+    Open({
+      captureId: Uuid(),
+      photoId: Nullable(Uuid()),
+      speciesId: Uuid(),
+      speciesName: Type.String(),
+      scientificName: Type.String(),
+      commonName: Nullable(Type.String()),
+      takenAt: Nullable(DateTime()),
+    }),
+  ),
   /** The animal's box in percent of the upright photo (the preview shown), when matching located it. */
   subject: Nullable(Open({ x: Type.Number(), y: Type.Number(), w: Type.Number(), h: Type.Number() })),
   /** The camera's GPS point, with the most specific region holding it and the nearest town. */
