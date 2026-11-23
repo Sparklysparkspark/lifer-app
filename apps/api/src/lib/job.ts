@@ -4,6 +4,7 @@
 // - running/finishedAt/cancelRequested are reset in a finally, so an error can't leave it running.
 import { idleJobStatus, type JobStatus } from "@lifer/shared";
 import { log } from "@lifer/core/lib/log.js";
+import { friendlyFsErrorMessage } from "./friendlyFsError.js";
 
 export class JobCancelledError extends Error {
   constructor() {
@@ -12,11 +13,20 @@ export class JobCancelledError extends Error {
   }
 }
 
-// Appends node-postgres's `detail` (which row, which values) to the message shown in Settings.
+export const UNEXPECTED_ERROR = "Something went wrong. Try again, and restart Lifer if it keeps happening.";
+// Text a person can't act on: database, OS and stack wording (ux-rules S1).
+const RAW_ERROR =
+  /\bE(NOENT|ACCES|PERM|NOSPC|ISDIR|NOTDIR|BUSY|MFILE|PIPE|CONN[A-Z]+|TIMEDOUT|ADDRINUSE)\b|errno|deadlock|constraint|violates|relation "|column "|syntax error|duplicate key|\bSQL|\bat \S+:\d+|\/(srv|usr|var|tmp|home|Users)\//i;
+
+/** The one sentence a job's status or an error reply shows for `err`. Raw database, OS and stack
+ *  text never reaches it; callers log `err` itself for the detail. */
 export function describeError(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  const detail = (err as { detail?: unknown })?.detail;
-  return typeof detail === "string" && detail.length > 0 ? `${message} (${detail})` : message;
+  const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  if (code === "EPERM" || code === "EACCES" || code === "ENOENT") return friendlyFsErrorMessage(err);
+  // node-postgres errors carry a severity and a five-character SQLSTATE.
+  if ((err as { severity?: unknown })?.severity !== undefined) return UNEXPECTED_ERROR;
+  const message = (err instanceof Error ? err.message : typeof err === "string" ? err : "").trim();
+  return message && !RAW_ERROR.test(message) ? message : UNEXPECTED_ERROR;
 }
 
 export interface JobContext<TResult, TExtra extends object = object> {

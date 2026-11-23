@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createJob, describeError, JobCancelledError, runningJobsProgress } from "./job.js";
+import { createJob, describeError, JobCancelledError, runningJobsProgress, UNEXPECTED_ERROR } from "./job.js";
 
 function deferred<T = void>() {
   let resolve!: (v: T) => void;
@@ -89,34 +89,53 @@ describe("createJob", () => {
     await job.settled();
   });
 
-  it("surfaces a Postgres error's detail in the job status, not just the bare message", async () => {
+  it("shows a plain sentence for a Postgres error, never its text or detail", async () => {
     const job = createJob<void>("test");
     const pgErr = Object.assign(
       new Error('duplicate key value violates unique constraint "regions_name_parent_id_key"'),
-      {
-        detail: "Key (name, parent_id)=(Central, ...) already exists.",
-        code: "23505",
-      },
+      { detail: "Key (name, parent_id)=(Central, ...) already exists.", code: "23505", severity: "ERROR" },
     );
     job.start(async () => {
       throw pgErr;
     });
     await job.settled();
-    expect(job.status.error).toBe(
-      'duplicate key value violates unique constraint "regions_name_parent_id_key" (Key (name, parent_id)=(Central, ...) already exists.)',
-    );
+    expect(job.status.error).toBe(UNEXPECTED_ERROR);
   });
 });
 
 describe("describeError", () => {
-  it("appends a Postgres error's detail when present", () => {
-    const err = Object.assign(new Error("boom"), { detail: "extra context" });
-    expect(describeError(err)).toBe("boom (extra context)");
+  it("keeps a plain message as it is", () => {
+    expect(describeError(new Error("Couldn't download the catalog. Try again."))).toBe(
+      "Couldn't download the catalog. Try again.",
+    );
+    expect(describeError("just a string")).toBe("just a string");
   });
 
-  it("falls back to the plain message when there's no detail", () => {
-    expect(describeError(new Error("boom"))).toBe("boom");
-    expect(describeError("just a string")).toBe("just a string");
+  it("hides database, OS and stack text behind one plain sentence", () => {
+    expect(describeError(Object.assign(new Error("boom"), { severity: "ERROR", detail: "Key (id)=(1)" }))).toBe(
+      UNEXPECTED_ERROR,
+    );
+    for (const raw of [
+      "deadlock detected",
+      'relation "photos" does not exist',
+      "connect ECONNREFUSED 127.0.0.1:5432",
+      "Cannot read properties of undefined at run (/srv/app/index.js:12:3)",
+    ])
+      expect(describeError(new Error(raw)), raw).toBe(UNEXPECTED_ERROR);
+  });
+
+  it("says what to do about a missing or locked folder", () => {
+    const err = Object.assign(new Error("ENOENT: no such file or directory"), {
+      code: "ENOENT",
+      path: "/Volumes/Photos",
+    });
+    expect(describeError(err)).toMatch(/^That folder \(\/Volumes\/Photos\) doesn't exist/);
+  });
+
+  it("falls back for empty or unknown values", () => {
+    expect(describeError(new Error(""))).toBe(UNEXPECTED_ERROR);
+    expect(describeError(undefined)).toBe(UNEXPECTED_ERROR);
+    expect(describeError({ some: "object" })).toBe(UNEXPECTED_ERROR);
   });
 });
 

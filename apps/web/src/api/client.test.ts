@@ -34,3 +34,27 @@ describe("unauthorized handler", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 });
+
+describe("error text", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const reply = (status: number, body: object) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(body), { status })),
+    );
+
+  it("never shows an uncoded 500's text, which can be raw server detail", async () => {
+    reply(500, { error: "deadlock detected ENOENT /srv/x" });
+    await expect(api.get("/gallery")).rejects.toMatchObject({
+      status: 500,
+      message: "Something went wrong. Please try again.",
+    });
+  });
+
+  it("keeps the server's words for a coded 500 and for other statuses", async () => {
+    reply(500, { error: "Couldn't move this library", code: "storage_move_failed" });
+    await expect(api.get("/x")).rejects.toMatchObject({ message: "Couldn't move this library" });
+    reply(409, { error: "Wait for the scan to finish" });
+    await expect(api.get("/x")).rejects.toMatchObject({ message: "Wait for the scan to finish" });
+  });
+});

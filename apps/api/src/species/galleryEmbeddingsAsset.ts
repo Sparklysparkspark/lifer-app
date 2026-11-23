@@ -11,6 +11,7 @@ import type { Pool } from "pg";
 import type { JobStatus } from "@lifer/shared";
 import { decodeGalleryEmbeddings, type GalleryEmbeddingsHeader } from "@lifer/core/species/galleryEmbeddingsFormat.js";
 import { APP_DATA_DIR, EMBEDDING_MODEL_VERSION, ID_MODEL_VERSION } from "@lifer/core/config.js";
+import { log } from "@lifer/core/lib/log.js";
 import { getInstallSetting, setInstallSetting } from "../lib/installSettings.js";
 import { createJob, describeError, type JobContext } from "../lib/job.js";
 import { copyInto, copyTextField } from "../lib/pgCopy.js";
@@ -114,6 +115,7 @@ export function runGalleryEmbeddingsUpdate(
 }
 
 function toFailed(err: unknown): VectorAssetResult {
+  log.warn({ err }, "Reference vectors update failed");
   return { status: "failed", error: describeError(err) };
 }
 

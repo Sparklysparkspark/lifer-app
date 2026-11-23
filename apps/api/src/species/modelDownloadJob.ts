@@ -4,7 +4,7 @@
 // Suggestions keep working on whatever is already there.
 import type { Pool } from "pg";
 import { startAccelerationSelection } from "./accelerationSetup.js";
-import { createJob, type JobContext } from "../lib/job.js";
+import { createJob, describeError, type JobContext } from "../lib/job.js";
 import { clipModel, downloadModel, dropOlderClipModels, isModelDownloaded } from "@lifer/core/species/embeddings.js";
 import {
   runEmbeddingBackfill,
@@ -57,7 +57,7 @@ export function startModelDownloadJob(pool: Pool, log: Log): boolean {
     } catch (err) {
       if (ctx.signal.aborted) throw err;
       log.warn({ err }, "Reference vectors download failed");
-      const failed = { status: "failed" as const, error: (err as Error).message };
+      const failed = { status: "failed" as const, error: describeError(err) };
       referenceVectors = { gallery: failed, speciesImage: failed, speciesText: failed };
     }
     runModelBackfills(log);
@@ -130,7 +130,7 @@ export function ensureIdModelOnStartup(pool: Pool, log: Log): void {
       } catch (err) {
         if (ctx.signal.aborted) throw err;
         log.warn({ err }, "Identification vectors download failed");
-        const failed = { status: "failed" as const, error: (err as Error).message };
+        const failed = { status: "failed" as const, error: describeError(err) };
         referenceVectors = { gallery: failed, speciesImage: failed, speciesText: failed };
       }
       startAccelerationSelection();

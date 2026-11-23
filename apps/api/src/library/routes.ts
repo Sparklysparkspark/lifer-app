@@ -37,7 +37,7 @@ import { pool } from "@lifer/core/db.js";
 import { candidateNames, lookUpName, type SpeciesSuggestion } from "./unmatchedSuggestions.js";
 import { fetchPackIndex } from "../offlinePacks/index.js";
 import { restoreLibraryRecords } from "../lib/libraryRecords.js";
-import { createJob, type JobContext } from "../lib/job.js";
+import { createJob, describeError, type JobContext } from "../lib/job.js";
 import { log } from "@lifer/core/lib/log.js";
 import { stemOf } from "../trips/rawLink.js";
 import { catchUpPhotoBackfills } from "../species/embeddingBackfill.js";
@@ -453,7 +453,8 @@ export async function libraryRoutes(fastify: FastifyInstance): Promise<void> {
         try {
           ({ speciesId } = await resolveOrCreateOtherTaxaSpecies(inatTaxonId, { enrichLater: true }));
         } catch (err) {
-          return reply.code(502).send({ error: (err as Error).message });
+          request.log.warn({ err }, "Couldn't add the taxon");
+          return reply.code(502).send({ error: describeError(err) });
         }
       }
       const wanted = new Set(contentHashes);

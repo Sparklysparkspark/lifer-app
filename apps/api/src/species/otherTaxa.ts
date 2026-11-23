@@ -8,7 +8,7 @@ import { pool, withTransaction } from "@lifer/core/db.js";
 import { isUuid } from "../lib/validate.js";
 import { IdParams, Nullable, Ok, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth } from "../auth/session.js";
-import { createJob } from "../lib/job.js";
+import { createJob, describeError } from "../lib/job.js";
 import { addToRegionChecklist, findChecklistRegion, noChecklistError } from "../regions/checklistAdditions.js";
 import { scheduleCollectionStateSave } from "../lib/collectionState.js";
 import { httpFetch } from "@lifer/core/lib/http.js";
@@ -223,7 +223,8 @@ export async function otherTaxaRoutes(fastify: FastifyInstance): Promise<void> {
       try {
         ({ speciesId } = await resolveOrCreateOtherTaxaSpecies(inatTaxonId, { enrichLater: true }));
       } catch (err) {
-        return reply.code(502).send({ error: (err as Error).message });
+        request.log.warn({ err }, "Couldn't add the taxon");
+        return reply.code(502).send({ error: describeError(err) });
       }
 
       await addToRegionChecklist(pool, request.user!.id, regionId, speciesId);

@@ -1,5 +1,6 @@
 import { apiErrorMessage } from "../lib/apiErrors";
 import { MAX_RATE_LIMIT_WAITS, waitForRateLimit } from "../lib/rateLimitWait";
+import { userMessage } from "../lib/userMessage";
 import type { paths } from "./schema.gen";
 
 const BASE = "/api";
@@ -60,11 +61,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith("/auth/") && !path.startsWith("/share/")) unauthorizedHandler?.();
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    const apiErr = new ApiError(
-      res.status,
-      body.error ?? res.statusText,
-      typeof body.code === "string" ? body.code : undefined,
-    );
+    const code = typeof body.code === "string" ? body.code : undefined;
+    // An uncoded 500 is an unexpected failure whose text can be raw server detail (ux-rules S1).
+    const message = res.status === 500 && !code ? userMessage({ status: 500 }) : (body.error ?? res.statusText);
+    const apiErr = new ApiError(res.status, message, code);
     if (typeof body.needed === "number") apiErr.needed = body.needed;
     if (typeof body.free === "number") apiErr.free = body.free;
     if (apiErr.code === "library_folder_unavailable") window.dispatchEvent(new Event(LIBRARY_FOLDER_UNAVAILABLE));
