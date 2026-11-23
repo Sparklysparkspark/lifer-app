@@ -1,7 +1,10 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import path from "node:path";
+import { DATABASE_URL } from "@lifer/core/config.js";
 import { pool } from "./db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -12,6 +15,12 @@ const MIGRATION_LOCK_KEY = 4_310_103;
 
 // Line endings normalised, so a Windows checkout hashes the same as the one that applied it.
 const sha256 = (sql: string) => createHash("sha256").update(sql.replace(/\r\n/g, "\n")).digest("hex");
+
+// Enough to step back past a bad update or two without filling the disk.
+const BACKUPS_KEPT = 3;
+
+// Printed without a stack trace: the person starting Lifer reads it.
+class PlainError extends Error {}
 
 async function main() {
   const lockClient = await pool.connect();
@@ -43,6 +52,19 @@ async function runMigrations() {
   const files = readdirSync(migrationsDir)
     .filter((f) => f.endsWith(".sql"))
     .sort();
+
+  // A newer Lifer changed this database in ways this build can't know about; running on it could corrupt it.
+  const known = new Set(files);
+  const unknown = [...applied.keys()].filter((f) => !known.has(f));
+  if (unknown.length > 0)
+    throw new PlainError(
+      `This database was updated by a newer version of Lifer, so this version can't open it safely. ` +
+        `Install the latest Lifer and open it again. (Unknown updates: ${unknown.sort().join(", ")})`,
+    );
+
+  const pending = files.filter((f) => !applied.has(f));
+  // A brand-new database has nothing worth backing up.
+  if (pending.length > 0 && applied.size > 0) await backupBeforeMigrating(pending[0]!);
 
   let appliedCount = 0;
   for (const file of files) {
@@ -84,7 +106,45 @@ async function runMigrations() {
   console.log(`Done. ${appliedCount} migration(s) applied, ${files.length - appliedCount} already up to date.`);
 }
 
+// Desktop only: the app passes its bundled pg_dump and a folder in its app data. A server's database is
+// backed up by whoever runs it (install/backup-restore.md), so there this only says so.
+async function backupBeforeMigrating(firstPending: string) {
+  const pgDump = process.env.LIFER_PG_DUMP;
+  const dir = process.env.LIFER_DB_BACKUP_DIR;
+  if (!pgDump || !dir) {
+    console.log("note  no automatic backup before these migrations (back up your database yourself)");
+    return;
+  }
+  mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = path.join(dir, `lifer-${stamp}-before-${firstPending.replace(/\.sql$/, "")}.dump`);
+  // The password goes in the environment, not the argument list other processes can read.
+  const url = new URL(DATABASE_URL);
+  const password = decodeURIComponent(url.password);
+  url.password = "";
+  try {
+    await promisify(execFile)(
+      pgDump,
+      ["--format=custom", "--no-password", `--file=${file}.partial`, `--dbname=${url.toString()}`],
+      { env: { ...process.env, PGPASSWORD: password }, maxBuffer: 16 * 1024 * 1024 },
+    );
+    renameSync(`${file}.partial`, file);
+  } catch (err) {
+    rmSync(`${file}.partial`, { force: true });
+    const detail = ((err as { stderr?: string }).stderr || (err as Error).message).trim();
+    throw new PlainError(`Couldn't back up the database before updating it, so nothing was changed. ${detail}`);
+  }
+  console.log(`backup ${file}`);
+
+  // Names start with the time, so name order is age order.
+  const old = readdirSync(dir)
+    .filter((f) => /^lifer-.*\.dump$/.test(f))
+    .sort()
+    .slice(0, -BACKUPS_KEPT);
+  for (const f of old) rmSync(path.join(dir, f), { force: true });
+}
+
 main().catch((err) => {
-  console.error(err);
+  console.error(err instanceof PlainError ? err.message : err);
   process.exit(1);
 });

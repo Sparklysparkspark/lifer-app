@@ -109,6 +109,8 @@ Lifer updates the database to the current version by itself when it starts, so a
 
 The database is in `app-data/postgres-data/` inside the app data folder, and its password is in `app-data/postgres-password` next to it. Always copy those two together, because the database can't be opened without its password file. Copy `app-data/secrets/` with them too (see [The secrets key](#secrets-key)). The `app-data/models/` and `app-data/maps/` folders are large and can be downloaded again, so you can leave them out.
 
+Before an update changes the database, Lifer also saves a copy of it in `app-data/database-backups/` and keeps the last three. They're a safety net for a failed update, not a replacement for your own backups.
+
 Tools like Time Machine or File History cover both folders, as long as Lifer is quit or the backup runs while the computer is idle.
 
 ### Restore
