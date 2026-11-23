@@ -72,6 +72,23 @@ describe("writeCaptureMetadata", () => {
     expect((await extractExif(file)).rating).toBe(4);
   });
 
+  it("embeds tags and the rating in a HEIC and leaves it decodable", async (ctx) => {
+    const file = path.join(dir, "a.heic");
+    // sharp's prebuilt libvips encodes AV1 only; exiftool writes the same HEIF container for both.
+    try {
+      await sharp({ create: { width: 8, height: 8, channels: 3, background: "#888" } })
+        .heif({ compression: "av1" })
+        .toFile(file);
+    } catch {
+      return ctx.skip();
+    }
+    await writeCaptureMetadata(file, data);
+    const tags = (await readExifTags(file)) as unknown as Record<string, unknown>;
+    expect(tags.Subject).toEqual(["Bald Eagle", "Haliaeetus leucocephalus"]);
+    expect(tags.Rating).toBe(4);
+    expect((await sharp(file).metadata()).width).toBe(8);
+  });
+
   it("clears the file's rating when Lifer's is cleared", async () => {
     const file = path.join(dir, "b.jpg");
     await sharp({ create: { width: 8, height: 8, channels: 3, background: "#888" } })
@@ -273,6 +290,7 @@ describe("metadataGoesInFile", () => {
   it("embeds for JPEG/TIFF/PNG/DNG and uses sidecars for RAW", () => {
     expect(metadataGoesInFile("x.JPG")).toBe(true);
     expect(metadataGoesInFile("x.dng")).toBe(true);
+    expect(metadataGoesInFile("x.HEIC")).toBe(true);
     expect(metadataGoesInFile("x.CR3")).toBe(false);
     expect(metadataGoesInFile("x.NEF")).toBe(false);
   });
