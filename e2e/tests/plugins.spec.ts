@@ -202,8 +202,11 @@ test("the page opens Lifer's pages and hands over Lifer's shortcuts", async ({ p
   await expect(page).toHaveURL(/\/gallery\?q=chickadee$/);
 
   await page.goBack();
-  await frame.getByRole("button", { name: "Open Black-capped Chickadee" }).click();
-  await expect(page).toHaveURL(/\/species\/[0-9a-f-]+$/);
+  // The app's page reloads on Back; a click before it has wired its buttons does nothing, so press again.
+  await expect(async () => {
+    await frame.getByRole("button", { name: "Open Black-capped Chickadee" }).click();
+    await expect(page).toHaveURL(/\/species\/[0-9a-f-]+$/, { timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
 
   await page.goBack();
   // Ctrl+1 (the stub shell says Linux) pressed inside the app's page opens Collection.
