@@ -32,6 +32,10 @@ jobs:
       - run: npm ci
       - run: npm run check:em-dashes
       - run: npm run check:migrations
+      # Every npm and cargo dependency has an allowed licence; the ledger (scripts/licences-ledger.txt) is current.
+      - run: npm run check:licences
+        env:
+          LICENCES_CARGO_ONLINE: "1"
       # en.json: valid ICU, every key used, every used key defined (docs: contributing/translating).
       - run: npm run check:i18n
       # Pages use the shared controls, not raw <button>/<input>/<select>/<textarea>.

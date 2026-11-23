@@ -1,0 +1,1939 @@
+cargo	adler2	0BSD OR MIT OR Apache-2.0
+cargo	aho-corasick	Unlicense OR MIT
+cargo	alloc-no-stdlib	BSD-3-Clause
+cargo	alloc-stdlib	BSD-3-Clause
+cargo	allocator-api2	MIT OR Apache-2.0
+cargo	android_system_properties	MIT OR Apache-2.0
+cargo	anyhow	MIT OR Apache-2.0
+cargo	asn1-rs	MIT OR Apache-2.0
+cargo	asn1-rs-derive	MIT OR Apache-2.0
+cargo	asn1-rs-impl	MIT/Apache-2.0
+cargo	async-broadcast	MIT OR Apache-2.0
+cargo	async-channel	Apache-2.0 OR MIT
+cargo	async-executor	Apache-2.0 OR MIT
+cargo	async-io	Apache-2.0 OR MIT
+cargo	async-lock	Apache-2.0 OR MIT
+cargo	async-process	Apache-2.0 OR MIT
+cargo	async-recursion	MIT OR Apache-2.0
+cargo	async-signal	Apache-2.0 OR MIT
+cargo	async-task	Apache-2.0 OR MIT
+cargo	async-trait	MIT OR Apache-2.0
+cargo	atk	MIT
+cargo	atk-sys	MIT
+cargo	atoi	MIT
+cargo	atomic-waker	Apache-2.0 OR MIT
+cargo	auto-launch	MIT
+cargo	autocfg	Apache-2.0 OR MIT
+cargo	base64	MIT OR Apache-2.0
+cargo	bit-set	Apache-2.0 OR MIT
+cargo	bit-vec	Apache-2.0 OR MIT
+cargo	bitflags	MIT OR Apache-2.0 ; MIT/Apache-2.0
+cargo	block-buffer	MIT OR Apache-2.0
+cargo	block2	MIT
+cargo	blocking	Apache-2.0 OR MIT
+cargo	brotli	BSD-3-Clause AND MIT
+cargo	brotli-decompressor	BSD-3-Clause/MIT
+cargo	bs58	MIT/Apache-2.0
+cargo	bumpalo	MIT OR Apache-2.0
+cargo	bytemuck	Zlib OR Apache-2.0 OR MIT
+cargo	byteorder	Unlicense OR MIT
+cargo	bytes	MIT
+cargo	cairo-rs	MIT
+cargo	cairo-sys-rs	MIT
+cargo	camino	MIT OR Apache-2.0
+cargo	cargo-platform	MIT OR Apache-2.0
+cargo	cargo_metadata	MIT
+cargo	cargo_toml	Apache-2.0 OR MIT
+cargo	cc	MIT OR Apache-2.0
+cargo	cesu8	Apache-2.0/MIT
+cargo	cfb	MIT
+cargo	cfg-expr	MIT OR Apache-2.0
+cargo	cfg-if	MIT OR Apache-2.0
+cargo	cfg_aliases	MIT
+cargo	chacha20	MIT OR Apache-2.0
+cargo	chrono	MIT OR Apache-2.0
+cargo	cmov	Apache-2.0 OR MIT
+cargo	combine	MIT
+cargo	concurrent-queue	Apache-2.0 OR MIT
+cargo	const-oid	Apache-2.0 OR MIT
+cargo	constant_time_eq	CC0-1.0 OR MIT-0 OR Apache-2.0
+cargo	cookie	MIT OR Apache-2.0
+cargo	core-foundation	MIT OR Apache-2.0
+cargo	core-foundation-sys	MIT OR Apache-2.0
+cargo	core-graphics	MIT OR Apache-2.0
+cargo	core-graphics-types	MIT OR Apache-2.0
+cargo	cpufeatures	MIT OR Apache-2.0
+cargo	crc	MIT OR Apache-2.0
+cargo	crc-catalog	MIT OR Apache-2.0
+cargo	crc32fast	MIT OR Apache-2.0
+cargo	crossbeam-channel	MIT OR Apache-2.0
+cargo	crossbeam-queue	MIT OR Apache-2.0
+cargo	crossbeam-utils	MIT OR Apache-2.0
+cargo	crypto-common	MIT OR Apache-2.0
+cargo	cssparser	MPL-2.0
+cargo	cssparser-macros	MPL-2.0
+cargo	ctor	Apache-2.0 OR MIT
+cargo	ctutils	Apache-2.0 OR MIT
+cargo	darling	MIT
+cargo	darling_core	MIT
+cargo	darling_macro	MIT
+cargo	data-encoding	MIT
+cargo	dbus	Apache-2.0/MIT
+cargo	defmt	MIT OR Apache-2.0
+cargo	defmt-macros	MIT OR Apache-2.0
+cargo	defmt-parser	MIT OR Apache-2.0
+cargo	der-parser	MIT OR Apache-2.0
+cargo	deranged	MIT OR Apache-2.0
+cargo	derive_more	MIT
+cargo	derive_more-impl	MIT
+cargo	digest	MIT OR Apache-2.0
+cargo	dirs	MIT OR Apache-2.0
+cargo	dirs-sys	MIT OR Apache-2.0
+cargo	dispatch2	Zlib OR Apache-2.0 OR MIT
+cargo	displaydoc	MIT OR Apache-2.0
+cargo	dlopen2	MIT
+cargo	dlopen2_derive	MIT
+cargo	dom_query	MIT
+cargo	dotenvy	MIT
+cargo	dpi	Apache-2.0 AND MIT
+cargo	dtoa	MIT OR Apache-2.0
+cargo	dtoa-short	MPL-2.0
+cargo	dunce	CC0-1.0 OR MIT-0 OR Apache-2.0
+cargo	dyn-clone	MIT OR Apache-2.0
+cargo	either	MIT OR Apache-2.0
+cargo	embed-resource	MIT
+cargo	embed_plist	MIT OR Apache-2.0
+cargo	encoding_rs	(Apache-2.0 OR MIT) AND BSD-3-Clause
+cargo	endi	MIT
+cargo	enumflags2	MIT OR Apache-2.0
+cargo	enumflags2_derive	MIT OR Apache-2.0
+cargo	equivalent	Apache-2.0 OR MIT
+cargo	erased-serde	MIT OR Apache-2.0
+cargo	errno	MIT OR Apache-2.0
+cargo	etcetera	MIT OR Apache-2.0
+cargo	event-listener	Apache-2.0 OR MIT
+cargo	event-listener-strategy	Apache-2.0 OR MIT
+cargo	fastrand	Apache-2.0 OR MIT
+cargo	fdeflate	MIT OR Apache-2.0
+cargo	field-offset	MIT OR Apache-2.0
+cargo	filetime	MIT/Apache-2.0
+cargo	find-msvc-tools	MIT OR Apache-2.0
+cargo	flate2	MIT OR Apache-2.0
+cargo	flume	Apache-2.0/MIT
+cargo	fnv	Apache-2.0 / MIT
+cargo	foldhash	Zlib
+cargo	foreign-types	MIT/Apache-2.0
+cargo	foreign-types-macros	MIT/Apache-2.0
+cargo	foreign-types-shared	MIT/Apache-2.0
+cargo	form_urlencoded	MIT OR Apache-2.0
+cargo	futures	MIT OR Apache-2.0
+cargo	futures-channel	MIT OR Apache-2.0
+cargo	futures-core	MIT OR Apache-2.0
+cargo	futures-executor	MIT OR Apache-2.0
+cargo	futures-intrusive	MIT OR Apache-2.0
+cargo	futures-io	MIT OR Apache-2.0
+cargo	futures-lite	Apache-2.0 OR MIT
+cargo	futures-macro	MIT OR Apache-2.0
+cargo	futures-sink	MIT OR Apache-2.0
+cargo	futures-task	MIT OR Apache-2.0
+cargo	futures-util	MIT OR Apache-2.0
+cargo	gdk	MIT
+cargo	gdk-pixbuf	MIT
+cargo	gdk-pixbuf-sys	MIT
+cargo	gdk-sys	MIT
+cargo	gdkwayland-sys	MIT
+cargo	gdkx11	MIT
+cargo	gdkx11-sys	MIT
+cargo	generic-array	MIT
+cargo	getrandom	MIT OR Apache-2.0
+cargo	gio	MIT
+cargo	gio-sys	MIT
+cargo	glib	MIT
+cargo	glib-macros	MIT
+cargo	glib-sys	MIT
+cargo	glob	MIT OR Apache-2.0
+cargo	gobject-sys	MIT
+cargo	gtk	MIT
+cargo	gtk-sys	MIT
+cargo	gtk3-macros	MIT
+cargo	h2	MIT
+cargo	hashbrown	MIT OR Apache-2.0
+cargo	hashlink	MIT OR Apache-2.0
+cargo	heck	MIT OR Apache-2.0
+cargo	hermit-abi	MIT OR Apache-2.0
+cargo	hex	MIT OR Apache-2.0
+cargo	hkdf	MIT OR Apache-2.0
+cargo	hmac	MIT OR Apache-2.0
+cargo	html5ever	MIT OR Apache-2.0
+cargo	http	MIT OR Apache-2.0
+cargo	http-body	MIT
+cargo	http-body-util	MIT
+cargo	httparse	MIT OR Apache-2.0
+cargo	httpdate	MIT OR Apache-2.0
+cargo	hybrid-array	MIT OR Apache-2.0
+cargo	hyper	MIT
+cargo	hyper-rustls	Apache-2.0 OR ISC OR MIT
+cargo	hyper-util	MIT
+cargo	iana-time-zone	MIT OR Apache-2.0
+cargo	iana-time-zone-haiku	MIT OR Apache-2.0
+cargo	ico	MIT
+cargo	icu_collections	Unicode-3.0
+cargo	icu_locale_core	Unicode-3.0
+cargo	icu_normalizer	Unicode-3.0
+cargo	icu_normalizer_data	Unicode-3.0
+cargo	icu_properties	Unicode-3.0
+cargo	icu_properties_data	Unicode-3.0
+cargo	icu_provider	Unicode-3.0
+cargo	ident_case	MIT/Apache-2.0
+cargo	idna	MIT OR Apache-2.0
+cargo	idna_adapter	Apache-2.0 OR MIT
+cargo	if-addrs	MIT OR BSD-3-Clause
+cargo	indexmap	Apache-2.0 OR MIT
+cargo	infer	MIT
+cargo	ipnet	MIT OR Apache-2.0
+cargo	is-docker	MIT
+cargo	is-wsl	MIT
+cargo	itoa	MIT OR Apache-2.0
+cargo	javascriptcore-rs	MIT
+cargo	javascriptcore-rs-sys	MIT
+cargo	jiff	Unlicense OR MIT
+cargo	jiff-core	Unlicense OR MIT
+cargo	jiff-static	Unlicense OR MIT
+cargo	jiff-tzdb	Unlicense OR MIT
+cargo	jiff-tzdb-platform	Unlicense OR MIT
+cargo	jni	MIT OR Apache-2.0 ; MIT/Apache-2.0
+cargo	jni-macros	MIT OR Apache-2.0
+cargo	jni-sys	MIT OR Apache-2.0
+cargo	jni-sys-macros	MIT OR Apache-2.0
+cargo	js-sys	MIT OR Apache-2.0
+cargo	json-patch	MIT/Apache-2.0
+cargo	jsonptr	MIT OR Apache-2.0
+cargo	keyboard-types	MIT OR Apache-2.0
+cargo	lazy_static	MIT OR Apache-2.0
+cargo	libappindicator	Apache-2.0 OR MIT
+cargo	libappindicator-sys	Apache-2.0 OR MIT
+cargo	libc	MIT OR Apache-2.0
+cargo	libdbus-sys	Apache-2.0/MIT
+cargo	libloading	ISC
+cargo	libredox	MIT
+cargo	linux-raw-sys	Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+cargo	litemap	Unicode-3.0
+cargo	lock_api	MIT OR Apache-2.0
+cargo	log	MIT OR Apache-2.0
+cargo	lru-slab	MIT OR Apache-2.0 OR Zlib
+cargo	markup5ever	MIT OR Apache-2.0
+cargo	matchit	MIT AND BSD-3-Clause
+cargo	md-5	MIT OR Apache-2.0
+cargo	mdns-sd	Apache-2.0 OR MIT
+cargo	memchr	Unlicense OR MIT
+cargo	memoffset	MIT
+cargo	mime	MIT OR Apache-2.0
+cargo	minimal-lexical	MIT/Apache-2.0
+cargo	minisign-verify	MIT
+cargo	miniz_oxide	MIT OR Zlib OR Apache-2.0
+cargo	mio	MIT
+cargo	muda	Apache-2.0 OR MIT
+cargo	ndk	MIT OR Apache-2.0
+cargo	ndk-context	MIT OR Apache-2.0
+cargo	ndk-sys	MIT OR Apache-2.0
+cargo	new_debug_unreachable	MIT
+cargo	nix	MIT
+cargo	nom	MIT
+cargo	num-bigint	MIT OR Apache-2.0
+cargo	num-conv	MIT OR Apache-2.0
+cargo	num-integer	MIT OR Apache-2.0
+cargo	num-traits	MIT OR Apache-2.0
+cargo	num_enum	BSD-3-Clause OR MIT OR Apache-2.0
+cargo	num_enum_derive	BSD-3-Clause OR MIT OR Apache-2.0
+cargo	objc2	MIT
+cargo	objc2-app-kit	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-cloud-kit	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-core-data	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-core-foundation	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-core-graphics	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-core-image	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-core-location	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-core-text	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-encode	MIT
+cargo	objc2-exception-helper	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-foundation	MIT
+cargo	objc2-io-surface	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-osa-kit	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-quartz-core	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-security	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-service-management	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-ui-kit	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-user-notifications	Zlib OR Apache-2.0 OR MIT
+cargo	objc2-web-kit	Zlib OR Apache-2.0 OR MIT
+cargo	oid-registry	MIT OR Apache-2.0
+cargo	once_cell	MIT OR Apache-2.0
+cargo	open	MIT
+cargo	openssl-probe	MIT OR Apache-2.0
+cargo	option-ext	MPL-2.0
+cargo	ordered-stream	MIT OR Apache-2.0
+cargo	os_info	MIT
+cargo	os_pipe	MIT
+cargo	osakit	MIT OR Apache-2.0
+cargo	pango	MIT
+cargo	pango-sys	MIT
+cargo	parking	Apache-2.0 OR MIT
+cargo	parking_lot	MIT OR Apache-2.0
+cargo	parking_lot_core	MIT OR Apache-2.0
+cargo	pem	MIT
+cargo	percent-encoding	MIT OR Apache-2.0
+cargo	phf	MIT
+cargo	phf_codegen	MIT
+cargo	phf_generator	MIT
+cargo	phf_macros	MIT
+cargo	phf_shared	MIT
+cargo	pin-project-lite	Apache-2.0 OR MIT
+cargo	pin-utils	MIT OR Apache-2.0
+cargo	piper	MIT OR Apache-2.0
+cargo	pkg-config	MIT OR Apache-2.0
+cargo	plist	MIT
+cargo	png	MIT OR Apache-2.0
+cargo	polling	Apache-2.0 OR MIT
+cargo	portable-atomic	Apache-2.0 OR MIT
+cargo	portable-atomic-util	Apache-2.0 OR MIT
+cargo	postgresql_archive	(Apache-2.0 OR MIT) AND PostgreSQL
+cargo	postgresql_commands	(Apache-2.0 OR MIT) AND PostgreSQL
+cargo	postgresql_embedded	(Apache-2.0 OR MIT) AND PostgreSQL
+cargo	potential_utf	Unicode-3.0
+cargo	powerfmt	MIT OR Apache-2.0
+cargo	precomputed-hash	MIT
+cargo	proc-macro-crate	MIT OR Apache-2.0
+cargo	proc-macro-error	MIT OR Apache-2.0
+cargo	proc-macro-error-attr	MIT OR Apache-2.0
+cargo	proc-macro2	MIT OR Apache-2.0
+cargo	quick-xml	MIT
+cargo	quinn	MIT OR Apache-2.0
+cargo	quinn-proto	MIT OR Apache-2.0
+cargo	quinn-udp	MIT OR Apache-2.0
+cargo	quote	MIT OR Apache-2.0
+cargo	r-efi	MIT OR Apache-2.0 OR LGPL-2.1-or-later
+cargo	rand	MIT OR Apache-2.0
+cargo	rand_core	MIT OR Apache-2.0
+cargo	rand_pcg	MIT OR Apache-2.0
+cargo	raw-window-handle	MIT OR Apache-2.0 OR Zlib
+cargo	rcgen	MIT OR Apache-2.0
+cargo	redox_syscall	MIT
+cargo	redox_users	MIT
+cargo	ref-cast	MIT OR Apache-2.0
+cargo	ref-cast-impl	MIT OR Apache-2.0
+cargo	regex	MIT OR Apache-2.0
+cargo	regex-automata	MIT OR Apache-2.0
+cargo	regex-lite	MIT OR Apache-2.0
+cargo	regex-syntax	MIT OR Apache-2.0
+cargo	reqwest	MIT OR Apache-2.0
+cargo	reqwest-middleware	MIT OR Apache-2.0
+cargo	reqwest-retry	MIT OR Apache-2.0
+cargo	reqwest-tracing	MIT OR Apache-2.0
+cargo	retry-policies	MIT OR Apache-2.0
+cargo	rfd	MIT
+cargo	ring	Apache-2.0 AND ISC
+cargo	rustc-hash	Apache-2.0 OR MIT
+cargo	rustc_version	MIT OR Apache-2.0
+cargo	rusticata-macros	MIT/Apache-2.0
+cargo	rustix	Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+cargo	rustls	Apache-2.0 OR ISC OR MIT
+cargo	rustls-native-certs	Apache-2.0 OR ISC OR MIT
+cargo	rustls-pki-types	MIT OR Apache-2.0
+cargo	rustls-platform-verifier	MIT OR Apache-2.0
+cargo	rustls-platform-verifier-android	MIT OR Apache-2.0
+cargo	rustls-webpki	ISC
+cargo	rustversion	MIT OR Apache-2.0
+cargo	ryu	Apache-2.0 OR BSL-1.0
+cargo	same-file	Unlicense/MIT
+cargo	schannel	MIT
+cargo	schemars	MIT
+cargo	schemars_derive	MIT
+cargo	scopeguard	MIT OR Apache-2.0
+cargo	security-framework	MIT OR Apache-2.0
+cargo	security-framework-sys	MIT OR Apache-2.0
+cargo	selectors	MPL-2.0
+cargo	semver	MIT OR Apache-2.0
+cargo	serde	MIT OR Apache-2.0
+cargo	serde-untagged	MIT OR Apache-2.0
+cargo	serde_core	MIT OR Apache-2.0
+cargo	serde_derive	MIT OR Apache-2.0
+cargo	serde_derive_internals	MIT OR Apache-2.0
+cargo	serde_json	MIT OR Apache-2.0
+cargo	serde_repr	MIT OR Apache-2.0
+cargo	serde_spanned	MIT OR Apache-2.0
+cargo	serde_urlencoded	MIT/Apache-2.0
+cargo	serde_with	MIT OR Apache-2.0
+cargo	serde_with_macros	MIT OR Apache-2.0
+cargo	serialize-to-javascript	MIT OR Apache-2.0
+cargo	serialize-to-javascript-impl	MIT OR Apache-2.0
+cargo	servo_arc	MIT OR Apache-2.0
+cargo	sha2	MIT OR Apache-2.0
+cargo	shared_child	MIT
+cargo	shlex	MIT OR Apache-2.0
+cargo	signal-hook-registry	MIT OR Apache-2.0
+cargo	simd-adler32	MIT
+cargo	simd_cesu8	Apache-2.0 OR MIT
+cargo	simdutf8	MIT OR Apache-2.0
+cargo	siphasher	MIT/Apache-2.0
+cargo	slab	MIT
+cargo	smallvec	MIT OR Apache-2.0
+cargo	smappservice-rs	MIT
+cargo	socket-pktinfo	MIT
+cargo	socket2	MIT OR Apache-2.0
+cargo	softbuffer	MIT OR Apache-2.0
+cargo	soup3	MIT
+cargo	soup3-sys	MIT
+cargo	spin	MIT
+cargo	sqlx	MIT OR Apache-2.0
+cargo	sqlx-core	MIT OR Apache-2.0
+cargo	sqlx-macros	MIT OR Apache-2.0
+cargo	sqlx-macros-core	MIT OR Apache-2.0
+cargo	sqlx-postgres	MIT OR Apache-2.0
+cargo	stable_deref_trait	MIT OR Apache-2.0
+cargo	string_cache	MIT OR Apache-2.0
+cargo	string_cache_codegen	MIT OR Apache-2.0
+cargo	stringprep	MIT/Apache-2.0
+cargo	strsim	MIT
+cargo	subtle	BSD-3-Clause
+cargo	swift-rs	MIT OR Apache-2.0
+cargo	syn	MIT OR Apache-2.0
+cargo	sync_wrapper	Apache-2.0
+cargo	synstructure	MIT
+cargo	system-configuration	MIT OR Apache-2.0
+cargo	system-configuration-sys	MIT OR Apache-2.0
+cargo	system-deps	MIT OR Apache-2.0
+cargo	tao	Apache-2.0
+cargo	tao-macros	MIT OR Apache-2.0
+cargo	tar	MIT OR Apache-2.0
+cargo	target-lexicon	Apache-2.0 WITH LLVM-exception
+cargo	target-triple	MIT OR Apache-2.0
+cargo	tauri	Apache-2.0 OR MIT
+cargo	tauri-build	Apache-2.0 OR MIT
+cargo	tauri-codegen	Apache-2.0 OR MIT
+cargo	tauri-macros	Apache-2.0 OR MIT
+cargo	tauri-plugin	Apache-2.0 OR MIT
+cargo	tauri-plugin-autostart	Apache-2.0 OR MIT
+cargo	tauri-plugin-dialog	Apache-2.0 OR MIT
+cargo	tauri-plugin-fs	Apache-2.0 OR MIT
+cargo	tauri-plugin-opener	Apache-2.0 OR MIT
+cargo	tauri-plugin-process	Apache-2.0 OR MIT
+cargo	tauri-plugin-shell	Apache-2.0 OR MIT
+cargo	tauri-plugin-updater	Apache-2.0 OR MIT
+cargo	tauri-runtime	Apache-2.0 OR MIT
+cargo	tauri-runtime-wry	Apache-2.0 OR MIT
+cargo	tauri-utils	Apache-2.0 OR MIT
+cargo	tauri-winres	MIT
+cargo	tempfile	MIT OR Apache-2.0
+cargo	tendril	MIT OR Apache-2.0
+cargo	thiserror	MIT OR Apache-2.0
+cargo	thiserror-impl	MIT OR Apache-2.0
+cargo	time	MIT OR Apache-2.0
+cargo	time-core	MIT OR Apache-2.0
+cargo	time-macros	MIT OR Apache-2.0
+cargo	tinystr	Unicode-3.0
+cargo	tinyvec	Zlib OR Apache-2.0 OR MIT
+cargo	tinyvec_macros	MIT OR Apache-2.0 OR Zlib
+cargo	tokio	MIT
+cargo	tokio-macros	MIT
+cargo	tokio-rustls	MIT OR Apache-2.0
+cargo	tokio-stream	MIT
+cargo	tokio-util	MIT
+cargo	toml	MIT OR Apache-2.0
+cargo	toml_datetime	MIT OR Apache-2.0
+cargo	toml_edit	MIT OR Apache-2.0
+cargo	toml_parser	MIT OR Apache-2.0
+cargo	toml_writer	MIT OR Apache-2.0
+cargo	tower	MIT
+cargo	tower-http	MIT
+cargo	tower-layer	MIT
+cargo	tower-service	MIT
+cargo	tracing	MIT
+cargo	tracing-attributes	MIT
+cargo	tracing-core	MIT
+cargo	tray-icon	MIT OR Apache-2.0
+cargo	try-lock	MIT
+cargo	typed-path	MIT OR Apache-2.0
+cargo	typeid	MIT OR Apache-2.0
+cargo	typenum	MIT OR Apache-2.0
+cargo	uds_windows	MIT
+cargo	unicode-bidi	MIT OR Apache-2.0
+cargo	unicode-ident	(MIT OR Apache-2.0) AND Unicode-3.0
+cargo	unicode-normalization	MIT OR Apache-2.0
+cargo	unicode-properties	MIT/Apache-2.0
+cargo	unicode-segmentation	MIT OR Apache-2.0
+cargo	untrusted	ISC
+cargo	url	MIT OR Apache-2.0
+cargo	urlpattern	MIT
+cargo	utf8_iter	Apache-2.0 OR MIT
+cargo	uuid	Apache-2.0 OR MIT
+cargo	version-compare	MIT
+cargo	version_check	MIT/Apache-2.0
+cargo	vswhom	MIT
+cargo	vswhom-sys	MIT
+cargo	walkdir	Unlicense/MIT
+cargo	want	MIT
+cargo	wasi	Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+cargo	wasip2	Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+cargo	wasm-bindgen	MIT OR Apache-2.0
+cargo	wasm-bindgen-futures	MIT OR Apache-2.0
+cargo	wasm-bindgen-macro	MIT OR Apache-2.0
+cargo	wasm-bindgen-macro-support	MIT OR Apache-2.0
+cargo	wasm-bindgen-shared	MIT OR Apache-2.0
+cargo	wasm-streams	MIT OR Apache-2.0
+cargo	wasmtimer	MIT
+cargo	web-sys	MIT OR Apache-2.0
+cargo	web-time	MIT OR Apache-2.0
+cargo	web_atoms	MIT OR Apache-2.0
+cargo	webkit2gtk	MIT
+cargo	webkit2gtk-sys	MIT
+cargo	webpki-root-certs	CDLA-Permissive-2.0
+cargo	webpki-roots	CDLA-Permissive-2.0
+cargo	webview2-com	MIT
+cargo	webview2-com-macros	MIT
+cargo	webview2-com-sys	MIT
+cargo	whoami	Apache-2.0 OR BSL-1.0 OR MIT
+cargo	winapi	MIT/Apache-2.0
+cargo	winapi-i686-pc-windows-gnu	MIT/Apache-2.0
+cargo	winapi-util	Unlicense OR MIT
+cargo	winapi-x86_64-pc-windows-gnu	MIT/Apache-2.0
+cargo	window-vibrancy	Apache-2.0 OR MIT
+cargo	windows	MIT OR Apache-2.0
+cargo	windows-collections	MIT OR Apache-2.0
+cargo	windows-core	MIT OR Apache-2.0
+cargo	windows-future	MIT OR Apache-2.0
+cargo	windows-implement	MIT OR Apache-2.0
+cargo	windows-interface	MIT OR Apache-2.0
+cargo	windows-link	MIT OR Apache-2.0
+cargo	windows-numerics	MIT OR Apache-2.0
+cargo	windows-registry	MIT OR Apache-2.0
+cargo	windows-result	MIT OR Apache-2.0
+cargo	windows-strings	MIT OR Apache-2.0
+cargo	windows-sys	MIT OR Apache-2.0
+cargo	windows-targets	MIT OR Apache-2.0
+cargo	windows-threading	MIT OR Apache-2.0
+cargo	windows-version	MIT OR Apache-2.0
+cargo	windows_aarch64_gnullvm	MIT OR Apache-2.0
+cargo	windows_aarch64_msvc	MIT OR Apache-2.0
+cargo	windows_i686_gnu	MIT OR Apache-2.0
+cargo	windows_i686_gnullvm	MIT OR Apache-2.0
+cargo	windows_i686_msvc	MIT OR Apache-2.0
+cargo	windows_x86_64_gnu	MIT OR Apache-2.0
+cargo	windows_x86_64_gnullvm	MIT OR Apache-2.0
+cargo	windows_x86_64_msvc	MIT OR Apache-2.0
+cargo	winnow	MIT
+cargo	winreg	MIT
+cargo	wit-bindgen	Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+cargo	writeable	Unicode-3.0
+cargo	wry	Apache-2.0 OR MIT
+cargo	x11	MIT
+cargo	x11-dl	MIT
+cargo	x509-parser	MIT OR Apache-2.0
+cargo	xattr	MIT OR Apache-2.0
+cargo	yasna	MIT OR Apache-2.0
+cargo	yoke	Unicode-3.0
+cargo	yoke-derive	Unicode-3.0
+cargo	zbus	MIT
+cargo	zbus_macros	MIT
+cargo	zbus_names	MIT
+cargo	zcheapstr	MIT
+cargo	zerofrom	Unicode-3.0
+cargo	zerofrom-derive	Unicode-3.0
+cargo	zeroize	Apache-2.0 OR MIT
+cargo	zeroize_derive	Apache-2.0 OR MIT
+cargo	zerotrie	Unicode-3.0
+cargo	zerovec	Unicode-3.0
+cargo	zerovec-derive	Unicode-3.0
+cargo	zip	MIT
+cargo	zlib-rs	Zlib
+cargo	zmij	MIT
+cargo	zvariant	MIT
+cargo	zvariant_derive	MIT
+cargo	zvariant_utils	MIT
+npm	2g	MIT
+npm	@asamuzakjp/css-color	MIT
+npm	@asamuzakjp/dom-selector	MIT
+npm	@babel/code-frame	MIT
+npm	@babel/compat-data	MIT
+npm	@babel/core	MIT
+npm	@babel/generator	MIT
+npm	@babel/helper-annotate-as-pure	MIT
+npm	@babel/helper-compilation-targets	MIT
+npm	@babel/helper-create-class-features-plugin	MIT
+npm	@babel/helper-create-regexp-features-plugin	MIT
+npm	@babel/helper-define-polyfill-provider	MIT
+npm	@babel/helper-globals	MIT
+npm	@babel/helper-member-expression-to-functions	MIT
+npm	@babel/helper-module-imports	MIT
+npm	@babel/helper-module-transforms	MIT
+npm	@babel/helper-optimise-call-expression	MIT
+npm	@babel/helper-plugin-utils	MIT
+npm	@babel/helper-remap-async-to-generator	MIT
+npm	@babel/helper-replace-supers	MIT
+npm	@babel/helper-skip-transparent-expression-wrappers	MIT
+npm	@babel/helper-string-parser	MIT
+npm	@babel/helper-validator-identifier	MIT
+npm	@babel/helper-validator-option	MIT
+npm	@babel/helper-wrap-function	MIT
+npm	@babel/helpers	MIT
+npm	@babel/parser	MIT
+npm	@babel/plugin-proposal-decorators	MIT
+npm	@babel/plugin-proposal-export-default-from	MIT
+npm	@babel/plugin-syntax-async-generators	MIT
+npm	@babel/plugin-syntax-bigint	MIT
+npm	@babel/plugin-syntax-class-properties	MIT
+npm	@babel/plugin-syntax-class-static-block	MIT
+npm	@babel/plugin-syntax-decorators	MIT
+npm	@babel/plugin-syntax-dynamic-import	MIT
+npm	@babel/plugin-syntax-export-default-from	MIT
+npm	@babel/plugin-syntax-flow	MIT
+npm	@babel/plugin-syntax-import-attributes	MIT
+npm	@babel/plugin-syntax-import-meta	MIT
+npm	@babel/plugin-syntax-json-strings	MIT
+npm	@babel/plugin-syntax-jsx	MIT
+npm	@babel/plugin-syntax-logical-assignment-operators	MIT
+npm	@babel/plugin-syntax-nullish-coalescing-operator	MIT
+npm	@babel/plugin-syntax-numeric-separator	MIT
+npm	@babel/plugin-syntax-object-rest-spread	MIT
+npm	@babel/plugin-syntax-optional-catch-binding	MIT
+npm	@babel/plugin-syntax-optional-chaining	MIT
+npm	@babel/plugin-syntax-private-property-in-object	MIT
+npm	@babel/plugin-syntax-top-level-await	MIT
+npm	@babel/plugin-syntax-typescript	MIT
+npm	@babel/plugin-transform-arrow-functions	MIT
+npm	@babel/plugin-transform-async-generator-functions	MIT
+npm	@babel/plugin-transform-async-to-generator	MIT
+npm	@babel/plugin-transform-block-scoping	MIT
+npm	@babel/plugin-transform-class-properties	MIT
+npm	@babel/plugin-transform-class-static-block	MIT
+npm	@babel/plugin-transform-classes	MIT
+npm	@babel/plugin-transform-destructuring	MIT
+npm	@babel/plugin-transform-explicit-resource-management	MIT
+npm	@babel/plugin-transform-export-namespace-from	MIT
+npm	@babel/plugin-transform-flow-strip-types	MIT
+npm	@babel/plugin-transform-for-of	MIT
+npm	@babel/plugin-transform-logical-assignment-operators	MIT
+npm	@babel/plugin-transform-modules-commonjs	MIT
+npm	@babel/plugin-transform-named-capturing-groups-regex	MIT
+npm	@babel/plugin-transform-nullish-coalescing-operator	MIT
+npm	@babel/plugin-transform-object-rest-spread	MIT
+npm	@babel/plugin-transform-optional-catch-binding	MIT
+npm	@babel/plugin-transform-optional-chaining	MIT
+npm	@babel/plugin-transform-parameters	MIT
+npm	@babel/plugin-transform-private-methods	MIT
+npm	@babel/plugin-transform-private-property-in-object	MIT
+npm	@babel/plugin-transform-react-display-name	MIT
+npm	@babel/plugin-transform-react-jsx	MIT
+npm	@babel/plugin-transform-react-jsx-development	MIT
+npm	@babel/plugin-transform-react-jsx-self	MIT
+npm	@babel/plugin-transform-react-jsx-source	MIT
+npm	@babel/plugin-transform-react-pure-annotations	MIT
+npm	@babel/plugin-transform-regenerator	MIT
+npm	@babel/plugin-transform-runtime	MIT
+npm	@babel/plugin-transform-shorthand-properties	MIT
+npm	@babel/plugin-transform-template-literals	MIT
+npm	@babel/plugin-transform-typescript	MIT
+npm	@babel/plugin-transform-unicode-regex	MIT
+npm	@babel/preset-react	MIT
+npm	@babel/preset-typescript	MIT
+npm	@babel/runtime	MIT
+npm	@babel/template	MIT
+npm	@babel/traverse	MIT
+npm	@babel/types	MIT
+npm	@bcoe/v8-coverage	MIT
+npm	@bramus/specificity	MIT
+npm	@cacheable/memory	MIT
+npm	@cacheable/utils	MIT
+npm	@csstools/color-helpers	MIT-0
+npm	@csstools/css-calc	MIT
+npm	@csstools/css-color-parser	MIT
+npm	@csstools/css-parser-algorithms	MIT
+npm	@csstools/css-syntax-patches-for-csstree	MIT-0
+npm	@csstools/css-tokenizer	MIT
+npm	@derhuerst/http-basic	MIT
+npm	@emnapi/core	MIT
+npm	@emnapi/runtime	MIT
+npm	@emnapi/wasi-threads	MIT
+npm	@esbuild/aix-ppc64	MIT
+npm	@esbuild/android-arm	MIT
+npm	@esbuild/android-arm64	MIT
+npm	@esbuild/android-x64	MIT
+npm	@esbuild/darwin-arm64	MIT
+npm	@esbuild/darwin-x64	MIT
+npm	@esbuild/freebsd-arm64	MIT
+npm	@esbuild/freebsd-x64	MIT
+npm	@esbuild/linux-arm	MIT
+npm	@esbuild/linux-arm64	MIT
+npm	@esbuild/linux-ia32	MIT
+npm	@esbuild/linux-loong64	MIT
+npm	@esbuild/linux-mips64el	MIT
+npm	@esbuild/linux-ppc64	MIT
+npm	@esbuild/linux-riscv64	MIT
+npm	@esbuild/linux-s390x	MIT
+npm	@esbuild/linux-x64	MIT
+npm	@esbuild/netbsd-arm64	MIT
+npm	@esbuild/netbsd-x64	MIT
+npm	@esbuild/openbsd-arm64	MIT
+npm	@esbuild/openbsd-x64	MIT
+npm	@esbuild/openharmony-arm64	MIT
+npm	@esbuild/sunos-x64	MIT
+npm	@esbuild/win32-arm64	MIT
+npm	@esbuild/win32-ia32	MIT
+npm	@esbuild/win32-x64	MIT
+npm	@eslint-community/eslint-utils	MIT
+npm	@eslint-community/regexpp	MIT
+npm	@eslint/config-array	Apache-2.0
+npm	@eslint/config-helpers	Apache-2.0
+npm	@eslint/core	Apache-2.0
+npm	@eslint/js	MIT
+npm	@eslint/object-schema	Apache-2.0
+npm	@eslint/plugin-kit	Apache-2.0
+npm	@exodus/bytes	MIT
+npm	@expo-google-fonts/material-symbols	MIT AND Apache-2.0
+npm	@expo/cli	MIT
+npm	@expo/code-signing-certificates	MIT
+npm	@expo/config	MIT
+npm	@expo/config-plugins	MIT
+npm	@expo/config-types	MIT
+npm	@expo/devcert	MIT
+npm	@expo/devtools	MIT
+npm	@expo/dom-webview	MIT
+npm	@expo/env	MIT
+npm	@expo/fingerprint	MIT
+npm	@expo/image-utils	MIT
+npm	@expo/inline-modules	MIT
+npm	@expo/json-file	MIT
+npm	@expo/local-build-cache-provider	MIT
+npm	@expo/log-box	MIT
+npm	@expo/log-box-utils	MIT
+npm	@expo/metro	MIT
+npm	@expo/metro-config	MIT
+npm	@expo/metro-file-map	MIT
+npm	@expo/modules-macros-linux-arm64	MIT
+npm	@expo/modules-macros-linux-x64	MIT
+npm	@expo/modules-macros-win32-arm64	MIT
+npm	@expo/modules-macros-win32-x64	MIT
+npm	@expo/osascript	MIT
+npm	@expo/package-manager	MIT
+npm	@expo/platforms	MIT
+npm	@expo/plist	MIT
+npm	@expo/prebuild-config	MIT
+npm	@expo/require-utils	MIT
+npm	@expo/router-server	MIT
+npm	@expo/schema-utils	MIT
+npm	@expo/sdk-runtime-versions	MIT
+npm	@expo/spawn-async	MIT
+npm	@expo/sudo-prompt	MIT
+npm	@expo/ws-tunnel	MIT
+npm	@expo/xcpretty	MIT
+npm	@fast-csv/format	MIT
+npm	@fast-csv/parse	MIT
+npm	@fastify/accept-negotiator	MIT
+npm	@fastify/ajv-compiler	MIT
+npm	@fastify/busboy	MIT
+npm	@fastify/compress	MIT
+npm	@fastify/cookie	MIT
+npm	@fastify/deepmerge	MIT
+npm	@fastify/error	MIT
+npm	@fastify/fast-json-stringify-compiler	MIT
+npm	@fastify/forwarded	MIT
+npm	@fastify/helmet	MIT
+npm	@fastify/merge-json-schemas	MIT
+npm	@fastify/multipart	MIT
+npm	@fastify/proxy-addr	MIT
+npm	@fastify/rate-limit	MIT
+npm	@fastify/send	MIT
+npm	@fastify/static	MIT
+npm	@fastify/type-provider-typebox	MIT
+npm	@formatjs/fast-memoize	MIT
+npm	@formatjs/icu-messageformat-parser	MIT
+npm	@formatjs/icu-skeleton-parser	MIT
+npm	@hono/node-server	MIT
+npm	@huggingface/jinja	MIT
+npm	@huggingface/tokenizers	Apache-2.0
+npm	@huggingface/transformers	Apache-2.0
+npm	@humanfs/core	Apache-2.0
+npm	@humanfs/node	Apache-2.0
+npm	@humanfs/types	Apache-2.0
+npm	@humanwhocodes/module-importer	Apache-2.0
+npm	@humanwhocodes/retry	Apache-2.0
+npm	@img/colour	MIT
+npm	@img/sharp-darwin-arm64	Apache-2.0
+npm	@img/sharp-darwin-x64	Apache-2.0
+npm	@img/sharp-freebsd-wasm32	Apache-2.0
+npm	@img/sharp-libvips-darwin-arm64	LGPL-3.0-or-later
+npm	@img/sharp-libvips-darwin-x64	LGPL-3.0-or-later
+npm	@img/sharp-libvips-linux-arm	LGPL-3.0-or-later
+npm	@img/sharp-libvips-linux-arm64	LGPL-3.0-or-later
+npm	@img/sharp-libvips-linux-ppc64	LGPL-3.0-or-later
+npm	@img/sharp-libvips-linux-riscv64	LGPL-3.0-or-later
+npm	@img/sharp-libvips-linux-s390x	LGPL-3.0-or-later
+npm	@img/sharp-libvips-linux-x64	LGPL-3.0-or-later
+npm	@img/sharp-libvips-linuxmusl-arm64	LGPL-3.0-or-later
+npm	@img/sharp-libvips-linuxmusl-x64	LGPL-3.0-or-later
+npm	@img/sharp-linux-arm	Apache-2.0
+npm	@img/sharp-linux-arm64	Apache-2.0
+npm	@img/sharp-linux-ppc64	Apache-2.0
+npm	@img/sharp-linux-riscv64	Apache-2.0
+npm	@img/sharp-linux-s390x	Apache-2.0
+npm	@img/sharp-linux-x64	Apache-2.0
+npm	@img/sharp-linuxmusl-arm64	Apache-2.0
+npm	@img/sharp-linuxmusl-x64	Apache-2.0
+npm	@img/sharp-wasm32	Apache-2.0 AND LGPL-3.0-or-later AND MIT
+npm	@img/sharp-webcontainers-wasm32	Apache-2.0
+npm	@img/sharp-win32-arm64	Apache-2.0 AND LGPL-3.0-or-later
+npm	@img/sharp-win32-ia32	Apache-2.0 AND LGPL-3.0-or-later
+npm	@img/sharp-win32-x64	Apache-2.0 AND LGPL-3.0-or-later
+npm	@inquirer/ansi	MIT
+npm	@inquirer/checkbox	MIT
+npm	@inquirer/confirm	MIT
+npm	@inquirer/core	MIT
+npm	@inquirer/editor	MIT
+npm	@inquirer/expand	MIT
+npm	@inquirer/external-editor	MIT
+npm	@inquirer/figures	MIT
+npm	@inquirer/input	MIT
+npm	@inquirer/number	MIT
+npm	@inquirer/password	MIT
+npm	@inquirer/prompts	MIT
+npm	@inquirer/rawlist	MIT
+npm	@inquirer/search	MIT
+npm	@inquirer/select	MIT
+npm	@inquirer/type	MIT
+npm	@ioredis/commands	MIT
+npm	@isaacs/cliui	ISC
+npm	@isaacs/fs-minipass	ISC
+npm	@isaacs/nonrecursive-glob-match	BlueOak-1.0.0
+npm	@isaacs/ttlcache	ISC
+npm	@istanbuljs/load-nyc-config	ISC
+npm	@istanbuljs/schema	MIT
+npm	@jest/console	MIT
+npm	@jest/core	MIT
+npm	@jest/create-cache-key-function	MIT
+npm	@jest/diff-sequences	MIT
+npm	@jest/environment	MIT
+npm	@jest/environment-jsdom-abstract	MIT
+npm	@jest/expect	MIT
+npm	@jest/expect-utils	MIT
+npm	@jest/fake-timers	MIT
+npm	@jest/get-type	MIT
+npm	@jest/globals	MIT
+npm	@jest/pattern	MIT
+npm	@jest/react-is-18	MIT
+npm	@jest/react-is-19	MIT
+npm	@jest/reporters	MIT
+npm	@jest/schemas	MIT
+npm	@jest/snapshot-utils	MIT
+npm	@jest/source-map	MIT
+npm	@jest/test-result	MIT
+npm	@jest/test-sequencer	MIT
+npm	@jest/transform	MIT
+npm	@jest/types	MIT
+npm	@jridgewell/gen-mapping	MIT
+npm	@jridgewell/remapping	MIT
+npm	@jridgewell/resolve-uri	MIT
+npm	@jridgewell/source-map	MIT
+npm	@jridgewell/sourcemap-codec	MIT
+npm	@jridgewell/trace-mapping	MIT
+npm	@keyv/bigmap	MIT
+npm	@keyv/serialize	MIT
+npm	@lukeed/ms	MIT
+npm	@mapbox/jsonlint-lines-primitives	MIT
+npm	@mapbox/node-pre-gyp	BSD-3-Clause
+npm	@mapbox/point-geometry	ISC
+npm	@mapbox/tiny-sdf	BSD-2-Clause
+npm	@mapbox/unitbezier	BSD-2-Clause
+npm	@mapbox/vector-tile	BSD-3-Clause
+npm	@maplibre/geojson-vt	ISC
+npm	@maplibre/maplibre-gl-style-spec	ISC
+npm	@maplibre/mlt	(MIT OR Apache-2.0)
+npm	@maplibre/vt-pbf	MIT
+npm	@modelcontextprotocol/sdk	MIT
+npm	@napi-rs/wasm-runtime	MIT
+npm	@noble/curves	MIT
+npm	@noble/hashes	MIT
+npm	@node-rs/argon2	MIT
+npm	@node-rs/argon2-android-arm-eabi	MIT
+npm	@node-rs/argon2-android-arm64	MIT
+npm	@node-rs/argon2-darwin-arm64	MIT
+npm	@node-rs/argon2-darwin-x64	MIT
+npm	@node-rs/argon2-freebsd-x64	MIT
+npm	@node-rs/argon2-linux-arm-gnueabihf	MIT
+npm	@node-rs/argon2-linux-arm64-gnu	MIT
+npm	@node-rs/argon2-linux-arm64-musl	MIT
+npm	@node-rs/argon2-linux-x64-gnu	MIT
+npm	@node-rs/argon2-linux-x64-musl	MIT
+npm	@node-rs/argon2-win32-arm64-msvc	MIT
+npm	@node-rs/argon2-win32-ia32-msvc	MIT
+npm	@node-rs/argon2-win32-x64-msvc	MIT
+npm	@noxcturnal/noxcturnal-darwin-arm64	MIT
+npm	@noxcturnal/noxcturnal-darwin-x64	MIT
+npm	@noxcturnal/noxcturnal-linux-arm64-gnu	MIT
+npm	@noxcturnal/noxcturnal-linux-arm64-musl	MIT
+npm	@noxcturnal/noxcturnal-linux-x64-gnu	MIT
+npm	@noxcturnal/noxcturnal-linux-x64-musl	MIT
+npm	@noxcturnal/noxcturnal-win32-arm64-msvc	MIT
+npm	@noxcturnal/noxcturnal-win32-x64-msvc	MIT
+npm	@npmcli/agent	ISC
+npm	@npmcli/fs	ISC
+npm	@oxc-project/types	MIT
+npm	@parcel/watcher	MIT
+npm	@parcel/watcher-android-arm64	MIT
+npm	@parcel/watcher-darwin-arm64	MIT
+npm	@parcel/watcher-darwin-x64	MIT
+npm	@parcel/watcher-freebsd-x64	MIT
+npm	@parcel/watcher-linux-arm-glibc	MIT
+npm	@parcel/watcher-linux-arm-musl	MIT
+npm	@parcel/watcher-linux-arm64-glibc	MIT
+npm	@parcel/watcher-linux-arm64-musl	MIT
+npm	@parcel/watcher-linux-x64-glibc	MIT
+npm	@parcel/watcher-linux-x64-musl	MIT
+npm	@parcel/watcher-win32-arm64	MIT
+npm	@parcel/watcher-win32-x64	MIT
+npm	@photostructure/tz-lookup	CC0-1.0
+npm	@pinojs/redact	MIT
+npm	@pkgjs/parseargs	MIT
+npm	@pkgr/core	MIT
+npm	@playwright/test	Apache-2.0
+npm	@protobufjs/aspromise	BSD-3-Clause
+npm	@protobufjs/base64	BSD-3-Clause
+npm	@protobufjs/codegen	BSD-3-Clause
+npm	@protobufjs/eventemitter	BSD-3-Clause
+npm	@protobufjs/fetch	BSD-3-Clause
+npm	@protobufjs/float	BSD-3-Clause
+npm	@protobufjs/path	BSD-3-Clause
+npm	@protobufjs/pool	BSD-3-Clause
+npm	@protobufjs/utf8	BSD-3-Clause
+npm	@protomaps/basemaps	BSD-3-Clause
+npm	@react-native-segmented-control/segmented-control	MIT
+npm	@react-native/asset-utils	MIT
+npm	@react-native/babel-plugin-codegen	MIT
+npm	@react-native/babel-preset	MIT
+npm	@react-native/codegen	MIT
+npm	@react-native/community-cli-plugin	MIT
+npm	@react-native/debugger-frontend	BSD-3-Clause
+npm	@react-native/debugger-shell	MIT
+npm	@react-native/dev-middleware	MIT
+npm	@react-native/gradle-plugin	MIT
+npm	@react-native/jest-preset	MIT
+npm	@react-native/js-polyfills	MIT
+npm	@react-native/metro-babel-transformer	MIT
+npm	@react-native/metro-config	MIT
+npm	@react-native/normalize-colors	MIT
+npm	@react-native/virtualized-lists	MIT
+npm	@react-navigation/bottom-tabs	MIT
+npm	@react-navigation/core	MIT
+npm	@react-navigation/elements	MIT
+npm	@react-navigation/native	MIT
+npm	@react-navigation/native-stack	MIT
+npm	@react-navigation/routers	MIT
+npm	@redis/client	MIT
+npm	@redocly/ajv	MIT
+npm	@redocly/config	MIT
+npm	@redocly/openapi-core	MIT
+npm	@reduxjs/toolkit	MIT
+npm	@rolldown/binding-android-arm-eabi	MIT
+npm	@rolldown/binding-android-arm64	MIT
+npm	@rolldown/binding-darwin-arm64	MIT
+npm	@rolldown/binding-darwin-x64	MIT
+npm	@rolldown/binding-freebsd-x64	MIT
+npm	@rolldown/binding-linux-arm-gnueabihf	MIT
+npm	@rolldown/binding-linux-arm64-gnu	MIT
+npm	@rolldown/binding-linux-arm64-musl	MIT
+npm	@rolldown/binding-linux-ppc64-gnu	MIT
+npm	@rolldown/binding-linux-s390x-gnu	MIT
+npm	@rolldown/binding-linux-x64-gnu	MIT
+npm	@rolldown/binding-linux-x64-musl	MIT
+npm	@rolldown/binding-openharmony-arm64	MIT
+npm	@rolldown/binding-wasm32-wasi	MIT
+npm	@rolldown/binding-win32-arm64-msvc	MIT
+npm	@rolldown/binding-win32-x64-msvc	MIT
+npm	@rolldown/pluginutils	MIT
+npm	@sec-ant/readable-stream	MIT
+npm	@shopify/flash-list	MIT
+npm	@sinclair/typebox	MIT
+npm	@sindresorhus/merge-streams	MIT
+npm	@sinonjs/commons	BSD-3-Clause
+npm	@sinonjs/fake-timers	BSD-3-Clause
+npm	@standard-schema/spec	MIT
+npm	@standard-schema/utils	MIT
+npm	@stryker-mutator/api	Apache-2.0
+npm	@stryker-mutator/core	Apache-2.0
+npm	@stryker-mutator/instrumenter	Apache-2.0
+npm	@stryker-mutator/util	Apache-2.0
+npm	@stryker-mutator/vitest-runner	Apache-2.0
+npm	@tailwindcss/node	MIT
+npm	@tailwindcss/oxide	MIT
+npm	@tailwindcss/oxide-android-arm64	MIT
+npm	@tailwindcss/oxide-darwin-arm64	MIT
+npm	@tailwindcss/oxide-darwin-x64	MIT
+npm	@tailwindcss/oxide-freebsd-x64	MIT
+npm	@tailwindcss/oxide-linux-arm-gnueabihf	MIT
+npm	@tailwindcss/oxide-linux-arm64-gnu	MIT
+npm	@tailwindcss/oxide-linux-arm64-musl	MIT
+npm	@tailwindcss/oxide-linux-x64-gnu	MIT
+npm	@tailwindcss/oxide-linux-x64-musl	MIT
+npm	@tailwindcss/oxide-wasm32-wasi	MIT
+npm	@tailwindcss/oxide-win32-arm64-msvc	MIT
+npm	@tailwindcss/oxide-win32-x64-msvc	MIT
+npm	@tailwindcss/vite	MIT
+npm	@tauri-apps/api	Apache-2.0 OR MIT
+npm	@tauri-apps/cli	Apache-2.0 OR MIT
+npm	@tauri-apps/cli-darwin-arm64	Apache-2.0 OR MIT
+npm	@tauri-apps/cli-darwin-x64	Apache-2.0 OR MIT
+npm	@tauri-apps/cli-linux-arm-gnueabihf	Apache-2.0 OR MIT
+npm	@tauri-apps/cli-linux-arm64-gnu	Apache-2.0 OR MIT
+npm	@tauri-apps/cli-linux-arm64-musl	Apache-2.0 OR MIT
+npm	@tauri-apps/cli-linux-riscv64-gnu	Apache-2.0 OR MIT
+npm	@tauri-apps/cli-linux-x64-gnu	Apache-2.0 OR MIT
+npm	@tauri-apps/cli-linux-x64-musl	Apache-2.0 OR MIT
+npm	@tauri-apps/cli-win32-arm64-msvc	Apache-2.0 OR MIT
+npm	@tauri-apps/cli-win32-ia32-msvc	Apache-2.0 OR MIT
+npm	@tauri-apps/cli-win32-x64-msvc	Apache-2.0 OR MIT
+npm	@tauri-apps/plugin-dialog	MIT OR Apache-2.0
+npm	@tauri-apps/plugin-fs	MIT OR Apache-2.0
+npm	@tauri-apps/plugin-opener	MIT OR Apache-2.0
+npm	@tauri-apps/plugin-process	MIT OR Apache-2.0
+npm	@tauri-apps/plugin-updater	MIT OR Apache-2.0
+npm	@testing-library/dom	MIT
+npm	@testing-library/react	MIT
+npm	@testing-library/react-native	MIT
+npm	@tus/file-store	MIT
+npm	@tus/server	MIT
+npm	@tus/utils	MIT
+npm	@tybys/wasm-util	MIT
+npm	@types/aria-query	MIT
+npm	@types/babel__core	MIT
+npm	@types/babel__generator	MIT
+npm	@types/babel__template	MIT
+npm	@types/babel__traverse	MIT
+npm	@types/chai	MIT
+npm	@types/d3-array	MIT
+npm	@types/d3-color	MIT
+npm	@types/d3-ease	MIT
+npm	@types/d3-interpolate	MIT
+npm	@types/d3-path	MIT
+npm	@types/d3-scale	MIT
+npm	@types/d3-shape	MIT
+npm	@types/d3-time	MIT
+npm	@types/d3-timer	MIT
+npm	@types/deep-eql	MIT
+npm	@types/emscripten	MIT
+npm	@types/esrecurse	MIT
+npm	@types/estree	MIT
+npm	@types/gensync	MIT
+npm	@types/geojson	MIT
+npm	@types/graceful-fs	MIT
+npm	@types/istanbul-lib-coverage	MIT
+npm	@types/istanbul-lib-report	MIT
+npm	@types/istanbul-reports	MIT
+npm	@types/jsdom	MIT
+npm	@types/jsesc	MIT
+npm	@types/json-schema	MIT
+npm	@types/luxon	MIT
+npm	@types/node	MIT
+npm	@types/pg	MIT
+npm	@types/pg-copy-streams	MIT
+npm	@types/react	MIT
+npm	@types/react-dom	MIT
+npm	@types/react-reconciler	MIT
+npm	@types/react-test-renderer	MIT
+npm	@types/stack-utils	MIT
+npm	@types/tough-cookie	MIT
+npm	@types/use-sync-external-store	MIT
+npm	@types/yargs	MIT
+npm	@types/yargs-parser	MIT
+npm	@typescript-eslint/eslint-plugin	MIT
+npm	@typescript-eslint/parser	MIT
+npm	@typescript-eslint/project-service	MIT
+npm	@typescript-eslint/scope-manager	MIT
+npm	@typescript-eslint/tsconfig-utils	MIT
+npm	@typescript-eslint/type-utils	MIT
+npm	@typescript-eslint/types	MIT
+npm	@typescript-eslint/typescript-estree	MIT
+npm	@typescript-eslint/utils	MIT
+npm	@typescript-eslint/visitor-keys	MIT
+npm	@ungap/structured-clone	ISC
+npm	@unrs/resolver-binding-android-arm-eabi	MIT
+npm	@unrs/resolver-binding-android-arm64	MIT
+npm	@unrs/resolver-binding-darwin-arm64	MIT
+npm	@unrs/resolver-binding-darwin-x64	MIT
+npm	@unrs/resolver-binding-freebsd-x64	MIT
+npm	@unrs/resolver-binding-linux-arm-gnueabihf	MIT
+npm	@unrs/resolver-binding-linux-arm-musleabihf	MIT
+npm	@unrs/resolver-binding-linux-arm64-gnu	MIT
+npm	@unrs/resolver-binding-linux-arm64-musl	MIT
+npm	@unrs/resolver-binding-linux-loong64-gnu	MIT
+npm	@unrs/resolver-binding-linux-loong64-musl	MIT
+npm	@unrs/resolver-binding-linux-ppc64-gnu	MIT
+npm	@unrs/resolver-binding-linux-riscv64-gnu	MIT
+npm	@unrs/resolver-binding-linux-riscv64-musl	MIT
+npm	@unrs/resolver-binding-linux-s390x-gnu	MIT
+npm	@unrs/resolver-binding-linux-x64-gnu	MIT
+npm	@unrs/resolver-binding-linux-x64-musl	MIT
+npm	@unrs/resolver-binding-openharmony-arm64	MIT
+npm	@unrs/resolver-binding-wasm32-wasi	MIT
+npm	@unrs/resolver-binding-win32-arm64-msvc	MIT
+npm	@unrs/resolver-binding-win32-ia32-msvc	MIT
+npm	@unrs/resolver-binding-win32-x64-msvc	MIT
+npm	@vitejs/plugin-react	MIT
+npm	@vitest/coverage-v8	MIT
+npm	@vitest/istanbul-lib-coverage	MIT
+npm	@vitest/istanbul-lib-report	MIT
+npm	@vitest/mocker	MIT
+npm	@vitest/spy	MIT
+npm	@xmldom/xmldom	MIT
+npm	abbrev	ISC
+npm	abstract-logging	MIT
+npm	accepts	MIT
+npm	acorn	MIT
+npm	acorn-jsx	MIT
+npm	adm-zip	MIT
+npm	agent-base	MIT
+npm	agent-cli-detector	MIT
+npm	ajv	MIT
+npm	ajv-formats	MIT
+npm	angular-html-parser	MIT
+npm	anser	MIT
+npm	ansi-colors	MIT
+npm	ansi-escapes	MIT
+npm	ansi-regex	MIT
+npm	ansi-styles	MIT
+npm	anymatch	ISC
+npm	archiver	MIT
+npm	archiver-utils	MIT
+npm	arg	MIT
+npm	argparse	MIT ; Python-2.0
+npm	aria-query	Apache-2.0
+npm	asap	MIT
+npm	assertion-error	MIT
+npm	ast-v8-to-istanbul	MIT
+npm	async	MIT
+npm	atomic-sleep	MIT
+npm	avvio	MIT
+npm	await-lock	MIT
+npm	axe-core	MPL-2.0
+npm	babel-jest	MIT
+npm	babel-plugin-istanbul	BSD-3-Clause
+npm	babel-plugin-jest-hoist	MIT
+npm	babel-plugin-polyfill-corejs2	MIT
+npm	babel-plugin-polyfill-corejs3	MIT
+npm	babel-plugin-polyfill-regenerator	MIT
+npm	babel-plugin-react-compiler	MIT
+npm	babel-plugin-react-native-web	MIT
+npm	babel-plugin-syntax-hermes-parser	MIT
+npm	babel-plugin-transform-flow-enums	MIT
+npm	babel-preset-current-node-syntax	MIT
+npm	babel-preset-expo	MIT
+npm	babel-preset-jest	MIT
+npm	balanced-match	MIT
+npm	barcode-detector	MIT
+npm	base64-js	MIT
+npm	baseline-browser-mapping	Apache-2.0
+npm	batch-cluster	MIT
+npm	bidi-js	MIT
+npm	big-integer	Unlicense
+npm	binary	MIT
+npm	bl	MIT
+npm	bluebird	MIT
+npm	body-parser	MIT
+npm	bplist-creator	MIT
+npm	bplist-parser	MIT
+npm	brace-expansion	MIT
+npm	braces	MIT
+npm	browserslist	MIT
+npm	bser	MIT
+npm	buffer	MIT
+npm	buffer-crc32	MIT
+npm	buffer-from	MIT
+npm	buffer-indexof-polyfill	MIT
+npm	buffers	UNKNOWN
+npm	bytes	MIT
+npm	cacache	ISC
+npm	cacheable	MIT
+npm	call-bind-apply-helpers	MIT
+npm	call-bound	MIT
+npm	callsites	MIT
+npm	camelcase	MIT
+npm	caniuse-lite	CC-BY-4.0
+npm	caseless	Apache-2.0
+npm	chai	MIT
+npm	chainsaw	MIT/X11
+npm	chalk	MIT
+npm	change-case	MIT
+npm	char-regex	MIT
+npm	chardet	MIT
+npm	chownr	BlueOak-1.0.0
+npm	ci-info	MIT
+npm	cjs-module-lexer	MIT
+npm	cli-cursor	MIT
+npm	cli-spinners	MIT
+npm	cli-width	ISC
+npm	cliui	ISC
+npm	clone	MIT
+npm	clsx	MIT
+npm	cluster-key-slot	Apache-2.0
+npm	co	MIT
+npm	collect-v8-coverage	MIT
+npm	color	MIT
+npm	color-convert	MIT
+npm	color-name	MIT
+npm	color-string	MIT
+npm	colorette	MIT
+npm	combine-errors	UNKNOWN
+npm	commander	MIT
+npm	compress-commons	MIT
+npm	compressible	MIT
+npm	compression	MIT
+npm	concat-map	MIT
+npm	concat-stream	MIT
+npm	connect	MIT
+npm	consola	MIT
+npm	content-disposition	MIT
+npm	content-type	MIT
+npm	convert-source-map	MIT
+npm	cookie	MIT
+npm	cookie-signature	MIT
+npm	core-js-compat	MIT
+npm	core-util-is	MIT
+npm	cors	MIT
+npm	crc-32	Apache-2.0
+npm	crc32-stream	MIT
+npm	cross-spawn	MIT
+npm	css-tree	MIT
+npm	cssstyle	MIT
+npm	csstype	MIT
+npm	custom-error-instance	ISC
+npm	d3-array	ISC
+npm	d3-color	ISC
+npm	d3-ease	BSD-3-Clause
+npm	d3-format	ISC
+npm	d3-interpolate	ISC
+npm	d3-path	ISC
+npm	d3-scale	ISC
+npm	d3-shape	ISC
+npm	d3-time	ISC
+npm	d3-time-format	ISC
+npm	d3-timer	ISC
+npm	data-urls	MIT
+npm	dayjs	MIT
+npm	debug	MIT
+npm	decimal.js	MIT
+npm	decimal.js-light	MIT
+npm	dedent	MIT
+npm	deep-is	MIT
+npm	deepmerge	MIT
+npm	defaults	MIT
+npm	define-data-property	MIT
+npm	define-lazy-prop	MIT
+npm	define-properties	MIT
+npm	denque	Apache-2.0
+npm	depd	MIT
+npm	dequal	MIT
+npm	des.js	MIT
+npm	destroy	MIT
+npm	detect-libc	Apache-2.0
+npm	detect-newline	MIT
+npm	diff-match-patch	Apache-2.0
+npm	dnssd-advertise	MIT
+npm	dom-accessibility-api	MIT
+npm	dotenv	BSD-2-Clause
+npm	duckdb	MIT
+npm	dunder-proto	MIT
+npm	duplexer2	BSD-3-Clause
+npm	earcut	ISC
+npm	eastasianwidth	MIT
+npm	ee-first	MIT
+npm	electron-to-chromium	ISC
+npm	emittery	MIT
+npm	emoji-regex	MIT
+npm	empathic	MIT
+npm	encodeurl	MIT
+npm	encoding	MIT
+npm	end-of-stream	MIT
+npm	enhanced-resolve	MIT
+npm	entities	BSD-2-Clause
+npm	env-paths	MIT
+npm	environment	MIT
+npm	err-code	MIT
+npm	error-ex	MIT
+npm	error-stack-parser	MIT
+npm	es-define-property	MIT
+npm	es-errors	MIT
+npm	es-module-lexer	MIT
+npm	es-object-atoms	MIT
+npm	es-toolkit	MIT
+npm	esbuild	MIT
+npm	escalade	MIT
+npm	escape-html	MIT
+npm	escape-string-regexp	MIT
+npm	eslint	MIT
+npm	eslint-config-prettier	MIT
+npm	eslint-plugin-i18next	ISC
+npm	eslint-plugin-react-hooks	MIT
+npm	eslint-plugin-react-refresh	MIT
+npm	eslint-scope	BSD-2-Clause
+npm	eslint-visitor-keys	Apache-2.0
+npm	espree	BSD-2-Clause
+npm	esprima	BSD-2-Clause
+npm	esquery	BSD-3-Clause
+npm	esrecurse	BSD-2-Clause
+npm	estraverse	BSD-2-Clause
+npm	estree-walker	MIT
+npm	esutils	BSD-2-Clause
+npm	etag	MIT
+npm	eventemitter3	MIT
+npm	eventsource	MIT
+npm	eventsource-parser	MIT
+npm	exceljs	MIT
+npm	execa	MIT
+npm	exiftool-vendored	MIT
+npm	exiftool-vendored.exe	MIT
+npm	exiftool-vendored.pl	MIT
+npm	exit-x	MIT
+npm	expect	MIT
+npm	expect-type	Apache-2.0
+npm	expo	MIT
+npm	expo-asset	MIT
+npm	expo-camera	MIT
+npm	expo-constants	MIT
+npm	expo-file-system	MIT
+npm	expo-font	MIT
+npm	expo-glass-effect	MIT
+npm	expo-haptics	MIT
+npm	expo-image	MIT
+npm	expo-image-loader	MIT
+npm	expo-image-picker	MIT
+npm	expo-keep-awake	MIT
+npm	expo-location	MIT
+npm	expo-modules-autolinking	MIT
+npm	expo-modules-cli	MIT
+npm	expo-modules-core	MIT
+npm	expo-modules-jsi	MIT
+npm	expo-modules-macros	MIT
+npm	expo-secure-store	MIT
+npm	expo-server	MIT
+npm	expo-sharing	MIT
+npm	expo-sqlite	MIT
+npm	expo-status-bar	MIT
+npm	expo-symbols	MIT
+npm	exponential-backoff	Apache-2.0
+npm	express	MIT
+npm	express-rate-limit	MIT
+npm	fast-csv	MIT
+npm	fast-decode-uri-component	MIT
+npm	fast-deep-equal	MIT
+npm	fast-json-stable-stringify	MIT
+npm	fast-json-stringify	MIT
+npm	fast-levenshtein	MIT
+npm	fast-querystring	MIT
+npm	fast-string-truncated-width	MIT
+npm	fast-string-width	MIT
+npm	fast-uri	BSD-3-Clause
+npm	fast-wrap-ansi	MIT
+npm	fastify	MIT
+npm	fastify-plugin	MIT
+npm	fastq	ISC
+npm	fb-dotslash	(MIT OR Apache-2.0)
+npm	fb-watchman	MIT
+npm	fdir	MIT
+npm	fetch-nodeshim	MIT
+npm	fflate	MIT
+npm	ffmpeg-static	GPL-3.0-or-later
+npm	figures	MIT
+npm	file-entry-cache	MIT
+npm	fill-range	MIT
+npm	finalhandler	MIT
+npm	find-my-way	MIT
+npm	find-up	MIT
+npm	flat-cache	MIT
+npm	flatbuffers	Apache-2.0
+npm	flatted	ISC
+npm	flow-enums-runtime	MIT
+npm	flow-estree	MIT
+npm	flow-parser	MIT
+npm	flru	MIT
+npm	foreground-child	ISC
+npm	forwarded	MIT
+npm	fresh	MIT
+npm	fs-constants	MIT
+npm	fs-minipass	ISC
+npm	fs.realpath	ISC
+npm	fsevents	MIT
+npm	fstream	ISC
+npm	function-bind	MIT
+npm	gensync	MIT
+npm	get-caller-file	ISC
+npm	get-intrinsic	MIT
+npm	get-package-type	MIT
+npm	get-proto	MIT
+npm	get-stream	MIT
+npm	gl-matrix	MIT
+npm	glob	BlueOak-1.0.0 ; ISC
+npm	glob-parent	ISC
+npm	global-agent	BSD-3-Clause
+npm	globals	MIT
+npm	globalthis	MIT
+npm	gopd	MIT
+npm	graceful-fs	ISC
+npm	guid-typescript	ISC
+npm	has-flag	MIT
+npm	has-property-descriptors	MIT
+npm	has-symbols	MIT
+npm	hashery	MIT
+npm	hasown	MIT
+npm	he	MIT
+npm	heic-decode	ISC
+npm	helmet	MIT
+npm	hermes-compiler	MIT
+npm	hermes-estree	MIT
+npm	hermes-parser	MIT
+npm	hono	MIT
+npm	hookified	MIT
+npm	hosted-git-info	ISC
+npm	html-encoding-sniffer	MIT
+npm	html-escaper	MIT
+npm	html-parse-stringify	MIT
+npm	http-cache-semantics	BSD-2-Clause
+npm	http-errors	MIT
+npm	http-proxy-agent	MIT
+npm	http-response-object	MIT
+npm	https-proxy-agent	MIT
+npm	human-signals	Apache-2.0
+npm	i18next	MIT
+npm	i18next-icu	MIT
+npm	iconv-lite	MIT
+npm	ieee754	BSD-3-Clause
+npm	ignore	MIT
+npm	immediate	MIT
+npm	immer	MIT
+npm	import-local	MIT
+npm	import-meta-resolve	MIT
+npm	imurmurhash	MIT
+npm	indent-string	MIT
+npm	index-to-position	MIT
+npm	inflight	ISC
+npm	inherits	ISC
+npm	internmap	ISC
+npm	intl-messageformat	BSD-3-Clause
+npm	invariant	MIT
+npm	ioredis	MIT
+npm	ip-address	MIT
+npm	ipaddr.js	MIT
+npm	is-arrayish	MIT
+npm	is-core-module	MIT
+npm	is-docker	MIT
+npm	is-extglob	MIT
+npm	is-fullwidth-code-point	MIT
+npm	is-generator-fn	MIT
+npm	is-glob	MIT
+npm	is-number	MIT
+npm	is-plain-obj	MIT
+npm	is-potential-custom-element-name	MIT
+npm	is-promise	MIT
+npm	is-stream	MIT
+npm	is-unicode-supported	MIT
+npm	is-wsl	MIT
+npm	isarray	MIT
+npm	isexe	BlueOak-1.0.0 ; ISC
+npm	istanbul-lib-coverage	BSD-3-Clause
+npm	istanbul-lib-instrument	BSD-3-Clause
+npm	istanbul-lib-report	BSD-3-Clause
+npm	istanbul-lib-source-maps	BSD-3-Clause
+npm	istanbul-reports	BSD-3-Clause
+npm	jackspeak	BlueOak-1.0.0
+npm	jest	MIT
+npm	jest-changed-files	MIT
+npm	jest-circus	MIT
+npm	jest-cli	MIT
+npm	jest-config	MIT
+npm	jest-diff	MIT
+npm	jest-docblock	MIT
+npm	jest-each	MIT
+npm	jest-environment-jsdom	MIT
+npm	jest-environment-node	MIT
+npm	jest-expo	MIT
+npm	jest-get-type	MIT
+npm	jest-haste-map	MIT
+npm	jest-leak-detector	MIT
+npm	jest-matcher-utils	MIT
+npm	jest-message-util	MIT
+npm	jest-mock	MIT
+npm	jest-regex-util	MIT
+npm	jest-resolve	MIT
+npm	jest-resolve-dependencies	MIT
+npm	jest-runner	MIT
+npm	jest-runtime	MIT
+npm	jest-snapshot	MIT
+npm	jest-util	MIT
+npm	jest-validate	MIT
+npm	jest-watch-select-projects	MIT
+npm	jest-watch-typeahead	MIT
+npm	jest-watcher	MIT
+npm	jest-worker	MIT
+npm	jimp-compact	MIT
+npm	jiti	MIT
+npm	jose	MIT
+npm	js-base64	BSD-3-Clause
+npm	js-levenshtein	MIT
+npm	js-md4	MIT
+npm	js-tokens	MIT
+npm	js-yaml	MIT
+npm	jsc-safe-url	0BSD
+npm	jsdom	MIT
+npm	jsesc	MIT
+npm	json-parse-even-better-errors	MIT
+npm	json-rpc-2.0	MIT
+npm	json-schema-ref-resolver	MIT
+npm	json-schema-traverse	MIT
+npm	json-schema-typed	BSD-2-Clause
+npm	json-stable-stringify-without-jsonify	MIT
+npm	json-stringify-pretty-compact	MIT
+npm	json5	MIT
+npm	jszip	(MIT OR GPL-3.0-or-later)
+npm	kdbush	ISC
+npm	keyv	MIT
+npm	kleur	MIT
+npm	lan-network	MIT
+npm	lazystream	MIT
+npm	lean-qr	MIT
+npm	leven	MIT
+npm	levn	MIT
+npm	libheif-js	LGPL-3.0
+npm	lie	MIT
+npm	light-my-request	BSD-3-Clause
+npm	lightningcss	MPL-2.0
+npm	lightningcss-android-arm64	MPL-2.0
+npm	lightningcss-darwin-arm64	MPL-2.0
+npm	lightningcss-darwin-x64	MPL-2.0
+npm	lightningcss-freebsd-x64	MPL-2.0
+npm	lightningcss-linux-arm-gnueabihf	MPL-2.0
+npm	lightningcss-linux-arm64-gnu	MPL-2.0
+npm	lightningcss-linux-arm64-musl	MPL-2.0
+npm	lightningcss-linux-x64-gnu	MPL-2.0
+npm	lightningcss-linux-x64-musl	MPL-2.0
+npm	lightningcss-win32-arm64-msvc	MPL-2.0
+npm	lightningcss-win32-x64-msvc	MPL-2.0
+npm	lines-and-columns	MIT
+npm	listenercount	ISC
+npm	locate-path	MIT
+npm	lodash	MIT
+npm	lodash._baseiteratee	MIT
+npm	lodash._basetostring	MIT
+npm	lodash._baseuniq	MIT
+npm	lodash._createset	MIT
+npm	lodash._root	MIT
+npm	lodash._stringtopath	MIT
+npm	lodash.debounce	MIT
+npm	lodash.defaults	MIT
+npm	lodash.difference	MIT
+npm	lodash.escaperegexp	MIT
+npm	lodash.flatten	MIT
+npm	lodash.groupby	MIT
+npm	lodash.isboolean	MIT
+npm	lodash.isequal	MIT
+npm	lodash.isfunction	MIT
+npm	lodash.isnil	MIT
+npm	lodash.isplainobject	MIT
+npm	lodash.isundefined	MIT
+npm	lodash.throttle	MIT
+npm	lodash.union	MIT
+npm	lodash.uniq	MIT
+npm	lodash.uniqby	MIT
+npm	log-symbols	MIT
+npm	long	Apache-2.0
+npm	loose-envify	MIT
+npm	lru-cache	BlueOak-1.0.0 ; ISC
+npm	luxon	MIT
+npm	lz-string	MIT
+npm	magic-string	MIT
+npm	magicast	MIT
+npm	make-dir	MIT
+npm	make-fetch-happen	ISC
+npm	makeerror	BSD-3-Clause
+npm	maplibre-gl	BSD-3-Clause
+npm	matcher	MIT
+npm	math-intrinsics	MIT
+npm	mdn-data	CC0-1.0
+npm	media-typer	MIT
+npm	memoize-one	MIT
+npm	merge-descriptors	MIT
+npm	merge-stream	MIT
+npm	metro	MIT
+npm	metro-babel-transformer	MIT
+npm	metro-cache	MIT
+npm	metro-cache-key	MIT
+npm	metro-config	MIT
+npm	metro-core	MIT
+npm	metro-file-map	MIT
+npm	metro-minify-terser	MIT
+npm	metro-resolver	MIT
+npm	metro-runtime	MIT
+npm	metro-source-map	MIT
+npm	metro-symbolicate	MIT
+npm	metro-transform-plugins	MIT
+npm	metro-transform-worker	MIT
+npm	micromatch	MIT
+npm	mime	MIT
+npm	mime-db	MIT
+npm	mime-types	MIT
+npm	mimic-fn	MIT
+npm	min-indent	MIT
+npm	minimalistic-assert	ISC
+npm	minimatch	BlueOak-1.0.0 ; ISC
+npm	minimist	MIT
+npm	minipass	BlueOak-1.0.0 ; ISC
+npm	minipass-collect	ISC
+npm	minipass-fetch	MIT
+npm	minipass-flush	BlueOak-1.0.0
+npm	minipass-pipeline	ISC
+npm	minipass-sized	ISC
+npm	minizlib	MIT
+npm	mkdirp	MIT
+npm	ms	MIT
+npm	multitars	MIT
+npm	murmurhash-js	MIT
+npm	mutation-server-protocol	Apache-2.0
+npm	mutation-testing-elements	Apache-2.0
+npm	mutation-testing-metrics	Apache-2.0
+npm	mutation-testing-report-schema	Apache-2.0
+npm	mute-stream	ISC
+npm	nanoid	MIT
+npm	napi-postinstall	MIT
+npm	natural-compare	MIT
+npm	negotiator	MIT
+npm	node-addon-api	MIT
+npm	node-fetch	MIT
+npm	node-forge	(BSD-3-Clause OR GPL-2.0)
+npm	node-gyp	MIT
+npm	node-int64	MIT
+npm	node-releases	MIT
+npm	nopt	ISC
+npm	normalize-path	MIT
+npm	noxcturnal	MIT
+npm	npm-package-arg	ISC
+npm	npm-run-path	MIT
+npm	nullthrows	MIT
+npm	nwsapi	MIT
+npm	ob1	MIT
+npm	object-assign	MIT
+npm	object-inspect	MIT
+npm	object-keys	MIT
+npm	obug	MIT
+npm	on-exit-leak-free	MIT
+npm	on-finished	MIT
+npm	on-headers	MIT
+npm	once	ISC
+npm	onetime	MIT
+npm	onnxruntime-common	MIT
+npm	onnxruntime-node	MIT
+npm	onnxruntime-react-native	MIT
+npm	onnxruntime-web	MIT
+npm	open	MIT
+npm	openapi-typescript	MIT
+npm	optionator	MIT
+npm	ora	MIT
+npm	p-limit	MIT
+npm	p-locate	MIT
+npm	p-map	MIT
+npm	p-try	MIT
+npm	package-json-from-dist	BlueOak-1.0.0
+npm	pako	(MIT AND Zlib)
+npm	parse-cache-control	UNKNOWN
+npm	parse-json	MIT
+npm	parse-ms	MIT
+npm	parse-png	MIT
+npm	parse5	MIT
+npm	parseurl	MIT
+npm	path-exists	MIT
+npm	path-is-absolute	MIT
+npm	path-key	MIT
+npm	path-parse	MIT
+npm	path-scurry	BlueOak-1.0.0
+npm	path-to-regexp	MIT
+npm	pbf	BSD-3-Clause
+npm	pg	MIT
+npm	pg-cloudflare	MIT
+npm	pg-connection-string	MIT
+npm	pg-copy-streams	MIT
+npm	pg-int8	ISC
+npm	pg-pool	MIT
+npm	pg-protocol	MIT
+npm	pg-types	MIT
+npm	pgpass	MIT
+npm	picocolors	ISC
+npm	picomatch	MIT
+npm	pino	MIT
+npm	pino-abstract-transport	MIT
+npm	pino-std-serializers	MIT
+npm	pirates	MIT
+npm	pkce-challenge	MIT
+npm	pkg-dir	MIT
+npm	platform	MIT
+npm	playwright	Apache-2.0
+npm	playwright-core	Apache-2.0
+npm	plist	MIT
+npm	pluralize	MIT
+npm	pmtiles	BSD-3-Clause
+npm	pngjs	MIT
+npm	postcss	MIT
+npm	postgres-array	MIT
+npm	postgres-bytea	MIT
+npm	postgres-date	MIT
+npm	postgres-interval	MIT
+npm	potpack	ISC
+npm	prelude-ls	MIT
+npm	prettier	MIT
+npm	pretty-format	MIT
+npm	pretty-ms	MIT
+npm	proc-log	ISC
+npm	process-nextick-args	MIT
+npm	process-warning	MIT
+npm	progress	MIT
+npm	promise	MIT
+npm	promise-retry	MIT
+npm	prompts	MIT
+npm	proper-lockfile	MIT
+npm	protobufjs	BSD-3-Clause
+npm	protocol-buffers-schema	MIT
+npm	proxy-addr	MIT
+npm	punycode	MIT
+npm	pure-rand	MIT
+npm	qified	MIT
+npm	qs	BSD-3-Clause
+npm	querystringify	MIT
+npm	quick-format-unescaped	MIT
+npm	quickselect	ISC
+npm	range-parser	MIT
+npm	raw-body	MIT
+npm	react	MIT
+npm	react-devtools-core	MIT
+npm	react-dom	MIT
+npm	react-freeze	MIT
+npm	react-i18next	MIT
+npm	react-is	MIT
+npm	react-native	MIT
+npm	react-native-gesture-handler	MIT
+npm	react-native-safe-area-context	MIT
+npm	react-native-screens	MIT
+npm	react-native-worklets	MIT
+npm	react-reconciler	MIT
+npm	react-redux	MIT
+npm	react-refresh	MIT
+npm	react-router	MIT
+npm	react-router-dom	MIT
+npm	readable-stream	MIT
+npm	readdir-glob	Apache-2.0
+npm	real-require	MIT
+npm	recharts	MIT
+npm	redent	MIT
+npm	redis-errors	MIT
+npm	redis-parser	MIT
+npm	redux	MIT
+npm	redux-thunk	MIT
+npm	regenerate	MIT
+npm	regenerate-unicode-properties	MIT
+npm	regenerator-runtime	MIT
+npm	regexpu-core	MIT
+npm	regjsgen	MIT
+npm	regjsparser	BSD-2-Clause
+npm	require-directory	MIT
+npm	require-from-string	MIT
+npm	requireindex	MIT
+npm	requires-port	MIT
+npm	reselect	MIT
+npm	resolve	MIT
+npm	resolve-cwd	MIT
+npm	resolve-from	MIT
+npm	resolve-protobuf-schema	MIT
+npm	resolve-workspace-root	MIT
+npm	restore-cursor	MIT
+npm	ret	MIT
+npm	retry	MIT
+npm	reusify	MIT
+npm	rfdc	MIT
+npm	rimraf	ISC
+npm	rolldown	MIT
+npm	router	MIT
+npm	rrweb-cssom	MIT
+npm	rxjs	Apache-2.0
+npm	safe-buffer	MIT
+npm	safe-regex2	MIT
+npm	safe-stable-stringify	MIT
+npm	safer-buffer	MIT
+npm	sandbox-cli-detector	MIT
+npm	sax	BlueOak-1.0.0
+npm	saxes	ISC
+npm	scheduler	MIT
+npm	secure-json-parse	BSD-3-Clause
+npm	semver	ISC
+npm	send	MIT
+npm	serialize-error	MIT
+npm	serve-static	MIT
+npm	server-only	MIT
+npm	set-cookie-parser	MIT
+npm	setimmediate	MIT
+npm	setprototypeof	ISC
+npm	sf-symbols-typescript	MIT
+npm	sharp	Apache-2.0
+npm	shebang-command	MIT
+npm	shebang-regex	MIT
+npm	shell-quote	MIT
+npm	side-channel	MIT
+npm	side-channel-list	MIT
+npm	side-channel-map	MIT
+npm	side-channel-weakmap	MIT
+npm	signal-exit	ISC
+npm	simple-plist	MIT
+npm	simple-swizzle	MIT
+npm	sisteransi	MIT
+npm	slash	MIT
+npm	slugify	MIT
+npm	smart-buffer	MIT
+npm	socks	MIT
+npm	socks-proxy-agent	MIT
+npm	sonic-boom	MIT
+npm	source-map	BSD-3-Clause
+npm	source-map-js	BSD-3-Clause
+npm	source-map-support	MIT
+npm	split2	ISC
+npm	sprintf-js	BSD-3-Clause
+npm	srvx	MIT
+npm	ssri	ISC
+npm	stack-generator	MIT
+npm	stack-utils	MIT
+npm	stackframe	MIT
+npm	stacktrace-gps	MIT
+npm	stacktrace-js	MIT
+npm	stacktrace-parser	MIT
+npm	standard-as-callback	MIT
+npm	standard-navigation	MIT
+npm	statuses	MIT
+npm	std-env	MIT
+npm	stream-buffers	Unlicense
+npm	string-length	MIT
+npm	string-width	MIT
+npm	string-width-cjs	MIT
+npm	string_decoder	MIT
+npm	strip-ansi	MIT
+npm	strip-ansi-cjs	MIT
+npm	strip-bom	MIT
+npm	strip-final-newline	MIT
+npm	strip-indent	MIT
+npm	strip-json-comments	MIT
+npm	structured-headers	MIT
+npm	supports-color	MIT
+npm	supports-hyperlinks	MIT
+npm	supports-preserve-symlinks-flag	MIT
+npm	symbol-tree	MIT
+npm	synckit	MIT
+npm	tagged-tag	MIT
+npm	tailwindcss	MIT
+npm	tapable	MIT
+npm	tar	BlueOak-1.0.0
+npm	tar-stream	MIT
+npm	terminal-link	MIT
+npm	terser	BSD-2-Clause
+npm	test-exclude	ISC
+npm	test-renderer	MIT
+npm	thread-stream	MIT
+npm	throat	MIT
+npm	tiny-invariant	MIT
+npm	tinybench	MIT
+npm	tinyexec	MIT
+npm	tinyglobby	MIT
+npm	tinyqueue	ISC
+npm	tinyrainbow	MIT
+npm	tldts	MIT
+npm	tldts-core	MIT
+npm	tmp	MIT
+npm	tmpl	BSD-3-Clause
+npm	to-regex-range	MIT
+npm	toad-cache	MIT
+npm	toidentifier	MIT
+npm	toqr	MIT
+npm	tough-cookie	BSD-3-Clause
+npm	tr46	MIT
+npm	traverse	MIT/X11
+npm	tree-kill	MIT
+npm	ts-api-utils	MIT
+npm	tslib	0BSD
+npm	tsx	MIT
+npm	tunnel	MIT
+npm	tus-js-client	MIT
+npm	type-check	MIT
+npm	type-detect	MIT
+npm	type-fest	(MIT OR CC0-1.0)
+npm	type-is	MIT
+npm	typebox	MIT
+npm	typed-inject	Apache-2.0
+npm	typed-rest-client	MIT
+npm	typedarray	MIT
+npm	typescript	Apache-2.0
+npm	typescript-eslint	MIT
+npm	underscore	MIT
+npm	undici	MIT
+npm	undici-types	MIT
+npm	unicode-canonical-property-names-ecmascript	MIT
+npm	unicode-match-property-ecmascript	MIT
+npm	unicode-match-property-value-ecmascript	MIT
+npm	unicode-property-aliases-ecmascript	MIT
+npm	unicorn-magic	MIT
+npm	unique-filename	ISC
+npm	unique-slug	ISC
+npm	unpipe	MIT
+npm	unrs-resolver	MIT
+npm	unzipper	MIT
+npm	update-browserslist-db	MIT
+npm	uri-js	BSD-2-Clause
+npm	uri-js-replace	MIT
+npm	url-parse	MIT
+npm	use-latest-callback	MIT
+npm	use-sync-external-store	MIT
+npm	util-deprecate	MIT
+npm	utils-merge	MIT
+npm	uuid	MIT
+npm	v8-to-istanbul	ISC
+npm	validate-npm-package-name	ISC
+npm	vary	MIT
+npm	verkit	MIT
+npm	victory-vendor	MIT AND ISC
+npm	vite	MIT
+npm	vitest	MIT
+npm	vlq	MIT
+npm	w3c-xmlserializer	MIT
+npm	walker	Apache-2.0
+npm	warn-once	MIT
+npm	wcwidth	MIT
+npm	weapon-regex	Apache-2.0
+npm	webidl-conversions	BSD-2-Clause
+npm	whatwg-encoding	MIT
+npm	whatwg-fetch	MIT
+npm	whatwg-mimetype	MIT
+npm	whatwg-url	MIT
+npm	whatwg-url-minimum	MIT
+npm	which	ISC
+npm	why-is-node-running	MIT
+npm	word-wrap	MIT
+npm	wrap-ansi	MIT
+npm	wrap-ansi-cjs	MIT
+npm	wrappy	ISC
+npm	write-file-atomic	ISC
+npm	ws	MIT
+npm	xcode	Apache-2.0
+npm	xml-name-validator	Apache-2.0
+npm	xml2js	MIT
+npm	xmlbuilder	MIT
+npm	xmlchars	MIT
+npm	xtend	MIT
+npm	y18n	ISC
+npm	yallist	BlueOak-1.0.0 ; ISC
+npm	yaml-ast-parser	Apache-2.0
+npm	yargs	MIT
+npm	yargs-parser	ISC
+npm	yocto-queue	MIT
+npm	yoctocolors	MIT
+npm	zip-stream	MIT
+npm	zod	MIT
+npm	zod-to-json-schema	ISC
+npm	zod-validation-error	MIT
+npm	zustand	MIT
+npm	zxing-wasm	MIT
