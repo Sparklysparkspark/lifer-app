@@ -4,6 +4,7 @@ import SearchInput from "../../components/SearchInput";
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { MENU_PANEL } from "../../lib/menuClasses";
 import Button from "../../components/Button";
+import { highlightedArea } from "../../lib/mapAreaOutlines";
 
 const MAX_ROWS = 2;
 const LIST_WIDTH_PX = 256;
@@ -42,6 +43,19 @@ export default function AreaPills({
   const [query, setQuery] = useState("");
   // The list opens leftwards when the pill sits too close to the window's right edge.
   const [openLeft, setOpenLeft] = useState(false);
+  // Pointing at or focusing an area lights its outline on the map, and the reverse.
+  const highlighted = highlightedArea.use();
+  const lights = (id: string) => ({
+    onPointerEnter: () => highlightedArea.set(id),
+    onPointerLeave: () => highlightedArea.set(null),
+    onFocus: () => highlightedArea.set(id),
+    onBlur: () => highlightedArea.set(null),
+  });
+  // The pill goes away with the page, so no pointer-leave clears it.
+  const pick = (id: string) => {
+    highlightedArea.set(null);
+    onPick(id);
+  };
 
   useLayoutEffect(() => {
     const row = rowRef.current;
@@ -92,8 +106,13 @@ export default function AreaPills({
     <div ref={rowRef} className="flex flex-wrap items-center gap-2">
       <span className="text-footnote text-muted">{label}</span>
       {visible.map((area) => (
-        <span key={area.id} title={area.name} data-area-pill="" className="flex max-w-64">
-          <Button variant="secondary" size="sm" onClick={() => onPick(area.id)} className="min-w-0 truncate">
+        <span key={area.id} title={area.name} data-area-pill="" className="flex max-w-64" {...lights(area.id)}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => pick(area.id)}
+            className={`min-w-0 truncate ${highlighted === area.id ? "border-link! bg-surface-muted!" : ""}`}
+          >
             {area.name}
           </Button>
         </span>
@@ -131,12 +150,13 @@ export default function AreaPills({
                 {matches.map((area) => (
                   <Button
                     key={area.id}
+                    {...lights(area.id)}
                     variant="ghost"
                     size="sm"
                     onClick={() => {
                       setOpenKey(null);
                       setQuery("");
-                      onPick(area.id);
+                      pick(area.id);
                     }}
                     className="w-full justify-start text-left"
                   >

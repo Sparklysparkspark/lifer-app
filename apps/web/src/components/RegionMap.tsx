@@ -14,6 +14,7 @@ import { showRegionOutline } from "../lib/mapRegionLayers";
 import { useMapControlSlot } from "../lib/mapControlSlot";
 import Button from "./Button";
 import SpeciesPins from "./map/SpeciesPins";
+import AreaOutlines, { type AreaOutlinesProps } from "./map/AreaOutlines";
 
 // Capped at the archive's max zoom.
 const FIT = { padding: 24, maxZoom: 8 };
@@ -193,17 +194,19 @@ function buildMap(
 }
 
 /** `regionCode` (the eBird code) picks a hand-tuned framing when the region has one. With a
- *  `regionId`, the species photographed there show as pins. */
+ *  `regionId`, the species photographed there show as pins; with `areas`, its areas' outlines. */
 export default function RegionMap({
   boundaryGeoJson,
   regionCode,
   regionId,
   regionName,
+  areas,
 }: {
   boundaryGeoJson: unknown;
   regionCode?: string | null;
   regionId?: string | null;
   regionName?: string;
+  areas?: AreaOutlinesProps | null;
 }) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -322,6 +325,7 @@ export default function RegionMap({
           .flat()
           .join(",")}
       />
+      {areas && <AreaOutlines map={readyMap} {...areas} />}
       {regionId && <SpeciesPins map={readyMap} regionId={regionId} regionName={regionName} dark={theme === "dark"} />}
       {zoomedIn &&
         controlSlot &&

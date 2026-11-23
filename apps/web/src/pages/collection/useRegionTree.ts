@@ -121,6 +121,8 @@ export function useRegionTree(regionId: string | null, fallbackCountryNames: rea
     children,
     breadcrumb,
     landingId,
+    /** Where opening an area lands (regionCollapse). */
+    areaTarget: collapse.target,
   };
 }
 

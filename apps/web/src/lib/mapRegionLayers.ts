@@ -6,7 +6,7 @@ const MASK_SOURCE = "region-view-mask";
 const OUTLINE_SOURCE = "region-view-outline";
 /** The dimmed world outside the region: a click on it means "go up a level". */
 export const REGION_MASK_LAYER = "region-view-mask";
-const OUTLINE_LAYER = "region-view-outline";
+export const REGION_OUTLINE_LAYER = "region-view-outline";
 
 /** Dims everything outside `outline` and draws its edge, over the basemap (labels included) and
  *  under the photo layers. Updates in place when already shown. */
@@ -47,7 +47,7 @@ export function showRegionOutline(map: MapLibreMap, region: unknown): void {
   // The link sage: the accent itself is under 3:1 on dark land.
   map.addLayer(
     {
-      id: OUTLINE_LAYER,
+      id: REGION_OUTLINE_LAYER,
       type: "line",
       source: OUTLINE_SOURCE,
       paint: { "line-color": token("--color-link"), "line-width": 1.5 },
@@ -57,6 +57,6 @@ export function showRegionOutline(map: MapLibreMap, region: unknown): void {
 }
 
 export function hideRegionOutline(map: MapLibreMap): void {
-  for (const id of [OUTLINE_LAYER, REGION_MASK_LAYER]) if (map.getLayer(id)) map.removeLayer(id);
+  for (const id of [REGION_OUTLINE_LAYER, REGION_MASK_LAYER]) if (map.getLayer(id)) map.removeLayer(id);
   for (const id of [OUTLINE_SOURCE, MASK_SOURCE]) if (map.getSource(id)) map.removeSource(id);
 }

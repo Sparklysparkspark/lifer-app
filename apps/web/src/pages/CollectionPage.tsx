@@ -293,6 +293,15 @@ export default function CollectionPage() {
   if (freshBoundary !== undefined && freshBoundary !== heldBoundary) setHeldBoundary(freshBoundary);
   const mapBoundary = freshBoundary === undefined ? heldBoundary : freshBoundary;
   const showMapToggle = !!regionId && !!mapBoundary && !!mapAvailable;
+  // The pills' areas outlined on the map; never a hub's (its map already shows its countries).
+  const { children: areas, areaTarget } = tree;
+  const mapAreas = useMemo(
+    () =>
+      regionId && !tree.regionKnownHub && areas.length > 0
+        ? { regionId: areaTarget(regionId), areas, target: areaTarget, onOpen: navigateToRegion }
+        : null,
+    [regionId, tree.regionKnownHub, areas, areaTarget, navigateToRegion],
+  );
 
   // No pack yet, but some species here are yours: they show, with the download offered above them.
   const needsPackBanner = data.needsPackFor && (
@@ -377,6 +386,7 @@ export default function CollectionPage() {
               regionCode={regionMeta?.ebirdRegionCode}
               regionId={prefs.showMapPins ? regionId : null}
               regionName={regionMeta?.name}
+              areas={mapAreas}
             />
           </Suspense>
         )}
