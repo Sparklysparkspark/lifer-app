@@ -3,7 +3,7 @@
 //
 // Env: LIFER_INFERENCE_TOKEN (every request needs "Authorization: Bearer <token>"),
 // LIFER_MODEL_DIR (where model files live; the local API's own model folder, so a download is
-// shared), LIFER_WATCH_PARENT_PID (exit when the desktop app is gone). Listens on a random
+// shared), LIFER_PARENT_STDIN=1 (exit when stdin closes: the desktop app is gone). Listens on a random
 // 127.0.0.1 port and prints "LIFER_INFERENCE_PORT=<port>" once ready.
 //
 // POST /prepare  JSON matching-info from the server (GET /species/matching-info); checks the
@@ -42,6 +42,7 @@ import {
   type EmbedTarget,
 } from "@lifer/core/species/inference.js";
 import { placementFor } from "@lifer/core/species/acceleration.js";
+import { onParentGone } from "../lib/parentWatchdog.js";
 import { selectAcceleration } from "./accelerationSelect.js";
 import { extractEmbeddedPreview } from "../uploads/exif.js";
 
@@ -345,18 +346,6 @@ export function createLocalInferenceServer(opts: { token: string; modelDir: stri
   });
 }
 
-function watchParent(): void {
-  const pid = Number(process.env.LIFER_WATCH_PARENT_PID);
-  if (!Number.isInteger(pid) || pid <= 0) return;
-  setInterval(() => {
-    try {
-      process.kill(pid, 0); // signal 0 only checks the pid exists
-    } catch {
-      process.exit(0);
-    }
-  }, 3000).unref();
-}
-
 // Started as a program (the desktop app), not when a test imports it.
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const token = process.env.LIFER_INFERENCE_TOKEN;
@@ -367,7 +356,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.error("LIFER_INFERENCE_TOKEN (16+ chars) and LIFER_MODEL_DIR are required");
     process.exit(2);
   }
-  watchParent();
+  onParentGone(() => process.exit(0));
   const server = createLocalInferenceServer({ token, modelDir });
   server.listen(0, "127.0.0.1", () => {
     const address = server.address();

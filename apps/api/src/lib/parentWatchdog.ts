@@ -2,21 +2,24 @@ import { spawnSync } from "node:child_process";
 import { log } from "@lifer/core/lib/log.js";
 
 // Exits when the desktop shell that spawned this sidecar is gone. A force-quit SIGKILLs only the
-// Tauri process and Unix doesn't cascade that to children, so the sidecar would keep holding
-// LOCAL_PORT. Active only when LIFER_WATCH_PARENT_PID is set (apps/desktop/src-tauri/src/api.rs).
+// Tauri process and the OS doesn't cascade that to children, so the sidecar would keep holding
+// LOCAL_PORT. The shell keeps our stdin pipe open, and the OS closes it however the shell dies (and
+// unlike a pid, it can't be reused). Only with LIFER_PARENT_STDIN=1, so a server, a terminal or
+// `< /dev/null` never trips it (apps/desktop/src-tauri/src/api.rs).
 export function startParentWatchdog(): void {
-  const parentPid = Number(process.env.LIFER_WATCH_PARENT_PID);
-  if (!Number.isInteger(parentPid) || parentPid <= 0) return;
-  setInterval(() => {
-    try {
-      // Signal 0 only checks that the pid exists.
-      process.kill(parentPid, 0);
-    } catch {
-      log.error(`[watchdog] parent pid ${parentPid} is gone, exiting`);
-      stopEmbeddedPostgres();
-      process.exit(0);
-    }
-  }, 3000);
+  onParentGone(() => {
+    log.error("[watchdog] the desktop app is gone, exiting");
+    stopEmbeddedPostgres();
+    process.exit(0);
+  });
+}
+
+export function onParentGone(exit: () => void): void {
+  if (process.env.LIFER_PARENT_STDIN !== "1") return;
+  process.stdin.on("end", exit);
+  process.stdin.on("close", exit);
+  process.stdin.on("error", exit);
+  process.stdin.resume();
 }
 
 // The shell's embedded Postgres would otherwise outlive a crashed app. Best effort: the next

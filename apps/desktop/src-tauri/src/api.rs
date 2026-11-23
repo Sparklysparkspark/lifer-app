@@ -161,8 +161,8 @@ fn child_env(vars: impl Iterator<Item = (String, String)>) -> HashMap<String, St
         .collect()
 }
 
-// Waits for a previous launch's API to exit (its parent-pid watchdog polls every 3s) so the new
-// child doesn't die on EADDRINUSE.
+// Waits for a previous launch's API to exit (it exits once its stdin closes) so the new child
+// doesn't die on EADDRINUSE.
 async fn wait_for_port_free(timeout: Duration) -> Result<(), String> {
     let start = Instant::now();
     loop {
@@ -208,11 +208,9 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
     envs.insert("PORT".into(), LOCAL_PORT.to_string());
     envs.insert("NODE_ENV".into(), "production".into());
     envs.insert("SINGLE_USER_MODE".into(), "1".into());
-    // A force-quit skips our exit handlers, so the sidecar polls this pid and exits once it's gone.
-    envs.insert(
-        "LIFER_WATCH_PARENT_PID".into(),
-        std::process::id().to_string(),
-    );
+    // A force-quit skips our exit handlers, but the OS still closes the sidecar's stdin pipe (held
+    // by its CommandChild), and with this set the sidecar exits when it does.
+    envs.insert("LIFER_PARENT_STDIN".into(), "1".into());
     // The desktop credential (secret) and the per-launch id /health echoes (not secret); see
     // local_credential.rs.
     envs.insert(
@@ -256,7 +254,8 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
             .await
             .map_err(|e| format!("Couldn't start the embedded database: {e}"))?;
         crate::pg_upgrade::report_setup("Preparing the database…", 0.06);
-        run_migrations(app, &resources, &url).await?;
+        let backups = migration_backups(&postgresql, &app_data_dir);
+        run_migrations(app, &resources, &url, backups).await?;
         *lock(&state.postgres) = Some(postgresql);
         crate::pg_upgrade::report_setup("Starting Lifer…", 0.97);
         url
@@ -406,12 +405,31 @@ async fn handle_unexpected_exit(app: &AppHandle, stopping: &Arc<AtomicBool>, cod
     let _ = app.emit("api-crashed", format!("{failure}\n\n{detail}"));
 }
 
+// migrate.js dumps the database with the bundled pg_dump before applying any migration to an
+// existing one. None in a dev build without bundled Postgres tools, where it just migrates.
+fn migration_backups(postgresql: &PostgreSQL, app_data_dir: &Path) -> Option<(PathBuf, PathBuf)> {
+    let (pg_ctl, _) = embedded_db::pg_ctl_and_data_dir(postgresql);
+    let exe = if cfg!(windows) {
+        "pg_dump.exe"
+    } else {
+        "pg_dump"
+    };
+    let pg_dump = pg_ctl.with_file_name(exe);
+    pg_dump.is_file().then(|| {
+        (
+            pg_dump,
+            app_data_dir.join("app-data").join("database-backups"),
+        )
+    })
+}
+
 // apps/api doesn't run migrations itself, so run data-pipeline's migrate.ts as a one-off sidecar
 // before starting the API. Idempotent via schema_migrations.
 async fn run_migrations(
     app: &AppHandle,
     resources: &Path,
     database_url: &str,
+    backups: Option<(PathBuf, PathBuf)>,
 ) -> Result<(), String> {
     use tauri::Manager;
     let migrate_entry = resources
@@ -422,6 +440,16 @@ async fn run_migrations(
 
     let mut envs = child_env(std::env::vars());
     envs.insert("DATABASE_URL".into(), database_url.to_string());
+    if let Some((pg_dump, dir)) = backups {
+        envs.insert(
+            "LIFER_PG_DUMP".into(),
+            pg_dump.to_string_lossy().into_owned(),
+        );
+        envs.insert(
+            "LIFER_DB_BACKUP_DIR".into(),
+            dir.to_string_lossy().into_owned(),
+        );
+    }
 
     let (mut rx, child) = app
         .shell()

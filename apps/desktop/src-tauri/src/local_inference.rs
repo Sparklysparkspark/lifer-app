@@ -51,10 +51,8 @@ async fn spawn(app: &AppHandle, generation: u64) -> Result<Sidecar, String> {
             .to_string_lossy()
             .into_owned(),
     );
-    envs.insert(
-        "LIFER_WATCH_PARENT_PID".into(),
-        std::process::id().to_string(),
-    );
+    // Exits when its stdin pipe (held by the CommandChild) closes, even after a force-quit.
+    envs.insert("LIFER_PARENT_STDIN".into(), "1".into());
 
     let (mut rx, child) = app
         .shell()
