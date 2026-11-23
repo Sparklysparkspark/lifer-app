@@ -50,11 +50,14 @@ vi.mock("@lifer/core/species/embeddings.js", async (importOriginal) => ({
   },
 }));
 vi.mock("sharp", () => ({
-  // A tile looks like the photo it was cut from.
-  default: (file: string) => ({
-    metadata: async () => ({ width: 100, height: 100 }),
-    extract: () => ({ jpeg: () => ({ toBuffer: async () => Buffer.from(`tile of ${file}`) }) }),
-  }),
+  // A tile looks like the photo it was cut from. `cache` is what modules call as they load.
+  default: Object.assign(
+    (file: string) => ({
+      metadata: async () => ({ width: 100, height: 100 }),
+      extract: () => ({ jpeg: () => ({ toBuffer: async () => Buffer.from(`tile of ${file}`) }) }),
+    }),
+    { cache: () => {} },
+  ),
 }));
 
 const url = process.env.TEST_DATABASE_URL;
