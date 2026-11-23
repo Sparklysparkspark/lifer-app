@@ -1,8 +1,8 @@
 // Runs only with TEST_DATABASE_URL pointing at a migrated, disposable database.
 // GET /collection/map: one pin per species per grid cell, kept where the photos were taken inside
-// the region's outline (whatever region they're filed under), led by the best photo; hidden,
-// trashed, region-only and other users' photos never make a pin. Without an outline the region's
-// subtree decides.
+// the region's outline or within 22 km of it, or filed under the region, led by the best photo;
+// hidden, trashed, region-only and other users' photos never make a pin. Without an outline the
+// region's subtree decides.
 import Fastify, { type FastifyInstance } from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -39,6 +39,9 @@ const square = (w: number, s: number, e: number, n: number) => ({
     ],
   },
 });
+
+// Degrees of latitude for km.
+const deg = (km: number) => km / ((6371.0088 * Math.PI) / 180);
 
 type Pin = { speciesId: string; count: number; photoId: string; lat: number; lon: number; taxonClass: string };
 
@@ -127,6 +130,11 @@ describe.skipIf(!url)("GET /collection/map", () => {
     // one filed under the province but taken far outside it.
     await addCapture(USER, WARBLER, { lat: 46.5, lon: 16.5, region: ELSEWHERE });
     await addCapture(USER, FOX, { lat: 30, lon: 30, region: PROVINCE });
+    // At sea off the country's south coast, filed nowhere: 10 km out counts, 30 km doesn't.
+    await addCapture(USER, FOX, { lat: 40 - deg(10), lon: 15 });
+    await addCapture(USER, FOX, { lat: 40 - deg(30), lon: 15 });
+    // Filed under the country, 500 km outside it.
+    await addCapture(USER, WARBLER, { lat: 40 - deg(500), lon: 15, region: COUNTRY });
 
     const { collectionMapRoutes } = await import("./map.js");
     app = Fastify();
@@ -140,25 +148,39 @@ describe.skipIf(!url)("GET /collection/map", () => {
     await db?.end();
   }, 60_000);
 
-  it("pins each species per place inside the region's outline", async () => {
+  it("pins each species per place in the region", async () => {
     const { status, body } = await get(COUNTRY);
     expect(status).toBe(200);
     expect(body.truncated).toBe(false);
     const pins = body.pins as Pin[];
-    expect(pins).toHaveLength(4);
+    expect(pins).toHaveLength(7);
     const warbler = pins.filter((p) => p.speciesId === WARBLER);
-    expect(warbler.map((p) => p.count).sort()).toEqual([1, 1, 2]);
+    expect(warbler.map((p) => p.count).sort()).toEqual([1, 1, 1, 2]);
     const pair = warbler.find((p) => p.count === 2)!;
     expect(pair.photoId).toBe(bestPhoto);
     expect(pair.lat).toBeCloseTo(43.00125, 4);
     expect(pins.find((p) => p.speciesId === FOX)).toMatchObject({ count: 1, taxonClass: "mammalia" });
   });
 
-  it("follows where a photo was taken, not the region it's filed under", async () => {
+  const at = (pins: Pin[], lat: number) => pins.find((p) => Math.abs(p.lat - lat) < 1e-6);
+
+  it("shows a photo taken in the region, whatever it's filed under", async () => {
+    expect(at((await get(COUNTRY)).body.pins, 46.5)?.speciesId).toBe(WARBLER);
+  });
+
+  it("shows a photo taken within 22 km of the coast, not farther out", async () => {
     const pins = (await get(COUNTRY)).body.pins as Pin[];
-    expect(pins.some((p) => Math.abs(p.lat - 46.5) < 1e-6 && p.speciesId === WARBLER)).toBe(true);
-    expect(pins.some((p) => Math.abs(p.lat - 30) < 1e-6)).toBe(false);
-    expect(((await get(PROVINCE)).body.pins as Pin[]).some((p) => Math.abs(p.lat - 30) < 1e-6)).toBe(false);
+    expect(at(pins, 40 - deg(10))?.speciesId).toBe(FOX);
+    expect(at(pins, 40 - deg(30))).toBeUndefined();
+  });
+
+  it("shows a photo filed under the region or below it, wherever it was taken", async () => {
+    const pins = (await get(COUNTRY)).body.pins as Pin[];
+    expect(at(pins, 40 - deg(500))?.speciesId).toBe(WARBLER);
+    expect(at(pins, 30)?.speciesId).toBe(FOX);
+    expect(at((await get(PROVINCE)).body.pins, 30)?.speciesId).toBe(FOX);
+    // Filed under the country, so not the province's.
+    expect(at((await get(PROVINCE)).body.pins, 40 - deg(500))).toBeUndefined();
   });
 
   it("falls back to the region's subtree when it has no outline", async () => {
@@ -169,7 +191,7 @@ describe.skipIf(!url)("GET /collection/map", () => {
 
   it("keeps to the asked-for region", async () => {
     const { body } = await get(PROVINCE);
-    expect((body.pins as Pin[]).map((p) => p.count).sort()).toEqual([1, 2]);
+    expect((body.pins as Pin[]).map((p) => p.count).sort()).toEqual([1, 1, 2]);
   });
 
   it("never shows another user's photos", async () => {
@@ -193,13 +215,27 @@ describe.skipIf(!url)("GET /collection/map", () => {
     expect(items.every((i) => i.speciesId === WARBLER)).toBe(true);
   });
 
-  it("shows no photos for a point outside the region, as it has no pin there", async () => {
+  const preview = async (regionId: string, speciesId: string, lat: number, lon: number) => {
     auth.user = USER;
     const res = await app.inject({
       method: "GET",
-      url: `/api/collection/map/photos?regionId=${PROVINCE}&speciesId=${FOX}&lat=30&lon=30`,
+      url: `/api/collection/map/photos?regionId=${regionId}&speciesId=${speciesId}&lat=${lat}&lon=${lon}`,
     });
-    expect(res.json().items).toEqual([]);
+    return res.json().items as Array<{ photoId: string }>;
+  };
+
+  it("opens each pin's own photos, whichever rule kept it", async () => {
+    const pins = (await get(COUNTRY)).body.pins as Pin[];
+    for (const pin of pins) {
+      const items = await preview(COUNTRY, pin.speciesId, pin.lat, pin.lon);
+      expect(items).toHaveLength(pin.count);
+      expect(items[0].photoId).toBe(pin.photoId);
+    }
+  });
+
+  it("shows no photos where there's no pin: far out at sea, or outside with nothing filed", async () => {
+    expect(await preview(COUNTRY, FOX, 40 - deg(30), 15)).toEqual([]);
+    expect(await preview(PROVINCE, FOX, 10, 10)).toEqual([]);
   });
 
   it("rejects a region id that isn't a uuid", async () => {

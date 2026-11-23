@@ -1,5 +1,5 @@
-// Which species pins fall inside a region's outline: a pin follows where its photos were taken,
-// not the region they're filed under. Pure, so it's tested without a database.
+// Which species pins fall in or near a region's outline: a pin follows where its photos were taken.
+// Pure, so it's tested without a database.
 import { pointInRing, ringBoundingBox, type BoundingBox, type Point } from "@lifer/core/lib/geometry.js";
 
 interface Polygon {
@@ -27,6 +27,74 @@ export function parseOutline(geojson: unknown): Outline | null {
   return out.length > 0 ? out : null;
 }
 
+/** How far outside its outline a photo still counts for a region: about 12 nautical miles, the
+ *  territorial sea, so a photo from a boat off the coast still shows. */
+export const NEAR_KM = 22;
+const EARTH_KM = 6371.0088;
+const KM_PER_DEG = (EARTH_KM * Math.PI) / 180;
+const RAD = Math.PI / 180;
+
+/** A box grown by km on every side; longitude spans the world when it would reach a pole. */
+function grow(b: BoundingBox, km: number): BoundingBox {
+  if (km <= 0) return b;
+  const dLat = km / KM_PER_DEG;
+  const minLat = Math.max(-90, b.minLat - dLat);
+  const maxLat = Math.min(90, b.maxLat + dLat);
+  const edge = Math.max(Math.abs(minLat), Math.abs(maxLat));
+  const dLon = edge >= 89 ? 360 : Math.min(360, dLat / Math.cos(edge * RAD));
+  return dLon >= 180
+    ? { minLon: -540, maxLon: 540, minLat, maxLat }
+    : { minLon: b.minLon - dLon, maxLon: b.maxLon + dLon, minLat, maxLat };
+}
+
+type Vec = [number, number, number];
+const vec = (lon: number, lat: number): Vec => [
+  Math.cos(lat * RAD) * Math.cos(lon * RAD),
+  Math.cos(lat * RAD) * Math.sin(lon * RAD),
+  Math.sin(lat * RAD),
+];
+const dot = (a: Vec, b: Vec) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a: Vec, b: Vec): Vec => [
+  a[1] * b[2] - a[2] * b[1],
+  a[2] * b[0] - a[0] * b[2],
+  a[0] * b[1] - a[1] * b[0],
+];
+const angle = (a: Vec, b: Vec) => Math.atan2(Math.hypot(...cross(a, b)), dot(a, b));
+
+/** Great-circle km from p to the arc a-b, all unit vectors. */
+function arcKm(p: Vec, a: Vec, b: Vec): number {
+  const n = cross(a, b);
+  const len = Math.hypot(...n);
+  if (len < 1e-12) return angle(p, a) * EARTH_KM;
+  const u: Vec = [n[0] / len, n[1] / len, n[2] / len];
+  // The nearest point of the whole great circle lies between a and b: the arc's distance is p's.
+  if (dot(cross(a, p), u) >= 0 && dot(cross(p, b), u) >= 0)
+    return Math.abs(Math.asin(Math.max(-1, Math.min(1, dot(p, u))))) * EARTH_KM;
+  return Math.min(angle(p, a), angle(p, b)) * EARTH_KM;
+}
+
+/** Km from the point to the ring's edge. An edge is drawn straight in lon/lat, so a long one is
+ *  measured in pieces of at most 1 degree (a seam along a parallel near a pole, say). */
+function ringKm(ring: Point[], lon: number, lat: number, within: number): number {
+  const p = vec(lon, lat);
+  const dLat = within / KM_PER_DEG;
+  let best = Infinity;
+  for (let i = 1; i < ring.length; i++) {
+    const [ax, ay] = ring[i - 1];
+    const [bx, by] = ring[i];
+    // No point of an edge is nearer than its nearest latitude.
+    if (lat < Math.min(ay, by) - dLat || lat > Math.max(ay, by) + dLat) continue;
+    const steps = Math.max(1, Math.ceil(Math.max(Math.abs(bx - ax), Math.abs(by - ay))));
+    let prev = vec(ax, ay);
+    for (let k = 1; k <= steps; k++) {
+      const next = vec(ax + ((bx - ax) * k) / steps, ay + ((by - ay) * k) / steps);
+      best = Math.min(best, arcKm(p, prev, next));
+      prev = next;
+    }
+  }
+  return best;
+}
+
 const inBox = (lon: number, lat: number, b: BoundingBox) =>
   lon >= b.minLon && lon <= b.maxLon && lat >= b.minLat && lat <= b.maxLat;
 
@@ -40,6 +108,17 @@ export function inOutline(outline: Outline, lon: number, lat: number): boolean {
   );
 }
 
+/** Whether the point is inside the outline or within km of its edge. A hole isn't the region, so a
+ *  point in a lake counts only within km of the lake's shore. */
+export function nearOutline(outline: Outline, lon: number, lat: number, km = NEAR_KM): boolean {
+  if (inOutline(outline, lon, lat)) return true;
+  return outline.some(
+    (p) =>
+      [lon, lon + 360, lon - 360].some((x) => inBox(x, lat, grow(p.box, km))) &&
+      [p.outer, ...p.holes].some((ring) => ringKm(ring, lon, lat, km) <= km),
+  );
+}
+
 export interface LonLatBox {
   w: number;
   s: number;
@@ -47,13 +126,15 @@ export interface LonLatBox {
   n: number;
 }
 
-/** The outline's bounding box for a SQL prefilter, in -180..180 with west <= east: one box, or two
- *  when the region crosses the antimeridian (Fiji, the Aleutians), so it doesn't span the world. */
-export function prefilterBoxes(outline: Outline): LonLatBox[] {
-  const s = Math.min(...outline.map((p) => p.box.minLat));
-  const n = Math.max(...outline.map((p) => p.box.maxLat));
+/** The outline's bounding box grown by km, for a SQL prefilter, in -180..180 with west <= east: one
+ *  box, or two when the region crosses the antimeridian (Fiji, the Aleutians), so it doesn't span
+ *  the world. */
+export function prefilterBoxes(outline: Outline, km = 0): LonLatBox[] {
+  const boxes = outline.map((p) => grow(p.box, km));
+  const s = Math.min(...boxes.map((b) => b.minLat));
+  const n = Math.max(...boxes.map((b) => b.maxLat));
   // Every polygon's longitudes folded into -180..180, as pieces.
-  const pieces = outline.flatMap(({ box: { minLon, maxLon } }) => {
+  const pieces = boxes.flatMap(({ minLon, maxLon }) => {
     if (maxLon - minLon >= 360) return [[-180, 180]];
     const w = ((((minLon + 180) % 360) + 360) % 360) - 180;
     const e = w + (maxLon - minLon);

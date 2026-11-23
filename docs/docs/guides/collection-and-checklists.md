@@ -48,7 +48,7 @@ Groups you already have for all of those countries are ticked and greyed out. Ti
 
 The region's map shows a pin wherever you photographed a species there, in the colour of its group (birds, mammals and so on). Nearby pins merge into a numbered circle as you zoom out.
 
-A pin goes where the photo was taken, so a photo taken inside the region shows even if it's filed under another region, and one taken outside doesn't. World and continent views have no outline, so they show the photos filed under their countries.
+A pin goes where the photo was taken. A region's map shows the photos taken inside it or at sea within 22 km of its coast, whatever region they're filed under, plus every photo filed under it, even one taken farther away. World and continent views have no outline, so they show the photos filed under their countries.
 
 - Hover a pin to see your best photo of that species there and how many you took.
 - Click a pin, or the photo in its card, to look through that species' photos from there, best first. Use the arrow keys to move between them and Esc to go back to the map. **View species**, in the card or the viewer, opens the species page.
