@@ -138,7 +138,7 @@ export default function AreaPills({
                       setQuery("");
                       onPick(area.id);
                     }}
-                    className="w-full justify-start"
+                    className="w-full justify-start text-left"
                   >
                     {area.name}
                   </Button>
