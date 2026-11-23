@@ -268,7 +268,7 @@ pub fn editors_list(window: WebviewWindow) -> Vec<EditorInfo> {
 
 fn launch(os: Os, program: &Path, files: &[PathBuf]) -> Result<(), String> {
     let mut cmd = if os == Os::Mac {
-        let mut c = Command::new("open");
+        let mut c = Command::new("/usr/bin/open");
         c.arg("-a").arg(program).arg("--");
         c
     } else {

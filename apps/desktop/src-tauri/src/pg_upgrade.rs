@@ -465,7 +465,12 @@ fn dir_size(dir: &Path) -> u64 {
 /// Free bytes on the volume holding `dir`, or None when it can't be told.
 #[cfg(unix)]
 fn free_bytes(dir: &Path) -> Option<u64> {
-    let out = Command::new("df").arg("-Pk").arg(dir).output().ok()?;
+    let df = if cfg!(target_os = "macos") {
+        "/bin/df"
+    } else {
+        "df"
+    };
+    let out = Command::new(df).arg("-Pk").arg(dir).output().ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
     let kb: u64 = text
         .lines()
@@ -816,14 +821,16 @@ fn swap(layout: &Layout, marker: &mut Marker) -> Result<(), String> {
 fn kill_stray_pg_upgrade(pid: u32) {
     #[cfg(unix)]
     {
-        let is_pg_upgrade = Command::new("ps")
+        let is_pg_upgrade = Command::new(crate::embedded_db::PS)
             .args(["-p", &pid.to_string(), "-o", "comm="])
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).contains("pg_upgrade"))
             .unwrap_or(false);
         if is_pg_upgrade {
             eprintln!("[pg_upgrade] stopping pg_upgrade {pid}, left running by a previous launch");
-            let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+            let _ = Command::new(crate::embedded_db::KILL)
+                .args(["-9", &pid.to_string()])
+                .status();
             std::thread::sleep(Duration::from_millis(500));
         }
     }

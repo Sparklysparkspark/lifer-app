@@ -27,7 +27,7 @@ async function run(command: string, args: string[]): Promise<string | null> {
 // --- macOS -------------------------------------------------------------------------------
 async function macMountPathFor(absolutePath: string): Promise<string> {
   // `df -P` resolves any path, however deep, to the mount point that contains it.
-  const output = await run("df", ["-P", absolutePath]);
+  const output = await run("/bin/df", ["-P", absolutePath]);
   return output ? parseDfMountPath(output) : "/";
 }
 
@@ -41,7 +41,7 @@ export function parseDfMountPath(output: string): string {
 }
 
 async function macVolumeId(mountPath: string): Promise<string | null> {
-  const info = await run("diskutil", ["info", mountPath]);
+  const info = await run("/usr/sbin/diskutil", ["info", mountPath]);
   if (!info) return null;
   const match = info.match(/Volume UUID:\s*([0-9A-Fa-f-]+)/);
   return match ? match[1] : null;

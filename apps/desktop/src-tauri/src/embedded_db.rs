@@ -28,6 +28,18 @@ pub fn connection_url(postgresql: &PostgreSQL) -> String {
     )
 }
 
+// Absolute on macOS, so a same-named program earlier in PATH can't stand in. Linux distros differ.
+pub(crate) const PS: &str = if cfg!(target_os = "macos") {
+    "/bin/ps"
+} else {
+    "ps"
+};
+pub(crate) const KILL: &str = if cfg!(target_os = "macos") {
+    "/bin/kill"
+} else {
+    "kill"
+};
+
 /// pg_ctl and the data dir, for the API sidecar's watchdog to stop Postgres if this app dies.
 pub fn pg_ctl_and_data_dir(postgresql: &PostgreSQL) -> (PathBuf, PathBuf) {
     let settings = postgresql.settings();
@@ -54,7 +66,7 @@ pub(crate) fn clear_stale_lock_if_dead(data_dir: &Path) {
     else {
         return;
     };
-    let alive = std::process::Command::new("kill")
+    let alive = std::process::Command::new(KILL)
         .args(["-0", &pid.to_string()])
         .status()
         .map(|s| s.success())
@@ -75,7 +87,7 @@ fn lock_pid_is_postgres(data_dir: &Path) -> bool {
     let Some(pid) = contents.lines().next().map(str::trim) else {
         return false;
     };
-    std::process::Command::new("ps")
+    std::process::Command::new(PS)
         .args(["-p", pid, "-o", "comm="])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).contains("postgres"))

@@ -8,7 +8,7 @@ const execFileAsync = promisify(execFile);
 
 export async function revealFile(absolutePath: string): Promise<void> {
   if (process.platform === "darwin") {
-    await execFileAsync("open", ["-R", absolutePath]);
+    await execFileAsync("/usr/bin/open", ["-R", absolutePath]);
   } else if (process.platform === "win32") {
     // explorer.exe exits with code 1 even when it succeeds, so its exit status is ignored.
     await execFileAsync("explorer.exe", [`/select,${absolutePath}`]).catch(() => {});
