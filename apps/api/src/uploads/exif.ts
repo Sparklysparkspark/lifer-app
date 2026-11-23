@@ -273,19 +273,21 @@ export async function computeExifFingerprint(filePath: string, tags?: ExifTags):
   return fingerprintFromTags(tags ?? (await exiftool.read(filePath)));
 }
 
-// A RAW's embedded preview, largest first (not every camera writes all three).
+// A RAW's embedded previews (not every camera writes all three, and PreviewImage is the small
+// one on some), so every tag is read and the biggest picture wins.
 const PREVIEW_TAGS = ["PreviewImage", "JpgFromRaw", "ThumbnailImage"] as const;
 
 export async function extractEmbeddedPreview(filePath: string): Promise<Buffer | null> {
+  let best: Buffer | null = null;
   for (const tag of PREVIEW_TAGS) {
     try {
       const buffer = await exiftool.extractBinaryTagToBuffer(tag, filePath);
-      if (buffer.length > 0) return await uprightPreview(buffer, filePath);
+      if (buffer.length > (best?.length ?? 0)) best = buffer;
     } catch {
       // Not in this file; try the next tag.
     }
   }
-  return null;
+  return best ? uprightPreview(best, filePath) : null;
 }
 
 // EXIF orientation values that turn the picture a quarter turn.
