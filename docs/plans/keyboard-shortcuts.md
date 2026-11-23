@@ -51,8 +51,8 @@ which is the single source of truth: no component listens for its own keys.
 | Not wildlife: leave the photo out (import review and compare) | Cmd+Backspace | Ctrl+Backspace | Import review, compare | Lifer (not S: in compare a letter starts the species search) |
 | Full screen photo | F | F | Lightbox only. Change: also Compare | Lightroom |
 | Previous, next version of the photo (prints, edits, exports) | Option+Left, Option+Right | Alt+Left, Alt+Right | Lightbox (V-18). Left and Right page photos and `[` `]` are the encounter keys, so neither fits; free in Lifer, the culling app and Lightroom | Lifer |
-| Manage versions (the Versions panel) | Shift+G | Shift+G | Lightbox, any still photo | Lifer (Lightroom's S expands a stack; S is Change species) |
-| Use the version on screen as the photo | Shift+S | Shift+S | Lightbox version strip, Versions panel | Lightroom (move to top of stack) |
+| Manage versions (the Versions panel) | Shift+A | Shift+A | Lightbox, any still photo | Lifer (alternates; Lightroom's S expands a stack but S is Change species, and Shift+G is the companion app's) |
+| Use the version on screen as the photo | Shift+U | Shift+U | Lightbox version strip, Versions panel | Lifer (Lightroom moves to top of stack; Shift+S is the companion app's) |
 | Link to another photo (as a version of it) | Cmd+G | Ctrl+G | Lightbox (opens the picker), Versions panel | Lightroom (group into stack) |
 | Split out a version | Cmd+Shift+G | Ctrl+Shift+G | Lightbox version strip, Versions panel | Lightroom (unstack) |
 | Link the focused suggested version; keep it apart | Cmd+G; Cmd+Shift+G | Ctrl+G; Ctrl+Shift+G | Import page version suggestions | Lightroom (group, unstack) |
@@ -123,7 +123,7 @@ and after), `V` (black and white).
 
 Reserved for the companion culling app, so the two apps stay consistent: `T` (show or hide the culling app's
 decision bar, Lightroom's Show/Hide Toolbar, which Lifer already reserves) and `Mod+Alt+Shift+E` (Export
-with Previous, a Lightroom chord) and `Mod+Alt+F` (the culling app's second pass view) and `H` (zoom to the animal's eye, 100 percent).
+with Previous, a Lightroom chord) and `Mod+Alt+F` (the culling app's second pass view) and `H` (zoom to the animal's eye, 100 percent) and `Shift+G` (scenes view) and `Shift+S` (split a burst).
 
 ## Conflicts in Lifer today
 

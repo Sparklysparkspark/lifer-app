@@ -163,13 +163,14 @@ export const KEYMAP: Record<KeyAction, Entry> = {
   reviewNext: { scope: "review", chords: ["ArrowDown"] },
   reviewPrevious: { scope: "review", chords: ["ArrowUp"] },
   // Photo versions (components/PhotoVersions.tsx, VersionSuggestions.tsx), on Lightroom's stack
-  // keys: Mod+G groups (links), Mod+Shift+G unstacks (splits out, keeps apart), Shift+S moves to
-  // the top of the stack. Lightroom's S (expand a stack) is Change species here, so Shift+G.
-  versionsShow: { scope: "photo", chords: ["Shift+G"] },
+  // keys: Mod+G groups (links), Mod+Shift+G unstacks (splits out, keeps apart). The two bare
+  // Shift chords are Shift+A (alternates, the Versions panel) and Shift+U (use as the photo);
+  // Shift+G and Shift+S belong to the companion app, so they stay free here.
+  versionsShow: { scope: "photo", chords: ["Shift+A"] },
   // Left and Right page photos, and [ ] are the encounter keys the culling app shares.
   versionPrevious: { scope: "photo", chords: ["Alt+ArrowLeft"] },
   versionNext: { scope: "photo", chords: ["Alt+ArrowRight"] },
-  versionUseAsPhoto: { scope: "photo", chords: ["Shift+S"] },
+  versionUseAsPhoto: { scope: "photo", chords: ["Shift+U"] },
   versionSplitOut: { scope: "photo", chords: ["Mod+Shift+G"] },
   versionLinkTo: { scope: "photo", chords: ["Mod+G"] },
   versionReviewLinkAll: { scope: "import", chords: ["Mod+Enter"] },
@@ -227,6 +228,8 @@ export const RESERVED_CHORDS: readonly string[] = [
   "Mod+E",
   "Mod+Alt+F",
   "H",
+  "Shift+G",
+  "Shift+S",
 ];
 
 /** The parts of a DOM or React keyboard event the registry reads. */

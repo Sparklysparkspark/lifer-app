@@ -47,7 +47,7 @@ test("links a print from years later by search, then splits it out and undoes", 
   await expect(strip.getByRole("radio")).toHaveCount(2);
   await page.keyboard.press("Alt+ArrowRight");
   await expect(strip.getByRole("radio", { checked: true })).toHaveText("Print 16x20");
-  await page.keyboard.press("Shift+S");
+  await page.keyboard.press("Shift+U");
   await expect(notifications.getByText("Showing Print 16x20")).toBeVisible();
   await expect(page.getByText("Shown as the photo")).toBeVisible();
 
@@ -56,8 +56,8 @@ test("links a print from years later by search, then splits it out and undoes", 
   await notifications.getByRole("button", { name: "Undo" }).last().click();
   await expect(strip.getByRole("radio")).toHaveCount(2);
 
-  // Shift+G opens the panel for the photo on screen.
-  await page.keyboard.press("Shift+G");
+  // Shift+A opens the panel for the photo on screen.
+  await page.keyboard.press("Shift+A");
   await expect(panel).toBeVisible();
   await expect(panel.getByRole("button", { name: "Link to another photo" })).toHaveCount(0);
 });
@@ -68,7 +68,7 @@ test("a photo without versions explains linking, with a way to learn more", asyn
   ]);
   await page.goto(`/gallery?tripId=${trip.id}`);
   await page.getByTestId("photo-tile").first().getByRole("img").first().click();
-  await page.keyboard.press("Shift+G");
+  await page.keyboard.press("Shift+A");
   const panel = page.getByRole("dialog", { name: "Versions" });
   await expect(panel.getByText("This photo has no other versions.")).toBeVisible();
   await expect(panel.getByText(/Link it to the photo it was made from/)).toBeVisible();
