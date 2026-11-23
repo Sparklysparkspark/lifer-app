@@ -14,20 +14,6 @@
     "fixedBy": "unassigned"
   },
   {
-    "spec": "back-navigation.spec.ts",
-    "test": "collection: search, scroll and a species, back by browser",
-    "reason": "back does not restore the scroll position",
-    "uxRule": "N1",
-    "fixedBy": "unassigned"
-  },
-  {
-    "spec": "back-navigation.spec.ts",
-    "test": "collection: search, scroll and a species, back by swipe",
-    "reason": "back does not restore the scroll position",
-    "uxRule": "N1",
-    "fixedBy": "unassigned"
-  },
-  {
     "spec": "extreme-sweep",
     "test": "collection: 300-character state chip",
     "reason": "wraps the Areas in row to three lines",

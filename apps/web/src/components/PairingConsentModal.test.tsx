@@ -58,9 +58,15 @@ describe("PairingConsentModal", () => {
     get.mockResolvedValue({ consents: [consent()] });
     render(<PairingConsentModal />);
     await screen.findByText("Allow Field Kit to connect to Lifer?");
-    fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(post).toHaveBeenCalledWith(`/plugins/v1/consents/${ID}`, { allow: false }));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    // The dialog ignores answers until it has been up for ARM_MS, so keep pressing Escape until it counts.
+    await waitFor(
+      () => {
+        fireEvent.keyDown(document, { key: "Escape" });
+        expect(post).toHaveBeenCalledWith(`/plugins/v1/consents/${ID}`, { allow: false });
+      },
+      { timeout: 4000 },
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("asks a paired app's open-inside question in a small dialog, and Yes turns it on", async () => {
@@ -74,7 +80,7 @@ describe("PairingConsentModal", () => {
     expect(screen.queryByRole("listitem")).toBeNull();
     const yes = screen.getByRole("button", { name: "Yes" });
     expect(yes.hasAttribute("disabled")).toBe(true);
-    await waitFor(() => expect(yes.hasAttribute("disabled")).toBe(false), { timeout: 2000 });
+    await waitFor(() => expect(yes.hasAttribute("disabled")).toBe(false), { timeout: 4000 });
     fireEvent.click(yes);
     await waitFor(() => expect(post).toHaveBeenCalledWith(`/plugins/v1/consents/${ID}`, { allow: true }));
     await waitFor(() => expect(pushed).toEqual([{ openInHost: true }]));
