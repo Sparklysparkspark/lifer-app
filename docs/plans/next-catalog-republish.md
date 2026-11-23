@@ -1,5 +1,38 @@
 # Next catalog republish: checklist
 
+## Status (checked 2026-11-23 against the Docker `lifer` database)
+
+Done and verified:
+
+- **1. Seasonality.** `region_species.seasonality` is gone (migration 173). Suggestions read months
+  from `weekly_frequency` (`monthlyFromWeekly`); pack schemas still accept the old field.
+- **4, 5. Index and placeholders.** Migration 169 adds `example_city`, `populous_child_id`, `aliases`
+  and indexes on `parent_id` and `home_country_id`. The web placeholders already read them.
+- **6. Description rewrites, first pass loaded.** `final/summary_notes.json` (32,433 species) is in
+  `species.summary_notes` (32,407 rows, each credited and linked; a rerun writes 0). It was never loaded before, and it was missing the
+  31 pilot species (Pileated Woodpecker, Red Fox among them): `build_summary_final.py` now merges
+  `all mine`. 26 notes are for species merged away since. Before and after for 25 species:
+  `final/sample-for-review.md`.
+- **6. Thin-source ledger.** `final/thin_species.json` (47,166 checklist species) from
+  `compose_all.py final`. It measures the v2 merge, so 622 species short in the loaded first pass
+  are not in it.
+- **6b. Catalog audit.** Dry run: 0 decisions in every pass, nothing left to apply.
+
+Still to do:
+
+- **2, 3 and alias lists (5b).** The `places` stage needs Natural Earth
+  `ne_10m_populated_places_simple.geojson` in `data/raw/natural-earth/`; it isn't there. Every region
+  has no example city and no aliases yet.
+- **6, v2 compose run.** 413 of 1,797 Haiku batches finished (stopped on rate limits). Finishing it
+  needs the API. Reload with `final/summary_notes_v2.json` only after it finishes and is reviewed.
+- **6, filler pass** for thin reptiles and fish (Reptile Database, FishBase): needs web sources and
+  licence checks.
+- **5b, 5c, 5d, 5f, 5h.** Not done. Aruba and Puerto Rico still have two rows each; BC still lists
+  Cockatiel, Black Swan and others; _Branta leucopis_ sits beside _Branta leucopsis_; fossil ducks
+  remain; 2,081 birds have no common name. 5f needs the open lists; 5h needs a rule for extinct taxa.
+- **Gallery top-up** needs iNaturalist downloads.
+- **7, 8, 9, 10** wait for the items above (a regions run means rerunning 6b, then tiers).
+
 The catalog (species, regions, rarity tiers) and region packs are held back until the **description
 rewrites** land. That's when one complete republish happens. Everything below has to be done first, in
 this order, so the republish carries it all. Ask the maintainer before running anything against the

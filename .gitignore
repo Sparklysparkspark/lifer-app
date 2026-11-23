@@ -28,6 +28,7 @@ packages/data-pipeline/data/inat-current-taxon-cache.json
 packages/data-pipeline/data/inat-taxa-cache.json
 packages/data-pipeline/data/inat-taxon-status-cache.json
 packages/data-pipeline/data/open-vectors/
+packages/data-pipeline/data/backups/
 # Applied-run records the fix scripts write next to the reviewed list; the reviewed list is tracked.
 packages/data-pipeline/data/review/*-applied-*.tsv
 
