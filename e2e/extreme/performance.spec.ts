@@ -88,7 +88,9 @@ function check(key: string, kind: Kind, values: number[]): void {
     warn(`${key}: median ${sample.median} ms is over 20% from the baseline's ${previous.median} ms`);
   }
   if (sample.median > budget) warn(`${key}: median ${sample.median} ms is over the ${budget} ms budget`);
-  // Soft, so every measurement in the test is still taken and reported.
+  // Soft, so every measurement in the test is still taken and reported. The recording job only
+  // measures: shared runners are slower than the machine the budgets were set on.
+  if (process.env.PERF_RECORD) return;
   expect.soft(sample.median, `${key} median (budget ${budget} ms)`).toBeLessThanOrEqual(budget * perf.failFactor);
 }
 

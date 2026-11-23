@@ -159,7 +159,7 @@ describe("the viewer's version switcher", () => {
   it("uses the version on screen as the photo, or splits it out, from the keys", async () => {
     openViewer();
     fireEvent.click(await screen.findByRole("radio", { name: "Black and white" }));
-    fireEvent.keyDown(window, { key: "S", code: "KeyS", shiftKey: true });
+    fireEvent.keyDown(window, { key: "U", code: "KeyU", shiftKey: true });
     await waitFor(() => expect(post).toHaveBeenCalledWith("/captures/g1/versions/show", { captureId: "v2" }));
     fireEvent.keyDown(window, { key: "G", code: "KeyG", shiftKey: true, ctrlKey: true });
     await waitFor(() => expect(post).toHaveBeenCalledWith("/captures/v2/versions/split"));
