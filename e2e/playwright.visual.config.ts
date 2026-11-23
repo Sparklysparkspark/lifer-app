@@ -6,7 +6,7 @@ import { API_PORT, BASE_URL } from "./support/constants";
 import { VISUAL_AUTH_STATE } from "./visual/visual";
 
 const CI = !!process.env.CI;
-// CI runs only the behavioural checks: screenshots differ by OS and fonts, and the baselines are made on macOS.
+// CI runs only the behavioural and accessibility checks: screenshots differ by OS and fonts, and the baselines are made on macOS.
 const BEHAVIOUR_ONLY = !!process.env.E2E_BEHAVIOUR_ONLY;
 
 const signedIn = {
@@ -39,13 +39,13 @@ export default defineConfig<{ allowPageErrors: RegExp | null }>({
     { name: "seed", testMatch: "seed.setup.ts", retries: 0 },
     {
       name: "chromium",
-      testMatch: BEHAVIOUR_ONLY ? "behaviour.spec.ts" : /\.spec\.ts$/,
+      testMatch: BEHAVIOUR_ONLY ? /(behaviour|a11y)\.spec\.ts$/ : /\.spec\.ts$/,
       dependencies: ["seed"],
       use: { ...devices["Desktop Chrome"], ...signedIn },
     },
     {
       name: "webkit",
-      testMatch: BEHAVIOUR_ONLY ? "behaviour.spec.ts" : /\.spec\.ts$/,
+      testMatch: BEHAVIOUR_ONLY ? /(behaviour|a11y)\.spec\.ts$/ : /\.spec\.ts$/,
       dependencies: ["seed"],
       // WebKit reports this ResizeObserver notice as an uncaught error; it is not one.
       use: {

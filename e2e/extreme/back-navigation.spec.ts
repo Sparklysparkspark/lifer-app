@@ -61,7 +61,8 @@ async function roundTrip(page: Page, via: Via, setUp: () => Promise<void>, open:
   }
   await goBack(page, via);
   await expect(page).toHaveURL(before.url);
-  await expect.poll(() => view(page)).toEqual(before);
+  // Generous: a search reruns in full on Back, and its picture matching is slow on a CI runner.
+  await expect.poll(() => view(page), { timeout: 30_000 }).toEqual(before);
 }
 
 const scrollDown = async (page: Page) => {
@@ -108,12 +109,16 @@ for (const via of VIAS) {
       via,
       async () => {
         await page.goto("/gallery?q=bird");
-        await expect(page.getByLabel("Search your photos by what's in them")).toHaveValue("bird");
+        await expect(page.getByLabel("Search your photos by what's in them")).toHaveValue("bird", {
+          timeout: 30_000,
+        });
         await page.waitForLoadState("networkidle");
         await scrollDown(page);
       },
       async () => {
-        await page.getByRole("navigation").getByRole("link", { name: "Stats", exact: true }).click();
+        // A real click first scrolls the browser layout's top nav into view, which moves the
+        // position being tested; the desktop layout's sidebar never scrolls away.
+        await page.getByRole("navigation").getByRole("link", { name: "Stats", exact: true }).dispatchEvent("click");
       },
     );
   });

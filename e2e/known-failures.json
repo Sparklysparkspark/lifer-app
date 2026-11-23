@@ -22,20 +22,6 @@
   },
   {
     "spec": "back-navigation.spec.ts",
-    "test": "collection: a filter in the URL survives a species, back by browser",
-    "reason": "back does not restore the scroll position",
-    "uxRule": "N1",
-    "fixedBy": "unassigned"
-  },
-  {
-    "spec": "back-navigation.spec.ts",
-    "test": "gallery: search and scroll then another page, back by browser",
-    "reason": "back does not restore the scroll position",
-    "uxRule": "N1",
-    "fixedBy": "unassigned"
-  },
-  {
-    "spec": "back-navigation.spec.ts",
     "test": "collection: search, scroll and a species, back by swipe",
     "reason": "back does not restore the scroll position",
     "uxRule": "N1",
@@ -179,6 +165,48 @@
     "test": "a smart album and a pin on a tag survive the tag being deleted",
     "reason": "applying a pinned filter replaces the Gallery URL and the filters are not read back from the URL, so Back leaves the Gallery instead of the pin (apps/web, pages/gallery/useGalleryFilters.ts)",
     "uxRule": "N1",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "a11y.spec.ts",
+    "test": "a11y: collection",
+    "reason": "page content outside a landmark: the sidebar heading and w-60 panel (axe region)",
+    "uxRule": "Y2",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "a11y.spec.ts",
+    "test": "a11y: gallery",
+    "reason": "the page header is a second banner landmark, not uniquely labelled (axe landmark-no-duplicate-banner, landmark-unique)",
+    "uxRule": "Y2",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "a11y.spec.ts",
+    "test": "a11y: albums",
+    "reason": "the page header is a second banner landmark, not uniquely labelled (axe landmark-no-duplicate-banner, landmark-unique)",
+    "uxRule": "Y2",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "a11y.spec.ts",
+    "test": "a11y: import",
+    "reason": "a landmark without a unique label and content outside landmarks (axe landmark-unique, region)",
+    "uxRule": "Y2",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "a11y.spec.ts",
+    "test": "a11y: settings",
+    "reason": "a landmark without a unique label and content outside landmarks (axe landmark-unique, region)",
+    "uxRule": "Y2",
+    "fixedBy": "unassigned"
+  },
+  {
+    "spec": "a11y.spec.ts",
+    "test": "a11y: a species page",
+    "reason": "photo tile buttons have no accessible name (axe button-name, critical), plus the duplicate banner landmark",
+    "uxRule": "Y2",
     "fixedBy": "unassigned"
   }
 ]
