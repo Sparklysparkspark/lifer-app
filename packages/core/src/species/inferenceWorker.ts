@@ -17,6 +17,10 @@ import { log } from "../lib/log.js";
 import { maxImagePixels } from "../lib/imageLimits.js";
 import { summarizeScene, type SceneShares } from "./sceneSummary.js";
 
+// Loading sharp on this thread turns libvips' process-wide cache back on, undoing image.ts on the
+// main thread; that cache keeps originals open, which on Windows blocks editing them.
+sharp.cache(false);
+
 // ---------------------------------------------------------------------------------------------
 // Protocol shared with inference.ts
 // ---------------------------------------------------------------------------------------------

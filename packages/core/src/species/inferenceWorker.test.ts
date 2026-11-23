@@ -19,6 +19,12 @@ import {
 const outcome = (box: [number, number, number, number], width = 6000, height = 4000) =>
   ({ box, width, height, presence: {} }) as Parameters<typeof cardCropFor>[0];
 
+describe("libvips cache", () => {
+  it("is off on the worker's thread, though loading sharp there turned it on", () => {
+    expect(sharp.cache()).toMatchObject({ files: { max: 0 }, items: { max: 0 } });
+  });
+});
+
 describe("cardCropFor", () => {
   it("matches the shared minimum", () => {
     expect(MIN_CARD_CROP_PERCENT).toBe(SHARED_MIN);

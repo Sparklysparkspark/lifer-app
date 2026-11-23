@@ -15,7 +15,7 @@ import { heicToJpegBuffer } from "./heic.js";
 
 // libvips' cache keeps recently read originals open, which on Windows locks them against edits,
 // moves and deletes (and blocks ejecting a card anywhere). Originals are read once per step, so it
-// buys little. Process-wide, so this covers every sharp caller.
+// buys little. Process-wide, but each thread that loads sharp turns it back on (inferenceWorker.ts).
 sharp.cache(false);
 
 const execFileAsync = promisify(execFile);

@@ -2,7 +2,18 @@
 // e2e matrix runs on: a file damaged under the same modification time, one deleted, one unreadable,
 // one edited (new time), and a whole folder gone like an unplugged drive. Each must land as the
 // table in archive-health.md says, in the API and on the Settings row and list.
-import { chmodSync, readFileSync, renameSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  chmodSync,
+  closeSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import pg from "pg";
 import { LOCAL_DATABASE_URL } from "../support/constants.js";
@@ -16,9 +27,33 @@ const CAN_LOCK = process.platform !== "win32";
 
 type Problem = { id: string; path: string; problem: "changed" | "unreadable" | "missing" };
 
+// Windows only: what holds a file that never comes free. UNKNOWN on a truncating open while an
+// in-place open works means a memory-mapped view; EBUSY on both means an open handle.
+function lockReport(target: string): string {
+  if (process.platform !== "win32") return "";
+  const run = (cmd: string, args: string[]) => {
+    try {
+      return execFileSync(cmd, args, { encoding: "utf8", timeout: 15_000 }).trim();
+    } catch (err) {
+      return `(${cmd} failed: ${(err as Error).message})`;
+    }
+  };
+  const st = statSync(target);
+  let inPlace = "opens for writing in place";
+  try {
+    closeSync(openSync(target, "r+"));
+  } catch (err) {
+    inPlace = `won't open in place either (${(err as NodeJS.ErrnoException).code})`;
+  }
+  const processes = run("tasklist", ["/FO", "CSV", "/NH"])
+    .split(/\r?\n/)
+    .filter((line) => /node|exiftool|perl|ffmpeg|MsMpEng|SearchIndexer|MsSense/i.test(line));
+  return `\nmode ${st.mode.toString(8)}, ${st.nlink} link(s), ${inPlace}\nattrib: ${run("attrib", [target])}\n${processes.join("\n")}`;
+}
+
 // Windows refuses to change a file another process still has open (the server's readers, the
 // virus scanner), so a just-imported file gets a few seconds to come free.
-async function whenFree(what: string, change: () => void): Promise<void> {
+async function whenFree(target: string, change: () => void): Promise<void> {
   for (let tries = 0; ; tries++) {
     try {
       return change();
@@ -26,9 +61,10 @@ async function whenFree(what: string, change: () => void): Promise<void> {
       const code = (err as NodeJS.ErrnoException).code;
       if (!["EBUSY", "EPERM", "UNKNOWN"].includes(code ?? "")) throw err;
       if (tries === 20)
-        throw new Error(`${what} still locked after ${tries} tries (${code}): ${(err as Error).message}`, {
-          cause: err,
-        });
+        throw new Error(
+          `${path.basename(target)} still locked after ${tries} tries (${code}): ${(err as Error).message}${lockReport(target)}`,
+          { cause: err },
+        );
       await new Promise((r) => setTimeout(r, 500));
     }
   }
@@ -89,22 +125,22 @@ test("flags damaged, unreadable and missing files, and leaves edits and unplugge
     const before = statSync(damaged);
     const bytes = readFileSync(damaged);
     bytes[Math.floor(bytes.length / 2)] ^= 0xff;
-    await whenFree("damaged.jpg", () => writeFileSync(damaged, bytes));
+    await whenFree(damaged, () => writeFileSync(damaged, bytes));
     utimesSync(damaged, before.atime, before.mtime);
     // An edit: new bytes and a new time.
     const edited = original("edited.jpg").ref;
     const editedBytes = readFileSync(edited);
     editedBytes[Math.floor(editedBytes.length / 2)] ^= 0xff;
-    await whenFree("edited.jpg", () => writeFileSync(edited, editedBytes));
+    await whenFree(edited, () => writeFileSync(edited, editedBytes));
     utimesSync(edited, new Date(), new Date(Date.now() + 3_600_000));
-    await whenFree("deleted.jpg", () => unlinkSync(original("deleted.jpg").ref));
+    await whenFree(original("deleted.jpg").ref, () => unlinkSync(original("deleted.jpg").ref));
     if (CAN_LOCK) {
       chmodSync(original("locked.jpg").ref, 0o000);
       locked.push(original("locked.jpg").ref);
     }
     // The whole folder gone, as when its drive is unplugged.
     const away = path.dirname(original("away.jpg").ref);
-    await whenFree("the Drive folder", () => renameSync(away, `${away}-unplugged`));
+    await whenFree(away, () => renameSync(away, `${away}-unplugged`));
 
     // Ninety days on: every file is due again.
     await db.query(`UPDATE originals SET checked_at = NULL WHERE id = ANY($1)`, [ids]);
