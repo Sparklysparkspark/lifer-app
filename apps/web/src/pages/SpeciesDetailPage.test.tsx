@@ -141,6 +141,24 @@ describe("SpeciesDetailPage", () => {
     );
   });
 
+  it("keeps the catalog photo one step away once your own photo is the cover", async () => {
+    const detail = speciesDetail([{ id: "cap0", photo_id: "ph0", photo_kind: "image" }], {
+      state: "collected",
+      is_target: false,
+      cover_photo_id: "ph0",
+      card_crop_x: null,
+      card_crop_y: null,
+      card_crop_size: null,
+      best_quality: null,
+    });
+    detail.species.reference_photo_url = "/api/species/sp1/reference-photo/display";
+    serve(detail);
+    renderPage();
+    await screen.findByRole("heading", { level: 1, name: "Great Blue Heron" });
+    expect(await screen.findByText("1 / 2")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Next reference photo" })).toBeTruthy();
+  });
+
   it("unmarks a species already seen from its pressed Seen toggle", async () => {
     serve(
       speciesDetail([], {

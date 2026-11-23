@@ -26,6 +26,14 @@ function heroSlides(detail: SpeciesDetail): LightboxSlide[] {
       caption: coverCapture.taken_at ? formatDate(coverCapture.taken_at) : null,
       info: captureInfo(coverCapture),
     });
+    // The catalog photo stays one click away, even when the gallery has no row for it.
+    if (species.reference_photo_url && !referencePhotos.some((p) => p.is_main))
+      slides.push({
+        url: species.reference_photo_url,
+        caption: species.reference_credit,
+        focalX: focal(species.reference_focal_x),
+        focalY: focal(species.reference_focal_y),
+      });
   } else if (species.reference_photo_url) {
     slides.push({
       url: species.reference_photo_url,
