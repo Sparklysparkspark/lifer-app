@@ -127,7 +127,8 @@ export default function GalleryPage() {
     selectAllMeta,
   } = listing;
   // Back from a photo's species page returns to the same spot in the grid.
-  useScrollMemory(!!items && items.length > 0);
+  // A search's quick pass can be a page shorter than the full answer, which would clamp the restore.
+  useScrollMemory(!!items && items.length > 0 && !searching);
   useReadyMarker(!!items);
   const photoMenu = useDropdownMenu<string>();
   const setOpenMenuKey = photoMenu.setOpenKey;

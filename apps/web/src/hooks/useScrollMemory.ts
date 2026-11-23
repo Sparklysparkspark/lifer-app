@@ -88,9 +88,10 @@ export function useScrollMemory(ready: boolean): void {
     let y = window.scrollY;
     let anchor = topAnchor();
     const save = () => write(key, { y, anchor });
+    // React Router calls the first page of a visit "default"; that entry has no key of its own.
+    const isThisEntry = () => ((window.history.state as { key?: string } | null)?.key ?? "default") === key;
     const onScroll = () => {
-      // React Router calls the first page of a visit "default"; that entry has no key of its own.
-      if (((window.history.state as { key?: string } | null)?.key ?? "default") !== key) return;
+      if (!isThisEntry()) return;
       y = window.scrollY;
       if (frame) return;
       frame = requestAnimationFrame(() => {
@@ -99,9 +100,20 @@ export function useScrollMemory(ready: boolean): void {
         save();
       });
     };
+    // Back before the next page finished loading: React only hid this page, so nothing remounts
+    // to restore it, and hiding it scrolled the window to the top.
+    let release = () => {};
+    const onPopState = () => {
+      if (!isThisEntry()) return;
+      release();
+      release = holdScroll({ y, anchor });
+    };
     window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("popstate", onPopState);
     return () => {
       window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("popstate", onPopState);
+      release();
       if (frame) cancelAnimationFrame(frame);
       save();
     };
@@ -110,28 +122,33 @@ export function useScrollMemory(ready: boolean): void {
   useEffect(() => {
     if (!ready || !saved || restored.current) return;
     restored.current = true;
-    const restore = () => {
-      if (!saved.anchor || !scrollToAnchor(saved.anchor)) window.scrollTo(0, saved.y);
-    };
-    // Two frames: the cards lay out (and fit their names) before the scroll is applied.
-    let second = 0;
-    const first = requestAnimationFrame(() => {
-      second = requestAnimationFrame(restore);
-    });
-    // Then hold that card in place as the page above it finishes loading, until the user scrolls.
-    const resize = new ResizeObserver(() => restore());
-    resize.observe(document.body);
-    const stop = () => {
-      resize.disconnect();
-      clearTimeout(timer);
-      for (const type of USER_SCROLL_EVENTS) window.removeEventListener(type, stop);
-    };
-    const timer = setTimeout(stop, SETTLE_MS);
-    for (const type of USER_SCROLL_EVENTS) window.addEventListener(type, stop, { passive: true });
-    return () => {
-      cancelAnimationFrame(first);
-      cancelAnimationFrame(second);
-      stop();
-    };
+    return holdScroll(saved);
   }, [ready, saved]);
+}
+
+/** Scrolls back to `saved` and holds it there while the page settles; returns the cleanup. */
+function holdScroll(saved: SavedScroll): () => void {
+  const restore = () => {
+    if (!saved.anchor || !scrollToAnchor(saved.anchor)) window.scrollTo(0, saved.y);
+  };
+  // Two frames: the cards lay out (and fit their names) before the scroll is applied.
+  let second = 0;
+  const first = requestAnimationFrame(() => {
+    second = requestAnimationFrame(restore);
+  });
+  // Then hold that card in place as the page above it finishes loading, until the user scrolls.
+  const resize = new ResizeObserver(() => restore());
+  resize.observe(document.body);
+  const stop = () => {
+    resize.disconnect();
+    clearTimeout(timer);
+    for (const type of USER_SCROLL_EVENTS) window.removeEventListener(type, stop);
+  };
+  const timer = setTimeout(stop, SETTLE_MS);
+  for (const type of USER_SCROLL_EVENTS) window.addEventListener(type, stop, { passive: true });
+  return () => {
+    cancelAnimationFrame(first);
+    cancelAnimationFrame(second);
+    stop();
+  };
 }
