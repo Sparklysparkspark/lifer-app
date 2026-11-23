@@ -59,9 +59,9 @@ test("rates, sorts, edits and deletes photos on a species page", async ({ page }
 
   // The lightbox, captioned with the photo's date.
   await tiles.first().locator("img").first().click();
-  await expect(page.getByRole("button", { name: "Next" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Next", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Close" }).click();
-  await expect(page.getByRole("button", { name: "Next" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Next", exact: true })).toHaveCount(0);
 
   // The tile menu: featured photo, tags and a place name.
   const menuButton = tiles.first().getByRole("button", { name: "More options" });
