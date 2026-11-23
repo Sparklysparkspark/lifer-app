@@ -33,6 +33,7 @@ vi.stubGlobal(
 
 const { default: RegionBreadcrumb } = await import("./RegionBreadcrumb");
 const { ToastContext } = await import("../../hooks/useToast");
+const { regionCollapse } = await import("../../lib/regionCollapse");
 const toast = { success: vi.fn(), error: vi.fn(), info: vi.fn(), show: vi.fn(), dismiss: vi.fn() };
 
 const entry = (region: string, taxon: string, downloaded: boolean) =>
@@ -43,7 +44,7 @@ const countries = [
   { id: "us", name: "United States" },
 ];
 
-function breadcrumb(groupCountries = countries) {
+function breadcrumb(groupCountries = countries, props: Partial<Parameters<typeof RegionBreadcrumb>[0]> = {}) {
   return (
     <MemoryRouter>
       <ToastContext.Provider value={toast}>
@@ -68,6 +69,7 @@ function breadcrumb(groupCountries = countries) {
           includeLand
           groupCountries={groupCountries}
           namingStyles={[]}
+          {...props}
         />
       </ToastContext.Provider>
     </MemoryRouter>
@@ -163,5 +165,55 @@ describe("RegionBreadcrumb Add species menu", () => {
     renderHub([]);
     expect(item().getAttribute("href")).toBe("/settings/species/downloads");
     expect(screen.getByText("No downloaded country here yet")).toBeTruthy();
+  });
+});
+
+describe("RegionBreadcrumb with a group holding one province", () => {
+  const region = (id: string, name: string, parentId: string | null, scoped = true) =>
+    ({ id, name, parentId, hasScopedChecklist: scoped }) as RegionSummary;
+  const regions = [
+    region("world", "World", null, false),
+    region("af", "Africa", "world", false),
+    region("eg", "Egypt", "af"),
+    region("coast", "The Red Sea Coast", "eg"),
+    region("bahr", "Al Bahr al Ahmar", "coast"),
+    region("delta", "The Nile Delta", "eg"),
+    region("giza", "Giza", "delta"),
+    region("cairo", "Cairo", "delta"),
+  ];
+  const collapse = regionCollapse(regions, null);
+
+  it("lists the group by its familiar name and opens the province", () => {
+    const navigateToRegion = vi.fn();
+    render(
+      breadcrumb(countries, {
+        regionId: "eg",
+        regionKnownHub: false,
+        breadcrumb: collapse.trail("eg"),
+        childRegions: collapse.areasOf("eg"),
+        navigateToRegion,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "The Red Sea Coast" }));
+    expect(navigateToRegion).toHaveBeenCalledWith("bahr");
+    expect(screen.queryByRole("button", { name: "Al Bahr al Ahmar" })).toBeNull();
+  });
+
+  it("titles the province's page with the group's name, once, and no one-pill row", () => {
+    render(
+      breadcrumb(countries, {
+        regionId: "bahr",
+        regionKnownHub: false,
+        regionMeta: { id: "bahr", name: "Al Bahr al Ahmar" } as Parameters<typeof RegionBreadcrumb>[0]["regionMeta"],
+        breadcrumb: collapse.trail("bahr"),
+        childRegions: collapse.areasOf("bahr"),
+      }),
+    );
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("The Red Sea Coast");
+    const nav = within(screen.getByRole("navigation"));
+    expect(nav.queryByText("The Red Sea Coast")).toBeNull();
+    expect(nav.getByRole("button", { name: "Egypt" })).toBeTruthy();
+    expect(screen.queryByText("Al Bahr al Ahmar")).toBeNull();
+    expect(screen.queryByText(/^Areas in/)).toBeNull();
   });
 });

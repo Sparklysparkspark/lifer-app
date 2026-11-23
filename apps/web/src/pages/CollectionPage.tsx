@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useMemo, useState, useTransition, lazy, Suspense } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState, useTransition, lazy, Suspense } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, Navigate } from "react-router-dom";
 import GroupedSpeciesGrid from "../components/GroupedSpeciesGrid";
@@ -98,6 +98,10 @@ export default function CollectionPage() {
     allRegions: tree.allRegions,
     downloadedCountryNames: tree.downloadedCountryNames,
   });
+  // A deep link or stored region naming a group with one province shows that province's page.
+  useEffect(() => {
+    if (tree.landingId !== regionId) setRegionParam(tree.landingId, { replace: true });
+  }, [tree.landingId, regionId, setRegionParam]);
   // The desktop app has no account step, which is where onboarding (map, species matching, a
   // first pack) otherwise starts, so its first run starts it here instead.
   const deploymentMode = useDeploymentMode();

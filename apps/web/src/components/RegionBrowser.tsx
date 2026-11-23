@@ -6,6 +6,7 @@ import type { RegionSummary } from "@lifer/shared";
 import { useRegions } from "../hooks/useRegions";
 import { downloadedTaxaByCountry, usePackIndex } from "../lib/packIndex";
 import { regionsReachableFrom } from "../lib/regionGrouping";
+import { regionCollapse } from "../lib/regionCollapse";
 import {
   realmsOf,
   recentRegionIds,
@@ -92,11 +93,13 @@ export default function RegionBrowser({
   const listKnown = !!restrictToIds || allowAnyRegion || !!downloadedCountryNames;
 
   const worldRegion = useMemo(() => allRegions.find((r) => r.parentId === null && r.name === "World"), [allRegions]);
-  const allChildren = useMemo(() => allRegions.filter((r) => r.parentId === regionId), [allRegions, regionId]);
-  const children = useMemo(
-    () => (availableRegionIds ? allChildren.filter((r) => availableRegionIds.has(r.id)) : allChildren),
-    [allChildren, availableRegionIds],
+  // Like the Collection, a group holding one province is listed as, and stands in for, that province.
+  const collapse = useMemo(() => regionCollapse(allRegions, availableRegionIds), [allRegions, availableRegionIds]);
+  const allChildren = useMemo(
+    () => allRegions.filter((r) => r.parentId === (regionId && collapse.target(regionId))),
+    [allRegions, regionId, collapse],
   );
+  const children = useMemo(() => (regionId ? collapse.areasOf(regionId) : []), [regionId, collapse]);
   const byId = useMemo(() => new Map(allRegions.map((r) => [r.id, r])), [allRegions]);
   const reachable = (id: string) => byId.has(id) && (!availableRegionIds || availableRegionIds.has(id));
   const results = useMemo(
@@ -132,15 +135,7 @@ export default function RegionBrowser({
       pick(results[Math.min(activeIndex, results.length - 1)].id);
     }
   }
-  const breadcrumb = useMemo(() => {
-    const trail: RegionSummary[] = [];
-    let node = regionId ? byId.get(regionId) : undefined;
-    while (node) {
-      trail.unshift(node);
-      node = node.parentId ? byId.get(node.parentId) : undefined;
-    }
-    return trail;
-  }, [byId, regionId]);
+  const breadcrumb = useMemo(() => collapse.trail(regionId), [collapse, regionId]);
 
   // A stored regionId that no longer resolves (an offloaded pack, a fresh database with new ids)
   // falls back to nothing, or to the only downloaded country when there's exactly one.

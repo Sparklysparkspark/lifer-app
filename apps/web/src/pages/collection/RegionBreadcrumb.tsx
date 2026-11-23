@@ -132,8 +132,10 @@ export default function RegionBreadcrumb({
 
   const canDrillDown = !!regionMeta?.canDrillDown && !regionMeta.hasChildren;
 
-  // The region's name is the page's title; the path above it leads back out.
+  // The region's name is the page's title; the path above it leads back out. The trail's name
+  // first: a group holding one province titles that province's page.
   const current = breadcrumb.at(-1);
+  const title = current?.name ?? regionMeta?.name;
   const stats = !regionKnownHub ? regionStats : hubStats;
 
   return (
@@ -156,7 +158,7 @@ export default function RegionBreadcrumb({
           ))}
         </nav>
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
-          <h1 className="text-large-title font-bold text-ink">{regionMeta?.name ?? current?.name}</h1>
+          <h1 className="text-large-title font-bold text-ink">{title}</h1>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             {addMenu}
             {mapToggle && (
@@ -209,7 +211,7 @@ export default function RegionBreadcrumb({
         )}
         {(children.length > 0 || canDrillDown) && (
           <AreaPills
-            label={t("collection.breadcrumb.areasIn", { region: regionMeta?.name ?? current?.name })}
+            label={t("collection.breadcrumb.areasIn", { region: title })}
             areas={children}
             withPhotos={regionsWithPhotos}
             onPick={navigateToRegion}

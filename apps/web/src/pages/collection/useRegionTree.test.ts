@@ -15,6 +15,8 @@ const REGIONS = [
   region("us", "United States", "na"),
   region("mx", "Mexico", "na"),
   region("mb", "Manitoba", "ca"),
+  region("prairies", "The Prairies", "ca"),
+  region("sk", "Saskatchewan", "prairies"),
 ];
 vi.mock("../../hooks/useRegions", () => ({
   useRegions: () => ({ regions: REGIONS, error: null, refresh: vi.fn() }),
@@ -58,5 +60,21 @@ describe("useRegionTree only offers downloaded countries", () => {
     expect([...(tree.availableRegionIds ?? [])]).not.toContain("us");
     // Nothing known at all: still nothing offered, never every country.
     expect(renderHook(() => useRegionTree("na")).result.current.children).toEqual([]);
+  });
+});
+
+describe("useRegionTree with a group holding one province", () => {
+  it("lists the group opening the province, and sends the group's own id to the province", () => {
+    index = { packs: [canadaBirds], error: null };
+    const canada = renderHook(() => useRegionTree("ca")).result.current;
+    expect(canada.children.map((r) => `${r.name}>${r.id}`)).toEqual(["Manitoba>mb", "The Prairies>sk"]);
+    const group = renderHook(() => useRegionTree("prairies")).result.current;
+    expect(group.landingId).toBe("sk");
+    expect(renderHook(() => useRegionTree("sk")).result.current.breadcrumb.at(-1)?.name).toBe("The Prairies");
+  });
+
+  it("doesn't redirect before the pack list says what's available", () => {
+    index = { packs: null, error: null };
+    expect(renderHook(() => useRegionTree("prairies")).result.current.landingId).toBe("prairies");
   });
 });

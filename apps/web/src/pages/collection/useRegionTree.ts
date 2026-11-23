@@ -4,6 +4,7 @@ import { useRegions } from "../../hooks/useRegions";
 import { downloadedTaxaByCountry, usePackIndex } from "../../lib/packIndex";
 import { countryAncestorOf, regionsReachableFrom } from "../../lib/regionGrouping";
 import { ignore } from "../../lib/ignore";
+import { regionCollapse } from "../../lib/regionCollapse";
 
 const EMPTY: RegionSummary[] = [];
 const EMPTY_NAMES: readonly string[] = [];
@@ -87,20 +88,19 @@ export function useRegionTree(regionId: string | null, fallbackCountryNames: rea
       )
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [allRegions, downloadedCountryNames]);
-  const allChildren = useMemo(() => allRegions.filter((r) => r.parentId === regionId), [allRegions, regionId]);
-  const children = useMemo(
-    () => (availableRegionIds ? allChildren.filter((r) => availableRegionIds.has(r.id)) : EMPTY),
-    [allChildren, availableRegionIds],
+  // A group holding one province lists, titles and opens as that province (see regionCollapse).
+  const collapse = useMemo(() => regionCollapse(allRegions, availableRegionIds), [allRegions, availableRegionIds]);
+  // Where a deep link or stored region to a collapsed group should land; known once packs are.
+  const landingId = regionId && availableRegionIds ? collapse.target(regionId) : regionId;
+  const allChildren = useMemo(
+    () => allRegions.filter((r) => r.parentId === (regionId && collapse.target(regionId))),
+    [allRegions, regionId, collapse],
   );
-  const breadcrumb = useMemo(() => {
-    const trail: RegionSummary[] = [];
-    let node = regionId ? regionById.get(regionId) : undefined;
-    while (node) {
-      trail.unshift(node);
-      node = node.parentId ? regionById.get(node.parentId) : undefined;
-    }
-    return trail;
-  }, [regionById, regionId]);
+  const children = useMemo(
+    () => (availableRegionIds && regionId ? collapse.areasOf(regionId) : EMPTY),
+    [availableRegionIds, regionId, collapse],
+  );
+  const breadcrumb = useMemo(() => collapse.trail(regionId), [collapse, regionId]);
 
   return {
     allRegions,
@@ -120,6 +120,7 @@ export function useRegionTree(regionId: string | null, fallbackCountryNames: rea
     allChildren,
     children,
     breadcrumb,
+    landingId,
   };
 }
 
