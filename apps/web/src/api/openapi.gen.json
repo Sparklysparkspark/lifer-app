@@ -14337,11 +14337,15 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["ignoredCount", "clusters"],
+                  "required": ["ignoredCount", "totalCount", "clusters"],
                   "properties": {
                     "ignoredCount": {
                       "type": "integer",
                       "description": "Ignored sightings not on iNaturalist, shown under Ignored"
+                    },
+                    "totalCount": {
+                      "type": "integer",
+                      "description": "Sightings in this list before the RAW filters, for the tab's count"
                     },
                     "clusters": {
                       "type": "array",
@@ -15954,7 +15958,10 @@
               "schema": {
                 "type": "object",
                 "required": ["path"],
-                "properties": { "path": { "type": "string", "minLength": 1 } },
+                "properties": {
+                  "path": { "type": "string", "minLength": 1 },
+                  "merge": { "type": "boolean", "description": "Stop watching the watched folders inside it" }
+                },
                 "additionalProperties": false
               }
             }
@@ -15965,7 +15972,24 @@
             "description": "OK",
             "content": {
               "application/json": {
-                "schema": { "type": "object", "required": ["ok"], "properties": { "ok": { "type": "boolean" } } }
+                "schema": {
+                  "type": "object",
+                  "required": ["added", "coveredBy", "contains"],
+                  "properties": {
+                    "added": { "type": "boolean" },
+                    "coveredBy": {
+                      "anyOf": [
+                        { "type": "string", "description": "A watched folder or the library that already holds it" },
+                        { "type": "null" }
+                      ]
+                    },
+                    "contains": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "description": "Watched folders inside it: replaced on merge, else not added"
+                    }
+                  }
+                }
               }
             }
           },
@@ -24154,6 +24178,122 @@
                     }
                   },
                   "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/regions/hidden-species/bulk": {
+      "delete": {
+        "summary": "DELETE /regions/hidden-species/bulk",
+        "tags": ["regions"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["items"],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["regionId", "speciesId"],
+                      "properties": {
+                        "regionId": { "type": "string", "format": "uuid" },
+                        "speciesId": { "type": "string", "format": "uuid" }
+                      }
+                    },
+                    "minItems": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["ok", "count"],
+                  "properties": { "ok": { "type": "boolean" }, "count": { "type": "integer" } }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      },
+      "post": {
+        "summary": "POST /regions/hidden-species/bulk",
+        "tags": ["regions"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["items"],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["regionId", "speciesId"],
+                      "properties": {
+                        "regionId": { "type": "string", "format": "uuid" },
+                        "speciesId": { "type": "string", "format": "uuid" }
+                      }
+                    },
+                    "minItems": 1
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["ok", "count"],
+                  "properties": { "ok": { "type": "boolean" }, "count": { "type": "integer" } }
                 }
               }
             }

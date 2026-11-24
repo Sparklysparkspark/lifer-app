@@ -4,28 +4,12 @@
     "text": "deadThumb: <img src={selected.thumbnailUrl} alt=\"\" className=\"h-8 w-8 rounded-badge object-cover\" />"
   },
   {
-    "file": "components/Appearance.tsx",
-    "text": "rawError: toast.error(err instanceof ApiError ? err.message : t(\"appearance.saveFailed\"));"
-  },
-  {
     "file": "components/CardCropEditor.tsx",
     "text": "deadThumb: <img ref={imgRef} src={photoUrl} alt=\"\" className=\"w-full\" draggable={false} onLoad={handleImageLoad} />"
   },
   {
     "file": "components/CardCropEditor.tsx",
     "text": "deadThumb: <img src={photoUrl} alt=\"\" style={cropToImageStyle(previewCrop.x, previewCrop.y, previewCrop.size)} />"
-  },
-  {
-    "file": "components/DownloadedPacksList.tsx",
-    "text": "rawError: setDeleteError(err instanceof ApiError ? err.message : t(\"offlinePacks.offload.previewFailed\"));"
-  },
-  {
-    "file": "components/LibraryFolderBanner.tsx",
-    "text": "rawError: setNote(t(\"settings.storage.location.saveForLaunchFailed\", { error: outcome.error, folder: outcome.dataDir }));"
-  },
-  {
-    "file": "components/LibraryFolderBanner.tsx",
-    "text": "rawError: {p.message}"
   },
   {
     "file": "components/NameChangedModal.tsx",
@@ -40,35 +24,7 @@
     "text": "reversibleConfirm: const ok = await confirm({"
   },
   {
-    "file": "components/SpeciesCard.tsx",
-    "text": "deadThumb: <img"
-  },
-  {
-    "file": "components/SpeciesCard.tsx",
-    "text": "deadThumb: <img"
-  },
-  {
     "file": "components/SuggestionCard.tsx",
-    "text": "deadThumb: <img"
-  },
-  {
-    "file": "components/TripFileMoveTray.tsx",
-    "text": "rawError: else if (status.error) toast.show(status.error, { tone: \"error\", durationMs: null });"
-  },
-  {
-    "file": "components/VersionSuggestions.tsx",
-    "text": "deadThumb: <img"
-  },
-  {
-    "file": "components/importReview/ClearKnownFiles.tsx",
-    "text": "reversibleConfirm: const ok = await confirm({"
-  },
-  {
-    "file": "components/importReview/ImportReviewRow.tsx",
-    "text": "deadThumb: <img"
-  },
-  {
-    "file": "components/importReview/KnownFiles.tsx",
     "text": "deadThumb: <img"
   },
   {
@@ -96,68 +52,16 @@
     "text": "rawError: toast.error(err instanceof ApiError ? err.message : t(\"inaturalist.import.createFailed\"));"
   },
   {
-    "file": "pages/ArchivedSpeciesPage.tsx",
-    "text": "reversibleConfirm: const ok = await confirm({"
-  },
-  {
     "file": "pages/CollectionsPage.tsx",
     "text": "rawError: toast.error(err instanceof ApiError ? err.message : t(\"albums.create.failed\"));"
-  },
-  {
-    "file": "pages/CollectionsPage.tsx",
-    "text": "rawError: toast.error(err instanceof ApiError ? err.message : t(\"albums.delete.failed\"));"
-  },
-  {
-    "file": "pages/CollectionsPage.tsx",
-    "text": "rawError: toast.error(err instanceof ApiError ? err.message : t(\"trips.delete.failed\"));"
-  },
-  {
-    "file": "pages/HiddenSpeciesPage.tsx",
-    "text": "reversibleConfirm: const alsoChildren = await confirm({"
-  },
-  {
-    "file": "pages/HiddenSpeciesPage.tsx",
-    "text": "reversibleConfirm: const ok = await confirm({"
-  },
-  {
-    "file": "pages/ManagePlacesPage.tsx",
-    "text": "rawError: setError(err instanceof ApiError ? err.message : t(\"managePlaces.renameFailed\"));"
-  },
-  {
-    "file": "pages/ManageTagsPage.tsx",
-    "text": "rawError: setError(err instanceof ApiError ? err.message : t(\"manageTags.renameFailed\"));"
-  },
-  {
-    "file": "pages/OfflinePacksPage.tsx",
-    "text": "rawError: setRecommendationError(err instanceof ApiError ? err.message : i18n.t(\"offlinePacks.recommend.failed\")),"
-  },
-  {
-    "file": "pages/OfflinePacksPage.tsx",
-    "text": "rawError: setStartError(err instanceof ApiError ? err.message : t(\"offlinePacks.downloaded.downloadStartFailed\"));"
   },
   {
     "file": "pages/OfflinePacksPage.tsx",
     "text": "rawError: <FormMessage error={t(\"offlinePacks.status.failed\", { error: status.error })} />"
   },
   {
-    "file": "pages/OnboardingPage.tsx",
-    "text": "rawError: <FormMessage error={t(\"onboarding.groups.downloadFailed\", { error: status.error })} />"
-  },
-  {
-    "file": "pages/OnboardingPage.tsx",
-    "text": "rawError: status?.error && <FormMessage error={t(\"onboarding.groups.downloadFailed\", { error: status.error })} />"
-  },
-  {
-    "file": "pages/ReviewPage.tsx",
-    "text": "deadThumb: <img"
-  },
-  {
     "file": "pages/SharePage.tsx",
     "text": "rawError: setUnlockError(err instanceof ApiError ? err.message : t(\"share.incorrectPassword\"));"
-  },
-  {
-    "file": "pages/SpeciesDetailPage.tsx",
-    "text": "rawError: return err instanceof ApiError ? err.message : fallback;"
   },
   {
     "file": "pages/SpeciesDetailPage.tsx",
@@ -172,56 +76,12 @@
     "text": "rawError: toast.error(err instanceof ApiError ? err.message : t(\"albums.create.failed\"));"
   },
   {
-    "file": "pages/album/useAlbumShares.ts",
-    "text": "rawError: setError(err instanceof ApiError ? err.message : \"Couldn't create this share link\");"
-  },
-  {
     "file": "pages/gallery/AdjustTimeDialog.tsx",
     "text": "deadThumb: <img"
   },
   {
-    "file": "pages/gallery/useGalleryEdits.ts",
-    "text": "rawError: setReassignError(err instanceof ApiError ? err.message : \"Couldn't reassign this photo\");"
-  },
-  {
-    "file": "pages/gallery/useGalleryEdits.ts",
-    "text": "countTemplate: if (failed > 0) setReassignError(`${failed} of ${results.length} photos couldn't be reassigned`);"
-  },
-  {
-    "file": "pages/inaturalist/ExistingObservations.tsx",
-    "text": "rawError: toast.error(err instanceof ApiError ? err.message : t(\"inaturalist.existing.failed\"));"
-  },
-  {
-    "file": "pages/inaturalist/ExistingObservations.tsx",
-    "text": "rawError: toast.error(err instanceof ApiError ? err.message : t(\"inaturalist.existing.failed\"));"
-  },
-  {
-    "file": "pages/inaturalist/ExistingObservations.tsx",
-    "text": "rawError: toast.error(err instanceof ApiError ? err.message : t(\"inaturalist.existing.failed\"));"
-  },
-  {
     "file": "pages/inaturalist/useInatLocation.ts",
     "text": "rawError: if (status.error || !status.result) toast.error(status.error ?? t(\"inaturalist.location.saveFailed\"));"
-  },
-  {
-    "file": "pages/offlinePacks/ProvinceManager.tsx",
-    "text": "rawError: setProvinceError(err instanceof ApiError ? err.message : i18n.t(\"offlinePacks.provinceManager.loadFailed\"));"
-  },
-  {
-    "file": "pages/offlinePacks/ProvinceManager.tsx",
-    "text": "rawError: setProvinceError(err instanceof ApiError ? err.message : t(\"offlinePacks.provinceManager.offloadFailed\"));"
-  },
-  {
-    "file": "pages/settings/DetailedMapsRows.tsx",
-    "text": "rawError: {removeError?.code === e.code && <FormMessage error={removeError.message} />}"
-  },
-  {
-    "file": "pages/settings/LibraryReimportSection.tsx",
-    "text": "deadThumb: <img"
-  },
-  {
-    "file": "pages/settings/StorageSettings.tsx",
-    "text": "rawError: setError(t(\"settings.storage.location.saveForLaunchFailed\", { error: outcome.error, folder: outcome.dataDir }));"
   },
   {
     "file": "pages/species/useCaptureEdits.ts",

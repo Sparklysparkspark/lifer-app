@@ -14402,6 +14402,8 @@ export interface paths {
             "application/json": {
               /** @description Ignored sightings not on iNaturalist, shown under Ignored */
               ignoredCount: number;
+              /** @description Sightings in this list before the RAW filters, for the tab's count */
+              totalCount: number;
               clusters: ({
                 /** Format: uuid */
                 speciesId: string;
@@ -16519,6 +16521,8 @@ export interface paths {
         content: {
           "application/json": {
             path: string;
+            /** @description Stop watching the watched folders inside it */
+            merge?: boolean;
           };
         };
       };
@@ -16530,7 +16534,10 @@ export interface paths {
           };
           content: {
             "application/json": {
-              ok: boolean;
+              added: boolean;
+              coveredBy: string | null;
+              /** @description Watched folders inside it: replaced on merge, else not added */
+              contains: string[];
             };
           };
         };
@@ -26983,6 +26990,144 @@ export interface paths {
     put?: never;
     post?: never;
     delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/regions/hidden-species/bulk": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /regions/hidden-species/bulk */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            items: {
+              /** Format: uuid */
+              regionId: string;
+              /** Format: uuid */
+              speciesId: string;
+            }[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+              count: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    /** DELETE /regions/hidden-species/bulk */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            items: {
+              /** Format: uuid */
+              regionId: string;
+              /** Format: uuid */
+              speciesId: string;
+            }[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+              count: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
     options?: never;
     head?: never;
     patch?: never;

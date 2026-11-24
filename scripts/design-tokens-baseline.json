@@ -260,25 +260,7 @@
   {
     "file": "apps/web/src/components/SpeciesHotspotMap.tsx",
     "kind": "colour",
-    "text": "isReliable ? `<div style=\"font-weight:600;color:#15803d\">${t(\"hotspotMap.goodChance\")}</div>` : \"\"",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/SpeciesHotspotMap.tsx",
-    "kind": "colour",
-    "text": "isSensitive ? `<div style=\"font-weight:600;color:#b45309\">${t(\"hotspotMap.sensitiveWithheld\")}</div>` : \"\"",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/SpeciesHotspotMap.tsx",
-    "kind": "colour",
     "text": "{h.isReliable && <span className=\"ml-1.5 text-green-700\">●</span>}",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/SpeciesHotspotMap.tsx",
-    "kind": "colour",
-    "text": "}${t(\"hotspotMap.recordShare\", { percent: Math.round(recordShare * 100), count: pointCount })}${recencyLine ? `<br/>${recencyLine}` : \"\"}<br/><span style=\"color:#78716c\">~${centroidLat.toFixed(3)}, ${centroidLon.toFixed(3)} ${t(\"hotspotMap.areaRadius\", { radius: areaRadiusKm })}</span></div>`,",
     "count": 1
   },
   {
@@ -432,30 +414,6 @@
     "count": 1
   },
   {
-    "file": "apps/web/src/pages/ApiKeysPage.tsx",
-    "kind": "colour",
-    "text": "className=\"shrink-0 text-rose-700 dark:text-rose-400\"",
-    "count": 2
-  },
-  {
-    "file": "apps/web/src/pages/BulkImportPage.tsx",
-    "kind": "colour",
-    "text": "<span className=\"text-amber-600 dark:text-amber-400\">{t(\"upload.raw.collision\")}</span>",
-    "count": 2
-  },
-  {
-    "file": "apps/web/src/pages/BulkImportPage.tsx",
-    "kind": "colour",
-    "text": "<span className=\"text-emerald-700 dark:text-emerald-400\">",
-    "count": 2
-  },
-  {
-    "file": "apps/web/src/pages/BulkImportPage.tsx",
-    "kind": "colour",
-    "text": "<span className=\"text-red-600 dark:text-red-400\">{r.error}</span>",
-    "count": 2
-  },
-  {
     "file": "apps/web/src/pages/TrashedPhotosPage.tsx",
     "kind": "colour",
     "text": "className=\"text-red-600 dark:text-red-400\"",
@@ -502,12 +460,6 @@
     "kind": "colour",
     "text": "className=\"text-rose-600\"",
     "count": 1
-  },
-  {
-    "file": "apps/web/src/pages/settings/StorageSettings.tsx",
-    "kind": "colour",
-    "text": "<span className={`text-footnote ${connected ? \"text-green-700 dark:text-green-400\" : \"text-muted\"}`}>",
-    "count": 2
   },
   {
     "file": "apps/web/src/pages/species/SpeciesFacts.tsx",
