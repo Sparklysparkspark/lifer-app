@@ -14364,6 +14364,14 @@ export interface paths {
         query?: {
           /** @description true lists the ignored photos instead, to restore or send them */
           ignored?: "true" | "false";
+          /** @description 0 to leave out photos whose only original is a RAW */
+          includeRaw?: "0" | "1";
+          /** @description 1 for only the photos whose only original is a RAW */
+          onlyRaw?: "0" | "1";
+          /** @description 1 for photos with a RAW original only (RAW-only photos included) */
+          onlyHasRaw?: "0" | "1";
+          /** @description 1 to leave out edited photos that have a RAW original (RAW-only photos stay) */
+          excludeHasRaw?: "0" | "1";
         };
         header?: never;
         path?: never;

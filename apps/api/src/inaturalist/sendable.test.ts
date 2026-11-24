@@ -17,4 +17,10 @@ describe("canSend", () => {
   it("skips a species iNaturalist doesn't know yet", () => {
     expect(canSend(null, null)).toBe(false);
   });
+
+  it("never sends a video or a sound recording", () => {
+    expect(canSend(null, 123, "video")).toBe(false);
+    expect(canSend(null, 123, "audio")).toBe(false);
+    expect(canSend(null, 123, "image")).toBe(true);
+  });
 });

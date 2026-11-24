@@ -192,18 +192,19 @@ export default function ObservationsTab({
     selected.has(key) ? t("inaturalist.import.deselect") : t("inaturalist.import.select");
 
   // The pictures of one observation, or of a species' observations with one from each first.
-  function showPreview(key: string) {
+  function showPreview(key: string, index = 0) {
     if (bySpecies) {
       const g = view.groups.find((x) => x.speciesId === key);
       if (!g) return;
       const each = g.items.map(previewPhotos);
       preview.open(
         previewSlides([...each.map((p) => p[0]), ...each.flatMap((p) => p.slice(1))].filter(Boolean), g.name),
+        index,
       );
       return;
     }
     const o = observations.find((x) => x.observationId === key);
-    if (o) preview.open(previewSlides(previewPhotos(o), caption(o)));
+    if (o) preview.open(previewSlides(previewPhotos(o), caption(o)), index);
   }
   const caption = (o: ObservationSummary) =>
     o.observedAt

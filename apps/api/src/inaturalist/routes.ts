@@ -39,6 +39,8 @@ import {
   type RemoteObservationLocation,
 } from "./client.js";
 import { clusterForImport, type ClusterableCapture } from "@lifer/shared";
+import { GalleryFilterQuery, rawFilterSql } from "../gallery/routes.js";
+import { filesCaptureOf } from "../lib/versionFiles.js";
 import { loadInatAccount, saveInatAccount } from "./tokenStore.js";
 import { observedOnString, observedOnToTakenAt } from "./dates.js";
 import { encodeRelayState, isAllowedReturnOrigin } from "./relayState.js";
@@ -441,12 +443,30 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
               description: "true lists the ignored photos instead, to restore or send them",
             }),
           ),
+          // The Gallery's RAW filters; a sighting is listed whole when any of its photos passes.
+          includeRaw: GalleryFilterQuery.properties.includeRaw,
+          onlyRaw: GalleryFilterQuery.properties.onlyRaw,
+          onlyHasRaw: GalleryFilterQuery.properties.onlyHasRaw,
+          excludeHasRaw: GalleryFilterQuery.properties.excludeHasRaw,
         }),
         response: replies(ImportList),
       },
     },
     async (request) => {
-      const ignored = request.query.ignored === "true";
+      const q = request.query;
+      const ignored = q.ignored === "true";
+      const passes = `(TRUE ${rawFilterSql({
+        includeRaw: q.includeRaw !== "0",
+        onlyRaw: q.onlyRaw === "1",
+        onlyHasRaw: q.onlyHasRaw === "1",
+        excludeHasRaw: q.excludeHasRaw === "1",
+      })})`;
+      // The photo's main original, as the Gallery's filters read it.
+      const mainOriginal = `LEFT JOIN LATERAL (SELECT * FROM originals lo WHERE lo.capture_id = ${filesCaptureOf("c")}
+         ORDER BY (lo.kind = 'jpeg') DESC LIMIT 1) o ON true`;
+      // Whole sightings: one passing photo keeps its sighting, so a send never splits it.
+      const keepPassing = <T extends { captureIds: string[] }>(clusters: T[], pass: Set<string>) =>
+        clusters.filter((cl) => cl.captureIds.some((id) => pass.has(id)));
       const res = await pool.query<{
         id: string;
         species_id: string;
@@ -463,16 +483,19 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
         lon: string | null;
         camera_model: string | null;
         lens: string | null;
+        passes: boolean;
       }>(
         `SELECT c.id, c.species_id, s.scientific_name, s.common_name, c.taken_at, c.current_photo_id,
               (c.lat IS NOT NULL AND c.lon IS NOT NULL) AS has_location, (s.inat_taxon_id IS NOT NULL) AS matched,
               s.taxon_class, c.location_label, rg.name AS region_name,
-              c.lat, c.lon, c.camera_model, c.lens
+              c.lat, c.lon, c.camera_model, c.lens, ${passes} AS passes
        FROM captures c
        JOIN species s ON s.id = c.species_id
        LEFT JOIN regions rg ON rg.id = c.region_id
+       ${mainOriginal}
        WHERE c.user_id = $1 AND (c.inat_ignored_at IS NOT NULL) = $2::boolean
          AND NOT EXISTS (SELECT 1 FROM capture_inaturalist_observations o WHERE o.capture_id = c.id AND o.photo_sent)
+         AND ${NOT_RECORDING}
        ORDER BY c.taken_at DESC NULLS LAST`,
         [request.user!.id, ignored],
       );
@@ -483,20 +506,32 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
         takenAt: r.taken_at,
         ...clusterFields(r),
       }));
-      const clusters = clusterForImport(captures);
+      const clusters = keepPassing(
+        clusterForImport(captures),
+        new Set(res.rows.filter((r) => r.passes).map((r) => r.id)),
+      );
       // Counted as sightings, the way the Ignored view lists them.
       const ignoredCount = ignored
         ? clusters.length
-        : clusterForImport(
-            (
-              await pool.query<ClusterRow>(
-                `SELECT c.id, c.species_id, c.taken_at, c.lat, c.lon, c.camera_model, c.lens FROM captures c
+        : await pool
+            .query<ClusterRow & { passes: boolean }>(
+              `SELECT c.id, c.species_id, c.taken_at, c.lat, c.lon, c.camera_model, c.lens, ${passes} AS passes
+                 FROM captures c
+                 ${mainOriginal}
                  WHERE c.user_id = $1 AND c.inat_ignored_at IS NOT NULL
-                   AND NOT EXISTS (SELECT 1 FROM capture_inaturalist_observations o WHERE o.capture_id = c.id AND o.photo_sent)`,
-                [request.user!.id],
-              )
-            ).rows.map((r) => ({ id: r.id, speciesId: r.species_id, takenAt: r.taken_at, ...clusterFields(r) })),
-          ).length;
+                   AND NOT EXISTS (SELECT 1 FROM capture_inaturalist_observations o WHERE o.capture_id = c.id AND o.photo_sent)
+                   AND ${NOT_RECORDING}`,
+              [request.user!.id],
+            )
+            .then(
+              ({ rows }) =>
+                keepPassing(
+                  clusterForImport(
+                    rows.map((r) => ({ id: r.id, speciesId: r.species_id, takenAt: r.taken_at, ...clusterFields(r) })),
+                  ),
+                  new Set(rows.filter((r) => r.passes).map((r) => r.id)),
+                ).length,
+            );
       const byId = new Map(res.rows.map((r) => [r.id, r]));
       const onInat = new Set(
         (reviewByUser.get(request.user!.id) ?? [])
@@ -1340,8 +1375,12 @@ let sendOwner: string | null = null;
 /** Whether a photo can go to iNaturalist now: its species is matched there, and it isn't already
  *  there. `photoSent` is null for a photo never sent, false for one whose send stopped partway (it
  *  is finished on the observation it already has), true once its photo is up. */
-export function canSend(photoSent: boolean | null, taxonId: number | null): boolean {
-  return taxonId !== null && photoSent !== true;
+// Lifer only sends photos: iNaturalist refuses video, and sound uploads aren't built.
+const RECORDING_KINDS = ["video", "audio"];
+export const NOT_RECORDING = `NOT EXISTS (SELECT 1 FROM photos rp WHERE rp.id = c.current_photo_id AND rp.kind IN ('video', 'audio'))`;
+
+export function canSend(photoSent: boolean | null, taxonId: number | null, kind: string | null = null): boolean {
+  return taxonId !== null && photoSent !== true && !RECORDING_KINDS.includes(kind ?? "");
 }
 
 async function runSendBatch(
@@ -1356,11 +1395,14 @@ async function runSendBatch(
     ClusterRow & {
       inat_taxon_id: number | null;
       linked: boolean | null;
+      kind: string | null;
     }
   >(
-    `SELECT c.id, c.species_id, c.taken_at, c.lat, c.lon, c.camera_model, c.lens, s.inat_taxon_id, o.photo_sent AS linked
+    `SELECT c.id, c.species_id, c.taken_at, c.lat, c.lon, c.camera_model, c.lens, s.inat_taxon_id, o.photo_sent AS linked,
+            p.kind
      FROM captures c
      JOIN species s ON s.id = c.species_id
+     LEFT JOIN photos p ON p.id = c.current_photo_id
      LEFT JOIN capture_inaturalist_observations o ON o.capture_id = c.id
      WHERE c.id = ANY($1::uuid[]) AND c.user_id = $2`,
     [captureIds, userId],
@@ -1368,7 +1410,7 @@ async function runSendBatch(
   // A photo already on iNaturalist is skipped. One whose send stopped partway (linked, photo not sent)
   // is sent again: sendObservation finishes that observation instead of making a second.
   // Ignored photos sent on purpose go too: the To send tab's Send all never includes them.
-  const sendable = res.rows.filter((r) => canSend(r.linked, r.inat_taxon_id));
+  const sendable = res.rows.filter((r) => canSend(r.linked, r.inat_taxon_id, r.kind));
   const result: SendBatchResult = {
     sent: 0,
     linked: 0,
@@ -1442,7 +1484,7 @@ async function sendObservation(
   /** The user chose Send anyway. Nothing is remembered: the next send is checked again. */
   ignoreExistingGuard = false,
 ): Promise<SendResult> {
-  const capturesRes = await pool.query<{
+  const found = await pool.query<{
     id: string;
     species_id: string;
     taken_at: string | null;
@@ -1455,9 +1497,10 @@ async function sendObservation(
     location_label: string | null;
     inat_observation_id: string | null;
     photo_sent: boolean | null;
+    kind: string | null;
   }>(
     `SELECT c.id, c.species_id, c.taken_at, c.taken_at_zoned, c.lat, c.lon, s.inat_taxon_id, p.display_path, c.region_id,
-                c.location_label, o.inat_observation_id, o.photo_sent
+                c.location_label, o.inat_observation_id, o.photo_sent, p.kind
          FROM captures c
          JOIN species s ON s.id = c.species_id
          LEFT JOIN photos p ON p.id = c.current_photo_id
@@ -1465,9 +1508,15 @@ async function sendObservation(
          WHERE c.id = ANY($1) AND c.user_id = $2`,
     [captureIds, userId],
   );
-  if (capturesRes.rows.length !== captureIds.length) {
+  if (found.rows.length !== captureIds.length) {
     return { ok: false, status: 404, error: "One or more captures not found" };
   }
+  // A video or sound in the sighting stays behind; its photos go.
+  const capturesRes = { rows: found.rows.filter((r) => !RECORDING_KINDS.includes(r.kind ?? "")) };
+  if (capturesRes.rows.length === 0) {
+    return { ok: false, status: 422, error: "Only photos can be sent to iNaturalist" };
+  }
+  captureIds = capturesRes.rows.map((r) => r.id);
   if (new Set(capturesRes.rows.map((r) => r.species_id)).size > 1) {
     return { ok: false, status: 400, error: "An observation's photos must all be the same species" };
   }

@@ -37,6 +37,9 @@ const USER = "eeeeeeee-0000-4000-8000-000000000821";
 const TOKEN = "lifer_test_inaturalist_send_821";
 const SPECIES_A = "eeeeeeee-0000-4000-8000-000000000822";
 const SPECIES_B = "eeeeeeee-0000-4000-8000-000000000823";
+const SPECIES_C = "eeeeeeee-0000-4000-8000-000000000824";
+const SPECIES_D = "eeeeeeee-0000-4000-8000-000000000825";
+const ALL_SPECIES = [SPECIES_A, SPECIES_B, SPECIES_C, SPECIES_D];
 
 describe.skipIf(!url)("sending captures to iNaturalist", () => {
   let app: FastifyInstance;
@@ -74,7 +77,7 @@ describe.skipIf(!url)("sending captures to iNaturalist", () => {
     const { inaturalistRoutes } = await import("./routes.js");
 
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
-    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SPECIES_A, SPECIES_B]]);
+    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [ALL_SPECIES]);
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'inat-send@test', 'x')`, [USER]);
     await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day')`, [
       hashToken(TOKEN),
@@ -116,7 +119,7 @@ describe.skipIf(!url)("sending captures to iNaturalist", () => {
     await app?.close();
     if (db) {
       await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
-      await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SPECIES_A, SPECIES_B]]);
+      await db.query(`DELETE FROM species WHERE id = ANY($1)`, [ALL_SPECIES]);
       await db.end();
     }
     const { pool } = await import("@lifer/core/db.js");
@@ -250,5 +253,96 @@ describe.skipIf(!url)("sending captures to iNaturalist", () => {
     expect(completed.observations).toContainEqual(
       expect.objectContaining({ observationId: "9001", sentLocation: false, dateFromInat: true }),
     );
+  });
+
+  it("keeps videos and sounds out of To send and sends a mixed sighting's photos only", async () => {
+    const made: Record<string, string> = {};
+    for (const kind of ["image", "video", "audio"]) {
+      const c = await db.query<{ id: string }>(
+        `INSERT INTO captures_all (user_id, species_id, fingerprint) VALUES ($1, $2, $3) RETURNING id`,
+        [USER, SPECIES_B, `inat-send-media-${kind}`],
+      );
+      const p = await db.query<{ id: string }>(
+        `INSERT INTO photos (capture_id, display_path, thumb_path, kind) VALUES ($1, $2, '/nowhere/t.webp', $3) RETURNING id`,
+        [c.rows[0].id, `/nowhere/${kind}.webp`, kind],
+      );
+      await db.query(`UPDATE captures_all SET current_photo_id = $1 WHERE id = $2`, [p.rows[0].id, c.rows[0].id]);
+      made[kind] = c.rows[0].id;
+    }
+    const listed = (await app.inject({ url: "/api/inaturalist/import", cookies: { [cookieName]: TOKEN } })).json();
+    const ids = listed.clusters.flatMap((c: { captures: Array<{ id: string }> }) => c.captures.map((x) => x.id));
+    expect(ids).toContain(made.image);
+    expect(ids).not.toContain(made.video);
+    expect(ids).not.toContain(made.audio);
+
+    const recordingsOnly = await send([made.video, made.audio]);
+    expect([recordingsOnly.statusCode, recordingsOnly.json()]).toEqual([
+      422,
+      { error: "Only photos can be sent to iNaturalist" },
+    ]);
+
+    client.createObservation.mockResolvedValueOnce("9003");
+    client.addObservationPhoto.mockClear();
+    const mixed = await send([made.image, made.video, made.audio]);
+    expect([mixed.statusCode, mixed.json().observationId]).toEqual([200, "9003"]);
+    expect(client.addObservationPhoto).toHaveBeenCalledTimes(1);
+    expect(client.addObservationPhoto).toHaveBeenCalledWith("jwt", "9003", "/nowhere/image.webp", null);
+    const linked = await db.query(
+      `SELECT capture_id FROM capture_inaturalist_observations WHERE capture_id = ANY($1)`,
+      [Object.values(made)],
+    );
+    expect(linked.rows.map((r) => r.capture_id)).toEqual([made.image]);
+  });
+
+  it("narrows To send with the Gallery's RAW filters, keeping whole sightings", async () => {
+    await db.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class, inat_taxon_id) VALUES
+         ($1, 915824, 'Sendia tertia', 'Third Sender', 'aves', 824),
+         ($2, 915825, 'Sendia quarta', 'Fourth Sender', 'aves', 825)`,
+      [SPECIES_C, SPECIES_D],
+    );
+    // edited: a JPEG with its RAW; partner: the same sighting with no RAW; plain: a lone JPEG.
+    const made: Record<string, string> = {};
+    for (const [name, species, kinds] of [
+      ["edited", SPECIES_C, ["jpeg", "raw"]],
+      ["partner", SPECIES_C, ["jpeg"]],
+      ["plain", SPECIES_D, ["jpeg"]],
+    ] as const) {
+      const c = await db.query<{ id: string }>(
+        // One minute apart: the same sighting when the species matches.
+        `INSERT INTO captures_all (user_id, species_id, fingerprint, taken_at)
+         VALUES ($1, $2, $3, '2026-05-01T08:00:00Z'::timestamptz + $4 * interval '1 minute') RETURNING id`,
+        [USER, species, `inat-send-raw-${name}`, Object.keys(made).length],
+      );
+      const p = await db.query<{ id: string }>(
+        `INSERT INTO photos (capture_id, display_path, thumb_path) VALUES ($1, '/nowhere/r.webp', '/nowhere/t.webp') RETURNING id`,
+        [c.rows[0].id],
+      );
+      await db.query(`UPDATE captures_all SET current_photo_id = $1 WHERE id = $2`, [p.rows[0].id, c.rows[0].id]);
+      for (const kind of kinds) {
+        await db.query(
+          `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size)
+           VALUES ($1, $2, 'path', $3, false, $3, 1)`,
+          [c.rows[0].id, kind, `/nowhere/${name}.${kind}`],
+        );
+      }
+      made[name] = c.rows[0].id;
+    }
+    const listed = async (query: string) => {
+      const body = (
+        await app.inject({ url: `/api/inaturalist/import?${query}`, cookies: { [cookieName]: TOKEN } })
+      ).json();
+      return body.clusters.flatMap((c: { captures: Array<{ id: string }> }) => c.captures.map((x) => x.id));
+    };
+    const withRaw = await listed("onlyHasRaw=1");
+    expect(withRaw).toEqual(expect.arrayContaining([made.edited, made.partner]));
+    expect(withRaw).not.toContain(made.plain);
+    expect(withRaw).not.toContain(captures[0]);
+    const withoutRaw = await listed("excludeHasRaw=1");
+    expect(withoutRaw).toContain(made.plain);
+    // The partner passes, so its sighting stays whole.
+    expect(withoutRaw).toContain(made.edited);
+    expect(await listed("onlyRaw=1")).toEqual([]);
+    expect(await listed("")).toEqual(expect.arrayContaining(Object.values(made)));
   });
 });

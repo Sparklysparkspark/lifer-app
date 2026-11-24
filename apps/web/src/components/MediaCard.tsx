@@ -31,6 +31,7 @@ export default function MediaCard({
   selected = false,
   markLabel,
   actions,
+  mediaOverlay,
   renderBody,
   as: Tag = "div",
   className = "",
@@ -53,6 +54,8 @@ export default function MediaCard({
   markLabel?: string;
   /** The top-right overlay row (Preview, the ⋯ menu); outside the body so it's never nested in it. */
   actions?: ReactNode;
+  /** Controls laid over the media box (outside the body, so never nested in it); positioned like the media. */
+  mediaOverlay?: ReactNode;
   /** The interactive element (a Link, button or option) given the card's class and content. */
   renderBody: (props: { className: string; children: ReactNode }) => ReactNode;
   as?: "div" | "li";
@@ -88,6 +91,9 @@ export default function MediaCard({
   return (
     <Tag className={`group relative ${className}`} role={Tag === "li" ? "none" : undefined}>
       {renderBody({ className: `${FRAME} ${selected ? CARD_SELECTED : "border-line"}`, children: content })}
+      {mediaOverlay && (
+        <div className={`pointer-events-none absolute inset-x-px top-px ${mediaClassName}`}>{mediaOverlay}</div>
+      )}
       {markLabel !== undefined && <SelectMark checked={selected} label={markLabel} />}
       {actions && <div className="absolute right-2 top-1.5 flex items-center gap-1">{actions}</div>}
     </Tag>

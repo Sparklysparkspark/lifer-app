@@ -14256,6 +14256,34 @@
                 { "type": "string", "const": "false" }
               ]
             }
+          },
+          {
+            "name": "includeRaw",
+            "in": "query",
+            "required": false,
+            "description": "0 to leave out photos whose only original is a RAW",
+            "schema": { "enum": ["0", "1"] }
+          },
+          {
+            "name": "onlyRaw",
+            "in": "query",
+            "required": false,
+            "description": "1 for only the photos whose only original is a RAW",
+            "schema": { "enum": ["0", "1"] }
+          },
+          {
+            "name": "onlyHasRaw",
+            "in": "query",
+            "required": false,
+            "description": "1 for photos with a RAW original only (RAW-only photos included)",
+            "schema": { "enum": ["0", "1"] }
+          },
+          {
+            "name": "excludeHasRaw",
+            "in": "query",
+            "required": false,
+            "description": "1 to leave out edited photos that have a RAW original (RAW-only photos stay)",
+            "schema": { "enum": ["0", "1"] }
           }
         ],
         "responses": {

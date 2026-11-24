@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
-import { api } from "../api/client";
+import { api, apiPath } from "../api/client";
+import { usePersistedState } from "../hooks/usePersistedState";
+import { DEFAULT_RAW_FILES, rawFilterParams, type EditedRawFilter, type RawFilesFilter } from "../lib/photoListFilters";
 import PageHeader from "../components/PageHeader";
 import { useSidebarLayout } from "../components/AppSidebar";
 import { docsUrl } from "../lib/docs";
@@ -72,11 +74,15 @@ export default function InaturalistPage() {
   const [lists, setLists] = useState<Lists | null>(lastLists);
   const [loadError, setLoadError] = useState(false);
   const [barSlot, setBarSlot] = useState<HTMLDivElement | null>(null);
+  // The Gallery's RAW filters, kept like the Gallery keeps them; the server applies them to To send.
+  const [rawFiles, setRawFiles] = usePersistedState<RawFilesFilter>("inatRawFiles", DEFAULT_RAW_FILES);
+  const [editedRaw, setEditedRaw] = usePersistedState<EditedRawFilter>("inatEditedRaw", "any");
+  const raw = { rawFiles, editedRaw, setRawFiles, setEditedRaw };
 
   const load = useCallback(
     () =>
       Promise.all([
-        api.get("/inaturalist/import"),
+        api.get(apiPath("/inaturalist/import", {}, rawFilterParams(rawFiles, editedRaw))),
         api.get("/inaturalist/pending"),
         api.get("/inaturalist/completed"),
         // Possible matches are extra: the page works without them.
@@ -96,7 +102,7 @@ export default function InaturalistPage() {
         },
         () => setLoadError(true),
       ),
-    [],
+    [rawFiles, editedRaw],
   );
   const connected = inat?.connected === true;
   // Photos already on iNaturalist, found by the check (started here, or by Lifer after connecting).
@@ -216,6 +222,7 @@ export default function InaturalistPage() {
       <SightingsTab
         sightings={lists.sightings}
         ignoredCount={lists.ignoredCount}
+        raw={raw}
         barSlot={barSlot}
         onChanged={load}
         matches={lists.matches}

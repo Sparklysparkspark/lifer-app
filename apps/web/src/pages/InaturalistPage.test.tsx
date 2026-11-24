@@ -91,8 +91,8 @@ beforeEach(() => {
   status.current = { available: true, connected: true, username: "birder" };
   lists = { sightings: [], ignored: [], pending: [], completed: [] };
   get.mockReset().mockImplementation(async (url: string) => {
-    if (url === "/inaturalist/import") return { clusters: lists.sightings, ignoredCount: 4 };
-    if (url === "/inaturalist/import?ignored=true") return { clusters: lists.ignored, ignoredCount: 4 };
+    if (url.startsWith("/inaturalist/import?ignored=true")) return { clusters: lists.ignored, ignoredCount: 4 };
+    if (url.startsWith("/inaturalist/import")) return { clusters: lists.sightings, ignoredCount: 4 };
     if (url === "/inaturalist/pending") return { observations: lists.pending };
     return { observations: lists.completed };
   });
@@ -461,6 +461,88 @@ describe("InaturalistPage", () => {
       renderPage("/inaturalist?tab=completed");
       fireEvent.keyDown(await screen.findByRole("option", { name: "Merlin" }), { key: " " });
       await waitFor(() => expect(shownImage()).toBe("/api/inaturalist/observations/7/photos/555"));
+    });
+  });
+
+  describe("To send cards", () => {
+    const photos = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ id: `c${i + 1}`, currentPhotoId: `p${i + 1}`, hasLocation: false }));
+    const shownImage = () =>
+      screen
+        .getAllByRole("dialog")
+        .map((d) => d.querySelector("img[src$='/display']")?.getAttribute("src"))
+        .find(Boolean);
+
+    it("opens a sighting's window with a plain click and with Enter", async () => {
+      lists.sightings = [sighting("Osprey", [capture("c1"), capture("c2")])];
+      renderPage("/inaturalist?tab=import");
+      fireEvent.click(await screen.findByRole("option", { name: "Osprey" }));
+      expect(await screen.findByRole("button", { name: "Send 2 photos" })).toBeTruthy();
+      fireEvent.keyDown(document, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      fireEvent.keyDown(screen.getByRole("option", { name: "Osprey" }), { key: "Enter" });
+      expect(await screen.findByRole("button", { name: "Send 2 photos" })).toBeTruthy();
+    });
+
+    it("stretches cards to one row height and clamps long text to two lines", async () => {
+      const long = "Very long name ".repeat(20).trim();
+      lists.sightings = [sighting(long, [capture("c1")], { placeName: "A place ".repeat(30).trim() })];
+      renderPage("/inaturalist?tab=import");
+      const card = await screen.findByRole("option", { name: long });
+      expect(screen.getByRole("listbox").className).not.toContain("items-start");
+      expect(card.className).toContain("h-full");
+      expect(within(card).getByText(long).className).toContain("line-clamp-2");
+      expect(within(card).getByText(/^A place/).className).toContain("line-clamp-2");
+    });
+
+    it("shows only cards with more than three photos a +N tile, opening every photo", async () => {
+      lists.sightings = [sighting("Osprey", photos(8)), sighting("Loon", photos(3))];
+      renderPage("/inaturalist?tab=import");
+      await screen.findByRole("option", { name: "Loon" });
+      expect(screen.getAllByRole("button", { name: /^Show all/ })).toHaveLength(1);
+      const tile = screen.getByRole("button", { name: "Show all 8 photos" });
+      fireEvent.click(tile);
+      const grid = await screen.findByRole("dialog");
+      expect(within(grid).getByText("8 photos")).toBeTruthy();
+      const thumbs = within(grid).getAllByRole("button", { name: /^Open photo/ });
+      expect(thumbs).toHaveLength(8);
+      // Not the card's own click: no sighting window opened.
+      expect(screen.queryByRole("button", { name: "Send 8 photos" })).toBeNull();
+
+      // Arrows move between the photos.
+      thumbs[0].focus();
+      fireEvent.keyDown(thumbs[0], { key: "ArrowRight" });
+      expect(document.activeElement).toBe(thumbs[1]);
+
+      // A photo opens in the viewer at that photo; Esc backs out one layer at a time.
+      fireEvent.click(within(grid).getByRole("button", { name: "Open photo 3 of 8" }));
+      await waitFor(() => expect(shownImage()).toBe("/api/photos/p3/display"));
+      fireEvent.keyDown(document, { key: "Escape" });
+      await waitFor(() => expect(screen.getAllByRole("dialog")).toHaveLength(1));
+      fireEvent.keyDown(document, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(document.activeElement).toBe(tile);
+    });
+
+    it("opens the photo grid from +N in select mode without selecting the card", async () => {
+      lists.sightings = [sighting("Osprey", photos(5))];
+      renderPage("/inaturalist?tab=import");
+      await selectMode();
+      fireEvent.click(await screen.findByRole("button", { name: "Show all 5 photos" }));
+      expect(await screen.findByRole("dialog")).toBeTruthy();
+      expect(screen.getByRole("option", { name: "Osprey" }).getAttribute("aria-selected")).toBe("false");
+    });
+
+    it("asks the server for the Gallery's RAW filters and counts them as filters", async () => {
+      lists.sightings = [sighting("Osprey", [capture("c1")])];
+      renderPage("/inaturalist?tab=import");
+      await screen.findByRole("option", { name: "Osprey" });
+      openFilters();
+      fireEvent.click(screen.getByRole("button", { name: "With RAW" }));
+      await waitFor(() => expect(get).toHaveBeenCalledWith("/inaturalist/import?onlyHasRaw=1"));
+      expect(screen.getByRole("button", { name: /^Filters/ }).textContent).toContain("1");
+      // Kept for next time, as the Gallery keeps its own.
+      expect(localStorage.getItem("lifer:inatEditedRaw")).toBe('"with"');
     });
   });
 

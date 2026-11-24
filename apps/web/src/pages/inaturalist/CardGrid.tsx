@@ -3,7 +3,7 @@
 // header, and a window showing every photo. To send, To finish and Completed all use it.
 import SelectMark from "../../components/SelectMark";
 import MediaCard, { PhotoMosaic, SelectedRing, Thumb, type MosaicPhoto } from "../../components/MediaCard";
-import { useState, type ReactNode, type RefObject } from "react";
+import { useState, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import MagnifierIcon from "../../components/MagnifierIcon";
@@ -14,6 +14,7 @@ import Modal from "../../components/Modal";
 import ActionRow, { type BarAction } from "../../components/SelectionActionRow";
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { matches, shortcutLabels } from "../../lib/keymap";
+import { useTooltip } from "../../components/Tooltip";
 
 // Cards render in pages so thousands stay quick; the photo window pages its photos too.
 export const PAGE_SIZE = 120;
@@ -47,6 +48,30 @@ export function SpeciesTrail({ speciesName, onBack }: { speciesName: string; onB
 }
 
 export type CardPhoto = MosaicPhoto;
+// The mosaic's tile count: past it the last tile shows +N and opens every photo.
+const MOSAIC_TILES = 3;
+
+/** Two lines at most, so one long name can't stretch a whole row; the full text shows on hover. */
+function Clamped({ text, className = "" }: { text: string; className?: string }) {
+  const [clamped, setClamped] = useState(false);
+  const tip = useTooltip({ label: text });
+  const enter = tip.props.onPointerEnter as (e: PointerEvent<HTMLElement>) => void;
+  return (
+    <>
+      <span
+        {...tip.props}
+        onPointerEnter={(e) => {
+          setClamped(e.currentTarget.scrollHeight > e.currentTarget.clientHeight + 1);
+          enter(e);
+        }}
+        className={`line-clamp-2 wrap-anywhere ${className}`}
+      >
+        {text}
+      </span>
+      {clamped && tip.node}
+    </>
+  );
+}
 type MenuState = { key: string; point: { x: number; y: number } | null };
 
 /** One card: a click toggles selection, Enter, Space and the magnifier preview its pictures, and a
@@ -61,6 +86,7 @@ function Card({
   onClick,
   onOpen,
   onPreview,
+  onShowAll,
   menuItems,
   menuOpen,
   menuPoint,
@@ -79,6 +105,8 @@ function Card({
   onClick: (e: { shiftKey: boolean }) => void;
   onOpen: () => void;
   onPreview: () => void;
+  /** The +N tile: every photo in a window. */
+  onShowAll: () => void;
   menuItems: MenuAction[];
   menuOpen: boolean;
   menuPoint: { x: number; y: number } | null;
@@ -98,10 +126,31 @@ function Card({
       as="li"
       media={<PhotoMosaic photos={photos} />}
       mediaClassName="aspect-[4/3]"
-      title={name}
-      lines={lines}
+      title={<Clamped text={name} />}
+      lines={lines.map((line) =>
+        typeof line === "string" ? <Clamped className="text-footnote text-muted" text={line} /> : line,
+      )}
       selected={selected}
       markLabel={selecting ? t("photoTile.select") : undefined}
+      mediaOverlay={
+        photos.length > MOSAIC_TILES && (
+          // Over the mosaic's last tile; beside the card body, so it never selects or opens the card.
+          <div className="grid h-full w-full grid-cols-3 grid-rows-2 gap-0.5">
+            {/* raw-control: the photo tile is the button; the mosaic draws the +N under it. */}
+            <button
+              type="button"
+              aria-label={t("inaturalist.import.showAllPhotos", { count: photos.length })}
+              onClick={(e) => {
+                // WebKit doesn't focus a clicked button; the window hands focus back to this tile.
+                e.currentTarget.focus();
+                onShowAll();
+              }}
+              // design-token: a light wash over the photo scrim, as the overlay pills use.
+              className="pointer-events-auto col-start-3 row-start-2 cursor-pointer transition-colors hover:bg-white/15 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+            />
+          </div>
+        )
+      }
       renderBody={({ className, children }) => (
         <div
           role="option"
@@ -201,11 +250,11 @@ export function CardGrid({
   onSelectAll: () => void;
   onClearSelection: () => void;
   onOpen: (key: string) => void;
-  /** The card's pictures in the Lightbox. */
-  onPreview: (key: string) => void;
+  /** The card's pictures in the Lightbox, from one of them. */
+  onPreview: (key: string, index?: number) => void;
   /** Select mode (the toolbar's Select): ticks show and clicks toggle. */
   selecting: boolean;
-  /** Species cards: outside select mode a click opens the species. */
+  /** Outside select mode a click opens the card (a species, or a sighting's window) instead of previewing. */
   clickOpens?: boolean;
   /** The smallest card width, from the View menu's size. */
   cardWidth?: number;
@@ -214,6 +263,7 @@ export function CardGrid({
   const [shown, setShown] = useState(PAGE_SIZE);
   // One card menu open at a time, from its ⋯ button or a right-click.
   const menu = useDropdownMenu<MenuState>();
+  const [allOf, setAllOf] = useState<GridCard | null>(null);
   return (
     <>
       <ul
@@ -231,7 +281,8 @@ export function CardGrid({
             onSelectAll();
           }
         }}
-        className="grid items-start gap-3"
+        // Rows stretch every card to the tallest; the clamped text keeps that bounded.
+        className="grid gap-3"
         style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, 1fr))` }}
       >
         {cards.slice(0, shown).map((c) => (
@@ -246,6 +297,7 @@ export function CardGrid({
             onClick={(e) => onToggle(c.key, e.shiftKey)}
             onOpen={() => onOpen(c.key)}
             onPreview={() => onPreview(c.key)}
+            onShowAll={() => setAllOf(c)}
             menuItems={c.menu}
             menuOpen={menu.openKey?.key === c.key}
             menuPoint={menu.openKey?.key === c.key ? menu.openKey.point : null}
@@ -259,8 +311,32 @@ export function CardGrid({
           {t("manageList.showMore", { count: Math.min(PAGE_SIZE, cards.length - shown) })}
         </Button>
       )}
+      {allOf && (
+        <PhotoWindow
+          name={allOf.name}
+          info={[t("inaturalist.photoCount", { count: allOf.photos.length })]}
+          photos={allOf.photos}
+          // The Lightbox only has the photos that exist, so count those before the clicked one.
+          onPhotoOpen={(i) => onPreview(allOf.key, allOf.photos.slice(0, i).filter((p) => p.photoId).length)}
+          footer={null}
+          onClose={() => setAllOf(null)}
+        />
+      )}
     </>
   );
+}
+
+/** Arrow keys move between a photo grid's buttons, a row at a time for up and down. */
+function moveFocus(e: KeyboardEvent<HTMLUListElement>) {
+  const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -2, ArrowDown: 2 }[e.key];
+  if (!step) return;
+  const buttons = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
+  const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  if (at < 0) return;
+  const columns = getComputedStyle(e.currentTarget).gridTemplateColumns.split(" ").filter(Boolean).length || 1;
+  const next = at + (Math.abs(step) === 2 ? Math.sign(step) * columns : step);
+  e.preventDefault();
+  buttons[Math.max(0, Math.min(buttons.length - 1, next))]?.focus();
 }
 
 // Esc, or Select None's Mod+Shift+A, clears the selection (useCardSelection).
@@ -335,6 +411,7 @@ export function PhotoWindow({
   onExcludedChange,
   extra,
   footer,
+  onPhotoOpen,
   onClose,
 }: {
   name: string;
@@ -347,6 +424,8 @@ export function PhotoWindow({
   excludedIds?: Set<string>;
   onExcludedChange?: (ids: Set<string>) => void;
   footer: ReactNode;
+  /** Without picking, a click on a photo opens it at that index. */
+  onPhotoOpen?: (index: number) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -401,8 +480,27 @@ export function PhotoWindow({
             </Button>
           </>
         )}
-        <ul className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))" }}>
+        <ul
+          className="grid gap-1.5"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))" }}
+          onKeyDown={moveFocus}
+        >
           {photos.slice(0, shown).map((p, i) => {
+            if (!picking && onPhotoOpen) {
+              return (
+                <li key={p.id}>
+                  {/* raw-control: the whole photo is the button, as the picking toggle below. */}
+                  <button
+                    type="button"
+                    aria-label={t("inaturalist.import.openPhoto", { n: i + 1, count: total })}
+                    onClick={() => onPhotoOpen(i)}
+                    className="block aspect-square w-full cursor-pointer overflow-hidden rounded-control transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    <Thumb photoId={p.photoId} className="h-full w-full" />
+                  </button>
+                </li>
+              );
+            }
             if (!picking) {
               return (
                 <li key={p.id}>

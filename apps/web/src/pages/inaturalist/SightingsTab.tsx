@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -17,6 +17,13 @@ import { FilterSelect, InatToolbar, TaxonFilter } from "./Toolbar";
 import { taxaIn, useInatView } from "./viewPrefs";
 import { previewSlides, usePhotoPreview, type PreviewPhoto } from "./photoPreview";
 import { Spinner } from "../../components/LoadingScreen";
+import { RawFilterFields } from "../../components/PhotoGridControls";
+import {
+  DEFAULT_RAW_FILES,
+  rawFilterParams,
+  type EditedRawFilter,
+  type RawFilesFilter,
+} from "../../lib/photoListFilters";
 import { formatDate, formatDateSpan } from "../../lib/format";
 import { useSpeciesName } from "../../lib/speciesName";
 import { useToast } from "../../hooks/useToast";
@@ -78,6 +85,7 @@ const sendIcon = (
 export default function SightingsTab({
   sightings,
   ignoredCount,
+  raw,
   barSlot,
   onChanged,
   matches,
@@ -85,6 +93,13 @@ export default function SightingsTab({
 }: {
   sightings: Sighting[];
   ignoredCount: number;
+  /** The Gallery's RAW filters; the page loads the lists with them, so the server applies them. */
+  raw: {
+    rawFiles: RawFilesFilter;
+    editedRaw: EditedRawFilter;
+    setRawFiles: (value: RawFilesFilter) => void;
+    setEditedRaw: (value: EditedRawFilter) => void;
+  };
   /** Photos that may already be on iNaturalist, for the Maybe on iNaturalist view. */
   matches: PossibleMatch[];
   check: ReturnType<typeof useExistingCheck>;
@@ -119,14 +134,18 @@ export default function SightingsTab({
   const [detailKey, setDetailKey] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
-  const loadIgnored = () =>
-    api.get(apiPath("/inaturalist/import", {}, { ignored: "true" })).then(
-      (r) => setIgnored(r.clusters),
-      () => setIgnored([]),
-    );
+  const { rawFiles, editedRaw } = raw;
+  const loadIgnored = useCallback(
+    () =>
+      api.get(apiPath("/inaturalist/import", {}, { ignored: "true", ...rawFilterParams(rawFiles, editedRaw) })).then(
+        (r) => setIgnored(r.clusters),
+        () => setIgnored([]),
+      ),
+    [rawFiles, editedRaw],
+  );
   useEffect(() => {
     if (show !== "waiting") void loadIgnored();
-  }, [show, ignoredCount]);
+  }, [show, ignoredCount, loadIgnored]);
 
   const ignoredKeys = useMemo(() => new Set((ignored ?? []).map(sightingKey)), [ignored]);
   const isIgnored = (s: Sighting) => ignoredKeys.has(sightingKey(s));
@@ -165,8 +184,12 @@ export default function SightingsTab({
     (dateFilter !== "all" ? 1 : 0) +
     (matchedFilter !== "all" ? 1 : 0) +
     (show !== "waiting" ? 1 : 0) +
-    (taxa.size > 0 ? 1 : 0);
+    (taxa.size > 0 ? 1 : 0) +
+    (raw.rawFiles !== DEFAULT_RAW_FILES ? 1 : 0) +
+    (raw.editedRaw !== "any" ? 1 : 0);
   function clearFilters() {
+    raw.setRawFiles(DEFAULT_RAW_FILES);
+    raw.setEditedRaw("any");
     setLocationFilter("all");
     setDateFilter("all");
     setMatchedFilter("all");
@@ -332,18 +355,19 @@ export default function SightingsTab({
     s.earliestTakenAt
       ? t("inaturalist.previewCaption", { name: speciesName(s), date: formatDate(s.earliestTakenAt) })
       : speciesName(s);
-  function showPreview(key: string) {
+  function showPreview(key: string, index = 0) {
     if (bySpecies) {
       const g = speciesView.groups.find((x) => x.speciesId === key);
       if (!g) return;
       const each = g.items.map(photosOf);
       preview.open(
         previewSlides([...each.map((p) => p[0]), ...each.flatMap((p) => p.slice(1))].filter(Boolean), g.name),
+        index,
       );
       return;
     }
     const s = byKey.get(key);
-    if (s) preview.open(previewSlides(photosOf(s), caption(s)));
+    if (s) preview.open(previewSlides(photosOf(s), caption(s)), index);
   }
 
   const cardMenu = (s: Sighting): MenuAction[] => {
@@ -545,6 +569,13 @@ export default function SightingsTab({
                   ]}
                 />
                 <TaxonFilter available={available} selected={taxa} onChange={setTaxa} />
+                <RawFilterFields
+                  rawFiles={raw.rawFiles}
+                  editedRaw={raw.editedRaw}
+                  onRawFilesChange={raw.setRawFiles}
+                  onEditedRawChange={raw.setEditedRaw}
+                  sectionHeading
+                />
               </>
             }
           />
@@ -629,7 +660,8 @@ export default function SightingsTab({
           onOpen={bySpecies ? speciesView.drill.open : setDetailKey}
           onPreview={showPreview}
           selecting={selecting}
-          clickOpens={bySpecies}
+          // A click opens the sighting's window, the same as Enter; the magnifier and Space preview.
+          clickOpens
           cardWidth={viewPrefs.cardSize}
         />
       )}

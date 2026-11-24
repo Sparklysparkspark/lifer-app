@@ -32,5 +32,8 @@ export function usePhotoPreview() {
       onClose={() => setState(null)}
     />
   );
-  return { open: (slides: LightboxSlide[]) => setState({ slides, index: 0 }), isOpen: state !== null, node };
+  // Past the end (a species previews at most its cap) falls back to the last slide.
+  const open = (slides: LightboxSlide[], index = 0) =>
+    setState({ slides, index: Math.max(0, Math.min(index, slides.length - 1)) });
+  return { open, isOpen: state !== null, node };
 }

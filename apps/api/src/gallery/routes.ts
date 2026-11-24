@@ -510,6 +510,22 @@ export function galleryFilterSql(f: GalleryFilters, param: (v: unknown) => strin
           .filter(Boolean)
           .join(" OR ")})`
       : "",
+    rawFilterSql(f),
+    f.onlyVideo ? "AND p.kind = 'video'" : "",
+    f.onlyAudio ? "AND p.kind = 'audio'" : "",
+    // The Photos choice: recordings are their own media type.
+    f.excludeVideo ? "AND p.kind NOT IN ('video', 'audio')" : "",
+  ]
+    .filter(Boolean)
+    .join("\n           ");
+}
+
+/** The RAW filters as AND clauses over capture `c` and its main original `o` (GALLERY_ITEM_JOINS'),
+ *  shared with the iNaturalist To send list so both read the same. */
+export function rawFilterSql(
+  f: Pick<GalleryFilters, "includeRaw" | "onlyRaw" | "onlyHasRaw" | "excludeHasRaw">,
+): string {
+  return [
     // `o` is the photo's main original, the edited one when there is one: a RAW there means the
     // RAW is all the photo has.
     f.includeRaw ? "" : "AND o.kind IS DISTINCT FROM 'raw'",
@@ -520,13 +536,9 @@ export function galleryFilterSql(f: GalleryFilters, param: (v: unknown) => strin
       : f.onlyHasRaw
         ? `AND EXISTS (SELECT 1 FROM originals hr WHERE ${RAW_OF_PHOTO("hr")})`
         : "",
-    f.onlyVideo ? "AND p.kind = 'video'" : "",
-    f.onlyAudio ? "AND p.kind = 'audio'" : "",
-    // The Photos choice: recordings are their own media type.
-    f.excludeVideo ? "AND p.kind NOT IN ('video', 'audio')" : "",
   ]
     .filter(Boolean)
-    .join("\n           ");
+    .join(" ");
 }
 
 // /gallery sort orders. Unrated sorts as a middle 3 so it doesn't sink to either end. c.id breaks

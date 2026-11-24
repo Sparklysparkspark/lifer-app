@@ -119,11 +119,11 @@ function SidebarIcon() {
 function AppLogo({ src, srcDark }: { src: string; srcDark?: string }) {
   return (
     <>
-      {/* design-token: the same 18px as the line icons beside it. */}
       <img
         src={src}
         alt=""
         aria-hidden="true"
+        // design-token: the same 18px as the line icons beside it.
         className={`h-[18px] w-[18px] shrink-0 object-contain ${srcDark ? "dark:hidden" : ""}`}
       />
       {srcDark && (
@@ -131,6 +131,7 @@ function AppLogo({ src, srcDark }: { src: string; srcDark?: string }) {
           src={srcDark}
           alt=""
           aria-hidden="true"
+          // design-token: the same 18px as the line icons beside it.
           className="hidden h-[18px] w-[18px] shrink-0 object-contain dark:block"
         />
       )}
