@@ -87,13 +87,19 @@ interface Row {
 // Same species set as GET /collection (its CTE, WHERE and joins); collected is state = 'collected',
 // as GET /collection/count counts it. Photos are visible captures (the `captures` view hides trash);
 // the best one uses the shared order. With a region ($4), only the species on its checklist or one
-// inside it, or that you photographed or added there, less those you hid there.
-const treeSql = (maxDepthM: number) => `WITH RECURSIVE ${regionTreeCte("region_tree", "$4::uuid")},
+// inside it, or that you photographed or added there, less those you hid there. The region is a
+// join, not an IN inside an OR, which Postgres rescans per species once a continent's rows outgrow
+// work_mem.
+const treeSql = (maxDepthM: number, inRegion: boolean) => `WITH RECURSIVE ${
+  inRegion
+    ? `${regionTreeCte("region_tree", "$4::uuid")},
   in_region AS (
     SELECT species_id FROM region_species WHERE region_id IN (SELECT id FROM region_tree)
     UNION ${capturedInTreeSql("$1", "true")}
     UNION ${userAddedInTreeSql("$1")}
-  ),
+  ),`
+    : ""
+}
   ${UNLOCKED_SPECIES_CTE}
   SELECT s.id AS species_id, s.scientific_name, s.common_name, s.taxon_class, s.taxon_order, s.family,
     COALESCE(us.state = 'collected', false) AS is_collected,
@@ -104,6 +110,7 @@ const treeSql = (maxDepthM: number) => `WITH RECURSIVE ${regionTreeCte("region_t
     us.first_collected AS first_photographed,
     best.photo_id AS best_photo_id, best.quality_rating AS best_rating, best.taken_at AS best_taken_at
   FROM species s
+  ${inRegion ? "JOIN in_region ir ON ir.species_id = s.id" : ""}
   LEFT JOIN species_traits t ON t.species_id = s.id
   LEFT JOIN species_rarity r ON r.species_id = s.id
   LEFT JOIN user_tier_overrides uto ON uto.user_id = $1 AND uto.species_id = s.id AND uto.region_id IS NULL
@@ -115,9 +122,12 @@ const treeSql = (maxDepthM: number) => `WITH RECURSIVE ${regionTreeCte("region_t
     ORDER BY ${BEST_PHOTO_ORDER} LIMIT 1
   ) best ON true
   ${COLLECTION_WHERE(maxDepthM)}
-    AND ($4::uuid IS NULL OR (s.id IN (SELECT species_id FROM in_region)
-      AND (${ALREADY_OWNED_SQL} OR NOT EXISTS (SELECT 1 FROM region_species_hidden h
-        WHERE h.user_id = $1 AND h.species_id = s.id AND h.region_id = $4))))
+    ${
+      inRegion
+        ? `AND (${ALREADY_OWNED_SQL} OR NOT EXISTS (SELECT 1 FROM region_species_hidden h
+        WHERE h.user_id = $1 AND h.species_id = s.id AND h.region_id = $4))`
+        : ""
+    }
   ORDER BY s.scientific_name`;
 
 const csvField = (v: string | number | Date | null): string => {
@@ -239,12 +249,11 @@ export async function collectionTreeRoutes(fastify: FastifyInstance): Promise<vo
     async (request, reply) => {
       const userId = request.user!.id;
       const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
-      const { rows } = await pool.query<Row>(treeSql(maxDepthM), [
-        userId,
-        null,
-        hideObscure,
-        request.query.regionId ?? null,
-      ]);
+      const { regionId } = request.query;
+      const { rows } = await pool.query<Row>(
+        treeSql(maxDepthM, !!regionId),
+        regionId ? [userId, null, hideObscure, regionId] : [userId, null, hideObscure],
+      );
       const collectedRows = rows.filter((r) => r.is_collected);
 
       if (request.query.format === "csv") {

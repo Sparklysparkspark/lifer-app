@@ -17,6 +17,9 @@ const SP_E = "eeeeeeee-0000-4000-8000-000000000b0e";
 const TOKEN = "lifer_test_collection_tree_b01";
 const COUNTRY = "eeeeeeee-0000-4000-8000-000000000b1a";
 const PROVINCE = "eeeeeeee-0000-4000-8000-000000000b1b";
+// A continent-sized checklist: more species than fit in work_mem below.
+const BIG = 20000;
+const BIG_GBIF = 92090000;
 
 describe.skipIf(!url)("collection tree", () => {
   let app: FastifyInstance;
@@ -32,10 +35,13 @@ describe.skipIf(!url)("collection tree", () => {
     await db.query(`DELETE FROM region_species WHERE region_id = ANY($1)`, [[COUNTRY, PROVINCE]]);
     await db.query(`DELETE FROM regions WHERE id = ANY($1)`, [[PROVINCE, COUNTRY]]);
     await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SP_A, SP_B, SP_C, SP_D, SP_E]]);
+    await db.query(`DELETE FROM species WHERE gbif_key >= $1 AND gbif_key < $1 + $2`, [BIG_GBIF, BIG]);
   }
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = url;
+    // A tiny work_mem stands in for a full catalogue outgrowing the default; the timeout turns a
+    // runaway region query into a failure instead of a hang.
+    process.env.DATABASE_URL = `${url}${url!.includes("?") ? "&" : "?"}options=-c%20work_mem%3D64kB%20-c%20statement_timeout%3D5000`;
     process.env.SINGLE_USER_MODE = "0";
     db = new pg.Pool({ connectionString: url });
     const { hashToken } = await import("../auth/session.js");
@@ -177,6 +183,21 @@ describe.skipIf(!url)("collection tree", () => {
     expect(leaves(province.tree)).toEqual(["Handus addedus"]);
     expect((await get("/api/collection/tree?regionId=nope")).statusCode).toBe(400);
   });
+
+  it("answers a region with a checklist larger than work_mem in seconds", async () => {
+    await db.query(
+      `WITH s AS (
+         INSERT INTO species (gbif_key, scientific_name, taxon_class)
+         SELECT $1 + g, 'Bigus n' || g, 'aves' FROM generate_series(0, $2 - 1) g RETURNING id)
+       INSERT INTO region_species (region_id, species_id) SELECT $3, id FROM s`,
+      [BIG_GBIF, BIG, COUNTRY],
+    );
+    // Fresh statistics, so it is planned as a real catalogue would be.
+    await db.query(`ANALYZE region_species, species`);
+    const res = await get(`/api/collection/tree?include=uncollected&regionId=${COUNTRY}`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().collected).toBe(2);
+  }, 30000);
 
   it("exports a CSV with a header, one line per species and escaped commas", async () => {
     const res = await get("/api/collection/tree?format=csv");

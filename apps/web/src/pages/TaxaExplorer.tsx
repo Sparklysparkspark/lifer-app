@@ -61,6 +61,7 @@ const INDENT = 24;
 const MOUNT = { above: 2, below: 2 };
 const WIDE = "(min-width: 1024px)";
 const RESULTS = 50;
+const TREE_TIMEOUT_MS = 30_000;
 const RANK_KEYS: Record<TreeNode["rank"], string> = {
   class: "explorer.rank.class",
   order: "explorer.rank.order",
@@ -108,17 +109,34 @@ export default function TaxaExplorer() {
   const [params, setParams] = useSearchParamsKeepingState();
   const { state } = useLocation();
   // Collection's param, so a region link means the same on both pages.
-  const regionId = params.get("region");
-  const regions = useRegionTree(regionId);
+  const urlRegion = params.get("region");
+  const regions = useRegionTree(urlRegion);
+  // World is every region, so it is the unfiltered tree rather than a scan of the whole catalogue.
+  const regionId = urlRegion === regions.worldRegion?.id ? null : urlRegion;
   const regionsWithPhotos = useRegionsWithPhotos();
-  const res = useApiResource<{ collected: number; tree: TreeNode[] }>(
-    apiPath("/collection/tree", {}, { include: "uncollected", regionId }),
-  );
+  // A region waits for the region list, so a World link is never fetched as a filter.
+  const treePath =
+    regionId && !regions.regionsLoaded ? null : apiPath("/collection/tree", {}, { include: "uncollected", regionId });
+  const res = useApiResource<{ collected: number; tree: TreeNode[] }>(treePath);
   // The last tree stays up while another region's loads, so the page never drops to a spinner.
   const [lastTree, setLastTree] = useState(res.data);
   if (res.data && res.data !== lastTree) setLastTree(res.data);
   const tree = res.data ?? lastTree;
-  const loading = !res.data && !!tree;
+  // A tree that hasn't answered in 30s shows as failed with Retry; a late answer still replaces it.
+  const [timedOut, setTimedOut] = useState<string | null>(null);
+  if (timedOut && timedOut !== treePath) setTimedOut(null);
+  const waiting = !!treePath && !res.data && !res.error;
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = setTimeout(() => setTimedOut(treePath), TREE_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [waiting, treePath]);
+  const failed = !res.data && (!!res.error || (!!treePath && timedOut === treePath));
+  const retry = () => {
+    setTimedOut(null);
+    void res.reload();
+  };
+  const loading = !res.data && !failed && !!tree;
   const index = useMemo(() => (tree ? indexTree(tree.tree) : null), [tree]);
   useScrollMemory(!!index);
   const wide = useSyncExternalStore(subscribeWide, isWide, () => true);
@@ -231,10 +249,10 @@ export default function TaxaExplorer() {
     setPending(null);
   }, [pending, rows, range, layout]);
 
-  if (res.error && !res.data)
+  if (failed && !tree)
     return (
       <main className="space-y-section p-page">
-        <EmptyState title={t("explorer.loadFailed")} action={{ label: t("common.retry"), onClick: res.reload }} />
+        <EmptyState title={t("explorer.loadFailed")} action={{ label: t("common.retry"), onClick: retry }} />
       </main>
     );
   if (!tree || !index) return <LoadingScreen showBackLink={false} />;
@@ -411,20 +429,22 @@ export default function TaxaExplorer() {
                     </span>
                   )}
                   {regionId &&
-                    regions.breadcrumb.map((r, i, trail) => (
-                      <span key={r.id} className="flex min-w-0 items-center gap-1">
-                        <span aria-hidden="true">›</span>
-                        {i === trail.length - 1 ? (
-                          <span aria-current="location" className="font-semibold text-ink wrap-anywhere">
-                            {r.name}
-                          </span>
-                        ) : (
-                          <Button variant="link" size="sm" onClick={() => go({ region: r.id })}>
-                            {r.name}
-                          </Button>
-                        )}
-                      </span>
-                    ))}
+                    regions.breadcrumb
+                      .filter((r) => r.id !== regions.worldRegion?.id)
+                      .map((r, i, trail) => (
+                        <span key={r.id} className="flex min-w-0 items-center gap-1">
+                          <span aria-hidden="true">›</span>
+                          {i === trail.length - 1 ? (
+                            <span aria-current="location" className="font-semibold text-ink wrap-anywhere">
+                              {r.name}
+                            </span>
+                          ) : (
+                            <Button variant="link" size="sm" onClick={() => go({ region: r.id })}>
+                              {r.name}
+                            </Button>
+                          )}
+                        </span>
+                      ))}
                 </nav>
                 {(regionId ? regions.children : regions.downloadedCountries).length > 0 && (
                   // Wraps under the trail rather than squeezing beside it.
@@ -606,7 +626,9 @@ export default function TaxaExplorer() {
                   ))}
                 </nav>
               )}
-              {tree.tree.length === 0 ? (
+              {failed ? (
+                <EmptyState title={t("explorer.loadFailed")} action={{ label: t("common.retry"), onClick: retry }} />
+              ) : tree.tree.length === 0 ? (
                 <EmptyState
                   title={t("explorer.regionEmpty")}
                   action={{ label: t("explorer.allRegions"), onClick: () => go({ region: null }) }}

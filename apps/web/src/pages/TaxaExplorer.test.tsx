@@ -7,19 +7,26 @@ import type { LightboxSlide } from "../components/Lightbox";
 
 let treeData: unknown;
 let treePath = "";
+// What a region's tree request answers; by default it answers at once with treeData.
+let regionAnswer: { data: unknown; error: unknown } | null = null;
+const reload = vi.fn(async () => {});
 vi.mock("../lib/resource", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/resource")>()),
   useApiResource: (path: string) => {
     treePath = path;
-    return { data: treeData, error: null, reload: async () => {} };
+    const answer = regionAnswer && path.includes("regionId") ? regionAnswer : { data: treeData, error: null };
+    return { ...answer, reload };
   },
 }));
+const world = { id: "r-world", name: "World" };
 const canada = { id: "r-ca", name: "Canada" };
 const bc = { id: "r-bc", name: "British Columbia" };
 vi.mock("./collection/useRegionTree", () => ({
   useRegionTree: (regionId: string | null) => ({
+    regionsLoaded: true,
+    worldRegion: world,
     downloadedCountries: [canada],
-    breadcrumb: regionId === bc.id ? [canada, bc] : regionId ? [canada] : [],
+    breadcrumb: regionId === bc.id ? [world, canada, bc] : regionId === canada.id ? [world, canada] : [],
     children: regionId === canada.id ? [bc] : [],
   }),
 }));
@@ -102,6 +109,8 @@ const focused = () => screen.queryByRole("navigation", { name: "Focused group" }
 
 beforeEach(() => {
   treeData = tree;
+  regionAnswer = null;
+  reload.mockClear();
   explorerMemory.expanded = new Set();
   explorerMemory.selected = null;
   localStorage.setItem("lifer:explorer.genus", "true");
@@ -313,6 +322,44 @@ describe("TaxaExplorer layers, regions and genera", () => {
     expect(treePath).toContain("regionId=r-ca");
     fireEvent.click(screen.getByRole("button", { name: "All regions" }));
     expect(treePath).not.toContain("regionId");
+  });
+
+  it("treats World as all regions, without a region filter", () => {
+    render(
+      <MemoryRouter initialEntries={["/explore?region=r-world"]}>
+        <TaxaExplorer />
+      </MemoryRouter>,
+    );
+    expect(treePath).not.toContain("regionId");
+    expect(screen.getByRole("navigation", { name: "Region" }).textContent).toBe("All regions");
+    expect(screen.getByRole("button", { name: "Canada" })).toBeTruthy();
+  });
+
+  it("shows a region that fails to load as failed with Retry, keeping the region pills usable", () => {
+    renderPage();
+    regionAnswer = { data: null, error: new Error("500") };
+    fireEvent.click(screen.getByRole("button", { name: "Canada" }));
+    expect(screen.getByText("Couldn't load your species tree.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "British Columbia" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(reload).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "All regions" }));
+    expect(screen.queryByText("Couldn't load your species tree.")).toBeNull();
+  });
+
+  it("stops dimming a region that never answers and offers Retry", () => {
+    vi.useFakeTimers();
+    try {
+      renderPage();
+      regionAnswer = { data: null, error: null };
+      fireEvent.click(screen.getByRole("button", { name: "Canada" }));
+      expect(document.querySelector("[aria-busy=true]")).toBeTruthy();
+      act(() => vi.advanceTimersByTime(30_000));
+      expect(document.querySelector("[aria-busy=true]")).toBeNull();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows a region with nothing in it as empty, not as no photos at all", () => {
