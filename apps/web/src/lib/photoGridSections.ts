@@ -57,6 +57,7 @@ export type ViewSection =
   | "hideNames"
   | "mapPins"
   | "versions"
+  | "bursts"
   | "counting"
   | "nameSettings";
 

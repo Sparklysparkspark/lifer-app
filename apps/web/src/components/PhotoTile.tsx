@@ -29,6 +29,7 @@ function PhotoTile({
   durationSeconds,
   versionCount,
   versionLabel,
+  burstCount,
   contextMenuOpen,
   onOpenContextMenu,
   contextMenuAnchor,
@@ -45,6 +46,8 @@ function PhotoTile({
   versionCount?: number;
   /** A version listed apart from its photo: its name in the same stack badge. */
   versionLabel?: string;
+  /** Frames in the photo's burst: more than one shows "+N" for the others. */
+  burstCount?: number;
   /** Only called when selectMode is off. */
   onOpen: () => void;
   selectMode: boolean;
@@ -150,6 +153,13 @@ function PhotoTile({
             label={versionLabel ?? t("versions.badge", { count: versionCount })}
             title={versionLabel}
           />
+        )}
+        {burstCount != null && burstCount > 1 && kind !== "video" && kind !== "audio" && (
+          // design-token: a scrim over the photo, as the video badge in the same corner.
+          <span className="pointer-events-none absolute bottom-2 right-2 rounded-badge bg-black/60 px-1.5 py-0.5 text-caption text-white">
+            <span aria-hidden>{t("bursts.badge", { count: burstCount - 1 })}</span>
+            <span className="sr-only">{t("bursts.badgeLabel", { count: burstCount })}</span>
+          </span>
         )}
       </button>
       {(isVideo ? !videoHovering : kind === "audio") && (

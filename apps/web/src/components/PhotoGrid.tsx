@@ -17,6 +17,8 @@ export interface PhotoGridTileData {
   height?: number | null;
   /** A version listed apart from its photo, by its name. */
   versionLabel?: string;
+  /** Frames in the photo's burst, when more than one. */
+  burstCount?: number;
 }
 
 /** useSelectMode's shape; a page without range or drag select passes just a toggle. */
@@ -255,6 +257,7 @@ const GridTile = memo(function GridTile({
       durationSeconds={tile.durationSeconds == null ? null : Number(tile.durationSeconds)}
       versionCount={versionCount}
       versionLabel={tile.versionLabel}
+      burstCount={tile.burstCount}
       onOpen={() => onOpen(index)}
       selectMode={selectMode}
       selected={selected}

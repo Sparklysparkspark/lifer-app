@@ -13,6 +13,7 @@ import { useSpeciesName } from "../../lib/speciesName";
 import { groupGalleryItems, itemShotData, type GalleryGroupBy } from "./galleryHelpers";
 import type { GalleryDisplayPrefs } from "./useGalleryDisplayPrefs";
 import type { GalleryItem } from "./types";
+import type { BurstInfo } from "./useGalleryBursts";
 
 const galleryId = (item: GalleryItem) => item.captureId;
 
@@ -37,6 +38,7 @@ export default function GalleryGrid({
   onRate,
   onSetTakenAt,
   onShowPhoto,
+  bursts,
 }: {
   items: GalleryItem[];
   display: GalleryDisplayPrefs;
@@ -57,6 +59,8 @@ export default function GalleryGrid({
   onSetTakenAt: (captureId: string, value: string) => void;
   /** A version's link back to the photo it belongs to (group capture id). */
   onShowPhoto?: (captureId: string) => void;
+  /** The loaded photos' bursts, for the "+N" badge. */
+  bursts?: ReadonlyMap<string, BurstInfo>;
 }) {
   const { t } = useTranslation();
   const { showCameraInfo, showLabels, showRatings } = display;
@@ -73,8 +77,9 @@ export default function GalleryGrid({
       ...item,
       alt: speciesName(item),
       versionLabel: item.version ? versionName(t, item.version) : undefined,
+      burstCount: bursts?.get(item.captureId)?.count,
     }),
-    [speciesName, t],
+    [speciesName, t, bursts],
   );
   const renderLabel = useCallback(
     (item: GalleryItem) => (

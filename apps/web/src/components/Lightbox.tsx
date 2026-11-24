@@ -193,6 +193,7 @@ export default function Lightbox({
   morphOptions,
   backLabel,
   total,
+  footer,
 }: {
   slides: LightboxSlide[];
   index: number;
@@ -207,6 +208,9 @@ export default function Lightbox({
   /** How many photos the page has in all, when only some are loaded as slides, so the counter
    *  agrees with the page's own count. */
   total?: number;
+  /** Below the caption (the Gallery's burst strip). `follow(key)` names the photo the caller is
+   *  about to show, so a change of slides in the same step lands on it. */
+  footer?: (slide: LightboxSlide, follow: (key: string) => void) => ReactNode;
 }) {
   // Arrows sit over the native video controls, so on video slides they fade out when the mouse idles.
   const toast = useToast();
@@ -327,6 +331,9 @@ export default function Lightbox({
     },
     [slides, onIndexChange],
   );
+  const follow = useCallback((key: string) => {
+    shown.current.key = key;
+  }, []);
   useLayoutEffect(() => {
     const { slides: before, key } = shown.current;
     shown.current.slides = slides;
@@ -915,6 +922,15 @@ export default function Lightbox({
                 )}
               </div>
             )}
+          </div>
+        )}
+        {footer && !isFullscreen && (
+          <div
+            className={`w-full max-w-5xl shrink-0 text-center transition-opacity duration-300 ${overlayFadeClass}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* eslint-disable-next-line react-hooks/refs -- follow only writes the ref, from the footer's click and key handlers */}
+            {footer(slide, follow)}
           </div>
         )}
       </div>

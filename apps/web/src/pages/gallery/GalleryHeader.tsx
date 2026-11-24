@@ -67,6 +67,8 @@ export function GalleryToolbar({
   // Offered once any photo has versions; a search lists photos only.
   const hasVersions = useVersionCounts().size > 0 || display.allVersions;
   const versionsSection = hasVersions && !query.searchQuery && !query.onlyHidden ? (["versions"] as const) : [];
+  // Every version as its own card lists photos apart, which bursts would fold back together.
+  const burstsSection = display.allVersions && versionsSection.length ? [] : (["bursts"] as const);
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-footnote">
@@ -90,13 +92,14 @@ export function GalleryToolbar({
               ? ["group", "sort", "size", "captions"]
               : layout === "map"
                 ? ["layout"]
-                : ["layout", "group", "sort", "size", "captions", ...versionsSection]
+                : ["layout", "group", "sort", "size", "captions", ...versionsSection, ...burstsSection]
           }
           layout={onLayoutChange && { value: layout, onChange: onLayoutChange }}
           activeCount={
             (groupBy !== "none" ? 1 : 0) +
             (query.sortBy !== "newest" ? 1 : 0) +
-            (versionsSection.length && display.allVersions ? 1 : 0)
+            (versionsSection.length && display.allVersions ? 1 : 0) +
+            (burstsSection.length && display.groupBursts ? 1 : 0)
           }
           group={{
             value: groupBy,
@@ -121,6 +124,7 @@ export function GalleryToolbar({
           size={{ value: display.thumbSizePx, onChange: display.updateThumbSize }}
           captions={display}
           allVersions={{ checked: display.allVersions, onChange: display.setAllVersions }}
+          groupBursts={{ checked: display.groupBursts, onChange: display.setGroupBursts }}
         />
       )}
       {!similar && !libraryEmpty && (
