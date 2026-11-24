@@ -842,6 +842,7 @@
     "keep": "Button: keep the old name for these photos. {scientificName} is the old scientific name."
   },
   "nav": {
+    "appWith": "Hover tooltip on a sidebar app entry. {label} is the short sidebar label (what it does), {name} the app's own name. Keep the names as they are.",
     "map": "Sidebar and top-bar link to the Gallery's map layout, where photos show as pins by where they were taken.",
     "inaturalist": "Sidebar and top-bar link to the iNaturalist page; shown only once an iNaturalist account is connected. Keep the product name."
   },
@@ -1257,9 +1258,7 @@
     "selection": {
       "correctIdTo": "Select mode, before a species search: move the selected photos to the species picked.",
       "typeSpecies": "Placeholder of the species search in select mode: moves the selected photos to the species picked.",
-      "hide": "Button in select mode: hide the selected photos.",
-      "deleteTitle": "{noun} is file (photos and videos mixed), video, RAW (RAW-only originals) or photo.",
-      "trashMessage": "Trash note under the delete confirmation. {noun} is recording or photo (other values read as photos)."
+      "hide": "Button in select mode: hide the selected photos."
     },
     "shotData": {
       "aperture": "Photographic aperture (f-number), e.g. f/5.6. Usually left as is.",

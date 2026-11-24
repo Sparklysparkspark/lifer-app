@@ -1424,6 +1424,10 @@ export interface paths {
         content: {
           "application/json": {
             captureIds: string[];
+            /** @description Puts photos back at their old place in the album's order: the addedAt a remove answered with */
+            addedAt?: {
+              [key: string]: string;
+            };
           };
         };
       };
@@ -2060,6 +2064,88 @@ export interface paths {
           };
         };
         /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/albums/{id}/items/remove": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Remove several photos from an album
+     * @description Body `{ captureIds }`, up to 500. Answers how many were `removed` and `skipped` (not in the album), and `addedAt` for each removed photo: pass it back to POST /albums/{id}/captures to undo with the photos in their old places. 409 for a smart album, which excludes photos instead.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              removed: number;
+              /** @description Photos that weren't in the album */
+              skipped: number;
+              /** @description When each removed photo had been added, to pass back to an add to undo */
+              addedAt: {
+                [key: string]: string;
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the album.write scope */
         401: {
           headers: {
             [name: string]: unknown;
@@ -18158,6 +18244,73 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/moved-photos/reviews/{id}/candidates/{index}/preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /moved-photos/reviews/{id}/candidates/{index}/preview */
+    get: {
+      parameters: {
+        query?: {
+          /** @description thumb (the default) or full */
+          size?: "thumb" | "full";
+        };
+        header?: never;
+        path: {
+          id: string;
+          index: number;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description Not described yet */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/moved-photos/reviews/{id}/dismiss": {
     parameters: {
       query?: never;
@@ -18168,6 +18321,73 @@ export interface paths {
     get?: never;
     put?: never;
     /** POST /moved-photos/reviews/{id}/dismiss */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/moved-photos/reviews/{id}/restore": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /moved-photos/reviews/{id}/restore */
     post: {
       parameters: {
         query?: never;
@@ -39179,6 +39399,78 @@ export interface paths {
           content: {
             "application/json": {
               purged: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/trash/restore": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /trash/restore */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              restored: number;
+              skipped: number;
             };
           };
         };

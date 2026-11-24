@@ -727,6 +727,7 @@
   },
   "common": {
     "cancel": "Cancel",
+    "close": "Close",
     "creating": "Creating…",
     "delete": "Delete",
     "deleting": "Deleting…",
@@ -1932,6 +1933,7 @@
     },
     "album": "Album",
     "albums": "Albums",
+    "appWith": "{label} with {name}",
     "back": "Back",
     "collection": "Collection",
     "gallery": "Gallery",
@@ -3434,7 +3436,6 @@
     "edits": {
       "addTagFailed": "Couldn't add the tag",
       "copyPathFailed": "Couldn't copy the path",
-      "deleteFailed": "Couldn't delete. Try again.",
       "featuredFailed": "Couldn't change the featured photo",
       "hidden": "Hidden. Find it under Hidden in the Gallery's filters",
       "hiddenMany": "{count, plural, one {# photo} other {# photos}} hidden. Find them under Hidden in the Gallery's filters",
@@ -3522,11 +3523,7 @@
       "rate": "Rate:",
       "reassigning": "Reassigning…",
       "typeSpecies": "Type a species…",
-      "hide": "Hide",
-      "deleteSelected": "Delete selected",
-      "deleteTitle": "Delete {noun, select, file {{count, plural, one {# file} other {# files}}} video {{count, plural, one {# video} other {# videos}}} RAW {{count, plural, one {# RAW} other {# RAWs}}} recording {{count, plural, one {# recording} other {# recordings}}} other {{count, plural, one {# photo} other {# photos}}}}?",
-      "trashMessage": "Deleted {noun, select, recording {recordings} other {photos}} stay in Trash for 7 days, where you can restore them.",
-      "deleteRawToo": "Also delete the matching RAW file when this is permanently removed"
+      "hide": "Hide"
     },
     "shotData": {
       "aperture": "f/{aperture}",
@@ -4157,7 +4154,6 @@
         "dropPhotos": "Drop in this trip's photos, then assign each one to a species below.",
         "scanInstead": "Prefer to organize the folder yourself first? Use \"Scan folder\" above to scan it instead."
       },
-      "deleteSelected": "Delete selected",
       "empty": {
         "assignThenImport": "Assign a species to each photo above, then import.",
         "scanFolder": "Scan this trip's folder to bring in what's there.",
@@ -4989,7 +4985,10 @@
       "skip": "Skip",
       "empty": "Nothing left to review.",
       "showingFirst": "Showing the first {shown} of {total}.",
-      "skipFailed": "Couldn't skip that photo. Try again."
+      "skipFailed": "Couldn't skip that photo. Try again.",
+      "skipped": "Skipped this photo",
+      "unskipFailed": "Couldn't bring that photo back. Try again.",
+      "inLifer": "The photo in Lifer"
     },
     "suggest": {
       "line": "Moved a folder? Add its new parent folder so Lifer can find your photos again.",

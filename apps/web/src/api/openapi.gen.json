@@ -1922,7 +1922,12 @@
                 "type": "object",
                 "required": ["captureIds"],
                 "properties": {
-                  "captureIds": { "type": "array", "items": { "type": "string", "format": "uuid" }, "minItems": 1 }
+                  "captureIds": { "type": "array", "items": { "type": "string", "format": "uuid" }, "minItems": 1 },
+                  "addedAt": {
+                    "type": "object",
+                    "patternProperties": { "^.*$": { "type": "string", "format": "date-time" } },
+                    "description": "Puts photos back at their old place in the album's order: the addedAt a remove answered with"
+                  }
                 },
                 "additionalProperties": false
               }
@@ -2568,6 +2573,72 @@
           },
           "401": {
             "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/albums/{id}/items/remove": {
+      "post": {
+        "summary": "Remove several photos from an album",
+        "description": "Body `{ captureIds }`, up to 500. Answers how many were `removed` and `skipped` (not in the album), and `addedAt` for each removed photo: pass it back to POST /albums/{id}/captures to undo with the photos in their old places. 409 for a smart album, which excludes photos instead.",
+        "tags": ["album"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "album.write",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["captureIds"],
+                "properties": {
+                  "captureIds": {
+                    "type": "array",
+                    "items": { "type": "string", "format": "uuid" },
+                    "minItems": 1,
+                    "maxItems": 500
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["removed", "skipped", "addedAt"],
+                  "properties": {
+                    "removed": { "type": "integer" },
+                    "skipped": { "type": "integer", "description": "Photos that weren't in the album" },
+                    "addedAt": {
+                      "type": "object",
+                      "patternProperties": { "^.*$": { "type": "string", "format": "date-time" } },
+                      "description": "When each removed photo had been added, to pass back to an add to undo"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the album.write scope",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           },
           "default": {
@@ -17449,9 +17520,72 @@
         }
       }
     },
+    "/moved-photos/reviews/{id}/candidates/{index}/preview": {
+      "get": {
+        "summary": "GET /moved-photos/reviews/{id}/candidates/{index}/preview",
+        "tags": ["moved-photos"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "index", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 0 } },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "description": "thumb (the default) or full",
+            "schema": { "enum": ["thumb", "full"] }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Not described yet" },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
     "/moved-photos/reviews/{id}/dismiss": {
       "post": {
         "summary": "POST /moved-photos/reviews/{id}/dismiss",
+        "tags": ["moved-photos"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "required": ["ok"], "properties": { "ok": { "type": "boolean" } } }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/moved-photos/reviews/{id}/restore": {
+      "post": {
+        "summary": "POST /moved-photos/reviews/{id}/restore",
         "tags": ["moved-photos"],
         "parameters": [
           { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
@@ -34939,6 +35073,59 @@
                   "type": "object",
                   "required": ["purged"],
                   "properties": { "purged": { "type": "integer" } }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/trash/restore": {
+      "post": {
+        "summary": "POST /trash/restore",
+        "tags": ["trash"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["captureIds"],
+                "properties": {
+                  "captureIds": {
+                    "type": "array",
+                    "items": { "type": "string", "format": "uuid" },
+                    "minItems": 1,
+                    "maxItems": 500
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["restored", "skipped"],
+                  "properties": { "restored": { "type": "integer" }, "skipped": { "type": "integer" } }
                 }
               }
             }
