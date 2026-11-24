@@ -32,7 +32,7 @@ On the album page:
 - Click the title or **Add a description…** to edit them.
 - **⋯** > **Edit album** shows the cover: choose a **Single photo** or **Quad grid** cover, then hover a grid tile and click **Change** or **Crop**, or hover a single-photo cover and click **Crop**. Until you crop it, each cover photo is framed on the animal automatically. Click **Done editing** when you're finished.
 - For a single-photo cover, use a photo's **⋯** menu > **Use as album cover**, then **Adjust position** to frame it. Choose **Album cover ✓** to go back to the automatic cover.
-- To remove photos, use a photo's **⋯** menu > **Remove from album**, or click **Select**, pick several (<kbd>Shift</kbd>-click or drag for a range) and click **Remove from album**.
+- To remove photos, use a photo's **⋯** menu > **Remove from album**, or click **Select**, pick several (<kbd>Shift</kbd>-click or drag for a range) and click **Remove from album**. The photos stay in your library, and **Undo** puts them back in their old places in the album.
 - Rename or delete an album from the **⋯** menu on its card. On the album page, **⋯** > **Delete album** deletes it; the photos stay in your library.
 
 ## Smart albums {#smart-albums}

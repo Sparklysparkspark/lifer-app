@@ -15,6 +15,7 @@ const url = process.env.TEST_DATABASE_URL;
 const USER = "eeeeeeee-0000-4000-8000-000000000701";
 const SPECIES = "eeeeeeee-0000-4000-8000-00000000070a";
 const TOKEN = "lifer_test_trash_covers_701";
+const OTHER = "eeeeeeee-0000-4000-8000-000000000702";
 
 describe.skipIf(!url)("covers when a photo is trashed", () => {
   let app: FastifyInstance;
@@ -39,12 +40,14 @@ describe.skipIf(!url)("covers when a photo is trashed", () => {
     ).rows[0];
 
   async function cleanup() {
-    await db.query(`DELETE FROM user_species WHERE user_id = $1`, [USER]);
-    await db.query(`DELETE FROM albums WHERE user_id = $1`, [USER]);
-    await db.query(`DELETE FROM trips WHERE user_id = $1`, [USER]);
-    await db.query(`UPDATE captures_all SET current_photo_id = NULL WHERE user_id = $1`, [USER]);
-    await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [USER]);
-    await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
+    for (const user of [USER, OTHER]) {
+      await db.query(`DELETE FROM user_species WHERE user_id = $1`, [user]);
+      await db.query(`DELETE FROM albums WHERE user_id = $1`, [user]);
+      await db.query(`DELETE FROM trips WHERE user_id = $1`, [user]);
+      await db.query(`UPDATE captures_all SET current_photo_id = NULL WHERE user_id = $1`, [user]);
+      await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [user]);
+      await db.query(`DELETE FROM users WHERE id = $1`, [user]);
+    }
     await db.query(`DELETE FROM species WHERE id = $1`, [SPECIES]);
   }
 
@@ -198,5 +201,42 @@ describe.skipIf(!url)("covers when a photo is trashed", () => {
     const res = await call("POST", `/api/trash/${capture.newest}/restore`, {});
     expect(res.statusCode, res.body).toBe(200);
     expect((await speciesCover()).cover_photo_id).toBeNull();
+  });
+
+  it("restores a batch the way single restores would, skipping what isn't in the caller's Trash", async () => {
+    await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'trash-covers-other@test', 'x')`, [OTHER]);
+    const theirs = (
+      await db.query<{ id: string }>(
+        `INSERT INTO captures (user_id, species_id, fingerprint, deleted_at) VALUES ($1, $2, 'trash-covers-theirs', now()) RETURNING id`,
+        [OTHER, SPECIES],
+      )
+    ).rows[0].id;
+    const all = [capture.featured, capture.best, capture.newest];
+    let res = await call("POST", "/api/captures/batch-delete", { captureIds: all, deleteRaw: true });
+    expect(res.json()).toEqual({ deleted: 3, notFound: 0 });
+    expect(await speciesCover()).toEqual({ cover_photo_id: null, state: null, card_crop_x: null });
+
+    const tooMany = Array.from({ length: 501 }, () => capture.featured);
+    expect((await call("POST", "/api/trash/restore", { captureIds: tooMany })).statusCode).toBe(400);
+
+    // The other account's photo is skipped; the rest come back.
+    res = await call("POST", "/api/trash/restore", { captureIds: [capture.featured, capture.best, theirs] });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toEqual({ restored: 2, skipped: 1 });
+    const rows = await db.query<{ id: string; deleted_at: Date | null; pending_delete_raw: boolean }>(
+      `SELECT id, deleted_at, pending_delete_raw FROM captures_all WHERE id = ANY($1::uuid[])`,
+      [[...all, theirs]],
+    );
+    const byId = new Map(rows.rows.map((r) => [r.id, r]));
+    // The RAW-delete intent goes with the trashing it belonged to.
+    expect(byId.get(capture.featured)).toMatchObject({ deleted_at: null, pending_delete_raw: false });
+    expect(byId.get(capture.best)).toMatchObject({ deleted_at: null, pending_delete_raw: false });
+    expect(byId.get(capture.newest)?.pending_delete_raw).toBe(true);
+    expect(byId.get(theirs)?.deleted_at).not.toBeNull();
+    // Collected again, with its cover back, and the album shows its picked cover from its members.
+    expect(await speciesCover()).toMatchObject({ cover_photo_id: photo.featured, state: "collected" });
+    const album = (await call("GET", `/api/albums/${albumId}`)).json();
+    expect(album).toEqual(expect.objectContaining({ coverPhotoId: photo.featured, coverCropX: 5 }));
+    expect(album.items.map((i: { captureId: string }) => i.captureId)).toEqual([capture.featured]);
   });
 });

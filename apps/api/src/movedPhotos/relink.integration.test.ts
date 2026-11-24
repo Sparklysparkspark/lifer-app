@@ -24,6 +24,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 const url = process.env.TEST_DATABASE_URL;
 const USER = "eeeeeeee-0000-4000-8000-000000000b71";
 const SPECIES = "eeeeeeee-0000-4000-8000-000000000b72";
+const OTHER = "eeeeeeee-0000-4000-8000-000000000b73";
 
 vi.mock("../auth/session.js", () => {
   const asUser = async (request: { user?: unknown }) => {
@@ -223,6 +224,68 @@ describe.skipIf(!url)("finding moved photos", () => {
       [other, USER, [path.join(place, "One", "a.jpg")]],
     );
     expect((await post(`/moved-photos/reviews/${other}/use`, { path: "/etc/hosts" })).statusCode).toBe(400);
+  });
+
+  it("undoes a Skip and previews only the files it offered inside the searched places", async () => {
+    const id = await photo(path.join(lib, "gone.jpg"));
+    const candidate = path.join(place, "Moved", "gone.jpg");
+    mkdirSync(path.dirname(candidate), { recursive: true });
+    await sharp({ create: { width: 600, height: 400, channels: 3, background: "#4a7" } })
+      .jpeg()
+      .toFile(candidate);
+    // A path outside every place, as a tampered row might hold.
+    const outside = path.join(dir, "outside", "secret.jpg");
+    mkdirSync(path.dirname(outside), { recursive: true });
+    copyFileSync(candidate, outside);
+    await db.query(
+      `INSERT INTO moved_photo_reviews (original_id, user_id, candidates, reason) VALUES ($1, $2, $3, 'several')`,
+      [id, USER, [candidate, outside]],
+    );
+
+    expect((await post(`/moved-photos/reviews/${id}/dismiss`)).statusCode).toBe(200);
+    expect((await get("/moved-photos/reviews")).json().total).toBe(0);
+    expect((await post(`/moved-photos/reviews/${id}/restore`)).statusCode).toBe(200);
+    expect((await get("/moved-photos/reviews")).json().items[0]).toMatchObject({ originalId: id });
+
+    const preview = (index: number, size = "") =>
+      get(`/moved-photos/reviews/${id}/candidates/${index}/preview${size ? `?size=${size}` : ""}`);
+    const thumb = await preview(0);
+    expect([thumb.statusCode, thumb.headers["content-type"]]).toEqual([200, "image/webp"]);
+    expect((await sharp(thumb.rawPayload).metadata()).width).toBe(300);
+    expect((await sharp((await preview(0, "full")).rawPayload).metadata()).width).toBe(600);
+    expect((await preview(1)).statusCode).toBe(404);
+    expect((await preview(2)).statusCode).toBe(404);
+    expect((await get(`/moved-photos/reviews/not-an-id/candidates/0/preview`)).statusCode).toBe(404);
+
+    // Another account's review: neither restored nor previewed.
+    await db.query(`DELETE FROM users WHERE id = $1`, [OTHER]);
+    await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'moved-photos-other@test', 'x')`, [OTHER]);
+    try {
+      const c = await db.query<{ id: string }>(
+        `INSERT INTO captures_all (user_id, species_id, fingerprint) VALUES ($1, $2, 'mp-other') RETURNING id`,
+        [OTHER, SPECIES],
+      );
+      const o = await db.query<{ id: string }>(
+        `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size, user_id)
+         VALUES ($1, 'jpeg', 'path', '/nowhere/theirs.jpg', true, 'mp-other-hash', 1, $2) RETURNING id`,
+        [c.rows[0].id, OTHER],
+      );
+      const theirs = o.rows[0].id;
+      await db.query(
+        `INSERT INTO moved_photo_reviews (original_id, user_id, candidates, reason, dismissed_at)
+         VALUES ($1, $2, $3, 'several', now())`,
+        [theirs, OTHER, [candidate]],
+      );
+      expect((await post(`/moved-photos/reviews/${theirs}/restore`)).statusCode).toBe(404);
+      expect((await get(`/moved-photos/reviews/${theirs}/candidates/0/preview`)).statusCode).toBe(404);
+      const row = await db.query(`SELECT dismissed_at FROM moved_photo_reviews WHERE original_id = $1`, [theirs]);
+      expect(row.rows[0].dismissed_at).not.toBeNull();
+    } finally {
+      await db.query(`DELETE FROM moved_photo_reviews WHERE user_id = $1`, [OTHER]);
+      await db.query(`DELETE FROM originals WHERE user_id = $1`, [OTHER]);
+      await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [OTHER]);
+      await db.query(`DELETE FROM users WHERE id = $1`, [OTHER]);
+    }
   });
 
   it("offers a photo edited in place for review, as probably the same", async () => {

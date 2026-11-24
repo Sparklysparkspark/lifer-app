@@ -12,9 +12,12 @@ import Button from "./Button";
 import FolderPath from "./FolderPath";
 import { ManageList, RowThumb } from "./ManageListPage";
 import Modal from "./Modal";
-import { useLightbox } from "./Lightbox";
+import { useLightbox, type LightboxSlide } from "./Lightbox";
 
 type Reviews = ApiResponse<"/moved-photos/reviews">;
+
+const candidatePreview = (originalId: string, index: number) =>
+  `/api/moved-photos/reviews/${originalId}/candidates/${index}/preview`;
 
 /** The matches Lifer won't guess: pick the file that is the photo, or skip it. */
 export default function MovedPhotosReview({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -55,6 +58,30 @@ export default function MovedPhotosReview({ open, onClose }: { open: boolean; on
     }
     movedPhotosChanged();
     load();
+    toast.show(t("movedPhotos.reviewDialog.skipped"), {
+      tone: "success",
+      actions: [{ label: t("common.undo"), onClick: () => void unskip(originalId) }],
+    });
+  }
+
+  async function unskip(originalId: string) {
+    try {
+      await api.post(apiPath("/moved-photos/reviews/{id}/restore", { id: originalId }));
+    } catch (err) {
+      toast.error(errorMessage(err, t("movedPhotos.reviewDialog.unskipFailed")));
+      return;
+    }
+    movedPhotosChanged();
+    load();
+  }
+
+  // The photo as Lifer has it beside the file offered, so arrows in the viewer flip between them.
+  function compareSlides(item: Reviews["items"][number], index: number, candidatePath: string): LightboxSlide[] {
+    const preview = candidatePreview(item.originalId, index);
+    const candidate = { url: `${preview}?size=full`, thumbUrl: preview, caption: candidatePath };
+    return item.photoId
+      ? [photoSlide({ photoId: item.photoId }, { caption: t("movedPhotos.reviewDialog.inLifer") }), candidate]
+      : [candidate];
   }
 
   const items = data?.items ?? [];
@@ -87,22 +114,35 @@ export default function MovedPhotosReview({ open, onClose }: { open: boolean; on
               { label: t("movedPhotos.reviewDialog.skip"), onSelect: () => void skip(sectionOf.get(section)!) },
             ]}
             rows={items.flatMap((item) =>
-              item.candidates.map((c) => ({
+              item.candidates.map((c, index) => ({
                 key: `${item.originalId}:${c.path}`,
                 // Grouped under where the photo was.
                 section: item.path,
-                thumb: item.photoId ? (
-                  // raw-control: the photo as Lifer has it, opening full size to compare by eye.
-                  <button
-                    type="button"
-                    aria-label={item.path}
-                    onClick={() => viewer.open([photoSlide({ photoId: item.photoId! })])}
-                    className="rounded-badge focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                  >
-                    <RowThumb src={`/api/photos/${item.photoId}/thumb`} alt="" />
-                  </button>
-                ) : (
-                  <RowThumb src={null} alt="" />
+                thumb: (
+                  <div className="flex gap-1">
+                    {item.photoId ? (
+                      // raw-control: the photo as Lifer has it, opening full size to compare by eye.
+                      <button
+                        type="button"
+                        aria-label={t("movedPhotos.reviewDialog.inLifer")}
+                        onClick={() => viewer.open(compareSlides(item, index, c.path), 0)}
+                        className="rounded-badge focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      >
+                        <RowThumb src={`/api/photos/${item.photoId}/thumb`} alt="" />
+                      </button>
+                    ) : (
+                      <RowThumb src={null} alt="" />
+                    )}
+                    {/* raw-control: the file offered, beside the photo, opening full size too. */}
+                    <button
+                      type="button"
+                      aria-label={c.path}
+                      onClick={() => viewer.open(compareSlides(item, index, c.path), item.photoId ? 1 : 0)}
+                      className="rounded-badge focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    >
+                      <RowThumb src={candidatePreview(item.originalId, index)} alt="" />
+                    </button>
+                  </div>
                 ),
                 primary: <FolderPath path={c.path} />,
                 secondary: metaLine([

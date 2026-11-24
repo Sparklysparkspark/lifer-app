@@ -26,6 +26,8 @@ type TrashResponse = ApiResponse<"/trash">;
 type TrashItem = TrashResponse["items"][number];
 
 const trashId = (item: TrashItem) => item.captureId;
+// The most the batch restore route takes in one request.
+const RESTORE_BATCH = 500;
 const trashTile = (item: TrashItem): PhotoGridTileData => ({ ...item, alt: item.speciesName });
 
 function daysLeft(purgesAt: string): number {
@@ -79,14 +81,21 @@ export default function TrashedPhotosPage() {
     }
   }
 
-  // shortcut: one request per photo, as the API has no batch restore; add one if big restores are slow.
   async function restoreSelected() {
     const ids = [...select.selectedIds];
     select.exit();
-    const results = await Promise.allSettled(ids.map((id) => api.post(apiPath("/trash/{id}/restore", { id }), {})));
-    const failed = results.filter((r) => r.status === "rejected").length;
+    let restored = 0;
+    let failed = 0;
+    for (let i = 0; i < ids.length; i += RESTORE_BATCH) {
+      const chunk = ids.slice(i, i + RESTORE_BATCH);
+      try {
+        restored += (await api.post("/trash/restore", { captureIds: chunk })).restored;
+      } catch {
+        failed += chunk.length;
+      }
+    }
     if (failed > 0) toast.error(t("trash.restoreManyFailed", { count: failed }));
-    if (failed < ids.length) showRestored(ids.length - failed);
+    if (restored > 0) showRestored(restored);
     load();
   }
 

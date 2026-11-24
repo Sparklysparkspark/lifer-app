@@ -66,7 +66,8 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("TrashedPhotosPage", () => {
-  it("restores only the selected photos still shown, then says where they went", async () => {
+  it("restores only the selected photos still shown in one request, then says where they went", async () => {
+    post.mockResolvedValueOnce({ restored: 1, skipped: 0 });
     renderTrash([trashed("a"), trashed("v", { kind: "video" })]);
     await screen.findAllByRole("img");
     fireEvent.click(screen.getByRole("button", { name: "Select" }));
@@ -76,10 +77,23 @@ describe("TrashedPhotosPage", () => {
     expect(await screen.findByText("1 selected")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Restore selected" }));
     await waitFor(() => expect(toast.show).toHaveBeenCalled());
-    expect(post.mock.calls.map((c) => c[0])).toEqual(["/trash/c-v/restore"]);
+    expect(post.mock.calls).toEqual([["/trash/restore", { captureIds: ["c-v"] }]]);
     const [message, opts] = toast.show.mock.calls[0] as [string, { actions: Array<{ label: string }> }];
     expect(message).toBe("Restored 1 photo");
     expect(opts.actions.map((a) => a.label)).toEqual(["View"]);
+  });
+
+  it("restores a big selection in requests of 500, and counts a failed one", async () => {
+    renderTrash(Array.from({ length: 501 }, (_, i) => trashed(String(i))));
+    await screen.findAllByRole("img");
+    post.mockResolvedValueOnce({ restored: 500, skipped: 0 }).mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(screen.getByRole("button", { name: "Select" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore selected" }));
+    await waitFor(() => expect(toast.show).toHaveBeenCalled());
+    expect(post.mock.calls.map((c) => (c[1] as { captureIds: string[] }).captureIds.length)).toEqual([500, 1]);
+    expect(toast.error).toHaveBeenCalledWith("Couldn't restore 1 photo. Try again.");
+    expect(toast.show.mock.calls[0][0]).toBe("Restored 500 photos");
   });
 
   it("opens the menu of a tile with no photo file, since there's nothing to show full size", async () => {

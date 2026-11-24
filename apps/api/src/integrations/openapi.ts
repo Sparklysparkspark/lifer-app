@@ -712,6 +712,13 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
   "/albums/{id}/species": { get: { summary: "Species in an album" } },
   "/albums/{id}/captures": { post: { summary: "Add photos to an album" } },
   "/albums/{id}/captures/{captureId}": { delete: { summary: "Remove a photo from an album" } },
+  "/albums/{id}/items/remove": {
+    post: {
+      summary: "Remove several photos from an album",
+      description:
+        "Body `{ captureIds }`, up to 500. Answers how many were `removed` and `skipped` (not in the album), and `addedAt` for each removed photo: pass it back to POST /albums/{id}/captures to undo with the photos in their old places. 409 for a smart album, which excludes photos instead.",
+    },
+  },
   "/albums/{id}/exclusions": {
     get: { summary: "Photos left out of a smart album" },
     post: { summary: "Leave photos out of a smart album" },

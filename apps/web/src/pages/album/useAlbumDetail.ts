@@ -7,6 +7,8 @@ import { useApiResource } from "../../lib/resource";
 import type { AlbumDetail, AlbumView, Crop } from "./types";
 
 const FIRST_PHOTOS = 200;
+// The most the batch remove route takes in one request.
+const REMOVE_BATCH = 500;
 /** The album with only its first photos: what the page draws first, and what hovering a card warms. */
 export const albumPreviewPath = (id: string) => `/albums/${id}?limit=${FIRST_PHOTOS}`;
 
@@ -71,14 +73,17 @@ export function useAlbumDetail(id: string | undefined, view: AlbumView) {
           }
         : a,
     );
+    // When each photo was added, so Undo puts them back in the album's order.
+    const addedAt: Record<string, string> = {};
     try {
       if (smart) await api.post(apiPath("/albums/{id}/exclusions", { id }), { captureIds });
       else {
-        // shortcut: one DELETE per photo, as the API has no batch remove; add one if big albums are slow.
-        const results = await Promise.allSettled(
-          captureIds.map((captureId) => api.delete(apiPath("/albums/{id}/captures/{captureId}", { id, captureId }))),
-        );
-        if (results.some((r) => r.status === "rejected")) throw new Error("remove failed");
+        for (let i = 0; i < captureIds.length; i += REMOVE_BATCH) {
+          const res = await api.post(apiPath("/albums/{id}/items/remove", { id }), {
+            captureIds: captureIds.slice(i, i + REMOVE_BATCH),
+          });
+          Object.assign(addedAt, res.addedAt);
+        }
       }
     } catch {
       toast.error(t(smart ? "albums.detail.excludeFailed" : "albums.detail.removeFailed"));
@@ -89,7 +94,7 @@ export function useAlbumDetail(id: string | undefined, view: AlbumView) {
       void (
         smart
           ? api.post(apiPath("/albums/{id}/exclusions/restore", { id }), { captureIds })
-          : api.post(apiPath("/albums/{id}/captures", { id }), { captureIds })
+          : api.post(apiPath("/albums/{id}/captures", { id }), { captureIds, addedAt })
       )
         .catch(() => toast.error(t("albums.smart.restoreFailed")))
         .finally(load);

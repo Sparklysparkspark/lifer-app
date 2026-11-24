@@ -69,6 +69,8 @@ const SESSION_ROUTES_WITHOUT_SUCCESS_SCHEMA = [
   "GET /api/library/reimport/status",
   "GET /api/library/reimport/unmatched-preview/:index",
   "GET /api/library/reimport/unmatched-preview-by-hash/:hash",
+  // A WebP of a file a moved photo may now be, not JSON.
+  "GET /api/moved-photos/reviews/:id/candidates/:index/preview",
   "GET /api/share/:token",
   "POST /api/share/:token/unlock",
   "GET /api/share/:token/photos/:photoId/display",

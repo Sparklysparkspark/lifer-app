@@ -110,7 +110,7 @@ Move or rename photos with Finder, File Explorer or another app, and Lifer finds
 It looks a few minutes after it opens, when a photo can't be opened, and when you open a trip with missing photos. Each photo is recognized by its size and a quick check of a small part of it, so thousands of photos are found in moments.
 
 - **Found 12 moved photos** appears with **Undo** when it updates some. Undo puts back the old locations, and Lifer won't pick those files again.
-- When two or more files could be the same photo, or one was probably edited in place, Lifer doesn't guess. Open **Settings > Storage**, click **Review** next to **Moved photos to review**, and click **Use this** on the right file, or **Skip** it.
+- When two or more files could be the same photo, or one was probably edited in place, Lifer doesn't guess. Open **Settings > Storage**, click **Review** next to **Moved photos to review**, and click **Use this** on the right file, or **Skip** it. Each file shows beside the photo as Lifer has it; click either to see both full size. Skipped one by mistake? Click **Undo** in the message that appears.
 - A trip whose photos all turned up in a new folder gets a **Use it** offer for that folder. See [If you move or reorganize photos](./trips.md#moved-photos).
 
 ### Settings

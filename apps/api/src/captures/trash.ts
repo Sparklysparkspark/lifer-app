@@ -51,24 +51,29 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
     return trashed;
   }
 
-  /** Un-trashes a capture, clearing deleted_at and the pending RAW delete. */
-  async function restoreCapture(userId: string, captureId: string): Promise<{ notFound?: true }> {
+  /** Un-trashes captures in one transaction, clearing deleted_at and the pending RAW delete.
+   *  Returns the ids restored. One at a time inside it, so each cover check sees the captures
+   *  restored before it exactly as a single restore would. */
+  async function restoreCaptures(userId: string, captureIds: string[]): Promise<string[]> {
     const recropSpecies: string[] = [];
     const restored = await withTransaction(async (client) => {
-      const res = await client.query(
-        `UPDATE captures_all SET deleted_at = NULL, pending_delete_raw = false WHERE id = $1 AND user_id = $2 AND deleted_at IS NOT NULL`,
-        [captureId, userId],
-      );
-      if ((res.rowCount ?? 0) === 0) return false;
-      // Before the cover, which only comes back for a species counted as collected.
-      await syncCollectedState(client, userId, [captureId]);
-      recropSpecies.push(...(await restoreCoversForCapture(client, userId, captureId)));
-      return true;
+      const ids: string[] = [];
+      for (const captureId of captureIds) {
+        const res = await client.query(
+          `UPDATE captures_all SET deleted_at = NULL, pending_delete_raw = false WHERE id = $1 AND user_id = $2 AND deleted_at IS NOT NULL`,
+          [captureId, userId],
+        );
+        if ((res.rowCount ?? 0) === 0) continue;
+        // Before the cover, which only comes back for a species counted as collected.
+        await syncCollectedState(client, userId, [captureId]);
+        recropSpecies.push(...(await restoreCoversForCapture(client, userId, captureId)));
+        ids.push(captureId);
+      }
+      return ids;
     });
-    if (!restored) return { notFound: true };
-    invalidateUserVectors(userId);
-    for (const speciesId of recropSpecies) ensureDefaultCardCropLater(userId, speciesId);
-    return {};
+    if (restored.length > 0) invalidateUserVectors(userId);
+    for (const speciesId of new Set(recropSpecies)) ensureDefaultCardCropLater(userId, speciesId);
+    return restored;
   }
 
   // Permanent removal, after the retention window or when the trash is emptied. Managed files
@@ -322,6 +327,9 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  // Keeps one request one quick transaction; the web sends a bigger selection in chunks.
+  const MAX_BATCH_RESTORE = 500;
+
   // Trashed Photos (Settings), newest first. Reads captures_all, since the `captures` view
   // hides trashed rows.
   const TRASH_RETENTION_DAYS = 7;
@@ -387,9 +395,29 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
       schema: { params: IdParams, response: replies(Ok) },
     },
     async (request, reply) => {
-      const result = await restoreCapture(request.user!.id, request.params.id);
-      if (result.notFound) return reply.code(404).send({ error: "Not in trash" });
+      const restored = await restoreCaptures(request.user!.id, [request.params.id]);
+      if (restored.length === 0) return reply.code(404).send({ error: "Not in trash" });
       return { ok: true };
+    },
+  );
+
+  // Multi-select restore. Ids not in the caller's Trash are skipped.
+  app.post(
+    "/trash/restore",
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          { captureIds: Type.Array(Uuid(), { minItems: 1, maxItems: MAX_BATCH_RESTORE }) },
+          { additionalProperties: false },
+        ),
+        response: replies(Type.Object({ restored: Type.Integer(), skipped: Type.Integer() })),
+      },
+    },
+    async (request) => {
+      const captureIds = [...new Set(request.body.captureIds)];
+      const restored = (await restoreCaptures(request.user!.id, captureIds)).length;
+      return { restored, skipped: captureIds.length - restored };
     },
   );
 

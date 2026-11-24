@@ -119,18 +119,22 @@ async function selectAll() {
 
 describe("AlbumDetailPage", () => {
   it("removes the selection in one go and offers an Undo that adds the photos back", async () => {
+    const addedAt = { "c-a": "2026-11-01T10:00:00.000001Z", "c-b": "2026-11-02T10:00:00Z" };
+    post.mockResolvedValueOnce({ removed: 2, skipped: 0, addedAt });
     renderAt("/albums/a1");
     await selectAll();
     fireEvent.click(screen.getByRole("button", { name: "Remove from album" }));
     await waitFor(() => expect(toast.show).toHaveBeenCalled());
-    expect(del.mock.calls.map((c) => c[0])).toEqual(["/albums/a1/captures/c-a", "/albums/a1/captures/c-b"]);
+    expect(del).not.toHaveBeenCalled();
+    expect(post.mock.calls).toEqual([["/albums/a1/items/remove", { captureIds: ["c-a", "c-b"] }]]);
     const [message, opts] = toast.show.mock.calls[0] as [
       string,
       { actions: Array<{ label: string; onClick: () => void }> },
     ];
     expect(message).toBe("Removed 2 photos from the album");
     opts.actions[0].onClick();
-    expect(post).toHaveBeenCalledWith("/albums/a1/captures", { captureIds: ["c-a", "c-b"] });
+    // Back in their old places, in one request.
+    expect(post).toHaveBeenLastCalledWith("/albums/a1/captures", { captureIds: ["c-a", "c-b"], addedAt });
   });
 
   it("excludes from a smart album with one request, and Undo restores the exclusions", async () => {

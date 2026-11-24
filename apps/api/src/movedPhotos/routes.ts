@@ -6,9 +6,10 @@ import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
 import { assertAllowedPath, isDirectory } from "@lifer/core/lib/allowedPaths.js";
-import { canonicalPath } from "@lifer/core/lib/pathContainment.js";
+import { canonicalPath, isWithinResolved } from "@lifer/core/lib/pathContainment.js";
+import { sendFilePreview } from "../lib/filePreview.js";
 import { requireAuth, requireScope } from "../auth/session.js";
-import { DateTime, IdParams, Nullable, Ok, Open, jobStatusFields, replies, withSchemas } from "../lib/schema.js";
+import { DateTime, IdParams, Nullable, Ok, Open, Uuid, jobStatusFields, replies, withSchemas } from "../lib/schema.js";
 import { isTripBusy } from "../trips/jobs.js";
 import {
   applyRelinks,
@@ -17,6 +18,7 @@ import {
   movedPhotosJob,
   placeOverlap,
   placesFor,
+  rootsOf,
   startLook,
   undoBatch,
   useTripFolder,
@@ -438,6 +440,51 @@ export async function movedPhotosRoutes(fastify: FastifyInstance): Promise<void>
         request.user!.id,
       ]);
       return { ok: true };
+    },
+  );
+
+  // Undo for a Skip: the photo is offered for review again.
+  app.post(
+    "/moved-photos/reviews/:id/restore",
+    { preValidation: requireAuth, schema: { params: IdParams, response: replies(Ok) } },
+    async (request, reply) => {
+      const res = await pool.query(
+        `UPDATE moved_photo_reviews SET dismissed_at = NULL WHERE original_id = $1 AND user_id = $2`,
+        [request.params.id, request.user!.id],
+      );
+      if (!res.rowCount) return reply.code(404).send({ error: "Not found" });
+      return { ok: true };
+    },
+  );
+
+  // A look at one file Lifer offered for a photo, to compare by eye. The file comes from the
+  // review's own list by position, never a client path, and must still be in a searched place.
+  app.get(
+    "/moved-photos/reviews/:id/candidates/:index/preview",
+    {
+      preValidation: requireAuth,
+      config: { invalidInput: { params: { status: 404, error: "Not found" } } },
+      schema: {
+        params: Type.Object({ id: Uuid(), index: Type.Integer({ minimum: 0 }) }),
+        querystring: Type.Object({
+          size: Type.Optional(Type.Enum(["thumb", "full"], { description: "thumb (the default) or full" })),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const row = (
+        await pool.query<{ candidates: string[] }>(
+          `SELECT candidates FROM moved_photo_reviews WHERE original_id = $1 AND user_id = $2`,
+          [request.params.id, userId],
+        )
+      ).rows[0];
+      const file = row?.candidates[request.params.index];
+      if (!file) return reply.code(404).send({ error: "Not found" });
+      const roots = rootsOf(await placesFor(userId));
+      if (!roots.some((root) => isWithinResolved(root, file))) return reply.code(404).send({ error: "Not found" });
+      reply.header("Cache-Control", "private, max-age=60");
+      return sendFilePreview(file, reply, request.query.size === "full" ? 2048 : 300);
     },
   );
 

@@ -22,7 +22,7 @@ Nothing on disk changes while a photo is in the Trash.
 - One photo: open its **⋯** menu and click **Restore**.
 - Several: click **Select**, choose the photos (<kbd>Shift</kbd>-click or drag to pick a range), then **Restore selected**.
 
-A restored photo comes back exactly as it was, with its species, rating and tags.
+A restored photo comes back exactly as it was, with its species, rating, tags and albums. A RAW you chose to delete with it is kept again. Click **View** in the message to see restored photos in the Gallery.
 
 Turn on **Labels** to see each photo's species, how many days it has left, and whether its RAW will be deleted too or kept.
 

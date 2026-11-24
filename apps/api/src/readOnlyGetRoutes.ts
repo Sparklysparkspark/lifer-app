@@ -160,6 +160,7 @@ export const AUDITED_GET_ROUTES: readonly string[] = [
   "/api/trips/:id/suggestions",
   "/api/trips/:id/scan/status",
   "/api/trips/:id/scan-preview",
+  "/api/moved-photos/reviews/:id/candidates/:index/preview",
   "/api/trips/:id/import/status",
   "/api/trips/move-files/status",
   "/api/library/folder-status",

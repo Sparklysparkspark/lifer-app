@@ -32,7 +32,7 @@ import { resolveQuadSlots } from "../lib/quadCover.js";
 import { applyDefaultCoverCrops } from "./defaultCoverCrops.js";
 import { isValidCrop } from "../lib/crop.js";
 import { BEST_PHOTO_ORDER } from "../lib/bestPhotoOrder.js";
-import { IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
+import { DateTime, IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 
 const albumNotFound = notFoundOnInvalidId("Album not found");
 const Percent = Type.Number({ minimum: 0, maximum: 100 });
@@ -51,6 +51,8 @@ async function assertOwnedAlbum(albumId: string, userId: string): Promise<{ rule
 
 const SMART_ALBUM_NO_ADD =
   "This is a smart album: its rules choose its photos, so photos can't be added by hand. Edit its rules instead.";
+// Keeps one request one quick transaction; the web sends a bigger selection in chunks.
+const MAX_BATCH_REMOVE = 500;
 const SMART_ALBUM_NO_REMOVE = "This is a smart album: its rules choose its photos. Exclude the photo instead.";
 
 /** The album's photos as gallery rows: a hand-picked album's newest-added first, a smart album's
@@ -483,7 +485,18 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
       config: albumNotFound,
       schema: {
         params: IdParams,
-        body: Type.Object({ captureIds: Type.Array(Uuid(), { minItems: 1 }) }, { additionalProperties: false }),
+        body: Type.Object(
+          {
+            captureIds: Type.Array(Uuid(), { minItems: 1 }),
+            addedAt: Type.Optional(
+              Type.Record(Type.String(), DateTime(), {
+                description:
+                  "Puts photos back at their old place in the album's order: the addedAt a remove answered with",
+              }),
+            ),
+          },
+          { additionalProperties: false },
+        ),
         response: replies(Ok),
       },
     },
@@ -492,15 +505,16 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
       const owned = await assertOwnedAlbum(request.params.id, userId);
       if (!owned) return reply.code(404).send({ error: "Album not found" });
       if (owned.rules) return reply.code(409).send({ error: SMART_ALBUM_NO_ADD });
-      const { captureIds } = request.body;
+      const { captureIds, addedAt } = request.body;
 
       // Only the user's own captures: the caller supplies capture IDs directly here.
       const inserted = await pool.query(
-        `INSERT INTO album_captures (album_id, capture_id)
-         SELECT $1, c.id FROM captures c WHERE c.id = ANY($2) AND c.user_id = $3
+        `INSERT INTO album_captures (album_id, capture_id, added_at)
+         SELECT $1, c.id, COALESCE(($4::jsonb ->> c.id::text)::timestamptz, now())
+         FROM captures c WHERE c.id = ANY($2) AND c.user_id = $3
          ON CONFLICT DO NOTHING
          RETURNING capture_id`,
-        [request.params.id, captureIds, userId],
+        [request.params.id, captureIds, userId, JSON.stringify(addedAt ?? {})],
       );
 
       // An album with no cover gets one from what was just added; a manual pick overrides it.
@@ -550,6 +564,56 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
         ),
       );
       return { ok: true };
+    },
+  );
+
+  // Takes many photos out at once. addedAt lets an Undo put them back in the same order.
+  app.post(
+    "/albums/:id/items/remove",
+    {
+      preValidation: requireScope("album.write"),
+      config: albumNotFound,
+      schema: {
+        params: IdParams,
+        body: Type.Object(
+          { captureIds: Type.Array(Uuid(), { minItems: 1, maxItems: MAX_BATCH_REMOVE }) },
+          { additionalProperties: false },
+        ),
+        response: replies(
+          Type.Object({
+            removed: Type.Integer(),
+            skipped: Type.Integer({ description: "Photos that weren't in the album" }),
+            addedAt: Type.Record(Type.String(), DateTime(), {
+              description: "When each removed photo had been added, to pass back to an add to undo",
+            }),
+          }),
+        ),
+      },
+    },
+    async (request, reply) => {
+      const owned = await assertOwnedAlbum(request.params.id, request.user!.id);
+      if (!owned) return reply.code(404).send({ error: "Album not found" });
+      if (owned.rules) return reply.code(409).send({ error: SMART_ALBUM_NO_REMOVE });
+      const captureIds = [...new Set(request.body.captureIds)];
+      // One statement, so the batch goes all at once or not at all.
+      // added_at as ISO text with its microseconds, so a re-add sorts exactly where it was.
+      const res = await pool.query<{ capture_id: string; added_at: string }>(
+        `DELETE FROM album_captures WHERE album_id = $1 AND capture_id = ANY($2::uuid[])
+         RETURNING capture_id, to_json(added_at) #>> '{}' AS added_at`,
+        [request.params.id, captureIds],
+      );
+      const removed = res.rows.map((r) => r.capture_id);
+      syncAlbumIndexForCaptures(removed).catch((err: unknown) =>
+        log.warn(
+          { albumId: request.params.id, err: err instanceof Error ? err.message : err },
+          "Couldn't update the album recovery index",
+        ),
+      );
+      return {
+        removed: removed.length,
+        skipped: captureIds.length - removed.length,
+        addedAt: Object.fromEntries(res.rows.map((r) => [r.capture_id, r.added_at])),
+      };
     },
   );
 

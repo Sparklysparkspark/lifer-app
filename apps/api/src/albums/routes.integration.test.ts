@@ -20,6 +20,7 @@ const OWNER = "eeeeeeee-0000-4000-8000-000000000601";
 const SPECIES = "eeeeeeee-0000-4000-8000-00000000060a";
 const NO_SUCH = "eeeeeeee-0000-4000-8000-0000000006ff";
 const TOKEN = "lifer_test_album_routes_owner_601";
+const OTHER = "eeeeeeee-0000-4000-8000-000000000602";
 const invalid = (pattern: RegExp) => ({ error: expect.stringMatching(pattern), code: "invalid_request" });
 
 describe.skipIf(!url)("album routes input validation", () => {
@@ -35,7 +36,9 @@ describe.skipIf(!url)("album routes input validation", () => {
     app.inject({ method, url: route, payload: payload as object, cookies: { [cookieName]: TOKEN } });
 
   async function cleanup() {
-    await db.query(`DELETE FROM albums WHERE user_id = $1`, [OWNER]);
+    await db.query(`DELETE FROM albums WHERE user_id = ANY($1::uuid[])`, [[OWNER, OTHER]]);
+    await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [OTHER]);
+    await db.query(`DELETE FROM users WHERE id = $1`, [OTHER]);
     await db.query(`DELETE FROM install_settings WHERE key = $1`, [`pinned_filters:${OWNER}`]);
     await db.query(`DELETE FROM user_species WHERE user_id = $1`, [OWNER]);
     await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [OWNER]);
@@ -368,5 +371,77 @@ describe.skipIf(!url)("album routes input validation", () => {
     expect((await restore({ captureIds: [] })).statusCode).toBe(400);
     expect((await restore({ captureIds: excluded })).json()).toEqual({ ok: true });
     expect((await call("GET", `/api/albums/${id}/exclusions`)).json().items).toEqual([]);
+  });
+
+  it("removes many photos in one go, and an Undo puts them back in their old places", async () => {
+    const album = (await call("POST", "/api/albums", { name: "Batch" })).json().id;
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const id = (
+        await db.query<{ id: string }>(
+          `INSERT INTO captures (user_id, species_id, fingerprint) VALUES ($1, $2, $3) RETURNING id`,
+          [OWNER, SPECIES, `album-batch-${i}`],
+        )
+      ).rows[0].id;
+      await db.query(
+        `WITH p AS (INSERT INTO photos (capture_id, display_path, thumb_path)
+           VALUES ($1, '/nowhere/d.webp', '/nowhere/t.webp') RETURNING id)
+         UPDATE captures_all SET current_photo_id = (SELECT id FROM p) WHERE id = $1`,
+        [id],
+      );
+      ids.push(id);
+    }
+    // Added one at a time, so the album's order is ids[2], ids[1], ids[0], then captureId.
+    for (const id of [captureId, ...ids]) {
+      await db.query(`INSERT INTO album_captures (album_id, capture_id, added_at) VALUES ($1, $2, clock_timestamp())`, [
+        album,
+        id,
+      ]);
+    }
+    const order = async () =>
+      (await call("GET", `/api/albums/${album}`)).json().items.map((i: { captureId: string }) => i.captureId);
+    const before = await order();
+    expect(before).toEqual([ids[2], ids[1], ids[0], captureId]);
+
+    await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'album-routes-other@test', 'x')`, [OTHER]);
+    const theirs = (
+      await db.query<{ id: string }>(
+        `INSERT INTO captures (user_id, species_id, fingerprint) VALUES ($1, $2, 'album-batch-theirs') RETURNING id`,
+        [OTHER, SPECIES],
+      )
+    ).rows[0].id;
+    const theirAlbum = (
+      await db.query<{ id: string }>(`INSERT INTO albums (user_id, name) VALUES ($1, 'Theirs') RETURNING id`, [OTHER])
+    ).rows[0].id;
+    await db.query(`INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2)`, [theirAlbum, theirs]);
+
+    const remove = (id: string, captureIds: string[]) => call("POST", `/api/albums/${id}/items/remove`, { captureIds });
+    expect(
+      (
+        await remove(
+          album,
+          Array.from({ length: 501 }, () => ids[0]),
+        )
+      ).statusCode,
+    ).toBe(400);
+    // Another account's album is as unknown as a missing one, and keeps its photo.
+    expect((await remove(theirAlbum, [theirs])).statusCode).toBe(404);
+    expect((await db.query(`SELECT 1 FROM album_captures WHERE album_id = $1`, [theirAlbum])).rowCount).toBe(1);
+    const smart = (await call("POST", "/api/albums", { name: "Rules", rules: { version: 2, query: {} } })).json().id;
+    expect((await remove(smart, [captureId])).statusCode).toBe(409);
+
+    const res = await remove(album, [ids[0], ids[2], theirs]);
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json();
+    expect([body.removed, body.skipped, Object.keys(body.addedAt).sort()]).toEqual([2, 1, [ids[0], ids[2]].sort()]);
+    expect(await order()).toEqual([ids[1], captureId]);
+
+    // The web's Undo: a batched re-add with the old timestamps. Another account's photo can't ride along.
+    const undo = await call("POST", `/api/albums/${album}/captures`, {
+      captureIds: [ids[0], ids[2], theirs],
+      addedAt: body.addedAt,
+    });
+    expect(undo.statusCode, undo.body).toBe(200);
+    expect(await order()).toEqual(before);
   });
 });

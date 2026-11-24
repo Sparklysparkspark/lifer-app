@@ -1,14 +1,11 @@
 // Library reimport. Reading every file's EXIF and rebuilding derivatives takes minutes, so it's a
 // single background job the client polls.
 import { CULL_MARKS_OPTIONS, idleJobStatus, type CullMarksOption } from "@lifer/shared";
-import { cp, stat } from "node:fs/promises";
+import { cp } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { Type } from "typebox";
-import sharp from "sharp";
-import { originalSharpOptions } from "@lifer/core/lib/imageLimits.js";
-import { claimedPhotoFormat, sniffPhotoFormat } from "@lifer/core/uploads/formats.js";
-import { prepareWorkingImage, type WorkingImage } from "../uploads/workingImage.js";
+import { sendFilePreview } from "../lib/filePreview.js";
 import { requireAuth } from "../auth/session.js";
 import { assertAllowedPath, isDirectory } from "@lifer/core/lib/allowedPaths.js";
 import { Ok, Uuid, replies, withSchemas } from "../lib/schema.js";
@@ -590,26 +587,7 @@ export async function libraryRoutes(fastify: FastifyInstance): Promise<void> {
   // scan's own list (by position or content hash), never from a client-supplied path.
   async function sendUnmatchedPreview(entry: { relativePath: string } | undefined, reply: FastifyReply) {
     if (!entry || !jobWalkDir) return reply.code(404).send({ error: "Not found" });
-    const absolutePath = path.join(jobWalkDir, entry.relativePath);
-    if (!(await stat(absolutePath).catch(() => null))) return reply.code(404).send({ error: "Not found" });
-    let working: WorkingImage | null = null;
-    try {
-      // A HEIC is read through its working JPEG, since sharp can't decode it.
-      const format = (await sniffPhotoFormat(absolutePath)) ?? claimedPhotoFormat(null, absolutePath);
-      if (format === "heic") working = await prepareWorkingImage(absolutePath, format);
-      const source = working?.decodePath ?? absolutePath;
-      const buffer = await sharp(source, originalSharpOptions())
-        .rotate()
-        .resize({ width: 300, withoutEnlargement: true })
-        .webp({ quality: 75 })
-        .toBuffer();
-      reply.header("Content-Type", "image/webp");
-      return reply.send(buffer);
-    } catch {
-      return reply.code(404).send({ error: "Couldn't read this file" });
-    } finally {
-      await working?.release();
-    }
+    return sendFilePreview(path.join(jobWalkDir, entry.relativePath), reply, 300);
   }
 
   app.get(
