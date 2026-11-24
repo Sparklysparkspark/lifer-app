@@ -218,6 +218,24 @@ Sizes: S about 1 to 2 days, M 3 to 5 days, L 1 to 2 weeks. Model per the review 
 
 Held for the next catalog republish (`docs/plans/next-catalog-republish.md`): **RF-K6** common names in up to three languages (`species_common_names`) and **RF-T6** English names for orders and families outside birds. Both need pipeline data, not runtime fetches.
 
+## 5. Integrations parity (added 2026-11-24)
+
+Specio lists Lightroom Classic, Apple Photos, Folders, Peakto, DxO PhotoLab, Adobe Photoshop, Adobe Bridge, and Google Photos (coming soon) as places species keywords land. Goal: Lifer matches this, non-destructively, zero-config, offline first.
+
+Starting point (from the repo, to be verified by RF-I0): Lifer already has a Lightroom Classic plug-in (`apps/api/src/integrations/lightroom`), writes XMP sidecars and in-file XMP/IPTC keywords, and has an Immich integration. Folders therefore work today.
+
+| Target | Likely route | Work |
+| --- | --- | --- |
+| Lightroom Classic | Plug-in plus XMP | Already present; extend to the new templates and thesaurus paths (RF-K1, RF-K4) |
+| Adobe Bridge, Photoshop, DxO PhotoLab, Peakto | Read XMP sidecars and in-file XMP/IPTC | Verify each reads our sidecar naming and the IPTC block written together with XMP (RF-K1); document per app in `docs/docs/guides/culling-with-other-apps.md` style guide; no code unless a reader needs a different sidecar convention |
+| Apple Photos | No sidecar support. Needs a macOS-only bridge (Photos scripting or PhotoKit) to write keywords, or an export/import album route | Research first (RF-I1); macOS only, so Windows and Linux must hide it |
+| Google Photos | No keyword write API for existing library items | Skip for now, revisit if an API appears (Specio also lists it as coming soon) |
+
+Work packages:
+- **RF-I0** (Sonnet, S): audit what each app reads from our written files, write a compatibility table into the guides, list real gaps. No code.
+- **RF-I1** (Opus, M, research then build): Apple Photos keyword write-back on macOS. Decide Photos scripting vs PhotoKit, permissions prompt, what happens when the photo is not in the Photos library. Held until RF-K1 and RF-K2 land so it reuses the template engine and the "only touch what we wrote" record.
+- **RF-I2** (Sonnet, S): Settings > Connected apps shows each supported app with a one-line how-to (Lightroom plug-in, Photos, folders and sidecars), reusing the shared components.
+
 ## Decisions for you
 
 1. **Photo-filled cards: the new default, or a View option?** Recommend the default at medium and large sizes, classic layout kept for the smallest size. Two card styles as a user option would double the screenshot matrix.
