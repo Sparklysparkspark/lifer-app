@@ -50,6 +50,23 @@ describe("useGalleryBursts", () => {
     await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
     expect(post).toHaveBeenLastCalledWith("/gallery/bursts", { captureIds: ["z"] });
   });
+
+  it("applies a big search's chunks in one update, so the grid changes once", async () => {
+    post.mockReset();
+    post.mockImplementation((_path: string, body: { captureIds: string[] }) =>
+      Promise.resolve({ bursts: [{ burstId: body.captureIds[0], count: 2, captureIds: body.captureIds.slice(0, 2) }] }),
+    );
+    const items = Array.from({ length: 1200 }, (_, i) => item(`c${i}`));
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders++;
+      return useGalleryBursts(items);
+    });
+    await waitFor(() => expect(result.current.size).toBe(6));
+    expect(post).toHaveBeenCalledTimes(3);
+    // The first render, then one for all three answers.
+    expect(renders).toBe(2);
+  });
 });
 
 describe("burst badge", () => {
@@ -72,6 +89,11 @@ describe("burst badge", () => {
     tile(12);
     expect(screen.getByText("+11")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Burst of 12 photos/ })).toBeTruthy();
+  });
+
+  it("sits over the photo, so a badge arriving late never changes the tile's height", () => {
+    tile(12);
+    expect(screen.getByText("+11").parentElement!.className).toMatch(/\babsolute\b/);
   });
 
   it("is absent for a photo alone", () => {

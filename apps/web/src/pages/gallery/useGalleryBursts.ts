@@ -23,19 +23,25 @@ export function useGalleryBursts(items: readonly GalleryItem[] | null): Readonly
     const ids = (items ?? [])
       .filter((it) => it.kind === "image" && it.takenAt && !it.version && !asked.current.has(it.captureId))
       .map((it) => it.captureId);
+    if (ids.length === 0) return;
     for (const id of ids) asked.current.add(id);
-    for (let i = 0; i < ids.length; i += CHUNK)
-      api
-        .post("/gallery/bursts", { captureIds: ids.slice(i, i + CHUNK) })
-        .then((res) =>
-          setBursts((prev) => {
-            const next = new Map(prev);
-            for (const b of res.bursts)
-              for (const id of b.captureIds) next.set(id, { burstId: b.burstId, count: b.count });
-            return next;
-          }),
-        )
-        .catch(ignore("Couldn't load bursts"));
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK));
+    // One update once every chunk answers: a big search would otherwise re-render and, with
+    // Group bursts on, re-fold the grid once per chunk.
+    Promise.allSettled(chunks.map((captureIds) => api.post("/gallery/bursts", { captureIds })))
+      .then((results) => {
+        const answered = results.flatMap((r) => (r.status === "fulfilled" ? r.value.bursts : []));
+        const failed = results.find((r) => r.status === "rejected");
+        if (failed) ignore("Couldn't load bursts")(failed.reason);
+        if (answered.length === 0) return;
+        setBursts((prev) => {
+          const next = new Map(prev);
+          for (const b of answered) for (const id of b.captureIds) next.set(id, { burstId: b.burstId, count: b.count });
+          return next;
+        });
+      })
+      .catch(ignore("Couldn't load bursts"));
   }, [items]);
   return bursts;
 }

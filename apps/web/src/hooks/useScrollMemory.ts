@@ -11,8 +11,10 @@ interface SavedScroll {
   anchor?: { id: string; top: number };
 }
 
-// How long after restoring to keep the anchor in place while the page above it settles.
+// Once the spot is reached, how long the page must stay the same size before the hold ends.
 const SETTLE_MS = 1500;
+// The most a hold waits for a page that is still hidden or too short to reach the spot.
+const GIVE_UP_MS = 30_000;
 const USER_SCROLL_EVENTS = ["wheel", "touchstart", "keydown", "mousedown"] as const;
 
 function topAnchor(): SavedScroll["anchor"] {
@@ -128,24 +130,35 @@ export function useScrollMemory(ready: boolean): void {
 
 /** Scrolls back to `saved` and holds it there while the page settles; returns the cleanup. */
 function holdScroll(saved: SavedScroll): () => void {
+  let settled: ReturnType<typeof setTimeout> | undefined;
   const restore = () => {
-    if (!saved.anchor || !scrollToAnchor(saved.anchor)) window.scrollTo(0, saved.y);
+    const found = !!saved.anchor && scrollToAnchor(saved.anchor);
+    if (!found) window.scrollTo(0, saved.y);
+    // A page still hidden or too short clamps the scroll: keep waiting for it to grow.
+    clearTimeout(settled);
+    if (found || Math.abs(window.scrollY - saved.y) < 1) settled = setTimeout(stop, SETTLE_MS);
   };
   // Two frames: the cards lay out (and fit their names) before the scroll is applied.
   let second = 0;
   const first = requestAnimationFrame(() => {
     second = requestAnimationFrame(restore);
   });
-  // Then hold that card in place as the page above it finishes loading, until the user scrolls.
+  // Then hold that spot as the page loads, grows or shifts, until the user scrolls.
   const resize = new ResizeObserver(() => restore());
   resize.observe(document.body);
+  // A swipe's sideways momentum is not the user scrolling the page.
+  const onUser = (e: Event) => {
+    if (e instanceof WheelEvent && Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    stop();
+  };
   const stop = () => {
     resize.disconnect();
-    clearTimeout(timer);
-    for (const type of USER_SCROLL_EVENTS) window.removeEventListener(type, stop);
+    clearTimeout(settled);
+    clearTimeout(giveUp);
+    for (const type of USER_SCROLL_EVENTS) window.removeEventListener(type, onUser);
   };
-  const timer = setTimeout(stop, SETTLE_MS);
-  for (const type of USER_SCROLL_EVENTS) window.addEventListener(type, stop, { passive: true });
+  const giveUp = setTimeout(stop, GIVE_UP_MS);
+  for (const type of USER_SCROLL_EVENTS) window.addEventListener(type, onUser, { passive: true });
   return () => {
     cancelAnimationFrame(first);
     cancelAnimationFrame(second);
