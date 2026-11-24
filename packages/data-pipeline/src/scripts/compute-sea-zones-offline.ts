@@ -50,6 +50,7 @@ import { exteriorRingsOf, zoneNeighbours } from "../build/zone-neighbours.js";
 import { assignBasins, landBridges } from "../build/sea-basins.js";
 import { FIXES_FILE, parseFixes } from "./fix-catalog-audit.js";
 import { isFreshwaterOrLandOnly } from "../pipeline/wormsEnvironment.js";
+import { MARINE_EXTRA_CLASSES } from "../build/sea-zone-marine.js";
 
 const PIPELINE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ZIP_DIR = path.join(PIPELINE_DIR, "data", "gbif-country-cache");
@@ -330,7 +331,12 @@ async function main() {
     if (!opts.apply) continue;
     await withTransaction(
       async (client) => {
-        await client.query(`DELETE FROM sea_zone_species WHERE sea_zone_id = $1`, [zone.id]);
+        // The other marine classes are build-sea-zones-marine.ts's rows.
+        await client.query(
+          `DELETE FROM sea_zone_species zs USING species s
+           WHERE s.id = zs.species_id AND zs.sea_zone_id = $1 AND NOT s.taxon_class = ANY($2)`,
+          [zone.id, MARINE_EXTRA_CLASSES],
+        );
         await client.query(
           `INSERT INTO sea_zone_species (sea_zone_id, species_id, record_count)
            SELECT $1, unnest($2::uuid[]), unnest($3::int[])`,

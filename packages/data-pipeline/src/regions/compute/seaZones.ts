@@ -14,6 +14,7 @@ import {
 } from "../buildRegionSpecies.js";
 import { fetchFishTaxonKeys } from "../../gbif/fishOrders.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
+import { MARINE_EXTRA_CLASSES } from "../../build/sea-zone-marine.js";
 
 // GBIF order keys for Cetacea (733) and Sirenia (802). These belong on sea-zone checklists and are
 // always left off a land region's list (GBIF's country filter includes territorial waters), with
@@ -66,7 +67,12 @@ export async function ensureSeaZoneComputed(zoneId: string, wkt: string, already
   const filtered = afterTypeSpecimenCheck.filter((c) => c.recordCount >= FISH_MIN_RECORDS);
   await withTransaction(
     async (client) => {
-      await client.query(`DELETE FROM sea_zone_species WHERE sea_zone_id = $1`, [zoneId]);
+      // The other marine classes are build-sea-zones-marine.ts's rows.
+      await client.query(
+        `DELETE FROM sea_zone_species zs USING species s
+         WHERE s.id = zs.species_id AND zs.sea_zone_id = $1 AND NOT s.taxon_class = ANY($2)`,
+        [zoneId, MARINE_EXTRA_CLASSES],
+      );
       for (const c of filtered) {
         const speciesIdRes = await client.query(`SELECT id FROM species WHERE gbif_key = $1`, [c.gbifKey]);
         const speciesId = speciesIdRes.rows[0]?.id;

@@ -58,3 +58,4 @@ apps/mobile/.expo/
 
 # Full-size before and after screenshots behind the plans; too large for the repo.
 docs/plans/assets/
+packages/data-pipeline/data/review/inat-membership-changes.tsv

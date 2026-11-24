@@ -30,6 +30,7 @@ import {
   type BoundingBox,
 } from "@lifer/core/lib/geometry.js";
 import { sanitize, regionPackFileName, seaZonePackFileName, type PackVariant } from "@lifer/core/packs/packId.js";
+import { MARINE_EXTRA_CLASSES } from "./sea-zone-marine.js";
 
 // A manifest must stay well under V8's ~512MB string limit, since both the builder and the app
 // serialize it in one piece. Province-level hotspot clusters grow without bound, so an
@@ -128,8 +129,9 @@ const TAXON_CLASSES = [
 ] as const;
 type TaxonClass = (typeof TAXON_CLASSES)[number];
 
-// Only these taxa have sea_zone_species data (see regions/routes.ts's ensureSeaZoneComputed).
-const TAXA_WITH_SEA_ZONE_DATA: readonly TaxonClass[] = ["actinopterygii", "elasmobranchii", "aquatic_mammalia"];
+// Only these taxa have sea_zone_species data: fish and marine mammals (compute-sea-zones-offline.ts)
+// and the other marine life (build-sea-zones-marine.ts).
+const TAXA_WITH_SEA_ZONE_DATA: readonly string[] = ["actinopterygii", "mammalia", ...MARINE_EXTRA_CLASSES];
 
 interface ManifestSpecies {
   scientificName: string;

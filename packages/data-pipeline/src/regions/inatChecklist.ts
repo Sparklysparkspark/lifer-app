@@ -2,8 +2,9 @@
 // list. Used by the province rescue/reconcile passes and flag-vagrant-mismatch-inat.ts.
 //
 // Research Grade needs evidence and two agreeing identifiers, so it's a strong presence signal.
-// Absence is weaker (hard-to-photograph species may never reach it), so it never excludes a
-// well-evidenced species on its own.
+// Absence is weaker (hard-to-photograph species may never reach it), so the province build never
+// excludes a well-evidenced species on it alone; apply-inat-membership.ts, which runs after it,
+// does where iNaturalist observers cover the species' group.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,7 +88,7 @@ const PAGE_BACKOFF_MS = 2000;
 const INAT_CURRENT_TAXON_CACHE_PATH = path.join(PIPELINE_DATA_DIR, "inat-current-taxon-cache.json");
 let inatCurrentTaxonDiskCache: Record<string, number | null> | null = null;
 
-function loadInatCurrentTaxonDiskCache(): Record<string, number | null> {
+export function loadInatCurrentTaxonDiskCache(): Record<string, number | null> {
   if (inatCurrentTaxonDiskCache) return inatCurrentTaxonDiskCache;
   if (existsSync(INAT_CURRENT_TAXON_CACHE_PATH)) {
     try {
@@ -401,6 +402,83 @@ export function cachedPlaceCounts(
   const cached = JSON.parse(readFileSync(cachePath, "utf8")) as Partial<SpeciesCountsCacheFile>;
   if (!cached.withCounts || !cached.taxa) return null;
   return new Map(cached.taxa.map((t) => [t.id, { count: t.count ?? 0, iconic: t.iconic ?? null, name: t.name }]));
+}
+
+// Research-grade counts per complete calendar year for chosen taxa in a place, the year spread the
+// vagrant rule reads (inatVagrancy.ts). Past years don't change, so a year once fetched for a
+// taxon is never fetched again; that also makes an interrupted run resume where it stopped.
+const INAT_YEAR_COUNTS_CACHE_DIR = path.join(PIPELINE_DATA_DIR, "inat-year-counts-cache");
+// Ids per request: keeps the URL short and the answer on one page.
+const YEAR_COUNTS_TAXA_PER_REQUEST = 200;
+
+interface YearCountsCacheFile {
+  /** year -> taxon ids asked for and the counts of those found (absent means none). */
+  years: Record<string, { asked: number[]; counts: Record<string, number> }>;
+}
+
+function readYearCountsCache(placeId: number): YearCountsCacheFile {
+  const cachePath = path.join(INAT_YEAR_COUNTS_CACHE_DIR, `${placeId}.json`);
+  if (!existsSync(cachePath)) return { years: {} };
+  try {
+    return JSON.parse(readFileSync(cachePath, "utf8")) as YearCountsCacheFile;
+  } catch {
+    return { years: {} }; // a corrupt file is refetched
+  }
+}
+
+/** Fetches the year counts of `taxonIds` in a place for `years` that the cache lacks. Returns
+ *  false when a request failed (what was fetched before it stays cached). */
+export async function refreshPlaceYearCounts(placeId: number, taxonIds: number[], years: number[]): Promise<boolean> {
+  mkdirSync(INAT_YEAR_COUNTS_CACHE_DIR, { recursive: true });
+  const cachePath = path.join(INAT_YEAR_COUNTS_CACHE_DIR, `${placeId}.json`);
+  const cache = readYearCountsCache(placeId);
+  for (const year of years) {
+    const entry = (cache.years[String(year)] ??= { asked: [], counts: {} });
+    const asked = new Set(entry.asked);
+    const missing = taxonIds.filter((id) => !asked.has(id));
+    for (let i = 0; i < missing.length; i += YEAR_COUNTS_TAXA_PER_REQUEST) {
+      if (inatOffline()) return false;
+      const chunk = missing.slice(i, i + YEAR_COUNTS_TAXA_PER_REQUEST);
+      let res: Response;
+      try {
+        res = await inatGet(
+          `${INAT_OBSERVATIONS_API}/species_counts?place_id=${placeId}&quality_grade=research&verifiable=true&year=${year}&taxon_id=${chunk.join(",")}&per_page=500`,
+          PAGE_BACKOFF_MS,
+        );
+      } catch {
+        return false;
+      }
+      if (!res.ok) return false;
+      const data = expectShape(await res.json(), isInatSpeciesCountsPage, "iNaturalist species counts") as {
+        results: Array<{ count: number; taxon: { id: number } }>;
+      };
+      for (const r of data.results) entry.counts[String(r.taxon.id)] = r.count;
+      entry.asked.push(...chunk);
+      writeFileSync(cachePath, JSON.stringify(cache));
+    }
+  }
+  return true;
+}
+
+/** A place's cached year counts: taxon id -> year -> research-grade count, for the years and taxa
+ *  fetched; `asked` says which (year, taxon) pairs are known, so a missing count means zero. */
+export function cachedPlaceYearCounts(placeId: number): {
+  counts: Map<number, Map<number, number>>;
+  asked: Map<number, Set<number>>;
+} {
+  const cache = readYearCountsCache(placeId);
+  const counts = new Map<number, Map<number, number>>();
+  const asked = new Map<number, Set<number>>();
+  for (const [yearText, entry] of Object.entries(cache.years)) {
+    const year = Number(yearText);
+    asked.set(year, new Set(entry.asked));
+    for (const [taxonText, n] of Object.entries(entry.counts)) {
+      const taxonId = Number(taxonText);
+      if (!counts.has(taxonId)) counts.set(taxonId, new Map());
+      counts.get(taxonId)!.set(year, n);
+    }
+  }
+  return { counts, asked };
 }
 
 // iNaturalist's curated list of taxa introduced in a place. Status varies by place, so each
