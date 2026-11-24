@@ -1289,7 +1289,6 @@
     "archivedToast": "{name} is a species name. The species is left out of the user's counts.",
     "addedToTargets": "Targets: species the user wants to photograph next.",
     "seenTitle": "Hover text on an eye icon: the user saw this species but has no photo of it.",
-    "photoCount": "Spoken name of the number in the top corner of a species card: how many photos of it the user has.",
     "volumeTitle": "{drive} is the name of an external drive.",
     "menu": {
       "adjustPreview": "Menu item: choose how the species card crops its photo.",

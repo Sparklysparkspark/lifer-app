@@ -125,32 +125,3 @@ describe("SpeciesCard remove from list", () => {
     expect(api.put).toHaveBeenCalledWith("/regions/r1/checklist-additions/s1");
   });
 });
-
-describe("SpeciesCard photo count", () => {
-  function renderCard(props: { hideNames?: boolean; photoCount?: number }) {
-    render(
-      <ToastContext.Provider value={toast}>
-        <ConfirmContext.Provider value={vi.fn().mockResolvedValue(false)}>
-          <MemoryRouter>
-            <SpeciesCard item={{ ...item, photoCount: props.photoCount }} hideNames={props.hideNames} />
-          </MemoryRouter>
-        </ConfirmContext.Provider>
-      </ToastContext.Provider>,
-    );
-  }
-
-  it("counts your photos on the photo, with the names under it", () => {
-    renderCard({ photoCount: 1204 });
-    const count = screen.getByRole("img", { name: "1,204 photos" });
-    expect(count.textContent).toBe("1,204");
-    expect(count.parentElement!.contains(screen.getByText(item.commonName!))).toBe(false);
-  });
-
-  it("shows no count without photos, or on a photo-only card", () => {
-    renderCard({ photoCount: 0 });
-    expect(screen.queryByRole("img", { name: /photos/ })).toBeNull();
-    cleanup();
-    renderCard({ photoCount: 14, hideNames: true });
-    expect(screen.queryByRole("img", { name: /photos/ })).toBeNull();
-  });
-});

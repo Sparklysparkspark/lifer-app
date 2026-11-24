@@ -3655,7 +3655,6 @@
     "updateFailed": "Couldn't update this species. Try again.",
     "seenTitle": "Seen, not yet photographed",
     "targetTitle": "On your targets",
-    "photoCount": "{count, plural, one {# photo} other {# photos}}",
     "volumeTitle": "This photo is on the \"{drive}\" drive",
     "menu": {
       "markUnseen": "Mark as unseen",

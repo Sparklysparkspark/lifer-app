@@ -14,7 +14,6 @@ import { useConfirm } from "../hooks/useConfirm";
 import { useToast } from "../hooks/useToast";
 import { addToChecklist, checklistLabel, removeFromChecklist } from "../lib/checklistAdditions";
 import { errorMessage } from "../lib/errorMessage";
-import { formatNumber } from "../lib/format";
 import ProgressiveImg from "./ProgressiveImg";
 import PhotoPlaceholder from "./PhotoPlaceholder";
 import Menu, { MenuItem, MenuPanel, MenuSeparator } from "./Menu";
@@ -513,19 +512,10 @@ function SpeciesCard({
             {showVolumeBadge && item.coverVolumeLabel && (
               <span
                 // design-token: a label over a photo, dark in both themes.
-                className={`absolute left-1.5 bottom-1.5 truncate rounded-full bg-black/60 px-2 py-0.5 text-footnote font-medium text-white shadow ${item.photoCount ? "max-w-[55%]" : "max-w-[80%]"}`}
+                className={`absolute left-1.5 bottom-1.5 truncate rounded-full bg-black/60 px-2 py-0.5 text-footnote font-medium text-white shadow max-w-[80%]`}
                 title={t("speciesCard.volumeTitle", { drive: item.coverVolumeLabel })}
               >
                 {item.coverVolumeLabel}
-              </span>
-            )}
-            {!hideNames && !!item.photoCount && (
-              <span
-                role="img"
-                aria-label={t("speciesCard.photoCount", { count: item.photoCount })}
-                className={`absolute right-1.5 bottom-1.5 px-1.5 py-0.5 text-footnote leading-none tabular-nums ${CHIP}`}
-              >
-                {formatNumber(item.photoCount)}
               </span>
             )}
           </>
