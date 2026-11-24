@@ -35,6 +35,8 @@ import { usePlaceStep, type LooksLike } from "../../hooks/usePlaceStep";
 import { PlaceChooser } from "../../components/PlaceStep";
 import { sentPrivacyLine, usePlaceFiling } from "../../hooks/usePlaceFiling";
 import type { Geoprivacy } from "../../components/SavedSpots";
+import { useTooltip } from "../../components/Tooltip";
+import { formatCoordinates } from "../../lib/coordinates";
 
 export type Sighting = {
   speciesId: string;
@@ -675,6 +677,13 @@ export default function SightingsTab({
           onExcludedChange={(ids) => setExcluded((prev) => ({ ...prev, [sightingKey(detail)]: ids }))}
           sending={sending}
           onPlaced={() => void onChanged()}
+          // The viewer only has the photos that exist, so count those before the clicked one.
+          onPhotoOpen={(i) =>
+            preview.open(
+              previewSlides(photosOf(detail), caption(detail)),
+              detail.captures.slice(0, i).filter((c) => c.currentPhotoId).length,
+            )
+          }
           onClose={() => setDetailKey(null)}
           onSend={() => void send([detail])}
           onIgnore={(ids) => void setIgnoredFor(ids, true)}
@@ -690,11 +699,12 @@ export default function SightingsTab({
   );
 }
 
-/** What iNaturalist won't get from the ticked photos: short on a card, explained in the window. */
-function sightingNote(t: TFunction, s: Sighting, kept: Sighting["captures"], short = false) {
+/** What iNaturalist won't get from the ticked photos: short on a card, explained in the window.
+ *  `placeShown`: the window's place section already speaks for the location. */
+function sightingNote(t: TFunction, s: Sighting, kept: Sighting["captures"], short = false, placeShown = false) {
   if (kept.some((c) => c.onInat)) return t("inaturalist.import.onInat");
   if (!s.matched) return t(short ? "inaturalist.import.notMatchedShort" : "inaturalist.import.notMatched");
-  const noLocation = kept.length > 0 && !kept.some((c) => c.hasLocation);
+  const noLocation = !placeShown && kept.length > 0 && !kept.some((c) => c.hasLocation);
   const noDate = !s.earliestTakenAt;
   if (!noLocation && !noDate) return null;
   const missing = noLocation && noDate ? "both" : noLocation ? "location" : "date";
@@ -720,6 +730,7 @@ function SightingDetail({
   onExcludedChange,
   sending,
   onPlaced,
+  onPhotoOpen,
   onClose,
   onSend,
   onIgnore,
@@ -732,6 +743,8 @@ function SightingDetail({
   sending: boolean;
   /** After the photos were filed under a place, to reload the sighting. */
   onPlaced: () => void;
+  /** Opens the viewer over the window at this photo. */
+  onPhotoOpen: (index: number) => void;
   onClose: () => void;
   onSend: () => void;
   onIgnore: (captureIds: string[]) => void;
@@ -741,6 +754,7 @@ function SightingDetail({
   const speciesName = useSpeciesName();
   const kept = sighting.captures.filter((c) => !excludedIds.has(c.id));
   const leftOut = sighting.captures.filter((c) => excludedIds.has(c.id));
+  const located = kept.some((c) => c.hasLocation);
   const sendButton = (
     <Button onClick={onSend} loading={sending} disabled={!sighting.matched || kept.length === 0}>
       {t("inaturalist.import.sendPhotos", { count: kept.length })}
@@ -751,14 +765,14 @@ function SightingDetail({
       name={speciesName(sighting)}
       info={[
         photoLine(t, sighting, kept.length),
-        sighting.placeName ?? null,
+        // The place section names the place when it reads it from the photos.
+        located ? null : (sighting.placeName ?? null),
         sentPrivacyLine(t, sighting.geoprivacy),
-        sightingNote(t, sighting, kept),
+        sightingNote(t, sighting, kept, false, kept.length > 0),
       ]}
-      extra={
-        kept.length > 0 && <SightingPlace sighting={sighting} captureIds={kept.map((c) => c.id)} onPlaced={onPlaced} />
-      }
+      extra={kept.length > 0 && <SightingPlace sighting={sighting} kept={kept} onPlaced={onPlaced} />}
       photos={sighting.captures.map((c) => ({ id: c.id, photoId: c.currentPhotoId }))}
+      onPhotoOpen={onPhotoOpen}
       excludedIds={excludedIds}
       onExcludedChange={onExcludedChange}
       onClose={onClose}
@@ -822,24 +836,58 @@ function SightingStatus({
   );
 }
 
-/** In the sighting window: choosing a place files the ticked photos under it at once (Undo in the toast). */
+/** In the sighting window. Located photos already give iNaturalist its point (the send uses the
+ *  first located one for the whole sighting), so that's one calm line with Change place; with
+ *  none, the chooser. Choosing files the ticked photos under the place at once (Undo in the toast). */
 function SightingPlace({
   sighting,
-  captureIds,
+  kept,
   onPlaced,
 }: {
   sighting: Sighting;
-  captureIds: string[];
+  kept: Sighting["captures"];
   onPlaced: () => void;
 }) {
+  const { t } = useTranslation();
   const filing = usePlaceFiling(onPlaced);
+  const [changing, setChanging] = useState(false);
+  const located = kept.filter((c) => c.hasLocation).length;
+  const point = sighting.point ?? null;
+  const tip = useTooltip(point ? { label: formatCoordinates(point.lat, point.lon) } : undefined);
+  const mode = located < kept.length ? "some" : kept.length === 1 ? "one" : "all";
+  const from = { mode, located, count: kept.length, place: sighting.placeName ?? "" };
   return (
     <div className="space-y-2">
-      <PlaceChooser
-        near={sighting.point ?? null}
-        looksLike={sighting.looksLike ?? null}
-        onChoose={(place) => void filing.file(place, captureIds)}
-      />
+      {located > 0 ? (
+        <p className="flex flex-wrap items-baseline gap-x-2 text-callout text-ink">
+          {/* Focusable so keyboard users get the exact coordinates too. */}
+          <span {...tip.props} tabIndex={point ? 0 : undefined} className="break-words">
+            {t(sighting.placeName ? "inaturalist.import.locationFromNear" : "inaturalist.import.locationFrom", from)}
+          </span>
+          {tip.node}
+          {!changing && (
+            <Button variant="link" size="sm" onClick={() => setChanging(true)}>
+              {t("inaturalist.import.changePlace")}
+            </Button>
+          )}
+        </p>
+      ) : (
+        <p className="text-callout text-ink">{t("inaturalist.import.noLocationChoose", { count: kept.length })}</p>
+      )}
+      {(located === 0 || changing) && (
+        <PlaceChooser
+          near={point}
+          looksLike={sighting.looksLike ?? null}
+          autoFocus={changing}
+          onChoose={(place) => {
+            setChanging(false);
+            void filing.file(
+              place,
+              kept.map((c) => c.id),
+            );
+          }}
+        />
+      )}
       {filing.farNode}
       <FormMessage error={filing.error} />
     </div>

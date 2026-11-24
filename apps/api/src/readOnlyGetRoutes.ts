@@ -236,6 +236,7 @@ export const AUDITED_GET_ROUTES: readonly string[] = [
   "/api/inaturalist/pending",
   "/api/assistant/setup",
   "/api/inaturalist/observations/batch/status",
+  "/api/inaturalist/observations/location/status",
   "/api/inaturalist/completed",
   "/api/inaturalist/existing/status",
   // The possible matches as last worked out; it starts nothing.

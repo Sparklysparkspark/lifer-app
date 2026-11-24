@@ -200,7 +200,9 @@ describe("InaturalistPage", () => {
     fireEvent.keyDown(await screen.findByRole("option", { name: "Osprey" }), { key: "Enter" });
     const dialog = await screen.findByRole("dialog");
     expect(
-      within(dialog).getByText("No location in these photos. You'll add it on iNaturalist after sending."),
+      within(dialog).getByText(
+        "These photos have no location. Choose a place, or add it on iNaturalist after sending.",
+      ),
     ).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("checkbox", { name: "Include photo 2 of 3" }));
     expect(within(dialog).getByText(/2 of 3 photos/)).toBeTruthy();
@@ -228,6 +230,78 @@ describe("InaturalistPage", () => {
       "Ignored 1 photo.",
       expect.objectContaining({ actions: expect.any(Array) }),
     );
+  });
+
+  describe("sighting window place", () => {
+    const placeBox = () => screen.queryByPlaceholderText("Choose a place, e.g. King Fisher Pond");
+    async function openWindow(captures: ReturnType<typeof capture>[], extra: object = {}) {
+      lists.sightings = [sighting("Iguana", captures, extra)];
+      renderPage("/inaturalist?tab=import");
+      fireEvent.click(await screen.findByRole("option", { name: "Iguana" }));
+      return screen.findByRole("dialog");
+    }
+
+    it("says the photo's own location will be sent, with Change place for a named one", async () => {
+      const dialog = await openWindow([capture("c1", true)], {
+        placeName: "Belize",
+        point: { lat: 17.25, lon: -88.76 },
+      });
+      const line = within(dialog).getByText("Location: from your photo, near Belize");
+      expect(placeBox()).toBeNull();
+      // The place shows once, in the location line.
+      expect(within(dialog).queryByText("Belize")).toBeNull();
+      expect(within(dialog).getByRole("button", { name: "Send 1 photo" }).hasAttribute("disabled")).toBe(false);
+      // The exact point is a focus away, in its tooltip.
+      expect(line.getAttribute("tabindex")).toBe("0");
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "Change place" }));
+      expect(placeBox()).toBeTruthy();
+      expect(within(dialog).queryByRole("button", { name: "Change place" })).toBeNull();
+    });
+
+    it("says how many photos have a location when only some do, and keeps Change place", async () => {
+      const dialog = await openWindow([capture("c1", true), capture("c2", true), capture("c3")], {
+        placeName: "Belize",
+      });
+      expect(within(dialog).getByText("Location: from 2 of 3 photos, near Belize")).toBeTruthy();
+      expect(placeBox()).toBeNull();
+      expect(within(dialog).getByRole("button", { name: "Change place" })).toBeTruthy();
+    });
+
+    it("asks for a place when no photo has a location, and still sends without one", async () => {
+      const dialog = await openWindow([capture("c1")]);
+      expect(
+        within(dialog).getByText("This photo has no location. Choose a place, or add it on iNaturalist after sending."),
+      ).toBeTruthy();
+      expect(placeBox()).toBeTruthy();
+      expect(within(dialog).queryByRole("button", { name: "Change place" })).toBeNull();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Send 1 photo" }));
+      await waitFor(() => expect(sendBatch).toHaveBeenCalledWith({ groups: [["c1"]] }, expect.anything()));
+    });
+
+    it("opens a photo full size over the window, and Esc closes only the viewer", async () => {
+      const dialog = await openWindow([
+        { id: "c1", currentPhotoId: "p1", hasLocation: true },
+        { id: "c2", currentPhotoId: "p2", hasLocation: true },
+        { id: "c3", currentPhotoId: "p3", hasLocation: true },
+      ]);
+      const shownImage = () =>
+        screen
+          .getAllByRole("dialog")
+          .map((d) => d.querySelector("img[src$='/display']")?.getAttribute("src"))
+          .find(Boolean);
+      const thumb = within(dialog).getByRole("button", { name: "View photo 2 of 3" });
+      fireEvent.click(thumb);
+      await waitFor(() => expect(shownImage()).toBe("/api/photos/p2/display"));
+      // Viewing a photo doesn't leave it out.
+      expect(within(dialog).getByRole("button", { name: "Send 3 photos" })).toBeTruthy();
+      fireEvent.keyDown(document, { key: "ArrowRight" });
+      await waitFor(() => expect(shownImage()).toBe("/api/photos/p3/display"));
+      fireEvent.keyDown(document, { key: "Escape" });
+      await waitFor(() => expect(screen.getAllByRole("dialog")).toHaveLength(1));
+      expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Send 3 photos" })).toBeTruthy();
+      expect(document.activeElement).toBe(thumb);
+    });
   });
 
   it("can't send a species with no iNaturalist match", async () => {
@@ -504,7 +578,7 @@ describe("InaturalistPage", () => {
       fireEvent.click(tile);
       const grid = await screen.findByRole("dialog");
       expect(within(grid).getByText("8 photos")).toBeTruthy();
-      const thumbs = within(grid).getAllByRole("button", { name: /^Open photo/ });
+      const thumbs = within(grid).getAllByRole("button", { name: /^View photo/ });
       expect(thumbs).toHaveLength(8);
       // Not the card's own click: no sighting window opened.
       expect(screen.queryByRole("button", { name: "Send 8 photos" })).toBeNull();
@@ -515,7 +589,7 @@ describe("InaturalistPage", () => {
       expect(document.activeElement).toBe(thumbs[1]);
 
       // A photo opens in the viewer at that photo; Esc backs out one layer at a time.
-      fireEvent.click(within(grid).getByRole("button", { name: "Open photo 3 of 8" }));
+      fireEvent.click(within(grid).getByRole("button", { name: "View photo 3 of 8" }));
       await waitFor(() => expect(shownImage()).toBe("/api/photos/p3/display"));
       fireEvent.keyDown(document, { key: "Escape" });
       await waitFor(() => expect(screen.getAllByRole("dialog")).toHaveLength(1));

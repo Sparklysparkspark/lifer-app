@@ -5,7 +5,7 @@ import Button from "../../components/Button";
 import EmptyState from "../../components/EmptyState";
 import type { MenuAction } from "../../components/Menu";
 import type { BarAction } from "../../components/SelectionActionRow";
-import { formatDate, formatDateSpan } from "../../lib/format";
+import { formatDate, formatDateSpan, formatRelativeTime } from "../../lib/format";
 import { openExternal } from "../../lib/openExternal";
 import { useSpeciesName } from "../../lib/speciesName";
 import { CardGrid, PhotoWindow, SelectionBar, SpeciesTrail, type GridCard } from "./CardGrid";
@@ -14,6 +14,7 @@ import { sortCards, useCardSelection } from "./cardSelection";
 import { FilterSelect, InatToolbar, TaxonFilter } from "./Toolbar";
 import { taxaIn, useInatView } from "./viewPrefs";
 import { previewSlides, usePhotoPreview, type PreviewPhoto } from "./photoPreview";
+import { useInatLocation } from "./useInatLocation";
 
 export type ObservationSummary = {
   observationId: string;
@@ -38,6 +39,16 @@ export type ObservationSummary = {
   placeName?: string | null;
   /** The observation's first photo on iNaturalist, for a preview when no photo is here. */
   inatPhotoId?: string | null;
+  /** Its photos in the library, for Set location. */
+  captureIds?: string[];
+  /** Sent without a location and still without one on iNaturalist, as far as Lifer knows. */
+  noLocationOnInat?: boolean;
+  /** A location set in Lifer on its way to iNaturalist. */
+  locationUpdate?: {
+    state: "waiting" | "sent" | "failed" | "conflict";
+    at: string;
+    reason?: "reconnect" | "notFound" | "refused" | "noLocation";
+  } | null;
 };
 
 type Mode = "pending" | "completed";
@@ -83,6 +94,19 @@ function photoLine(t: TFunction, obs: ObservationSummary) {
     : photos;
 }
 
+/** Where a location set in Lifer is on its way to iNaturalist, or that iNaturalist has none. */
+function locationLine(t: TFunction, o: ObservationSummary): string | null {
+  const u = o.locationUpdate;
+  if (u?.state === "sent") return t("inaturalist.location.sent", { when: formatRelativeTime(u.at) });
+  if (u?.state === "waiting") return t("inaturalist.location.waiting");
+  if (u?.state === "failed") return t("inaturalist.location.failed", { reason: u.reason ?? "other" });
+  if (u?.state === "conflict") return t("inaturalist.location.conflict", { count: 1 });
+  return o.noLocationOnInat ? t("inaturalist.location.none") : null;
+}
+
+// Set location is offered while iNaturalist has none, including after a failed try.
+const canSetLocation = (o: ObservationSummary) => !!o.noLocationOnInat && (o.captureIds?.length ?? 0) > 0;
+
 /** Where the location and date came from: small print in the window, never on the card. */
 function sourceLine(t: TFunction, obs: ObservationSummary) {
   if (obs.foundOnInat) return t("inaturalist.completed.found");
@@ -101,6 +125,7 @@ export default function ObservationsTab({
   checking = false,
   onCheck,
   onUnlink,
+  onChanged,
   barSlot,
 }: {
   mode: Mode;
@@ -112,6 +137,8 @@ export default function ObservationsTab({
   onCheck?: (ids?: string[]) => void;
   /** Undoes a link to an observation found on iNaturalist (only those show it). */
   onUnlink?: (observationId: string) => void;
+  /** Reloads the lists after a location was set or sent. */
+  onChanged?: () => unknown;
   barSlot: HTMLElement | null;
 }) {
   const { t } = useTranslation();
@@ -127,6 +154,7 @@ export default function ObservationsTab({
   const [taxa, setTaxa] = useState<Set<string>>(new Set());
   const [detailId, setDetailId] = useState<string | null>(null);
   const pending = mode === "pending";
+  const location = useInatLocation(onChanged ?? (() => {}));
 
   const items = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -219,16 +247,38 @@ export default function ObservationsTab({
     ...(pending
       ? [{ label: t("inaturalist.pending.checkNow"), onSelect: () => onCheck?.([o.observationId]), disabled: checking }]
       : []),
+    ...locationActions(o).map((a) => ({ label: a.label, onSelect: a.run })),
     ...(o.foundOnInat && onUnlink
       ? [{ label: t("inaturalist.matches.unlink"), onSelect: () => onUnlink(o.observationId) }]
       : []),
   ];
 
-  // Only what helps decide or act: what's still missing on To finish, nothing on Completed.
-  const statusLine = (o: ObservationSummary) => {
-    if (!pending) return null;
+  // What can be done about the location, for the card's menu and the window's buttons.
+  function locationActions(o: ObservationSummary) {
+    const ids = [o.observationId];
+    const state = o.locationUpdate?.state;
+    return [
+      ...(state === "conflict"
+        ? [
+            { key: "replace", label: t("inaturalist.location.replace"), run: () => void location.replace(ids) },
+            { key: "keep", label: t("inaturalist.location.keep"), run: () => void location.keep(ids) },
+          ]
+        : []),
+      ...(state === "failed" ? [{ key: "retry", label: t("common.retry"), run: () => void location.retry(ids) }] : []),
+      ...(canSetLocation(o)
+        ? [{ key: "set", label: t("inaturalist.location.set"), run: () => void location.setLocation([o]) }]
+        : []),
+    ];
+  }
+
+  // Only what helps decide or act: what's still missing on To finish, and where a location set in
+  // Lifer is on its way. That line replaces "Needs a location", so only a missing date is added.
+  const statusLines = (o: ObservationSummary) => {
+    const located = locationLine(t, o);
+    if (!pending) return [located];
+    if (located) return [located, o.observedAt ? null : t("inaturalist.pending.needs", { needs: "date" })];
     const needs = needsOf(o);
-    return notes[o.observationId] ?? (needs === "none" ? null : t("inaturalist.pending.needs", { needs }));
+    return [notes[o.observationId] ?? (needs === "none" ? null : t("inaturalist.pending.needs", { needs }))];
   };
 
   const speciesCards: GridCard[] = view.groups.map((g) => {
@@ -275,10 +325,12 @@ export default function ObservationsTab({
       id: id ?? String(i),
       photoId: id,
     })),
-    lines: [view.drill.speciesId ? null : photoLine(t, o), o.placeName ?? null, statusLine(o)],
+    lines: [view.drill.speciesId ? null : photoLine(t, o), o.placeName ?? null, ...statusLines(o)],
     menu: cardMenu(o),
   }));
 
+  // Selected ones still without a location on iNaturalist: one place for all of them.
+  const placeable = chosen.filter(canSetLocation);
   const actions: BarAction[] = pending
     ? [
         {
@@ -288,6 +340,15 @@ export default function ObservationsTab({
           loading: checking,
           onClick: () => onCheck?.(chosen.map((o) => o.observationId)),
         },
+        ...(placeable.length > 0
+          ? [
+              {
+                key: "location",
+                label: t("inaturalist.location.set"),
+                onClick: () => void location.setLocation(placeable),
+              },
+            ]
+          : []),
         ...(chosen.length === 1 ? [{ key: "open", label: openLabel, onClick: () => open(chosen[0]) }] : []),
       ]
     : // Nothing bulk here: opening many tabs at once isn't useful, and nothing on Completed is undone.
@@ -449,13 +510,18 @@ export default function ObservationsTab({
           info={[
             photoLine(t, detail),
             detail.placeName ?? null,
-            statusLine(detail),
+            ...statusLines(detail),
             pending ? null : sourceLine(t, detail),
           ]}
           photos={detail.photoIds.map((id) => ({ id, photoId: id }))}
           onClose={() => setDetailId(null)}
           footer={
             <>
+              {locationActions(detail).map((a) => (
+                <Button key={a.key} variant="secondary" onClick={a.run}>
+                  {a.label}
+                </Button>
+              ))}
               {pending && (
                 <Button variant="secondary" loading={checking} onClick={() => onCheck?.([detail.observationId])}>
                   {t("inaturalist.pending.checkNow")}

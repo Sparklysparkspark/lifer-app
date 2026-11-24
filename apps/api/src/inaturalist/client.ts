@@ -9,6 +9,60 @@ import { USER_AGENT } from "@lifer/core/lib/http.js";
 const INAT_API = "https://api.inaturalist.org/v1";
 const INAT_SITE = "https://www.inaturalist.org";
 const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_ATTEMPTS = 5;
+
+/** A refusal from iNaturalist with its HTTP status: 401 means reconnect the account, not retry. */
+export class InatHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "InatHttpError";
+  }
+}
+
+export interface NetDeps {
+  fetchImpl?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>;
+  signal?: AbortSignal;
+}
+
+export const wait = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error("Cancelled"));
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => (clearTimeout(timer), reject(new Error("Cancelled"))), { once: true });
+  });
+
+/** A request that waits and retries while iNaturalist is busy (429, 5xx), honouring Retry-After. */
+export async function politeFetch(
+  url: string,
+  init: { method?: string; headers?: Record<string, string>; body?: string },
+  deps: NetDeps = {},
+): Promise<Response> {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const sleep = deps.sleep ?? ((ms: number) => wait(ms, deps.signal));
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    let res: Response | null = null;
+    try {
+      res = await fetchImpl(url, {
+        ...init,
+        headers: { "User-Agent": USER_AGENT, ...init.headers },
+        signal: deps.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (err) {
+      if (deps.signal?.aborted) throw err;
+      lastError = err;
+    }
+    if (res && res.status !== 429 && res.status < 500) return res;
+    if (res) lastError = new Error(`iNaturalist answered ${res.status}`);
+    const after = Number(res?.headers.get("retry-after"));
+    await sleep(Number.isFinite(after) && after > 0 ? after * 1000 : 5000 * 2 ** attempt);
+  }
+  throw lastError instanceof Error ? lastError : new Error("Couldn't reach iNaturalist");
+}
 
 export interface Pkce {
   verifier: string;
@@ -70,7 +124,7 @@ export async function fetchJwt(accessToken: string): Promise<string> {
     headers: { Authorization: `Bearer ${accessToken}`, "User-Agent": USER_AGENT },
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
-  if (!res.ok) throw new Error(`iNaturalist JWT exchange failed: ${res.status}`);
+  if (!res.ok) throw new InatHttpError(`iNaturalist JWT exchange failed: ${res.status}`, res.status);
   const data = (await res.json()) as { api_token: string };
   return data.api_token;
 }
@@ -177,13 +231,21 @@ export interface RemoteObservationLocation {
   observedOn: string | null;
 }
 
-export async function fetchObservationLocation(jwt: string, observationId: string): Promise<RemoteObservationLocation> {
+/** `deps` given: waits out a busy iNaturalist (politeFetch) instead of failing at once. */
+export async function fetchObservationLocation(
+  jwt: string,
+  observationId: string,
+  deps?: NetDeps,
+): Promise<RemoteObservationLocation> {
   if (!/^\d+$/.test(observationId)) throw new Error("Not an iNaturalist observation id");
-  const res = await fetch(`${INAT_API}/observations/${observationId}`, {
-    headers: { Authorization: jwt, "User-Agent": USER_AGENT },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  if (!res.ok) throw new Error(`iNaturalist observation lookup failed: ${res.status}`);
+  const url = `${INAT_API}/observations/${observationId}`;
+  const res = deps
+    ? await politeFetch(url, { headers: { Authorization: jwt } }, deps)
+    : await fetch(url, {
+        headers: { Authorization: jwt, "User-Agent": USER_AGENT },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+  if (!res.ok) throw new InatHttpError(`iNaturalist observation lookup failed: ${res.status}`, res.status);
   const data = (await res.json()) as {
     results: Array<{
       location?: string | null;
@@ -202,6 +264,39 @@ export async function fetchObservationLocation(jwt: string, observationId: strin
     positionalAccuracyMeters: obs.positional_accuracy ?? null,
     observedOn: obs.observed_on ?? null,
   };
+}
+
+export interface LocationUpdate {
+  lat: number;
+  lon: number;
+  /** Metres, when the point came from a place's radius. */
+  positionalAccuracy: number | null;
+  /** From the places the photos are filed under; left out keeps what iNaturalist has. */
+  geoprivacy: string | null;
+}
+
+/** Moves an existing observation to a point. ignore_photos keeps its photos: an update that
+ *  lists none would otherwise remove them. */
+export async function updateObservationLocation(
+  jwt: string,
+  observationId: string,
+  update: LocationUpdate,
+  deps: NetDeps = {},
+): Promise<void> {
+  if (!/^\d+$/.test(observationId)) throw new Error("Not an iNaturalist observation id");
+  const observation: Record<string, string | number> = { latitude: update.lat, longitude: update.lon };
+  if (update.positionalAccuracy) observation.positional_accuracy = update.positionalAccuracy;
+  if (update.geoprivacy) observation.geoprivacy = update.geoprivacy;
+  const res = await politeFetch(
+    `${INAT_API}/observations/${observationId}`,
+    {
+      method: "PUT",
+      headers: { Authorization: jwt, "Content-Type": "application/json" },
+      body: JSON.stringify({ ignore_photos: true, observation }),
+    },
+    deps,
+  );
+  if (!res.ok) throw new InatHttpError(`iNaturalist observation update failed: ${res.status}`, res.status);
 }
 
 /** Where the observation is. The API leaves `latitude` and `longitude` null here; the point is in

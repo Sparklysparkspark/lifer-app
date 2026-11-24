@@ -47,6 +47,7 @@ import { encodeRelayState, isAllowedReturnOrigin } from "./relayState.js";
 import { recordFoundWrites, snapshotFound, unlinkFound } from "./unlink.js";
 import { likeness, previewUrl, type Match } from "./matching.js";
 import { fetchObservationPages, fetchPreview } from "./observationSync.js";
+import { flushLocationUpdates, loadLocationQueue, setLocationEntries, type FlushResult } from "./locationUpdate.js";
 import {
   findMatches,
   linkFound,
@@ -177,6 +178,29 @@ const ObservationList = Open({
       inatPhotoId: Nullable(
         Type.String({
           description: "The observation's first photo on iNaturalist, when its cached copy is here, for a preview",
+        }),
+      ),
+      captureIds: Type.Array(Uuid(), { description: "The observation's photos in the library, for Set location" }),
+      noLocationOnInat: Type.Boolean({
+        description: "Sent without a location and, as far as Lifer knows, still without one on iNaturalist",
+      }),
+      locationUpdate: Nullable(
+        Open({
+          state: Type.Union([
+            Type.Literal("waiting"),
+            Type.Literal("sent"),
+            Type.Literal("failed"),
+            Type.Literal("conflict"),
+          ]),
+          at: Type.String({ format: "date-time" }),
+          reason: Type.Optional(
+            Type.Union([
+              Type.Literal("reconnect"),
+              Type.Literal("notFound"),
+              Type.Literal("refused"),
+              Type.Literal("noLocation"),
+            ]),
+          ),
         }),
       ),
     }),
@@ -681,6 +705,77 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
     },
   );
 
+  // A location set in Lifer for observations sent without one: queued, then sent to iNaturalist in
+  // the background. Offline, it waits and the To finish check sends it later.
+  const LocationStatus = Type.Object(
+    jobStatusFields(
+      Type.Object({
+        updated: Type.Integer({ description: "Observations whose location iNaturalist now has" }),
+        waiting: Type.Integer({ description: "Couldn't reach iNaturalist: sent on a later try" }),
+        failed: Type.Integer(),
+        conflicts: Type.Integer({ description: "Already placed on iNaturalist: replace or keep is the user's call" }),
+        conflictIds: Type.Array(Type.String()),
+      }),
+    ),
+  );
+  app.post(
+    "/inaturalist/observations/location",
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          {
+            observationIds: Type.Array(Type.String({ pattern: "^[0-9]+$", maxLength: 20 }), {
+              minItems: 1,
+              maxItems: 10000,
+            }),
+            conflict: Type.Optional(
+              Type.Union([Type.Literal("replace"), Type.Literal("keep")], {
+                description: "For ones iNaturalist already placed: replace that location, or keep it and stop",
+              }),
+            ),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(Open({ started: Type.Boolean({ description: "False: queued for a later try" }) })),
+      },
+    },
+    async (request) => {
+      const userId = request.user!.id;
+      const owned = (
+        await pool.query<{ id: string }>(
+          `SELECT DISTINCT o.inat_observation_id AS id FROM capture_inaturalist_observations o
+           JOIN captures c ON c.id = o.capture_id
+           WHERE c.user_id = $1 AND o.inat_observation_id = ANY($2::text[]) AND o.photo_sent`,
+          [userId, [...new Set(request.body.observationIds)]],
+        )
+      ).rows.map((r) => r.id);
+      const { conflict } = request.body;
+      if (conflict === "keep") {
+        await setLocationEntries(userId, Object.fromEntries(owned.map((id) => [id, null])));
+        return { started: false };
+      }
+      const at = new Date().toISOString();
+      const replace = conflict === "replace" ? { replace: true } : {};
+      await setLocationEntries(
+        userId,
+        Object.fromEntries(owned.map((id) => [id, { state: "waiting" as const, at, ...replace }])),
+      );
+      const account = await requireAccount(userId);
+      return { started: account ? startLocationJob(userId, account) : false };
+    },
+  );
+  app.get(
+    "/inaturalist/observations/location/status",
+    { preValidation: requireAuth, schema: { response: replies(LocationStatus) } },
+    async (request) => {
+      const mine = locationOwner === null || locationOwner === request.user!.id;
+      return mine
+        ? locationJob.status
+        : { ...locationJob.status, running: false, processed: null, total: null, result: null };
+    },
+  );
+
   app.get(
     "/inaturalist/pending",
     { preValidation: requireAuth, schema: { response: replies(ObservationList) } },
@@ -734,6 +829,7 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
       // A second window calling at once shares the run already going.
       const running = checksInFlight.get(userId);
       if (running) return running;
+      void retryWaitingLocations(userId, account);
       const only = request.body?.observationIds ? new Set(request.body.observationIds) : null;
       const run = checkPending(userId, account, only).finally(() => checksInFlight.delete(userId));
       checksInFlight.set(userId, run);
@@ -1273,6 +1369,10 @@ async function checkPending(userId: string, account: { accessToken: string }, on
   return { checked, completed, notes };
 }
 
+const NEEDS_LOCATION = "Needs a location on iNaturalist.";
+// Only asked about once there is a location: iNaturalist has one.
+const NEEDS_DATE = "Needs a date on iNaturalist.";
+
 /** Completes one observation if iNaturalist now has its location and date, copying a placed
  *  location onto photos that had none. Returns why it isn't finished yet, or null once it is. */
 async function checkObservation(
@@ -1299,7 +1399,7 @@ async function checkObservation(
   if (rowsRes.rows.length === 0) return null;
   const remote = known ?? (await fetchObservationLocation(jwt!, observationId));
   const submitted = rowsRes.rows[0];
-  if (remote.lat === null || remote.lon === null) return "Needs a location on iNaturalist.";
+  if (remote.lat === null || remote.lon === null) return NEEDS_LOCATION;
   // Observations sent before Lifer stopped guessing carry a region-centre location (sent with a
   // 50 km accuracy); one still sitting there hasn't been placed yet.
   const sentGuess =
@@ -1310,7 +1410,7 @@ async function checkObservation(
     Math.abs(remote.lon - Number(submitted.submitted_lon)) < 1e-6;
   if (stillGuess) return "Still at the default location. Move the pin on iNaturalist.";
   const remoteTakenAt = observedOnToTakenAt(remote.observedOn);
-  if (!remoteTakenAt && !rowsRes.rows.some((r) => r.has_date)) return "Needs a date on iNaturalist.";
+  if (!remoteTakenAt && !rowsRes.rows.some((r) => r.has_date)) return NEEDS_DATE;
 
   // A pin that fits inside the photo's region leaves that region alone; a photo with none takes
   // the region the pin falls in.
@@ -1371,6 +1471,37 @@ interface SendBatchResult {
 }
 const sendJob = createJob<SendBatchResult>("inaturalist-send");
 let sendOwner: string | null = null;
+
+const locationJob = createJob<FlushResult>("inaturalist-location");
+let locationOwner: string | null = null;
+
+/** Sends the user's waiting locations in the background; true when that's now running for them. */
+function startLocationJob(userId: string, account: { accessToken: string }): boolean {
+  // Their run already going picks up what was just queued.
+  if (locationJob.status.running) return locationOwner === userId;
+  const started = locationJob.start((ctx) =>
+    flushLocationUpdates(userId, account, {
+      deps: { signal: ctx.signal },
+      onProgress: (processed, total) => ctx.update({ processed, total }),
+    }),
+  );
+  if (started) locationOwner = userId;
+  return started;
+}
+
+// Waiting locations are retried with the To finish check, at most this often.
+const LOCATION_RETRY_MS = 60_000;
+const lastLocationRetry = new Map<string, number>();
+async function retryWaitingLocations(userId: string, account: { accessToken: string }): Promise<void> {
+  if (Date.now() - (lastLocationRetry.get(userId) ?? 0) < LOCATION_RETRY_MS) return;
+  lastLocationRetry.set(userId, Date.now());
+  try {
+    const queue = await loadLocationQueue(userId);
+    if (Object.values(queue).some((e) => e.state === "waiting")) startLocationJob(userId, account);
+  } catch (err) {
+    log.warn(`[inaturalist] couldn't retry waiting locations: ${(err as Error).message}`);
+  }
+}
 
 /** Whether a photo can go to iNaturalist now: its species is matched there, and it isn't already
  *  there. `photoSent` is null for a photo never sent, false for one whose send stopped partway (it
@@ -1654,6 +1785,7 @@ async function listByStatus(userId: string, status: "pending" | "completed") {
     location_label: string | null;
     region_name: string | null;
     inat_photo_id: string | null;
+    capture_ids: string[];
   }>(
     // A 50 km accuracy marks the region-centre guess older sends used: not a real location.
     `SELECT latest.*,
@@ -1663,7 +1795,9 @@ async function listByStatus(userId: string, status: "pending" | "completed") {
           FILTER (WHERE c2.current_photo_id IS NOT NULL)
         FROM capture_inaturalist_observations o2
         JOIN captures c2 ON c2.id = o2.capture_id
-        WHERE o2.inat_observation_id = latest.inat_observation_id) AS photo_ids
+        WHERE o2.inat_observation_id = latest.inat_observation_id) AS photo_ids,
+       (SELECT array_agg(o3.capture_id ORDER BY o3.capture_id) FROM capture_inaturalist_observations o3
+        WHERE o3.inat_observation_id = latest.inat_observation_id) AS capture_ids
      FROM (
        SELECT DISTINCT ON (o.inat_observation_id)
          o.inat_observation_id, s.id AS species_id, s.scientific_name, s.common_name, c.current_photo_id,
@@ -1695,6 +1829,7 @@ async function listByStatus(userId: string, status: "pending" | "completed") {
      ORDER BY COALESCE(latest.confirmed_at, latest.created_at) DESC`,
     [userId, status],
   );
+  const queue = await loadLocationQueue(userId);
   return {
     observations: res.rows.map((r) => ({
       observationId: r.inat_observation_id,
@@ -1716,6 +1851,14 @@ async function listByStatus(userId: string, status: "pending" | "completed") {
       taxonClass: r.taxon_class,
       placeName: r.location_label || r.region_name ? placeText(r.location_label, r.region_name) : null,
       inatPhotoId: r.inat_photo_id,
+      captureIds: r.capture_ids,
+      // Completed means iNaturalist had a location then; on To finish, a date note means it has one.
+      noLocationOnInat:
+        status === "pending" &&
+        !r.sent_location &&
+        !["sent", "conflict"].includes(queue[r.inat_observation_id]?.state ?? "") &&
+        lastChecked.get(r.inat_observation_id)?.note !== NEEDS_DATE,
+      locationUpdate: queue[r.inat_observation_id] ?? null,
     })),
   };
 }

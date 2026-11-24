@@ -1,49 +1,16 @@
 // Reads the connected user's own observations from iNaturalist, politely: one request a second
 // (iNaturalist asks for about 60 a minute), backing off on 429 and 5xx, and resumable by id.
-import { USER_AGENT } from "@lifer/core/lib/http.js";
+import { politeFetch, wait, type NetDeps } from "./client.js";
 import { parseObservation, type RemoteObservation } from "./matching.js";
 
+export type { NetDeps };
 const INAT_API = "https://api.inaturalist.org/v1";
 export const PAGE_SIZE = 200;
 const GAP_MS = 1000;
-const MAX_ATTEMPTS = 5;
-
-export interface NetDeps {
-  fetchImpl?: typeof fetch;
-  sleep?: (ms: number) => Promise<void>;
-  signal?: AbortSignal;
-}
-
-const wait = (ms: number, signal?: AbortSignal) =>
-  new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) return reject(new Error("Cancelled"));
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => (clearTimeout(timer), reject(new Error("Cancelled"))), { once: true });
-  });
 
 /** A GET that waits and retries while iNaturalist is busy, honouring Retry-After. */
-export async function politeGet(url: string, headers: Record<string, string>, deps: NetDeps = {}): Promise<Response> {
-  const fetchImpl = deps.fetchImpl ?? fetch;
-  const sleep = deps.sleep ?? ((ms: number) => wait(ms, deps.signal));
-  let lastError: unknown = null;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    let res: Response | null = null;
-    try {
-      res = await fetchImpl(url, {
-        headers: { "User-Agent": USER_AGENT, ...headers },
-        signal: deps.signal ?? AbortSignal.timeout(30_000),
-      });
-    } catch (err) {
-      if (deps.signal?.aborted) throw err;
-      lastError = err;
-    }
-    if (res && res.status !== 429 && res.status < 500) return res;
-    if (res) lastError = new Error(`iNaturalist answered ${res.status}`);
-    const after = Number(res?.headers.get("retry-after"));
-    await sleep(Number.isFinite(after) && after > 0 ? after * 1000 : 5000 * 2 ** attempt);
-  }
-  throw lastError instanceof Error ? lastError : new Error("Couldn't reach iNaturalist");
-}
+export const politeGet = (url: string, headers: Record<string, string>, deps: NetDeps = {}) =>
+  politeFetch(url, { headers }, deps);
 
 /** Every observation of the user with an id above `idAbove` (and changed since `updatedSince`),
  *  oldest id first, one page at a time to `onPage`. Returns how many were read. */

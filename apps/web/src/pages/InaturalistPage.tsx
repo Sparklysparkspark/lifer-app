@@ -238,6 +238,7 @@ export default function InaturalistPage() {
         checking={checking}
         onCheck={(ids) => void check(ids)}
         onUnlink={(id) => void unlink(id)}
+        onChanged={load}
         barSlot={barSlot}
       />
     );
@@ -247,6 +248,7 @@ export default function InaturalistPage() {
         mode="completed"
         observations={lists.completed}
         onUnlink={(id) => void unlink(id)}
+        onChanged={load}
         barSlot={barSlot}
       />
     );

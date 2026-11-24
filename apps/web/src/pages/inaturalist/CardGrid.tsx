@@ -420,11 +420,11 @@ export function PhotoWindow({
   /** Under the lines, e.g. the place picker. */
   extra?: ReactNode;
   photos: Array<{ id: string; photoId: string | null }>;
-  /** With these, a click on a photo leaves it out or puts it back. */
+  /** With these, each photo's corner tick leaves it out or puts it back. */
   excludedIds?: Set<string>;
   onExcludedChange?: (ids: Set<string>) => void;
   footer: ReactNode;
-  /** Without picking, a click on a photo opens it at that index. */
+  /** A click on a photo opens it in the viewer at that index. */
   onPhotoOpen?: (index: number) => void;
   onClose: () => void;
 }) {
@@ -486,49 +486,44 @@ export function PhotoWindow({
           onKeyDown={moveFocus}
         >
           {photos.slice(0, shown).map((p, i) => {
-            if (!picking && onPhotoOpen) {
-              return (
-                <li key={p.id}>
-                  {/* raw-control: the whole photo is the button, as the picking toggle below. */}
+            const on = !picking || !excludedIds.has(p.id);
+            const thumb = (
+              <>
+                <Thumb photoId={p.photoId} dim={!on} className="h-full w-full" />
+                {picking && on && <SelectedRing />}
+                {!on && (
+                  <span className="absolute inset-x-0 bottom-0 bg-surface/90 py-0.5 text-center text-caption font-medium text-ink">
+                    {t("inaturalist.import.leftOut")}
+                  </span>
+                )}
+              </>
+            );
+            return (
+              <li key={p.id} className="relative">
+                {onPhotoOpen ? (
+                  // raw-control: the whole photo is the button that opens the viewer.
                   <button
                     type="button"
                     aria-label={t("inaturalist.import.openPhoto", { n: i + 1, count: total })}
-                    onClick={() => onPhotoOpen(i)}
-                    className="block aspect-square w-full cursor-pointer overflow-hidden rounded-control transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    onClick={(e) => {
+                      // WebKit doesn't focus a clicked button; the viewer hands focus back to it.
+                      e.currentTarget.focus();
+                      onPhotoOpen(i);
+                    }}
+                    className={`relative block aspect-square w-full cursor-pointer overflow-hidden rounded-control transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent`}
                   >
-                    <Thumb photoId={p.photoId} className="h-full w-full" />
+                    {thumb}
                   </button>
-                </li>
-              );
-            }
-            if (!picking) {
-              return (
-                <li key={p.id}>
-                  <Thumb photoId={p.photoId} className="aspect-square w-full rounded-control" />
-                </li>
-              );
-            }
-            const on = !excludedIds.has(p.id);
-            return (
-              <li key={p.id} className="relative">
-                {/* raw-control: the whole photo is the toggle; the corner tick only shows its state. */}
-                <button
-                  type="button"
-                  role="checkbox"
-                  aria-checked={on}
-                  aria-label={t("inaturalist.import.includePhoto", { n: i + 1, count: total })}
-                  onClick={() => toggle(p.id)}
-                  className={`relative block aspect-square w-full overflow-hidden rounded-control focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent`}
-                >
-                  <Thumb photoId={p.photoId} dim={!on} className="h-full w-full" />
-                  {on && <SelectedRing />}
-                  {!on && (
-                    <span className="absolute inset-x-0 bottom-0 bg-surface/90 py-0.5 text-center text-caption font-medium text-ink">
-                      {t("inaturalist.import.leftOut")}
-                    </span>
-                  )}
-                </button>
-                <SelectMark checked={on} label={t("photoTile.select")} />
+                ) : (
+                  <div className="relative block aspect-square w-full overflow-hidden rounded-control">{thumb}</div>
+                )}
+                {picking && (
+                  <SelectMark
+                    checked={on}
+                    label={t("inaturalist.import.includePhoto", { n: i + 1, count: total })}
+                    onChange={() => toggle(p.id)}
+                  />
+                )}
               </li>
             );
           })}

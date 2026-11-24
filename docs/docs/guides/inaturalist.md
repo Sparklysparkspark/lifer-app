@@ -196,13 +196,25 @@ On the **To send** tab the choice shows above the cards. Sends from the Gallery 
 
 **To finish** and **Completed** use the same cards, toolbar and window as **To send**: photo previews, the species, the photo count and date, and the place when the photos have one. Click a card, **Preview** or <kbd>Space</kbd> to see its pictures full size, <kbd>Enter</kbd> or **Details** in its menu to open its window, and **Select** to pick several. An observation whose photos aren't on this computer, such as one found on iNaturalist, previews iNaturalist's own picture.
 
-Each card on **To finish** says what it still needs (**Needs a location**, **Needs a date**, or both). The **Needs** filter shows only those missing a location or a date. To add it, choose **Open on iNaturalist** from the card's menu (right-click or **⋯**), or from its window.
+Each card on **To finish** says what it still needs (**Needs a location**, **Needs a date**, or both). The **Needs** filter shows only those missing a location or a date. To add it, choose **Open on iNaturalist** from the card's menu (right-click or **⋯**), or from its window. A missing location can also be [set in Lifer](#set-location).
 
 You don't need to tell Lifer when you're done. Lifer checks with iNaturalist by itself: when the page opens, when you switch back to Lifer, and every so often while **To finish** is showing (less often while nothing changes). It asks about each observation at most every 30 seconds. **Check now** asks straight away: with nothing selected it checks them all, and with cards selected **Check N now** checks just those. It's also in each card's menu and window. Once iNaturalist has the location and date, the observation moves to **Completed** and a toast says so. One that isn't finished yet keeps a note saying what's missing.
 
 For a photo with no location, or only a region such as British Columbia, Lifer takes the location you placed, marks it as placed on iNaturalist, fills in the region if the photo had none, and writes it into the photo's files like any other pin. A location from your camera, or one you typed or picked in Lifer, is never replaced.
 
 For a photo with no date, Lifer takes the day you added on iNaturalist (the day only, like a date you type for a photo in Lifer) and writes it into the photo's files the same way. A date from your camera, or one you typed, is never replaced.
+
+#### Set the location in Lifer instead {#set-location}
+
+An observation sent without a location says **No location on iNaturalist**. Choose **Set location** in its menu or window, or select several and choose **Set location** in the selection bar to give them all one place. Pick one of your named places, or **New place from the map** for a point. Lifer files the photos under it the same way **Set place** does (with **Undo** for the photos), then updates the observation on iNaturalist with the place's point, its size as the accuracy, and its privacy. An update only ever hides more: an open place leaves the privacy you set on iNaturalist alone.
+
+It runs in the background with one toast for the whole batch, and each sighting shows where it's at:
+
+- **Location sent to iNaturalist**, with when.
+- **Waiting to send:** iNaturalist couldn't be reached. The location is already saved in Lifer, and it's sent the next time Lifer checks **To finish** while you're online.
+- **Couldn't update iNaturalist**, with the reason and **Retry**. If iNaturalist no longer accepts your sign-in, reconnect your account in Settings first.
+
+If you placed the observation on iNaturalist since sending it, Lifer doesn't overwrite that. It asks **iNaturalist already has a location for this sighting. Replace it with yours?** **Replace** sends yours; **Keep iNaturalist's** leaves it as it is.
 
 ### Completed observations {#completed}
 
