@@ -607,6 +607,13 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
   "/trips/matching": {
     post: { summary: "Trips some of these photos were taken during", description: "Body: `{ captureIds }`." },
   },
+  "/trips/import-suggestions": {
+    post: {
+      summary: "Trips a batch of photos about to be imported may belong to",
+      description:
+        "Body: `{ groups }`, one entry per day's photos: `key`, their capture `times`, their GPS `points` and the `regionIds` they fall in. Returns the trips each group clearly fits, by date and place; nothing is changed.",
+    },
+  },
   "/trips/{id}/scan-preview": {
     get: {
       summary: "Preview of a file in a trip folder",
