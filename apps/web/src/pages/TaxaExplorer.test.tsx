@@ -1,14 +1,36 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate, type NavigateFunction } from "react-router-dom";
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LightboxSlide } from "../components/Lightbox";
 
 let treeData: unknown;
+let treePath = "";
 vi.mock("../lib/resource", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/resource")>()),
-  useApiResource: () => ({ data: treeData, error: null, reload: async () => {} }),
+  useApiResource: (path: string) => {
+    treePath = path;
+    return { data: treeData, error: null, reload: async () => {} };
+  },
 }));
+const canada = { id: "r-ca", name: "Canada" };
+const bc = { id: "r-bc", name: "British Columbia" };
+vi.mock("./collection/useRegionTree", () => ({
+  useRegionTree: (regionId: string | null) => ({
+    downloadedCountries: [canada],
+    breadcrumb: regionId === bc.id ? [canada, bc] : regionId ? [canada] : [],
+    children: regionId === canada.id ? [bc] : [],
+  }),
+}));
+vi.mock("../hooks/useRegionsWithPhotos", () => ({ useRegionsWithPhotos: () => null }));
+vi.stubGlobal(
+  "ResizeObserver",
+  class {
+    observe() {}
+    disconnect() {}
+  },
+);
 // The real viewer's own behaviour is Lightbox.test.tsx's; here only what the tree hands it matters.
 vi.mock("../components/Lightbox", () => ({
   default: (p: { slides: LightboxSlide[]; index: number; onClose: () => void }) => (
@@ -52,19 +74,36 @@ const tree = {
 };
 
 const item = (name: RegExp | string) => screen.getByRole("treeitem", { name });
+let navigate: NavigateFunction;
+function Probe() {
+  const nav = useNavigate();
+  useEffect(() => void (navigate = nav), [nav]);
+  return <output data-testid="url">{useLocation().search}</output>;
+}
 function renderPage() {
   return render(
-    <MemoryRouter>
-      <TaxaExplorer />
+    <MemoryRouter initialEntries={["/stats", "/explore"]} initialIndex={1}>
+      <Routes>
+        <Route path="/stats" element={<p>Stats page</p>} />
+        <Route
+          path="/explore"
+          element={
+            <>
+              <TaxaExplorer />
+              <Probe />
+            </>
+          }
+        />
+      </Routes>
     </MemoryRouter>,
   );
 }
+const focused = () => screen.queryByRole("navigation", { name: "Focused group" })?.textContent ?? null;
 
 beforeEach(() => {
   treeData = tree;
   explorerMemory.expanded = new Set();
   explorerMemory.selected = null;
-  explorerMemory.focus = null;
   localStorage.setItem("lifer:explorer.genus", "true");
   localStorage.removeItem("lifer:explorer.view");
 });
@@ -155,7 +194,7 @@ describe("TaxaExplorer", () => {
     expect(item(/^Alpha common/).getAttribute("aria-level")).toBe("2");
   });
 
-  it("focuses on a group with a breadcrumb back out, and remembers it", () => {
+  it("focuses on a group with a breadcrumb back out, kept in the URL", () => {
     renderPage();
     fireEvent.click(item(/Testia/));
     fireEvent.click(item(/^Genus/));
@@ -164,10 +203,7 @@ describe("TaxaExplorer", () => {
     expect(crumbs.textContent).toContain("Testia");
     expect(screen.queryByRole("treeitem", { name: /Testia/ })).toBeNull();
     expect(item(/^Alpha common/).getAttribute("aria-level")).toBe("1");
-    cleanup();
-
-    renderPage();
-    expect(screen.getByRole("navigation", { name: "Focused group" })).toBeTruthy();
+    expect(screen.getByTestId("url").textContent).toBe("?focus=class%3ATestia%2Fgenus%3AGenus");
     fireEvent.click(screen.getByRole("button", { name: "All groups" }));
     expect(item(/Testia/)).toBeTruthy();
   });
@@ -217,5 +253,78 @@ describe("TaxaExplorer detail and empty state", () => {
     treeData = { collected: 0, tree: [] };
     renderPage();
     expect(screen.getByRole("button", { name: "Import photos" })).toBeTruthy();
+  });
+});
+
+describe("TaxaExplorer layers, regions and genera", () => {
+  it("starts each row, and so its highlight, at its own indent", () => {
+    renderPage();
+    fireEvent.click(item(/Testia/));
+    expect(item(/Testia/).style.left).toBe("0px");
+    expect(item(/^Genus/).style.left).toBe("24px");
+    fireEvent.click(item(/^Genus/));
+    expect(item(/^Alpha common/).style.left).toBe("48px");
+  });
+
+  it("steps back out of the circle one layer at a time, forward re-enters, and the header Back leaves", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Testia, 3 of 4 species" }));
+    fireEvent.click(screen.getByRole("button", { name: "Genus, 3 of 4 species" }));
+    expect(focused()).toContain("Genus");
+
+    act(() => navigate(-1));
+    expect(focused()).toContain("Testia");
+    expect(focused()).not.toContain("Genus");
+    act(() => navigate(-1));
+    expect(focused()).toBeNull();
+    act(() => navigate(1));
+    expect(focused()).toContain("Testia");
+    act(() => navigate(1));
+    expect(focused()).toContain("Genus");
+
+    // Two layers in, the header's Back still returns to Stats in one press.
+    window.history.replaceState({ idx: 3 }, "");
+    fireEvent.click(screen.getByRole("button", { name: "← Stats" }));
+    expect(screen.getByText("Stats page")).toBeTruthy();
+  });
+
+  it("filters to a region from the same pills as Collection, in the URL, keeping the focus", () => {
+    renderPage();
+    expect(treePath).not.toContain("regionId");
+    fireEvent.click(item(/Testia/));
+    fireEvent.click(screen.getByRole("button", { name: "Focus on this group" }));
+    fireEvent.click(screen.getByRole("button", { name: "Canada" }));
+    expect(treePath).toContain("regionId=r-ca");
+    expect(screen.getByTestId("url").textContent).toContain("region=r-ca");
+    expect(focused()).toContain("Testia");
+    fireEvent.click(screen.getByRole("button", { name: "British Columbia" }));
+    const trail = screen.getByRole("navigation", { name: "Region" });
+    expect(trail.textContent).toBe("All regions›Canada›British Columbia");
+
+    act(() => navigate(-1));
+    expect(treePath).toContain("regionId=r-ca");
+    fireEvent.click(screen.getByRole("button", { name: "All regions" }));
+    expect(treePath).not.toContain("regionId");
+  });
+
+  it("shows a region with nothing in it as empty, not as no photos at all", () => {
+    treeData = { collected: 0, tree: [] };
+    render(
+      <MemoryRouter initialEntries={["/explore?region=r-ca"]}>
+        <TaxaExplorer />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("No species from here in your downloaded regions")).toBeTruthy();
+    expect(screen.queryByText("No species photographed yet")).toBeNull();
+  });
+
+  it("explains genera in a tooltip when its switch takes keyboard focus", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    const toggle = screen.getByRole("switch", { name: "Show genera" });
+    vi.spyOn(toggle, "matches").mockReturnValue(true);
+    fireEvent.focus(toggle);
+    expect(await screen.findByText(/Most American orioles are in the genus Icterus/)).toBeTruthy();
   });
 });

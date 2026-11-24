@@ -15,6 +15,8 @@ const SP_C = "eeeeeeee-0000-4000-8000-000000000b0c";
 const SP_D = "eeeeeeee-0000-4000-8000-000000000b0d";
 const SP_E = "eeeeeeee-0000-4000-8000-000000000b0e";
 const TOKEN = "lifer_test_collection_tree_b01";
+const COUNTRY = "eeeeeeee-0000-4000-8000-000000000b1a";
+const PROVINCE = "eeeeeeee-0000-4000-8000-000000000b1b";
 
 describe.skipIf(!url)("collection tree", () => {
   let app: FastifyInstance;
@@ -27,6 +29,8 @@ describe.skipIf(!url)("collection tree", () => {
     await db.query(`DELETE FROM user_species WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
+    await db.query(`DELETE FROM region_species WHERE region_id = ANY($1)`, [[COUNTRY, PROVINCE]]);
+    await db.query(`DELETE FROM regions WHERE id = ANY($1)`, [[PROVINCE, COUNTRY]]);
     await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SP_A, SP_B, SP_C, SP_D, SP_E]]);
   }
 
@@ -60,10 +64,20 @@ describe.skipIf(!url)("collection tree", () => {
     );
     for (const sp of [SP_C, SP_D, SP_E])
       await db.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'seen')`, [USER, sp]);
+    // A country listing Alpha and Beta, with a province inside it where Hand Bird was photographed.
+    await db.query(
+      `INSERT INTO regions (id, name, parent_id) VALUES ($1, 'Zztree country', NULL), ($2, 'Zztree province', $1)`,
+      [COUNTRY, PROVINCE],
+    );
+    await db.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2), ($1, $3)`, [
+      COUNTRY,
+      SP_A,
+      SP_C,
+    ]);
     for (const sp of [SP_A, SP_B]) {
       const c = await db.query<{ id: string }>(
-        `INSERT INTO captures (user_id, species_id, fingerprint, taken_at) VALUES ($1, $2, $3, now()) RETURNING id`,
-        [USER, sp, `tree-${sp}`],
+        `INSERT INTO captures (user_id, species_id, fingerprint, taken_at, region_id) VALUES ($1, $2, $3, now(), $4) RETURNING id`,
+        [USER, sp, `tree-${sp}`, sp === SP_B ? PROVINCE : null],
       );
       const p = await db.query<{ id: string }>(
         `INSERT INTO photos (capture_id, display_path, thumb_path) VALUES ($1, '/nowhere/d.webp', '/nowhere/t.webp') RETURNING id`,
@@ -145,6 +159,23 @@ describe.skipIf(!url)("collection tree", () => {
     expect(order.referenceUrl).toMatch(/^https:\/\/example\.org\/92080[45]\.jpg$/);
     expect(family.referenceUrl).toMatch(/^https:\/\/example\.org\/92080[45]\.jpg$/);
     expect(family.referenceUrl).not.toBe(order.referenceUrl);
+  });
+
+  it("narrows to a region's checklist and what you photographed inside it, counting relative to it", async () => {
+    type N = { name: string; collected: number; total: number; children: N[] };
+    const res = await get(`/api/collection/tree?include=uncollected&regionId=${COUNTRY}`);
+    expect(res.statusCode, res.body).toBe(200);
+    const body: { collected: number; tree: N[] } = res.json();
+    const leaves = (nodes: N[]): string[] => nodes.flatMap((n) => (n.children.length ? leaves(n.children) : [n.name]));
+    expect(leaves(body.tree).sort()).toEqual(["Handus addedus", "Treeus alphus", "Treeus betus"]);
+    expect(body.collected).toBe(2);
+    const aves = body.tree.find((n) => n.name === "aves")!;
+    expect([aves.collected, aves.total]).toEqual([2, 3]);
+    expect(aves.children.map((n) => n.name)).not.toContain("Rootiformes");
+
+    const province = (await get(`/api/collection/tree?include=uncollected&regionId=${PROVINCE}`)).json();
+    expect(leaves(province.tree)).toEqual(["Handus addedus"]);
+    expect((await get("/api/collection/tree?regionId=nope")).statusCode).toBe(400);
   });
 
   it("exports a CSV with a header, one line per species and escaped commas", async () => {

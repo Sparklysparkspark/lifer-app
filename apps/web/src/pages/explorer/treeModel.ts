@@ -29,12 +29,12 @@ export interface IndexedNode {
 
 export type TreeIndex = { roots: string[]; byId: Map<string, IndexedNode> };
 
-/** The explorer's expansion (null until first shown, so it can open on your branches), selection
- *  and focused group, kept for the session so the tree is as you left it after a species page. */
-export const explorerMemory: { expanded: Set<string> | null; selected: string | null; focus: string | null } = {
+/** The explorer's expansion (null until first shown, so it can open on your branches) and
+ *  selection, kept for the session so the tree is as you left it after a species page. The focused
+ *  group and region are in the URL. */
+export const explorerMemory: { expanded: Set<string> | null; selected: string | null } = {
   expanded: null,
   selected: null,
-  focus: null,
 };
 
 const collectedFirst = (a: TreeNode, b: TreeNode) => Number(b.collected > 0) - Number(a.collected > 0);

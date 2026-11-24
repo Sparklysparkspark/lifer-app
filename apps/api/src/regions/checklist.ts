@@ -241,7 +241,7 @@ const PHOTOGRAPHED_WHERE_SQL = `CASE WHEN s.id IN (SELECT species_id FROM photog
 
 // A region's subtree (groups included) plus provinces shown under their continent that belong
 // to it.
-function regionTreeCte(tree: string, rootParam: string): string {
+export function regionTreeCte(tree: string, rootParam: string): string {
   return `${tree} AS (
            SELECT id FROM regions WHERE id = ${rootParam} OR home_country_id = ${rootParam}
            UNION ALL

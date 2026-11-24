@@ -54,6 +54,9 @@ The **Tree of life** groups the species in your downloaded regions by class, ord
 - Type in **Jump to a group or species** to open the tree down to it. Press Enter for the next match.
 - **Expand one level** opens every group shown one level deeper; **Collapse all** closes them. **Random species** picks one of your species to look at.
 - With the keyboard, the arrow keys move, Right opens a group, Left closes it or moves up, Enter shows a row in the panel and Space opens its photo.
+- Pick a country above the tree, then an area inside it, to see only that region's species: the counts, the faded species, the panel and **Export CSV** all follow it. Groups with nothing there disappear. **All regions** shows everything again.
+- In **Circle**, click a group to zoom into it and the middle to step back out. **Focus on this group** in the panel does the same in the list. Back, the trackpad swipe and the back shortcut step out one group at a time; the **Stats** link at the top leaves the page.
+- **Show genera** under **View** adds the genus level. Point at it for what a genus is.
 
 ## Export to CSV
 

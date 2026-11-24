@@ -5,7 +5,10 @@ import { MEDIA_CACHE_BUST } from "@lifer/core/config.js";
 import { requireAuth } from "../auth/session.js";
 import { getObscurityPreferences } from "../species/obscurity.js";
 import { BEST_PHOTO_ORDER } from "../lib/bestPhotoOrder.js";
-import { Nullable, Open, replies, withSchemas } from "../lib/schema.js";
+import { Nullable, Open, Uuid, replies, withSchemas } from "../lib/schema.js";
+import { ALREADY_OWNED_SQL } from "../species/obscurity.js";
+import { capturedInTreeSql, regionTreeCte } from "../regions/checklist.js";
+import { userAddedInTreeSql } from "../regions/checklistAdditions.js";
 import { COLLECTION_WHERE, UNLOCKED_SPECIES_CTE } from "./routes.js";
 
 const OTHER = "Other";
@@ -58,6 +61,9 @@ const TreeQuery = Type.Object({
   include: Type.Optional(
     Type.Literal("uncollected", { description: "Also list the catalogue species not photographed yet" }),
   ),
+  regionId: Type.Optional(
+    Uuid({ description: "Only the species of this region's checklist (and the ones inside it)" }),
+  ),
 });
 
 interface Row {
@@ -80,8 +86,15 @@ interface Row {
 
 // Same species set as GET /collection (its CTE, WHERE and joins); collected is state = 'collected',
 // as GET /collection/count counts it. Photos are visible captures (the `captures` view hides trash);
-// the best one uses the shared order.
-const treeSql = (maxDepthM: number) => `WITH ${UNLOCKED_SPECIES_CTE}
+// the best one uses the shared order. With a region ($4), only the species on its checklist or one
+// inside it, or that you photographed or added there, less those you hid there.
+const treeSql = (maxDepthM: number) => `WITH RECURSIVE ${regionTreeCte("region_tree", "$4::uuid")},
+  in_region AS (
+    SELECT species_id FROM region_species WHERE region_id IN (SELECT id FROM region_tree)
+    UNION ${capturedInTreeSql("$1", "true")}
+    UNION ${userAddedInTreeSql("$1")}
+  ),
+  ${UNLOCKED_SPECIES_CTE}
   SELECT s.id AS species_id, s.scientific_name, s.common_name, s.taxon_class, s.taxon_order, s.family,
     COALESCE(us.state = 'collected', false) AS is_collected,
     COALESCE(uto.tier, r.tier) AS tier,
@@ -102,6 +115,9 @@ const treeSql = (maxDepthM: number) => `WITH ${UNLOCKED_SPECIES_CTE}
     ORDER BY ${BEST_PHOTO_ORDER} LIMIT 1
   ) best ON true
   ${COLLECTION_WHERE(maxDepthM)}
+    AND ($4::uuid IS NULL OR (s.id IN (SELECT species_id FROM in_region)
+      AND (${ALREADY_OWNED_SQL} OR NOT EXISTS (SELECT 1 FROM region_species_hidden h
+        WHERE h.user_id = $1 AND h.species_id = s.id AND h.region_id = $4))))
   ORDER BY s.scientific_name`;
 
 const csvField = (v: string | number | Date | null): string => {
@@ -223,7 +239,12 @@ export async function collectionTreeRoutes(fastify: FastifyInstance): Promise<vo
     async (request, reply) => {
       const userId = request.user!.id;
       const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
-      const { rows } = await pool.query<Row>(treeSql(maxDepthM), [userId, null, hideObscure]);
+      const { rows } = await pool.query<Row>(treeSql(maxDepthM), [
+        userId,
+        null,
+        hideObscure,
+        request.query.regionId ?? null,
+      ]);
       const collectedRows = rows.filter((r) => r.is_collected);
 
       if (request.query.format === "csv") {

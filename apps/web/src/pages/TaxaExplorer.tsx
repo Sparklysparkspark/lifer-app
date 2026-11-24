@@ -3,9 +3,11 @@
 // The tree on the left as a list or a circle, the selected group or species on the right (a sheet
 // on a phone). The list is windowed over the expanded rows, so 10,000 species scroll like 100, and
 // its expansion, focus, selection and scroll survive opening a photo, a species page and coming back.
+// The region and the focused group live in the URL, each change its own history entry, so Back and
+// the swipe step out one layer at a time.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { apiPath } from "../api/client";
 import Button from "../components/Button";
 import EmptyState from "../components/EmptyState";
@@ -20,6 +22,8 @@ import SegmentedControl from "../components/SegmentedControl";
 import SpeciesNameText from "../components/SpeciesNameText";
 import Switch from "../components/Switch";
 import Chevron from "../components/Chevron";
+import AreaPills from "../components/AreaPills";
+import { Tooltip } from "../components/Tooltip";
 import { useWindowRange } from "../components/windowing";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { downloadWithToast } from "../lib/downloadFile";
@@ -30,6 +34,9 @@ import { namePartClass, useSpeciesNameParts } from "../lib/speciesName";
 import { useToast } from "../hooks/useToast";
 import { usePersistedState } from "../hooks/usePersistedState";
 import { useScrollMemory } from "../hooks/useScrollMemory";
+import { useSearchParamsKeepingState } from "../hooks/useSearchParamsKeepingState";
+import { useRegionsWithPhotos } from "../hooks/useRegionsWithPhotos";
+import { useRegionTree } from "./collection/useRegionTree";
 import { matches } from "../lib/keymap";
 import ExplorerDetail from "./explorer/ExplorerDetail";
 import TreeCircle from "./explorer/TreeCircle";
@@ -80,7 +87,8 @@ function RowLines({ lines }: { lines: boolean[] }) {
   return lines.map((more, level) => {
     const own = level === lines.length - 1;
     if (!own && !more) return null;
-    const x = level * INDENT + 12;
+    // Relative to the row, which starts at its own indent.
+    const x = (level - lines.length) * INDENT + 12;
     return (
       <span key={level} aria-hidden="true">
         <span className="absolute w-px bg-line" style={{ left: x, top: 0, bottom: own && !more ? "50%" : 0 }} />
@@ -95,10 +103,20 @@ export default function TaxaExplorer() {
   const toast = useToast();
   const navigate = useNavigate();
   const nameParts = useSpeciesNameParts();
+  const [params, setParams] = useSearchParamsKeepingState();
+  const { state } = useLocation();
+  // Collection's param, so a region link means the same on both pages.
+  const regionId = params.get("region");
+  const regions = useRegionTree(regionId);
+  const regionsWithPhotos = useRegionsWithPhotos();
   const res = useApiResource<{ collected: number; tree: TreeNode[] }>(
-    apiPath("/collection/tree", {}, { include: "uncollected" }),
+    apiPath("/collection/tree", {}, { include: "uncollected", regionId }),
   );
-  const tree = res.data;
+  // The last tree stays up while another region's loads, so the page never drops to a spinner.
+  const [lastTree, setLastTree] = useState(res.data);
+  if (res.data && res.data !== lastTree) setLastTree(res.data);
+  const tree = res.data ?? lastTree;
+  const loading = !res.data && !!tree;
   const index = useMemo(() => (tree ? indexTree(tree.tree) : null), [tree]);
   useScrollMemory(!!index);
   const wide = useSyncExternalStore(subscribeWide, isWide, () => true);
@@ -148,12 +166,27 @@ export default function TaxaExplorer() {
     [expandedState, index],
   );
   const [selected, select] = useState<string | null>(memory.selected);
-  const [focusState, setFocus] = useState<string | null>(memory.focus);
+  const focusState = params.get("focus");
   useEffect(() => {
     memory.expanded = expandedState;
     memory.selected = selected;
-    memory.focus = focusState;
-  }, [expandedState, selected, focusState]);
+  }, [expandedState, selected]);
+  // A new history entry per layer or region; backSteps lets the header's Back skip them all.
+  const go = (updates: Record<string, string | null>) => {
+    if (Object.entries(updates).every(([k, v]) => params.get(k) === v)) return;
+    const steps = (state as { backSteps?: number } | null)?.backSteps ?? 1;
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        for (const [k, v] of Object.entries(updates)) {
+          if (v) next.set(k, v);
+          else next.delete(k);
+        }
+        return next;
+      },
+      { state: { ...(state as object | null), backSteps: steps + 1 } },
+    );
+  };
   // A focus on a genus while genera are hidden falls back to its family.
   const focusEntry = focusState ? index?.byId.get(focusState) : undefined;
   const focus = focusEntry ? (!genus && focusEntry.node.rank === "genus" ? focusEntry.parentId : focusState) : null;
@@ -194,7 +227,7 @@ export default function TaxaExplorer() {
     setPending(null);
   }, [pending, rows, range, layout]);
 
-  if (res.error && !tree)
+  if (res.error && !res.data)
     return (
       <main className="space-y-section p-page">
         <EmptyState title={t("explorer.loadFailed")} action={{ label: t("common.retry"), onClick: res.reload }} />
@@ -210,7 +243,7 @@ export default function TaxaExplorer() {
   // Opens every group above a row, closing nothing; leaves a focus the row is outside of.
   const reveal = (id: string, focusRow = false) => {
     const above = ancestorIds(index, id);
-    if (focus && !above.includes(focus)) setFocus(null);
+    if (focus && !above.includes(focus)) go({ focus: null });
     const next = new Set(expanded);
     for (const a of above) next.add(a);
     if (next.size !== expanded.size) setExpanded(next);
@@ -237,7 +270,7 @@ export default function TaxaExplorer() {
   const shownPath = (id: string) =>
     ancestorIds(index, id).filter((a) => genus || index.byId.get(a)!.node.rank !== "genus");
   const zoomTo = (id: string | null) => {
-    setFocus(id);
+    go({ focus: id });
     window.scrollTo(0, 0);
   };
   const zoomOut = focus ? () => zoomTo(shownPath(focus).at(-1) ?? null) : null;
@@ -302,7 +335,12 @@ export default function TaxaExplorer() {
     e.preventDefault();
   };
 
-  const exportCsv = () => void downloadWithToast(toast, "/api/collection/tree?format=csv", "lifer-collection.csv");
+  const exportCsv = () =>
+    void downloadWithToast(
+      toast,
+      `/api${apiPath("/collection/tree", {}, { format: "csv", regionId })}`,
+      "lifer-collection.csv",
+    );
   const selectedEntry = selected ? index.byId.get(selected) : undefined;
   const detail = selected && selectedEntry && (
     <ExplorerDetail
@@ -342,14 +380,55 @@ export default function TaxaExplorer() {
           ) : undefined
         }
       />
-      {tree.collected === 0 ? (
+      {tree.collected === 0 && !regionId ? (
         <EmptyState
           title={t("explorer.emptyTitle")}
           action={{ label: t("nav.importPhotos"), onClick: () => navigate("/import") }}
         />
       ) : (
         <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-8">
-          <div className="min-w-0">
+          <div className={`min-w-0 transition-opacity ${loading ? "opacity-60" : ""}`} aria-busy={loading}>
+            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <nav
+                aria-label={t("explorer.regionPath")}
+                className="flex flex-wrap items-center gap-1 text-callout text-muted"
+              >
+                {regionId ? (
+                  <Button variant="link" size="sm" onClick={() => go({ region: null })}>
+                    {t("explorer.allRegions")}
+                  </Button>
+                ) : (
+                  <span aria-current="location" className="font-semibold text-ink">
+                    {t("explorer.allRegions")}
+                  </span>
+                )}
+                {regionId &&
+                  regions.breadcrumb.map((r, i, trail) => (
+                    <span key={r.id} className="flex min-w-0 items-center gap-1">
+                      <span aria-hidden="true">›</span>
+                      {i === trail.length - 1 ? (
+                        <span aria-current="location" className="font-semibold text-ink wrap-anywhere">
+                          {r.name}
+                        </span>
+                      ) : (
+                        <Button variant="link" size="sm" onClick={() => go({ region: r.id })}>
+                          {r.name}
+                        </Button>
+                      )}
+                    </span>
+                  ))}
+              </nav>
+              {(regionId ? regions.children : regions.downloadedCountries).length > 0 && (
+                // Wraps under the trail rather than squeezing beside it.
+                <div className="min-w-64 flex-1">
+                  <AreaPills
+                    areas={regionId ? regions.children : regions.downloadedCountries}
+                    withPhotos={regionsWithPhotos}
+                    onPick={(id) => go({ region: id })}
+                  />
+                </div>
+              )}
+            </div>
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <div className="relative w-full sm:w-72">
                 <SearchInput
@@ -433,10 +512,14 @@ export default function TaxaExplorer() {
                 ]}
               />
               <FilterPopover label={t("collection.toolbar.view")} activeCount={0}>
-                <label className="flex items-center justify-between gap-4 text-callout text-ink">
-                  {t("explorer.showGenera")}
-                  <Switch checked={genus} onChange={setGenus} label={t("explorer.showGenera")} />
-                </label>
+                <Tooltip content={{ label: t("explorer.rank.genus"), description: t("explorer.generaHelp") }}>
+                  {(tip) => (
+                    <label {...tip} className="flex items-center justify-between gap-4 text-callout text-ink">
+                      {t("explorer.showGenera")}
+                      <Switch checked={genus} onChange={setGenus} label={t("explorer.showGenera")} />
+                    </label>
+                  )}
+                </Tooltip>
               </FilterPopover>
               <div className="ml-auto flex flex-wrap gap-2">
                 {view === "list" && (
@@ -498,7 +581,12 @@ export default function TaxaExplorer() {
                 ))}
               </nav>
             )}
-            {view === "circle" ? (
+            {tree.tree.length === 0 ? (
+              <EmptyState
+                title={t("explorer.regionEmpty")}
+                action={{ label: t("explorer.allRegions"), onClick: () => go({ region: null }) }}
+              />
+            ) : view === "circle" ? (
               <TreeCircle
                 index={index}
                 center={focus}
@@ -509,7 +597,7 @@ export default function TaxaExplorer() {
                 onPick={(id) => {
                   const entry = index.byId.get(id)!;
                   const group = entry.node.rank !== "species";
-                  if (group) setFocus(id);
+                  if (group) go({ focus: id });
                   // On a phone the detail is a sheet, so zooming into a group doesn't also open it.
                   if (!group || wide) select(id);
                 }}
@@ -550,10 +638,11 @@ export default function TaxaExplorer() {
                         // Opening a group by its name never closes it; the chevron does both.
                         if (isClade && !open) toggle(id);
                       }}
-                      className={`absolute inset-x-0 flex cursor-pointer items-center gap-2 rounded-control pr-2 transition-colors hover:bg-line focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
+                      className={`absolute right-0 flex cursor-pointer items-center gap-2 rounded-control pr-2 transition-colors hover:bg-line focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
                         selected === id ? "bg-accent/10" : ""
                       }`}
-                      style={{ top: layout.tops[at], height: layout.heights[at], paddingLeft: depth * INDENT }}
+                      // The row starts at its own indent, so its highlight spans only its group.
+                      style={{ top: layout.tops[at], height: layout.heights[at], left: depth * INDENT }}
                     >
                       <RowLines lines={row.lines} />
                       {isClade && open && (
@@ -561,7 +650,7 @@ export default function TaxaExplorer() {
                         <span
                           aria-hidden="true"
                           className="absolute bottom-0 w-px bg-line"
-                          style={{ left: depth * INDENT + 12, top: "calc(50% + 10px)" }}
+                          style={{ left: 12, top: "calc(50% + 10px)" }}
                         />
                       )}
                       <span

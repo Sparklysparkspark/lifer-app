@@ -9234,6 +9234,8 @@ export interface paths {
           format?: "csv";
           /** @description Also list the catalogue species not photographed yet */
           include?: "uncollected";
+          /** @description Only the species of this region's checklist (and the ones inside it) */
+          regionId?: string;
         };
         header?: never;
         path?: never;

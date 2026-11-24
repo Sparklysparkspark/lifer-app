@@ -8771,6 +8771,13 @@
             "required": false,
             "description": "Also list the catalogue species not photographed yet",
             "schema": { "type": "string", "const": "uncollected" }
+          },
+          {
+            "name": "regionId",
+            "in": "query",
+            "required": false,
+            "description": "Only the species of this region's checklist (and the ones inside it)",
+            "schema": { "type": "string", "format": "uuid" }
           }
         ],
         "responses": {
