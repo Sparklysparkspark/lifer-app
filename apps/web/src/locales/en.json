@@ -706,6 +706,7 @@
   "errors": {
     "api": {
       "desktop_only": "Only available in the desktop app",
+      "folder_unavailable": "This folder isn't available right now. Connect the drive or share, then try again.",
       "immich_too_old": "This Immich is too old to link. Update it and try again.",
       "immich_unreachable": "Couldn't connect to Immich. Check the address and API key.",
       "invalid_request": "The request wasn't valid. Check what you entered and try again.",
@@ -1530,7 +1531,7 @@
       "somePhotos": "{kept} of {count, plural, one {# photo} other {# photos}}",
       "includePhoto": "Include photo {n} of {count}",
       "showAllPhotos": "{count, plural, one {Show the photo} other {Show all # photos}}",
-      "openPhoto": "Open photo {n} of {count}",
+      "openPhoto": "View photo {n} of {count}",
       "empty": {
         "title": "Nothing to send",
         "description": "Every sighting in your library is on iNaturalist."
@@ -1546,11 +1547,30 @@
       "select": "Select",
       "deselect": "Deselect",
       "leftOut": "Left out",
-      "windowHint": "Click a photo to leave it out or put it back.",
+      "windowHint": "Click a photo to see it full size. Untick one to leave it out.",
       "clearSelection": "Clear selection",
       "onInat": "Already on iNaturalist",
       "ignoredMark": "Ignored",
-      "choosePhotos": "Choose photos"
+      "choosePhotos": "Choose photos",
+      "locationFrom": "Location: from {mode, select, one {your photo} all {your photos} other {{located} of {count} photos}}",
+      "locationFromNear": "Location: from {mode, select, one {your photo} all {your photos} other {{located} of {count} photos}}, near {place}",
+      "changePlace": "Change place",
+      "noLocationChoose": "{count, plural, one {This photo has no location.} other {These photos have no location.}} Choose a place, or add it on iNaturalist after sending."
+    },
+    "location": {
+      "none": "No location on iNaturalist",
+      "set": "Set location",
+      "sent": "Location sent to iNaturalist {when}",
+      "waiting": "Waiting to send",
+      "failed": "Couldn't update iNaturalist: {reason, select, reconnect {reconnect your account in Settings} notFound {the observation is no longer there} refused {iNaturalist didn't accept the location} noLocation {the photos have no location in Lifer} other {try again later}}",
+      "conflict": "{count, plural, one {iNaturalist already has a location for this sighting. Replace it with yours?} other {iNaturalist already has a location for # sightings. Replace them with yours?}}",
+      "replace": "Replace",
+      "keep": "Keep iNaturalist's",
+      "sending": "Sending locations to iNaturalist...",
+      "savedOffline": "Location saved. It will be sent to iNaturalist when you're online.",
+      "updated": "{count, plural, one {Location sent to iNaturalist.} other {# locations sent to iNaturalist.}}",
+      "summary": "Updated {updated, number} of {total, number} on iNaturalist{waiting, plural, =0 {} one {; # is waiting to retry} other {; # are waiting to retry}}{failed, plural, =0 {} other {; # couldn't be updated}}",
+      "saveFailed": "Couldn't save the location. Try again."
     },
     "pending": {
       "steps": "Add what's missing on iNaturalist. Lifer checks by itself and moves each one to Completed when it's done.",
@@ -4467,8 +4487,20 @@
   },
   "versions": {
     "title": "Versions",
-    "description": "The original, edits and exports of this photo count as one photo.",
-    "single": "This photo has no other versions.",
+    "summary": "{count, plural, one {# version} other {# versions}}, counted as one photo",
+    "filesSummary": "{count, plural, one {# file} other {# files}}: {list}",
+    "filesRole": {
+      "original": "{count, plural, one {your camera original} other {# camera originals}}",
+      "edit": "{count, plural, one {an edit} other {# edits}}",
+      "export": "{count, plural, one {an export} other {# exports}}"
+    },
+    "oneFile": "Only one file",
+    "view": {
+      "label": "Show files as",
+      "list": "List",
+      "grid": "Grid"
+    },
+    "viewFile": "View {name} full size",
     "singleHint": "Is it an edit, print or export? Link it to the photo it was made from, and they count as one.",
     "shown": "Shown",
     "role": {
@@ -4816,10 +4848,27 @@
       "title": "Moved photos",
       "auto": "Look for moved photos automatically",
       "autoDescription": "Finds photos you moved or renamed and updates where Lifer looks for them. Your files are never changed.",
-      "places": "Places where photos live",
-      "always": "{count, plural, =0 {Your library folder is always included.} other {Your library folder and trip folders are always included.}}",
+      "placesCount": "{count, plural, =0 {Places where photos live} other {Places where photos live (# added)}}",
+      "placesHelp": "Add the folder that holds your photos, such as Family Trips. Everything inside it is searched, so one entry is enough.",
+      "addedList": "Folders you added",
+      "alsoSearched": "Also searched: {list}",
+      "libraryFolder": "your library folder",
+      "tripFolders": "{count, plural, one {# trip folder} other {# trip folders}}",
+      "watchedFolders": "{count, plural, one {# watched folder} other {# watched folders}}",
+      "fixedList": "Always searched",
+      "show": "Show",
+      "hide": "Hide",
+      "filterLabel": "Filter {list}",
+      "filterPlaceholder": "Filter by folder name",
+      "noMatch": "No folders match",
+      "removeFolder": "Remove {folder}",
+      "coveredBy": "Already covered by {folder}",
+      "mergeOffer": "{count, plural, one {This also covers # folder you added before. Merge it into this one?} other {This also covers # folders you added before. Merge them into this one?}}",
+      "merge": "Merge",
+      "merged": "{count, plural, one {Merged # folder into the new one} other {Merged # folders into the new one}}",
+      "unmergeFailed": "Couldn't put back {folders}",
+      "unmergePartlyFailed": "{count, plural, one {Put back # folder. Couldn't put back {folders}} other {Put back # folders. Couldn't put back {folders}}}",
       "add": "Add folder",
-      "remove": "Remove",
       "notFound": "Not found",
       "saveFailed": "Couldn't save that",
       "look": "Look for moved photos",
@@ -4841,6 +4890,11 @@
       "skip": "Skip",
       "empty": "Nothing left to review.",
       "showingFirst": "Showing the first {shown} of {total}."
+    },
+    "suggest": {
+      "line": "Moved a folder? Add its new parent folder so Lifer can find your photos again.",
+      "add": "Choose folder",
+      "pickTitle": "Choose where your photos are now"
     }
   }
 }

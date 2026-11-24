@@ -5097,7 +5097,7 @@ export interface paths {
             "application/json": {
               /** Format: uuid */
               groupCaptureId: string;
-              /** @description The shown photo's files first */
+              /** @description The shown file first, then the rest of its capture */
               files: {
                 /** Format: uuid */
                 originalId: string;
@@ -5116,7 +5116,7 @@ export interface paths {
                 height: number | null;
                 /** @description This file's capture is the one the group is shown as */
                 isGroup: boolean;
-                /** @description This file's capture provides the photo shown */
+                /** @description This file is the photo shown: of a RAW and its JPG in one capture, the JPG, which the photo is made from */
                 shown: boolean;
                 evidence: ("document_id" | "time_serial_suffix" | "suggested" | "manual" | "version_folder") | null;
               }[];
@@ -13881,6 +13881,20 @@ export interface paths {
                 taxonClass: string | null;
                 placeName: string | null;
                 inatPhotoId: string | null;
+                /** @description The observation's photos in the library, for Set location */
+                captureIds: string[];
+                /** @description Sent without a location and, as far as Lifer knows, still without one on iNaturalist */
+                noLocationOnInat: boolean;
+                locationUpdate:
+                  | ({
+                      state: "waiting" | "sent" | "failed" | "conflict";
+                      /** Format: date-time */
+                      at: string;
+                      reason?: "reconnect" | "notFound" | "refused" | "noLocation";
+                    } & {
+                      [key: string]: unknown;
+                    })
+                  | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -15157,6 +15171,167 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/inaturalist/observations/location": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /inaturalist/observations/location */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            observationIds: string[];
+            /** @description For ones iNaturalist already placed: replace that location, or keep it and stop */
+            conflict?: "replace" | "keep";
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description False: queued for a later try */
+              started: boolean;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/inaturalist/observations/location/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /inaturalist/observations/location/status */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result: {
+                /** @description Observations whose location iNaturalist now has */
+                updated: number;
+                /** @description Couldn't reach iNaturalist: sent on a later try */
+                waiting: number;
+                failed: number;
+                /** @description Already placed on iNaturalist: replace or keep is the user's call */
+                conflicts: number;
+                conflictIds: string[];
+              } | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/inaturalist/pending": {
     parameters: {
       query?: never;
@@ -15207,6 +15382,20 @@ export interface paths {
                 taxonClass: string | null;
                 placeName: string | null;
                 inatPhotoId: string | null;
+                /** @description The observation's photos in the library, for Set location */
+                captureIds: string[];
+                /** @description Sent without a location and, as far as Lifer knows, still without one on iNaturalist */
+                noLocationOnInat: boolean;
+                locationUpdate:
+                  | ({
+                      state: "waiting" | "sent" | "failed" | "conflict";
+                      /** Format: date-time */
+                      at: string;
+                      reason?: "reconnect" | "notFound" | "refused" | "noLocation";
+                    } & {
+                      [key: string]: unknown;
+                    })
+                  | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -17427,6 +17616,8 @@ export interface paths {
         content: {
           "application/json": {
             path: string;
+            /** @description Replace the added places this folder holds */
+            merge?: boolean;
           };
         };
       };
@@ -17438,7 +17629,12 @@ export interface paths {
           };
           content: {
             "application/json": {
-              ok: boolean;
+              added: boolean;
+              /** @description The folder as the disk spells it */
+              path: string;
+              coveredBy: string | null;
+              /** @description Added places it holds: replaced when added, else nothing was added */
+              contains: string[];
             };
           };
         };
@@ -17793,8 +17989,8 @@ export interface paths {
             "application/json": {
               auto: boolean;
               library: string;
-              /** @description Trips whose folders are included automatically */
-              tripFolders: number;
+              /** @description Trip folders, included automatically */
+              trips: string[];
               watched: string[];
               places: {
                 path: string;
@@ -17939,6 +18135,7 @@ export interface paths {
                     batchId: string | null;
                     /** @description Folders skipped because Lifer isn't allowed to read them */
                     unreadableFolders: number;
+                    missingFolder: string | null;
                     /** @description Longest event-loop delay during the pass */
                     maxLagMs: number;
                   } & {
@@ -21622,7 +21819,10 @@ export interface paths {
      */
     get: {
       parameters: {
-        query?: never;
+        query?: {
+          /** @description raw: the RAW's own preview, when a JPG beside it is the photo */
+          original?: "raw";
+        };
         header?: never;
         path: {
           id: string;

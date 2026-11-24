@@ -238,6 +238,7 @@
   "errors": {
     "api": {
       "desktop_only": "API error code desktop_only: the server refused an action that only the desktop app (with its local library) can do.",
+      "folder_unavailable": "API error code folder_unavailable: the folder picked as a place photos live isn't reachable (an unplugged drive or a network share that isn't connected), so it wasn't added.",
       "immich_too_old": "API error code immich_too_old: linking an Immich photo server that runs a version older than Lifer supports. The English server message names both versions.",
       "immich_unreachable": "API error code immich_unreachable: any failure talking to the linked Immich photo server (offline, wrong address, API key rejected or missing permissions).",
       "library_folder_unavailable": "API error code library_folder_unavailable: the photo library folder was moved, deleted or is on an unplugged drive, so a save failed.",
@@ -580,6 +581,12 @@
     }
   },
   "inaturalist": {
+    "location": {
+      "sent": "Status line on a sighting. {when} is a relative time in the active locale, like \"3 minutes ago\".",
+      "failed": "Status line on a sighting; a Retry button follows. {reason} picks the plain reason, written to follow the colon.",
+      "keep": "Button: leave the location the user placed on iNaturalist as it is, instead of replacing it with the one set in Lifer.",
+      "summary": "Toast after sending locations for many sightings. {updated} and {total} are numbers; the optional parts say how many wait for a later try or failed."
+    },
     "send": {
       "action": "Menu item and selection-bar button: sends the photo or the selected photos to iNaturalist as observations.",
       "sending": "Toast shown while photos are being sent to iNaturalist in the background; it has a Cancel button.",
@@ -636,7 +643,7 @@
       "somePhotos": "Row detail when some photos are unticked: {kept} of {count} photos will be sent.",
       "includePhoto": "Screen-reader label for the tick on each photo thumbnail. {n} is its position, {count} the total.",
       "showAllPhotos": "Screen-reader name for the +N tile on a card: opens a window with every photo. {count} is the total.",
-      "openPhoto": "Screen-reader name for a photo in the every-photo window: opens it in the viewer. {n} is its position, {count} the total.",
+      "openPhoto": "Screen-reader name for a photo thumbnail in a card's photo window: opens it full size in the viewer. {n} is its position, {count} the total.",
       "empty": {
         "title": "Empty state heading when nothing is left to send.",
         "description": "Empty state text."
@@ -652,11 +659,15 @@
       "select": "Card menu item: adds the sighting to the selection.",
       "deselect": "Card menu item: takes the sighting out of the selection.",
       "leftOut": "Label over a photo in the sighting window that won't be sent.",
-      "windowHint": "Hint in the sighting window above its photos.",
+      "windowHint": "Hint in the sighting window above its photos: a click views a photo, its corner tick leaves it out of the send.",
       "clearSelection": "Selection bar button: deselects every card. Its tooltip shows the Esc and Select None shortcuts.",
       "onInat": "Note on a To send card: one of its photos looks the same as an observation the user already made on iNaturalist themselves.",
       "ignoredMark": "Status on a sighting card shown with ignored ones: this sighting is ignored.",
-      "choosePhotos": "Sighting card menu item: opens its window to pick which photos to send, or to ignore it."
+      "choosePhotos": "Sighting card menu item: opens its window to pick which photos to send, or to ignore it.",
+      "locationFrom": "Sighting window: the location iNaturalist gets comes from the photos' own coordinates. {mode} is one (a single photo), all (every ticked photo) or some; {located} of {count} ticked photos have a location.",
+      "locationFromNear": "Same as locationFrom, with {place}: the photos' place label and region, like Pigeon Lake, Alberta.",
+      "changePlace": "Link after the location line in the sighting window: shows the place chooser to file the photos under a named place instead.",
+      "noLocationChoose": "Sighting window, above the place chooser, when no ticked photo has a location. {count} is how many photos are ticked."
     },
     "pending": {
       "steps": "Explains that the person finishes observations on iNaturalist and Lifer notices by itself.",
@@ -1178,7 +1189,7 @@
   },
   "species": {
     "suggestion": {
-      "probably": "Shown when the photo's species is a toss-up but its genus (or family) is clear. {name} is the scientific genus or family name (in <i>); {rank} is genus or family; {article} is a or an for that name in English."
+      "match": "Under a suggested species card. {percent} is a formatted percentage like 87%: how closely the photo matches the species."
     },
     "notes": {
       "credit": "Credit line under text taken from Wikipedia. <article> wraps a link to the article, <licence> a link to the CC BY-SA licence.",
@@ -1247,9 +1258,6 @@
       "introduced": "Status tag: the species is non-native (introduced by people) in this region.",
       "endemic": "Status tag. {country} is the only country the species is found in.",
       "iucn": "Status tag. {category} is an IUCN Red List category name, like Least Concern."
-    },
-    "suggestion": {
-      "match": "Under a suggested species card. {percent} is a formatted percentage like 87%: how closely the photo matches the species."
     }
   },
   "speciesCard": {
@@ -1622,17 +1630,39 @@
     "tripFolderMoved": "{trip} is a trip name, like Costa Rica 2026; {folder} a full folder path. Shown with Use it and Not now buttons.",
     "unreadable": "Appended to No moved photos found: folders skipped because Lifer isn't allowed to read them.",
     "settings": {
-      "always": "{count} is how many trips the user has; only used to pick the wording.",
       "batch": "A row in the list of recent relinks. {date} is a formatted date and time.",
-      "batchTrip": "A row for a trip whose folder Lifer updated. {trip} is the trip name, {date} a formatted date and time."
+      "batchTrip": "A row for a trip whose folder Lifer updated. {trip} is the trip name, {date} a formatted date and time.",
+      "placesCount": "Heading of the list of folders Lifer searches for moved photos. # is how many folders the user added.",
+      "alsoSearched": "Under the user's own folders. {list} is a formatted list like \"your library folder, 14 trip folders and 2 watched folders\", built from libraryFolder, tripFolders and watchedFolders.",
+      "libraryFolder": "Part of the alsoSearched list, so it starts lower case mid-sentence.",
+      "filterLabel": "Screen reader label of the filter box above a folder list. {list} is the list's name, like Folders you added.",
+      "removeFolder": "Screen reader label of the remove (x) button on a folder row. {folder} is the folder's full path.",
+      "coveredBy": "Shown when the user adds a folder inside one Lifer already searches, so nothing was added. {folder} is the full path of the covering folder.",
+      "mergeOffer": "Shown after picking a folder that contains folders the user added earlier. Merge replaces them with the new folder.",
+      "merged": "Toast after merging, with an Undo button.",
+      "unmergeFailed": "Error toast when Undo of a merge couldn't add any of the old folders back. {folders} is a list of folder names.",
+      "unmergePartlyFailed": "Error toast when Undo of a merge added only some old folders back. {count} is how many came back; {folders} lists the folder names that didn't."
     },
     "reviewDialog": {
       "showingFirst": "{shown} and {total} are formatted numbers."
+    },
+    "suggest": {
+      "line": "One-line offer shown where Lifer lists photos it can't find, when they were all in one folder. The button opens a folder picker.",
+      "pickTitle": "Title of the folder picker opened from that offer."
     }
   },
   "versions": {
     "badge": "A small badge on a photo thumbnail: how many versions (prints, edits, exports) the photo has.",
     "linkToPhoto": "Screen reader label of a photo to pick in the link picker. {name} is its file name, like IMG_1234.jpg.",
+    "summary": "Under the Versions dialog title when the photo has edits, prints or exports filed as versions of it.",
+    "filesSummary": "Under the Versions dialog title when one photo is held in several files, like a RAW and its JPG. {list} joins the filesRole phrases, like \"your camera original and an export\".",
+    "filesRole": {
+      "original": "One part of the files list: the file straight from the camera.",
+      "edit": "One part of the files list: an edited copy.",
+      "export": "One part of the files list: an exported copy."
+    },
+    "oneFile": "Under the Versions dialog title when the photo is a single file.",
+    "viewFile": "Screen reader label of a file's thumbnail in the Versions dialog; opens it full size. {name} is its file name.",
     "label": {
       "withSize": "A version's name with its print size: {kind} is a version kind like Print, {size} a size like 8x10."
     },

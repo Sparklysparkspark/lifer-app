@@ -5063,7 +5063,10 @@
                             "type": "boolean",
                             "description": "This file's capture is the one the group is shown as"
                           },
-                          "shown": { "type": "boolean", "description": "This file's capture provides the photo shown" },
+                          "shown": {
+                            "type": "boolean",
+                            "description": "This file is the photo shown: of a RAW and its JPG in one capture, the JPG, which the photo is made from"
+                          },
                           "evidence": {
                             "anyOf": [
                               {
@@ -5074,7 +5077,7 @@
                           }
                         }
                       },
-                      "description": "The shown photo's files first"
+                      "description": "The shown file first, then the rest of its capture"
                     },
                     "versions": {
                       "type": "array",
@@ -13894,7 +13897,10 @@
                           "foundOnInat",
                           "taxonClass",
                           "placeName",
-                          "inatPhotoId"
+                          "inatPhotoId",
+                          "captureIds",
+                          "noLocationOnInat",
+                          "locationUpdate"
                         ],
                         "properties": {
                           "observationId": { "type": "string" },
@@ -13941,6 +13947,44 @@
                               {
                                 "type": "string",
                                 "description": "The observation's first photo on iNaturalist, when its cached copy is here, for a preview"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "captureIds": {
+                            "type": "array",
+                            "items": { "type": "string", "format": "uuid" },
+                            "description": "The observation's photos in the library, for Set location"
+                          },
+                          "noLocationOnInat": {
+                            "type": "boolean",
+                            "description": "Sent without a location and, as far as Lifer knows, still without one on iNaturalist"
+                          },
+                          "locationUpdate": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "required": ["state", "at"],
+                                "properties": {
+                                  "state": {
+                                    "anyOf": [
+                                      { "type": "string", "const": "waiting" },
+                                      { "type": "string", "const": "sent" },
+                                      { "type": "string", "const": "failed" },
+                                      { "type": "string", "const": "conflict" }
+                                    ]
+                                  },
+                                  "at": { "type": "string", "format": "date-time" },
+                                  "reason": {
+                                    "anyOf": [
+                                      { "type": "string", "const": "reconnect" },
+                                      { "type": "string", "const": "notFound" },
+                                      { "type": "string", "const": "refused" },
+                                      { "type": "string", "const": "noLocation" }
+                                    ]
+                                  }
+                                },
+                                "additionalProperties": true
                               },
                               { "type": "null" }
                             ]
@@ -15004,6 +15048,155 @@
         }
       }
     },
+    "/inaturalist/observations/location": {
+      "post": {
+        "summary": "POST /inaturalist/observations/location",
+        "tags": ["inaturalist"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["observationIds"],
+                "properties": {
+                  "observationIds": {
+                    "type": "array",
+                    "items": { "type": "string", "pattern": "^[0-9]+$", "maxLength": 20 },
+                    "minItems": 1,
+                    "maxItems": 10000
+                  },
+                  "conflict": {
+                    "anyOf": [
+                      { "type": "string", "const": "replace" },
+                      { "type": "string", "const": "keep" }
+                    ],
+                    "description": "For ones iNaturalist already placed: replace that location, or keep it and stop"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["started"],
+                  "properties": { "started": { "type": "boolean", "description": "False: queued for a later try" } },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/inaturalist/observations/location/status": {
+      "get": {
+        "summary": "GET /inaturalist/observations/location/status",
+        "tags": ["inaturalist"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "running",
+                    "phase",
+                    "downloadedBytes",
+                    "totalBytes",
+                    "processed",
+                    "total",
+                    "currentItem",
+                    "error",
+                    "finishedAt",
+                    "cancelRequested",
+                    "cancelled",
+                    "result"
+                  ],
+                  "properties": {
+                    "running": { "type": "boolean" },
+                    "phase": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "downloadedBytes": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                    "totalBytes": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                    "processed": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                    "total": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                    "currentItem": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "error": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "finishedAt": {
+                      "anyOf": [
+                        { "type": "number", "description": "Epoch ms of the last completion" },
+                        { "type": "null" }
+                      ]
+                    },
+                    "cancelRequested": { "type": "boolean" },
+                    "cancelled": { "type": "boolean" },
+                    "result": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "required": ["updated", "waiting", "failed", "conflicts", "conflictIds"],
+                          "properties": {
+                            "updated": {
+                              "type": "integer",
+                              "description": "Observations whose location iNaturalist now has"
+                            },
+                            "waiting": {
+                              "type": "integer",
+                              "description": "Couldn't reach iNaturalist: sent on a later try"
+                            },
+                            "failed": { "type": "integer" },
+                            "conflicts": {
+                              "type": "integer",
+                              "description": "Already placed on iNaturalist: replace or keep is the user's call"
+                            },
+                            "conflictIds": { "type": "array", "items": { "type": "string" } }
+                          }
+                        },
+                        { "type": "null" }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
     "/inaturalist/pending": {
       "get": {
         "summary": "GET /inaturalist/pending",
@@ -15041,7 +15234,10 @@
                           "foundOnInat",
                           "taxonClass",
                           "placeName",
-                          "inatPhotoId"
+                          "inatPhotoId",
+                          "captureIds",
+                          "noLocationOnInat",
+                          "locationUpdate"
                         ],
                         "properties": {
                           "observationId": { "type": "string" },
@@ -15088,6 +15284,44 @@
                               {
                                 "type": "string",
                                 "description": "The observation's first photo on iNaturalist, when its cached copy is here, for a preview"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "captureIds": {
+                            "type": "array",
+                            "items": { "type": "string", "format": "uuid" },
+                            "description": "The observation's photos in the library, for Set location"
+                          },
+                          "noLocationOnInat": {
+                            "type": "boolean",
+                            "description": "Sent without a location and, as far as Lifer knows, still without one on iNaturalist"
+                          },
+                          "locationUpdate": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "required": ["state", "at"],
+                                "properties": {
+                                  "state": {
+                                    "anyOf": [
+                                      { "type": "string", "const": "waiting" },
+                                      { "type": "string", "const": "sent" },
+                                      { "type": "string", "const": "failed" },
+                                      { "type": "string", "const": "conflict" }
+                                    ]
+                                  },
+                                  "at": { "type": "string", "format": "date-time" },
+                                  "reason": {
+                                    "anyOf": [
+                                      { "type": "string", "const": "reconnect" },
+                                      { "type": "string", "const": "notFound" },
+                                      { "type": "string", "const": "refused" },
+                                      { "type": "string", "const": "noLocation" }
+                                    ]
+                                  }
+                                },
+                                "additionalProperties": true
                               },
                               { "type": "null" }
                             ]
@@ -16482,7 +16716,10 @@
               "schema": {
                 "type": "object",
                 "required": ["path"],
-                "properties": { "path": { "type": "string", "minLength": 1 } },
+                "properties": {
+                  "path": { "type": "string", "minLength": 1 },
+                  "merge": { "type": "boolean", "description": "Replace the added places this folder holds" }
+                },
                 "additionalProperties": false
               }
             }
@@ -16493,7 +16730,25 @@
             "description": "OK",
             "content": {
               "application/json": {
-                "schema": { "type": "object", "required": ["ok"], "properties": { "ok": { "type": "boolean" } } }
+                "schema": {
+                  "type": "object",
+                  "required": ["added", "path", "coveredBy", "contains"],
+                  "properties": {
+                    "added": { "type": "boolean" },
+                    "path": { "type": "string", "description": "The folder as the disk spells it" },
+                    "coveredBy": {
+                      "anyOf": [
+                        { "type": "string", "description": "A place that already holds it; nothing was added" },
+                        { "type": "null" }
+                      ]
+                    },
+                    "contains": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "description": "Added places it holds: replaced when added, else nothing was added"
+                    }
+                  }
+                }
               }
             }
           },
@@ -16714,13 +16969,14 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["auto", "library", "tripFolders", "watched", "places"],
+                  "required": ["auto", "library", "trips", "watched", "places"],
                   "properties": {
                     "auto": { "type": "boolean" },
                     "library": { "type": "string" },
-                    "tripFolders": {
-                      "type": "integer",
-                      "description": "Trips whose folders are included automatically"
+                    "trips": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "description": "Trip folders, included automatically"
                     },
                     "watched": { "type": "array", "items": { "type": "string" } },
                     "places": {
@@ -16852,6 +17108,7 @@
                             "proposals",
                             "batchId",
                             "unreadableFolders",
+                            "missingFolder",
                             "maxLagMs"
                           ],
                           "properties": {
@@ -16863,6 +17120,15 @@
                             "unreadableFolders": {
                               "type": "integer",
                               "description": "Folders skipped because Lifer isn't allowed to read them"
+                            },
+                            "missingFolder": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "description": "The folder the photos still missing were in, when they shared one"
+                                },
+                                { "type": "null" }
+                              ]
                             },
                             "maxLagMs": { "type": "integer", "description": "Longest event-loop delay during the pass" }
                           },
@@ -19710,7 +19976,14 @@
         "security": [{ "apiKey": [] }],
         "x-required-scope": "photos.read",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          {
+            "name": "original",
+            "in": "query",
+            "required": false,
+            "description": "raw: the RAW's own preview, when a JPG beside it is the photo",
+            "schema": { "enum": ["raw"] }
+          }
         ],
         "responses": {
           "200": {
