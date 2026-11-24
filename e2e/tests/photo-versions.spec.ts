@@ -70,7 +70,7 @@ test("a photo without versions explains linking, with a way to learn more", asyn
   await page.getByTestId("photo-tile").first().getByRole("img").first().click();
   await page.keyboard.press("Shift+A");
   const panel = page.getByRole("dialog", { name: "Versions" });
-  await expect(panel.getByText("This photo has no other versions.")).toBeVisible();
+  await expect(panel.getByText("Only one file")).toBeVisible();
   await expect(panel.getByText(/Link it to the photo it was made from/)).toBeVisible();
   await expect(panel.getByRole("button", { name: "See how it works" })).toBeVisible();
   await panel.getByRole("button", { name: "Link to another photo" }).click();
