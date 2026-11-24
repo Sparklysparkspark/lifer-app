@@ -123,3 +123,22 @@ describe("DownloadedPacksList added species", () => {
     expect(screen.getByRole("button", { name: "Remove selected (2)" })).toBeTruthy();
   });
 });
+
+describe("DownloadedPacksList controls and errors", () => {
+  it("opens groups with the shared chevron, not a text glyph", () => {
+    renderList([]);
+    const header = screen.getByText("Canada").closest("button")!;
+    expect(header.querySelector("svg")).toBeTruthy();
+    expect(header.textContent).not.toMatch(/[▸▾]/);
+  });
+
+  it("says the preview failed in plain words, not the browser's text", async () => {
+    post.mockRejectedValue(new TypeError("Failed to fetch"));
+    renderList([]);
+    fireEvent.click(screen.getAllByRole("checkbox")[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Remove selected (1)" }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/offline-packs/offload-preview", { packIds: ["pk-ca"] }));
+    await waitFor(() => expect(document.body.textContent).toMatch(/Couldn't reach Lifer/));
+    expect(document.body.textContent).not.toContain("Failed to fetch");
+  });
+});

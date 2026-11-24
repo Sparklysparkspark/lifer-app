@@ -123,6 +123,18 @@ export default function CollectionToolbar({
     (url.tierFilters.size > 0 ? 1 : 0) +
     (taxonFilters.size > 0 ? 1 : 0);
 
+  // A filter stays on screen while set, even when this list has nothing it applies to, so it can
+  // always be undone.
+  const showGhost = hasGhost || url.ghostOnly;
+  const showLost = hasLost || url.lostOnly;
+  const activeYear = Number(url.yearFilter);
+  const years =
+    url.yearFilter && !availableYears.includes(activeYear)
+      ? [...availableYears, activeYear].sort((a, b) => b - a)
+      : availableYears;
+  // Only the zones still offered count, so a stale id can't tick or half-tick All.
+  const checkedZones = seaZones.filter((z) => seaZoneIds.includes(z.id)).length;
+
   function toggleTier(tier: string) {
     const next = new Set(url.tierFilters);
     if (!next.delete(tier)) next.add(tier);
@@ -354,32 +366,33 @@ export default function CollectionToolbar({
             hide={t("collection.toolbar.endemicHide")}
             title={t("collection.toolbar.endemicTitle")}
           />
-          {/* Whether a species is introduced or a vagrant is about one place, so only on a region. */}
-          {regionId && (
-            <>
-              <TraitSelect
-                label={t("collection.toolbar.introduced")}
-                value={url.introducedFilter}
-                onChange={(v) => updateParam("introduced", v)}
-                only={t("collection.toolbar.introducedOnly")}
-                hide={t("collection.toolbar.introducedHide")}
-                title={t("collection.toolbar.introducedTitle")}
-              />
-              <TraitSelect
-                label={t("collection.toolbar.vagrants")}
-                value={url.vagrantFilter}
-                onChange={(v) => updateParam("vagrant", v)}
-                only={t("collection.toolbar.vagrantsOnly")}
-                hide={t("collection.toolbar.vagrantsHide")}
-                title={t("collection.toolbar.vagrantsTitle")}
-              />
-            </>
+          {/* Whether a species is introduced or a vagrant is about one place, so only on a region,
+              or while still set so it can be undone. */}
+          {(regionId || url.introducedFilter !== "any") && (
+            <TraitSelect
+              label={t("collection.toolbar.introduced")}
+              value={url.introducedFilter}
+              onChange={(v) => updateParam("introduced", v)}
+              only={t("collection.toolbar.introducedOnly")}
+              hide={t("collection.toolbar.introducedHide")}
+              title={t("collection.toolbar.introducedTitle")}
+            />
+          )}
+          {(regionId || url.vagrantFilter !== "any") && (
+            <TraitSelect
+              label={t("collection.toolbar.vagrants")}
+              value={url.vagrantFilter}
+              onChange={(v) => updateParam("vagrant", v)}
+              only={t("collection.toolbar.vagrantsOnly")}
+              hide={t("collection.toolbar.vagrantsHide")}
+              title={t("collection.toolbar.vagrantsTitle")}
+            />
           )}
         </div>
-        {(regionId || availableYears.length > 0) && (
+        {(regionId || years.length > 0 || url.likelyThisMonthOnly) && (
           <div className="space-y-1.5 border-t border-line pt-2">
             <FilterSectionHeading>{t("collection.toolbar.whenSection")}</FilterSectionHeading>
-            {regionId && (
+            {(regionId || url.likelyThisMonthOnly) && (
               <FilterCheckbox
                 checked={url.likelyThisMonthOnly}
                 onChange={(c) => updateParam("likelyThisMonth", c ? "1" : null)}
@@ -388,7 +401,7 @@ export default function CollectionToolbar({
                 {t("collection.toolbar.likelyThisMonth")}
               </FilterCheckbox>
             )}
-            {availableYears.length > 0 && (
+            {years.length > 0 && (
               <div className="space-y-1">
                 <FilterFieldLabel>{t("collection.toolbar.year")}</FilterFieldLabel>
                 <Select
@@ -398,7 +411,7 @@ export default function CollectionToolbar({
                   className="w-full"
                 >
                   <option value="">{t("collection.toolbar.anyYear")}</option>
-                  {availableYears.map((y) => (
+                  {years.map((y) => (
                     <option key={y} value={y}>
                       {y}
                     </option>
@@ -409,10 +422,10 @@ export default function CollectionToolbar({
           </div>
         )}
         {/* Only offered once the list actually has a rarely recorded species or one not seen in 25 years. */}
-        {(hasGhost || hasLost) && (
+        {(showGhost || showLost) && (
           <div className="space-y-1.5 border-t border-line pt-2">
             <FilterSectionHeading>{t("collection.toolbar.recordsSection")}</FilterSectionHeading>
-            {hasGhost && (
+            {showGhost && (
               <FilterCheckbox
                 checked={url.ghostOnly}
                 onChange={(c) => updateParam("ghostOnly", c ? "1" : null)}
@@ -421,7 +434,7 @@ export default function CollectionToolbar({
                 {t("collection.toolbar.ghostOnly")}
               </FilterCheckbox>
             )}
-            {hasLost && (
+            {showLost && (
               <FilterCheckbox
                 checked={url.lostOnly}
                 onChange={(c) => updateParam("lostOnly", c ? "1" : null)}
@@ -451,8 +464,8 @@ export default function CollectionToolbar({
           {seaZones.length > 1 && (
             <Checkbox
               size="sm"
-              checked={seaZoneIds.length === seaZones.length}
-              indeterminate={seaZoneIds.length > 0 && seaZoneIds.length < seaZones.length}
+              checked={checkedZones === seaZones.length}
+              indeterminate={checkedZones > 0 && checkedZones < seaZones.length}
               onChange={(checked) => onSetAllSeaZones?.(checked)}
               labelClassName="font-medium"
             >
@@ -470,7 +483,7 @@ export default function CollectionToolbar({
             </Checkbox>
           ))}
           {/* With a zone checked, lets it show only that zone's sea life instead of adding to the land list. */}
-          {seaZoneIds.length > 0 && (
+          {checkedZones > 0 && (
             <Checkbox
               size="sm"
               checked={url.includeLand}

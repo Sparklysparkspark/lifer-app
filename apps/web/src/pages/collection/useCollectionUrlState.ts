@@ -113,7 +113,8 @@ export function useCollectionUrlState() {
       search,
     ],
   );
-  // Every list filter back to "show all"; the region, sort and grouping stay. `also` joins the
+  // Every list filter back to "show all", Animals and sea zones included, since those can empty
+  // the list too; the region, sort and grouping stay. `also` joins the
   // same write, since a second write in the same tick would undo this one.
   const clearFilters = useCallback(
     (also: ParamUpdates = {}) =>
@@ -131,6 +132,9 @@ export function useCollectionUrlState() {
         photosTaken: null,
         tiers: null,
         search: null,
+        taxon: null,
+        seaZones: null,
+        includeLand: null,
         ...also,
       }),
     [updateParams],

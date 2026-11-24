@@ -17,6 +17,7 @@ import {
   searchRegions,
 } from "../lib/regionSearch";
 import RegionPicker from "./RegionPicker";
+import AreaPills from "./AreaPills";
 import SearchInput from "./SearchInput";
 import { ignore } from "../lib/ignore";
 import { backStateFor } from "../lib/backLabel";
@@ -281,10 +282,7 @@ export default function RegionBrowser({
         </>
       )}
       {regionId && children.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-footnote text-muted">{t("regionBrowser.drillIn")}</span>
-          <RegionPicker mode="single" items={children} selectedId={null} onSelectItem={pick} />
-        </div>
+        <AreaPills label={t("regionBrowser.drillIn")} areas={children} onPick={pick} />
       )}
       {regionId && realms.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">

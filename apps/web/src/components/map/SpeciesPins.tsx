@@ -36,7 +36,16 @@ import { gallerySlide } from "./gallerySlide";
 type PinData = ApiResponse<"/collection/map">;
 type Hover =
   | { kind: "pin"; x: number; y: number; pin: SpeciesPin }
-  | { kind: "cluster"; x: number; y: number; r: number; species: number; photos: number; top: SpeciesPin[] };
+  | {
+      kind: "cluster";
+      x: number;
+      y: number;
+      r: number;
+      species: number;
+      photos: number;
+      top: SpeciesPin[];
+      zoom: () => void;
+    };
 
 const HOVER_DELAY_MS = 200;
 // After leaving a pin, this long to reach its card before it closes.
@@ -71,19 +80,25 @@ export default function SpeciesPins({
   regionId,
   regionName,
   dark,
+  speciesIds,
 }: {
   /** The map once its style has loaded; null before. */
   map: MapLibreMap | null;
   regionId: string;
   regionName?: string;
   dark: boolean;
+  /** The species the list shows, so the pins follow its filters; absent pins every one. */
+  speciesIds?: ReadonlySet<string> | null;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
   const speciesName = useSpeciesName();
   // Mounted only while the View menu's Show map pins is on, so off asks for nothing.
   const { data } = useApiResource<PinData>(`/collection/map?regionId=${regionId}`);
-  const pins = useMemo(() => (data?.pins ?? []) as SpeciesPin[], [data]);
+  const pins = useMemo(() => {
+    const all = (data?.pins ?? []) as SpeciesPin[];
+    return speciesIds ? all.filter((p) => speciesIds.has(p.speciesId)) : all;
+  }, [data, speciesIds]);
   const pinsRef = useLatest(pins);
   const [hover, setHover] = useState<Hover | null>(null);
   const cardRef = useRef({ enter: () => {}, leave: () => {} });
@@ -184,6 +199,16 @@ export default function SpeciesPins({
         closeSoon();
       },
     };
+    const zoomOnto = (hit: Hit) => {
+      const source = map.getSource(PIN_SOURCE) as GeoJSONSource;
+      void source
+        .getClusterExpansionZoom(Number(hit.data.props.cluster_id))
+        .then(
+          (zoom) => zoom,
+          () => null,
+        )
+        .then((zoom) => zoomOntoCluster(map, hit.data.coords, zoom, reducedMotion()));
+    };
     const preview = async (hit: Hit) => {
       const box = canvas.getBoundingClientRect();
       const x = box.left + hit.x;
@@ -194,6 +219,10 @@ export default function SpeciesPins({
         return;
       }
       const source = map.getSource(PIN_SOURCE) as GeoJSONSource;
+      const zoom = () => {
+        setHover(null);
+        zoomOnto(hit);
+      };
       const leaves = await source.getClusterLeaves(Number(hit.data.props.cluster_id), Infinity, 0);
       const leafPins = leaves.map((l) => pinsRef.current[Number(l.properties?.i)]).filter(Boolean);
       const seen = new Set<string>();
@@ -202,7 +231,7 @@ export default function SpeciesPins({
         .sort((a, b) => b.count - a.count)
         .filter((p) => !seen.has(p.speciesId) && seen.add(p.speciesId))
         .slice(0, CARD_PHOTOS);
-      setHover({ kind: "cluster", x, y, r: hit.radius, ...clusterSummary(leafPins), top });
+      setHover({ kind: "cluster", x, y, r: hit.radius, ...clusterSummary(leafPins), top, zoom });
     };
     const hoverAt = (point: { x: number; y: number }, pointerType: string) => {
       const hit = pickAt(point, pointerType);
@@ -253,14 +282,7 @@ export default function SpeciesPins({
         if (pin) void openRef.current(pin);
         return;
       }
-      const source = map.getSource(PIN_SOURCE) as GeoJSONSource;
-      void source
-        .getClusterExpansionZoom(Number(hit.data.props.cluster_id))
-        .then(
-          (zoom) => zoom,
-          () => null,
-        )
-        .then((zoom) => zoomOntoCluster(map, hit.data.coords, zoom, reducedMotion()));
+      zoomOnto(hit);
     };
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("mouseleave", onLeave);
@@ -288,7 +310,8 @@ export default function SpeciesPins({
 
   return (
     <>
-      {data && pins.length === 0 && (
+      {/* Only when nothing at all is placed; a filter that hides every pin isn't "no pins yet". */}
+      {data && (data.pins ?? []).length === 0 && (
         <p
           className="absolute left-2 top-2 max-w-[calc(100%-1rem)] rounded-control bg-surface/90 px-2.5 py-1.5 text-footnote text-muted shadow-sm"
           data-testid="species-pins-empty"
@@ -350,7 +373,8 @@ export default function SpeciesPins({
             <p className="break-words font-medium">{clusterTitle(hover)}</p>
             {hover.species === 1 && <p className="text-muted">{photosHere(hover.photos)}</p>}
             <div className="grid w-60 grid-cols-3 gap-1">
-              {hover.top.map((pin) => (
+              {/* Past six species the last cell is "+N", zooming in as a click on the cluster does. */}
+              {hover.top.slice(0, hover.species > CARD_PHOTOS ? CARD_PHOTOS - 1 : CARD_PHOTOS).map((pin) => (
                 <Button
                   key={pin.speciesId}
                   variant="ghost"
@@ -367,6 +391,14 @@ export default function SpeciesPins({
                   />
                 </Button>
               ))}
+              {hover.species > CARD_PHOTOS && (
+                <Button variant="secondary" size="sm" onClick={hover.zoom} className="aspect-square h-auto!">
+                  {t("gallery.map.card.more", {
+                    count: hover.species - (CARD_PHOTOS - 1),
+                    formatted: formatNumber(hover.species - (CARD_PHOTOS - 1)),
+                  })}
+                </Button>
+              )}
             </div>
           </div>
         </PointCard>

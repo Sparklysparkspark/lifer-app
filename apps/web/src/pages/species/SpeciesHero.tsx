@@ -93,13 +93,19 @@ export default function SpeciesHero({ detail }: { detail: SpeciesDetail }) {
         {/* One fixed frame for every slide, so the page never moves while flicking through them:
             each photo whole and as large as fits, with black bars where its shape differs. */}
         <div className={`relative bg-black ${FRAME}`} style={FRAME_STYLE}>
-          <img
-            src={slide.url}
-            alt={name}
+          {/* raw-control: the whole photo frame opens the viewer, so it can't take a sized Button. */}
+          <button
+            type="button"
             onClick={() => setLightboxIndex(index)}
-            className="h-full w-full cursor-pointer object-contain"
-            onError={() => setFailedKey(slideKey)}
-          />
+            className="block h-full w-full cursor-zoom-in focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+          >
+            <img
+              src={slide.url}
+              alt={name}
+              className="h-full w-full object-contain"
+              onError={() => setFailedKey(slideKey)}
+            />
+          </button>
           {slides.length > 1 && (
             <>
               <PhotoArrows

@@ -151,3 +151,20 @@ describe("TaxaExplorer", () => {
     expect(item(/^Testia/).getAttribute("aria-expanded")).toBe("false");
   });
 });
+
+describe("TaxaExplorer detail and empty state", () => {
+  it("opens an uncollected species' reference photo full size", () => {
+    renderPage();
+    fireEvent.click(item(/^Testia/));
+    fireEvent.click(item(/^Genus/));
+    fireEvent.click(item(/^Delta common/));
+    fireEvent.click(screen.getByRole("button", { name: "Open photo of Delta common" }));
+    expect(screen.getByTestId("viewer").textContent).toContain("Delta common");
+  });
+
+  it("offers Import photos when nothing is photographed yet", () => {
+    treeData = { collected: 0, tree: [] };
+    renderPage();
+    expect(screen.getByRole("button", { name: "Import photos" })).toBeTruthy();
+  });
+});

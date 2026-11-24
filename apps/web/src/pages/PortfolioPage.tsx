@@ -21,6 +21,8 @@ import { useDeploymentMode } from "../hooks/useDeploymentMode";
 import { useJobPoll } from "../hooks/useJobPoll";
 import { useToast } from "../hooks/useToast";
 import { errorMessage } from "../lib/errorMessage";
+import { userMessage } from "../lib/userMessage";
+import EmptyState from "../components/EmptyState";
 import { ignore } from "../lib/ignore";
 import { pickFolderNative } from "../lib/pickFolderNative";
 import { useSpeciesName } from "../lib/speciesName";
@@ -52,6 +54,8 @@ export default function PortfolioPage() {
   const [spec, setSpec] = useState<Spec | null>(null);
   const [shared, setShared] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  // Bumped by Retry to run the first load again.
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [albums, setAlbums] = useState<Album[] | null>(null);
   const [albumSearch, setAlbumSearch] = useState("");
   const [chosen, setChosen] = useState<Chosen[]>([]);
@@ -85,7 +89,7 @@ export default function PortfolioPage() {
         ).then((rows) => setChosen(rows.filter((r): r is Chosen => r !== null)));
       })
       .catch(() => setLoadError(true));
-  }, []);
+  }, [loadAttempt]);
 
   // Changes save by themselves, and the preview follows them.
   useEffect(() => {
@@ -114,11 +118,17 @@ export default function PortfolioPage() {
     return (
       <div className="flex-1 bg-canvas">
         <PageHeader title={t("portfolio.title")} backLabel={t("nav.settings")} backFallbackTo="/settings" />
-        <div className="flex flex-col items-center gap-3 p-page py-24 text-center">
-          <p className="text-body text-muted">{t("portfolio.loadFailed")}</p>
-          <Button variant="secondary" size="sm" onClick={() => window.location.reload()}>
-            {t("common.retry")}
-          </Button>
+        <div className="p-page">
+          <EmptyState
+            title={t("portfolio.loadFailed")}
+            action={{
+              label: t("common.retry"),
+              onClick: () => {
+                setLoadError(false);
+                setLoadAttempt((n) => n + 1);
+              },
+            }}
+          />
         </div>
       </div>
     );
@@ -347,11 +357,11 @@ export default function PortfolioPage() {
                   {t("portfolio.export.action")}
                 </Button>
               )}
-              {finishedHere && !running && status && (
+              {/* A failed run says what went wrong in plain words (disk full, no permission), never the job's own text. */}
+              {finishedHere && !running && status && status.error && <FormMessage error={userMessage(status.error)} />}
+              {finishedHere && !running && status && !status.error && (
                 <p className="text-callout text-ink">
-                  {status.error
-                    ? status.error
-                    : t("portfolio.export.done", { count: status.copied, folder: status.destination ?? "" })}
+                  {t("portfolio.export.done", { count: status.copied, folder: status.destination ?? "" })}
                 </p>
               )}
               <FormMessage error={job.actionError} />

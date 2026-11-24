@@ -9,7 +9,7 @@ import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
 import type { ChecklistTarget } from "../../lib/checklistAdditions";
 import AddSpeciesToChecklistModal from "./AddSpeciesToChecklistModal";
-import AreaPills from "./AreaPills";
+import AreaPills from "../../components/AreaPills";
 import { useRegionsWithPhotos } from "../../hooks/useRegionsWithPhotos";
 import Button from "../../components/Button";
 import Menu, { MenuItem, MenuLink, MenuNote, MenuPanel, MenuSeparator } from "../../components/Menu";
@@ -119,12 +119,12 @@ export default function RegionBreadcrumb({
           <Button variant="link" onClick={() => navigateToRegion(worldRegion.id)} className="font-medium text-link!">
             {t("collection.breadcrumb.browseByRegion")}
           </Button>
-          {/* Downloaded countries one click away, instead of World, continent, country. */}
-          {downloadedCountries.map((c) => (
-            <Button key={c.id} variant="link" onClick={() => navigateToRegion(c.id)} className="text-link!">
-              {c.name}
-            </Button>
-          ))}
+          {/* Downloaded countries one click away, instead of World, continent, country; two rows at most. */}
+          {downloadedCountries.length > 0 && (
+            <div className="min-w-0 flex-1">
+              <AreaPills areas={downloadedCountries} onPick={navigateToRegion} />
+            </div>
+          )}
         </div>
       </div>
     );

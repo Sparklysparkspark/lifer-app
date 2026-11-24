@@ -9,7 +9,7 @@ import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import ProgressiveImg from "../components/ProgressiveImg";
 import PageHeader from "../components/PageHeader";
 import Select from "../components/Select";
-import { formatDate, formatDateSpan, formatNumber } from "../lib/format";
+import { formatDate, formatDateSpan, formatMonthName, formatNumber } from "../lib/format";
 import { taxaColour, taxaGroup } from "../lib/taxaColour";
 import { useSpeciesName } from "../lib/speciesName";
 
@@ -47,6 +47,8 @@ export default function YearInReviewPage() {
   const year = params.get("year");
   const [data, setData] = useState<Review | null>(null);
   const [failed, setFailed] = useState(false);
+  // Bumped by Retry to ask again.
+  const [attempt, setAttempt] = useState(0);
   const [lightbox, setLightbox] = useState<{ slides: LightboxSlide[]; index: number } | null>(null);
 
   useEffect(() => {
@@ -58,12 +60,21 @@ export default function YearInReviewPage() {
     return () => {
       live = false;
     };
-  }, [year]);
+  }, [year, attempt]);
 
   if (failed)
     return (
       <main className="space-y-section p-page">
-        <EmptyState title={t("yearInReview.loadFailed")} />
+        <EmptyState
+          title={t("yearInReview.loadFailed")}
+          action={{
+            label: t("common.retry"),
+            onClick: () => {
+              setFailed(false);
+              setAttempt((n) => n + 1);
+            },
+          }}
+        />
       </main>
     );
   if (!data) return null;
@@ -201,7 +212,7 @@ export default function YearInReviewPage() {
           <div className="flex h-32 items-end gap-1" role="img" aria-label={t("yearInReview.months")}>
             {months.map((rows, i) => {
               const total = rows.reduce((a, r) => a + r.count, 0);
-              const label = new Date(data.year, i).toLocaleDateString(undefined, { month: "short" });
+              const label = formatMonthName(i, "short");
               return (
                 <div
                   key={label}

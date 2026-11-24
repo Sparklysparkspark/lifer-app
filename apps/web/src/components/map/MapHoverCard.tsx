@@ -92,7 +92,8 @@ export default function MapHoverCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   const found = loaded?.key === key ? loaded.samples : null;
-  const more = found && found.total > SHOWN ? found.total - (SHOWN - 1) : 0;
+  // The "+N" cell needs somewhere to go; without one all six cells are photos.
+  const more = found && onShowAll && found.total > SHOWN ? found.total - (SHOWN - 1) : 0;
   const shown = found ? found.items.slice(0, more ? SHOWN - 1 : SHOWN) : [];
 
   return (

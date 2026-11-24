@@ -12,7 +12,7 @@ import { useFitText } from "../hooks/useFitText";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { useConfirm } from "../hooks/useConfirm";
 import { useToast } from "../hooks/useToast";
-import { checklistLabel, removeFromChecklist } from "../lib/checklistAdditions";
+import { addToChecklist, checklistLabel, removeFromChecklist } from "../lib/checklistAdditions";
 import { errorMessage } from "../lib/errorMessage";
 import ProgressiveImg from "./ProgressiveImg";
 import PhotoPlaceholder from "./PhotoPlaceholder";
@@ -334,8 +334,19 @@ function SpeciesCard({
     setRemovingAddition(true);
     try {
       await removeFromChecklist(added.id, item.speciesId, added.kind);
-      toast.success(t("speciesCard.removedFromList", { name: displayName, list: checklistLabel(added) }));
       onChanged?.(item.speciesId, "reload");
+      toast.show(t("speciesCard.removedFromList", { name: displayName, list: checklistLabel(added) }), {
+        tone: "success",
+        actions: [
+          {
+            label: t("species.edits.undo"),
+            onClick: () =>
+              void addToChecklist(added.id, item.speciesId, added.kind)
+                .then(() => onChanged?.(item.speciesId, "reload"))
+                .catch(() => toast.error(t("speciesCard.undoFailed"))),
+          },
+        ],
+      });
     } catch (err) {
       toast.error(errorMessage(err, t("speciesCard.removeFromListFailed")));
     } finally {
@@ -421,7 +432,7 @@ function SpeciesCard({
               // Only a captured photo has a /display derivative to upgrade to.
               item.coverPhotoUrl.startsWith("/api/photos/") ? (
                 cardImageUrl && !cardImageFailed ? (
-                  // A small square cut to the crop on the server, not a zoomed-in large image.
+                  // dead-thumb-ok: the whole card links to the species page. A square cut to the crop.
                   <img
                     src={cardImageUrl}
                     alt={speciesName(item)}
@@ -439,6 +450,7 @@ function SpeciesCard({
                   />
                 )
               ) : (
+                // dead-thumb-ok: the whole card links to the species page.
                 <img
                   src={
                     referenceRetry

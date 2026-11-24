@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,8 +18,12 @@ vi.mock("../api/client", async (importOriginal) => ({
   },
 }));
 const start = vi.fn();
+const jobState = vi.hoisted(() => ({ status: null as unknown, onFinish: undefined as undefined | (() => void) }));
 vi.mock("../hooks/useJobPoll", () => ({
-  useJobPoll: () => ({ status: null, start, cancel: vi.fn(), starting: false, cancelling: false, actionError: null }),
+  useJobPoll: (_path: string, options?: { onFinish?: () => void }) => {
+    jobState.onFinish = options?.onFinish;
+    return { status: jobState.status, start, cancel: vi.fn(), starting: false, cancelling: false, actionError: null };
+  },
 }));
 const mode = vi.hoisted(() => ({ value: "server" as "server" | "desktop" }));
 vi.mock("../hooks/useDeploymentMode", () => ({ useIsTauri: () => false, useDeploymentMode: () => mode.value }));
@@ -65,6 +69,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   mode.value = "server";
+  jobState.status = null;
   serve();
 });
 afterEach(cleanup);
@@ -117,6 +122,18 @@ describe("PortfolioPage", () => {
     get.mockRejectedValue(new Error("down"));
     renderPage();
     expect(await screen.findByText("Couldn't load your portfolio.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+    // Retry loads again in place, without reloading the whole window.
+    serve();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByDisplayValue("My birds")).toBeTruthy();
+  });
+
+  it("says a failed save in plain words, never the job's own error text", async () => {
+    jobState.status = { running: false, error: "ENOSPC: no space left on device, write '/exports/site/a.jpg'" };
+    renderPage();
+    await screen.findByDisplayValue("My birds");
+    act(() => jobState.onFinish?.());
+    expect(await screen.findByText(/disk|space/i)).toBeTruthy();
+    expect(screen.queryByText(/ENOSPC/)).toBeNull();
   });
 });

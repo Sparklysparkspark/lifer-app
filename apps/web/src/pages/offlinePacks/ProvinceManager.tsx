@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, apiPath, ApiError, type ApiResponse } from "../../api/client";
+import { api, apiPath, type ApiResponse } from "../../api/client";
+import { errorMessage } from "../../lib/errorMessage";
 import FormMessage from "../../components/FormMessage";
 import i18n from "../../i18n";
 import type { usePackDownloadJob } from "../../hooks/usePackDownloadStatus";
@@ -41,8 +42,7 @@ export default function ProvinceManager({
         onLabelRef.current(res.subdivisionLabel);
       })
       .catch((err) => {
-        if (!cancelled)
-          setProvinceError(err instanceof ApiError ? err.message : i18n.t("offlinePacks.provinceManager.loadFailed"));
+        if (!cancelled) setProvinceError(errorMessage(err, i18n.t("offlinePacks.provinceManager.loadFailed")));
       });
     return () => {
       cancelled = true;
@@ -56,7 +56,7 @@ export default function ProvinceManager({
       await api.post(apiPath("/offline-packs/{packId}/provinces/offload", { packId }), { regionIds: [province.id] });
       setProvinceList((prev) => prev?.map((p) => (p.id === province.id ? { ...p, applied: false } : p)) ?? null);
     } catch (err) {
-      setProvinceError(err instanceof ApiError ? err.message : t("offlinePacks.provinceManager.offloadFailed"));
+      setProvinceError(errorMessage(err, t("offlinePacks.provinceManager.offloadFailed")));
     } finally {
       setProvinceBusyId(null);
     }
@@ -85,9 +85,7 @@ export default function ProvinceManager({
       setProvinceList(res.provinces);
       onPacksChanged();
     } catch (err) {
-      setProvinceError(
-        err instanceof Error && err.message ? err.message : t("offlinePacks.provinceManager.reapplyFailed"),
-      );
+      setProvinceError(errorMessage(err, t("offlinePacks.provinceManager.reapplyFailed")));
     } finally {
       setProvinceBusyId(null);
     }

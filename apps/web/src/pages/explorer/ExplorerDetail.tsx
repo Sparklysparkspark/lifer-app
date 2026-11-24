@@ -101,9 +101,15 @@ export default function ExplorerDetail({
       {node.collected === 0 ? (
         <div className="space-y-2">
           {node.referenceUrl && (
-            <span className="cover-uncollected block overflow-hidden rounded-panel">
+            // raw-control: the whole photo is the button that opens it full size, as in the mosaic.
+            <button
+              type="button"
+              aria-label={t("explorer.openPhoto", { name: label(node) })}
+              onClick={() => onOpenPhotos([node], 0)}
+              className="cover-uncollected block w-full overflow-hidden rounded-panel transition hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
               <ProgressiveImg thumbSrc={node.referenceUrl} alt="" className="aspect-[4/3] w-full object-cover" />
-            </span>
+            </button>
           )}
           <p className="text-callout text-muted">{t("explorer.notYet")}</p>
         </div>

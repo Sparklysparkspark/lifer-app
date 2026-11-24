@@ -97,3 +97,31 @@ describe("SpeciesCard crop", () => {
     );
   });
 });
+
+describe("SpeciesCard remove from list", () => {
+  it("takes off your own addition with an Undo that adds it back", async () => {
+    const { api } = await import("../api/client");
+    vi.mocked(api.delete).mockResolvedValue({});
+    vi.mocked(api.put).mockResolvedValue({ ok: true, added: true, alreadyOnChecklist: false });
+    const onChanged = vi.fn();
+    const added = { ...item, userAddedRegion: { id: "r1", name: "Freedonia", kind: "region" } } as CollectionItem;
+    render(
+      <ToastContext.Provider value={toast}>
+        <ConfirmContext.Provider value={vi.fn().mockResolvedValue(false)}>
+          <MemoryRouter>
+            <SpeciesCard item={added} onChanged={onChanged} />
+          </MemoryRouter>
+        </ConfirmContext.Provider>
+      </ToastContext.Provider>,
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: /more/i })[0]);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from this list" }));
+    await waitFor(() => expect(toast.show).toHaveBeenCalled());
+    expect(api.delete).toHaveBeenCalledWith("/regions/r1/checklist-additions/s1");
+    const [, options] = toast.show.mock.lastCall!;
+    onChanged.mockClear();
+    options.actions[0].onClick();
+    await waitFor(() => expect(onChanged).toHaveBeenCalledWith("s1", "reload"));
+    expect(api.put).toHaveBeenCalledWith("/regions/r1/checklist-additions/s1");
+  });
+});

@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { SelectionBar, type BarAction } from "../../components/SelectionActionRow";
 import Button from "../../components/Button";
-import { useConfirm } from "../../hooks/useConfirm";
 import { useToast } from "../../hooks/useToast";
 import type { SpeciesChange } from "../../components/SpeciesCard";
 
@@ -46,7 +45,6 @@ export default function CollectionSelectBar({
 }) {
   const { t } = useTranslation();
   const toast = useToast();
-  const confirm = useConfirm();
   const [busy, setBusy] = useState<Action | null>(null);
   const count = selectedIds.size;
 
@@ -57,14 +55,6 @@ export default function CollectionSelectBar({
   }
 
   async function run(action: Action) {
-    if (action === "archive") {
-      const ok = await confirm({
-        title: t("collection.select.archiveConfirm.title", { count }),
-        message: t("collection.select.archiveConfirm.message"),
-        confirmLabel: t("collection.select.archive"),
-      });
-      if (!ok) return;
-    }
     setBusy(action);
     try {
       const changed = await send(action, [...selectedIds]);

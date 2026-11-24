@@ -43,6 +43,17 @@ export function useSeaZoneFilter({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change in relevance clears them; a region change already does
   }, [seaZonesRelevant, packsKnown]);
 
+  // A zone id this region doesn't offer (an old link) filters with no checkbox to untick it.
+  useEffect(() => {
+    if (!packsKnown || seaZoneIds.length === 0) return;
+    const offered = seaZoneIds.filter((id) => seaZones.some((z) => z.id === id));
+    if (offered.length < seaZoneIds.length)
+      updateParams(
+        { seaZones: offered.join(",") || null, ...(offered.length === 0 ? { includeLand: null } : {}) },
+        { replace: true },
+      );
+  }, [packsKnown, seaZoneIds, seaZones, updateParams]);
+
   // A region with no native fish but nearby marine zones checks its zones automatically, once per
   // region (tracked in a ref so a manual uncheck isn't re-applied).
   const autoSelected = useRef(new Set<string>());

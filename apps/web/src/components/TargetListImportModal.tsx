@@ -266,25 +266,30 @@ export default function TargetListImportModal({
             )}
             {ambiguous.length > 0 && (
               <div className="space-y-2">
-                <p className="text-callout font-semibold text-ink">{t("targetLists.import.choose")}</p>
-                {ambiguous.map((row) => (
-                  <Select
-                    key={row.name}
-                    variant="form"
-                    label={row.name}
-                    labelClassName={`${FIELD_LABEL} break-words`}
-                    value={picks[row.name] ?? ""}
-                    onChange={(e) => setPicks((p) => ({ ...p, [row.name]: e.target.value }))}
-                    className="w-full"
-                  >
-                    <option value="">{t("targetLists.import.skip")}</option>
-                    {row.options.map((o) => (
-                      <option key={o.speciesId} value={o.speciesId}>
-                        {optionLabel(o)}
-                      </option>
-                    ))}
-                  </Select>
-                ))}
+                <p className="text-callout font-semibold text-ink">
+                  {t("targetLists.import.choose", { count: ambiguous.length })}
+                </p>
+                {/* Each starts on Skip; a long CSV's picks scroll in their own box under the count. */}
+                <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                  {ambiguous.map((row) => (
+                    <Select
+                      key={row.name}
+                      variant="form"
+                      label={row.name}
+                      labelClassName={`${FIELD_LABEL} break-words`}
+                      value={picks[row.name] ?? ""}
+                      onChange={(e) => setPicks((p) => ({ ...p, [row.name]: e.target.value }))}
+                      className="w-full"
+                    >
+                      <option value="">{t("targetLists.import.skip")}</option>
+                      {row.options.map((o) => (
+                        <option key={o.speciesId} value={o.speciesId}>
+                          {optionLabel(o)}
+                        </option>
+                      ))}
+                    </Select>
+                  ))}
+                </div>
               </div>
             )}
             {unmatched.length > 0 && (

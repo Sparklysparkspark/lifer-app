@@ -201,12 +201,15 @@ export default function RegionMap({
   regionId,
   regionName,
   areas,
+  speciesIds,
 }: {
   boundaryGeoJson: unknown;
   regionCode?: string | null;
   regionId?: string | null;
   regionName?: string;
   areas?: AreaOutlinesProps | null;
+  /** Pins only these species, the ones the list below shows; absent pins every one. */
+  speciesIds?: ReadonlySet<string> | null;
 }) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -326,7 +329,15 @@ export default function RegionMap({
           .join(",")}
       />
       {areas && <AreaOutlines map={readyMap} {...areas} />}
-      {regionId && <SpeciesPins map={readyMap} regionId={regionId} regionName={regionName} dark={theme === "dark"} />}
+      {regionId && (
+        <SpeciesPins
+          map={readyMap}
+          regionId={regionId}
+          regionName={regionName}
+          dark={theme === "dark"}
+          speciesIds={speciesIds}
+        />
+      )}
       {zoomedIn &&
         controlSlot &&
         createPortal(

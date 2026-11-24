@@ -1,6 +1,7 @@
 import { TAXON_GROUPS, GROUPED_TAXON_CLASSES, taxonDisplayLabel } from "@lifer/shared";
 import { useTranslation } from "react-i18next";
 import Pill from "../../components/Pill";
+import Chevron from "../../components/Chevron";
 import Panel from "../../components/Panel";
 import Button from "../../components/Button";
 import type { useOfflinePackSelection } from "./useOfflinePackSelection";
@@ -81,7 +82,7 @@ export default function TaxonPicker({
                     total: availableInGroup.length,
                   })}
                 </span>
-                <span className="text-muted">{isOpen ? "▾" : "▸"}</span>
+                <Chevron open={isOpen} />
               </button>
               <Button
                 variant="link"

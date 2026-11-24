@@ -75,3 +75,18 @@ describe("YearInReviewPage", () => {
     expect(screen.getByRole("link", { name: "Beta" }).getAttribute("href")).toBe("/species/s2");
   });
 });
+
+describe("YearInReviewPage load failure", () => {
+  it("offers Retry, which asks again in place", async () => {
+    get.mockReset();
+    get.mockRejectedValueOnce(new Error("down")).mockResolvedValue(review);
+    render(
+      <MemoryRouter>
+        <YearInReviewPage />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Alpha")).toBeTruthy();
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+});

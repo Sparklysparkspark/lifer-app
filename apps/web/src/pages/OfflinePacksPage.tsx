@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import type { RegionSummary } from "@lifer/shared";
 import { taxonDisplayLabel } from "@lifer/shared";
-import { api, ApiError, type ApiResponse } from "../api/client";
+import { api, type ApiResponse } from "../api/client";
+import { errorMessage } from "../lib/errorMessage";
 import i18n from "../i18n";
 import { Spinner } from "../components/LoadingScreen";
 import PacksMap from "../components/PacksMap";
@@ -53,11 +54,7 @@ export default function OfflinePacksPage() {
   const boundaries = countryBoundariesResource.use();
   // On a failure the page still opens, with an empty map and the error above it.
   const countryBoundaries = boundaries.data ?? (boundaries.error ? [] : null);
-  const boundariesError = boundaries.error
-    ? boundaries.error instanceof ApiError
-      ? boundaries.error.message
-      : t("offlinePacks.mapLoadFailed")
-    : null;
+  const boundariesError = boundaries.error ? errorMessage(boundaries.error, t("offlinePacks.mapLoadFailed")) : null;
   const {
     packs,
     freeBytes,
@@ -68,11 +65,7 @@ export default function OfflinePacksPage() {
     refresh: refreshPackIndex,
   } = usePackIndex();
   const connection = useConnection();
-  const indexError = packsError
-    ? packsError instanceof ApiError
-      ? packsError.message
-      : t("offlinePacks.indexLoadFailed")
-    : null;
+  const indexError = packsError ? errorMessage(packsError, t("offlinePacks.indexLoadFailed")) : null;
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   // "Added 3 regions to the queue", after a selection joined a running download.
@@ -122,9 +115,7 @@ export default function OfflinePacksPage() {
     api
       .post("/offline-packs/recommend", { scientificNames })
       .then(setRecommendation)
-      .catch((err) =>
-        setRecommendationError(err instanceof ApiError ? err.message : i18n.t("offlinePacks.recommend.failed")),
-      );
+      .catch((err) => setRecommendationError(errorMessage(err, i18n.t("offlinePacks.recommend.failed"))));
   }, []);
 
   // The pack index refreshes itself when a download finishes (lib/packIndex.ts).
@@ -167,7 +158,7 @@ export default function OfflinePacksPage() {
       markPackDownloadStarted();
       void downloadJob.refresh();
     } catch (err) {
-      setStartError(err instanceof ApiError ? err.message : t("offlinePacks.downloaded.downloadStartFailed"));
+      setStartError(errorMessage(err, t("offlinePacks.downloaded.downloadStartFailed")));
     } finally {
       setStarting(false);
     }

@@ -163,7 +163,7 @@ const CARD_CLOSE_DELAY_MS = 120;
 
 /** A dot's card: its photos as thumbnails that open one by one, and its settings. Stays open while
  *  the pointer is on it, so a photo can be picked. */
-function ScatterCard({
+export function ScatterCard({
   group,
   xKey,
   yKey,
@@ -224,7 +224,8 @@ function ScatterCard({
       )}
       {photos.length > CARD_THUMBS && (
         <Button variant="link" size="sm" onClick={onViewAll} className="mt-1">
-          {t("stats.charts.viewAll", { count: photos.length })}
+          {/* No number: the heading's count is the one to read. */}
+          {t("stats.charts.viewAll")}
         </Button>
       )}
     </div>
@@ -728,7 +729,9 @@ export function CountriesCard({ countries }: { countries: StatsResponse["countri
               to={`/gallery?regionId=${c.id}`}
               className="flex items-center justify-between gap-2 rounded-control text-ink hover:text-link"
             >
-              <span className="truncate">{c.name}</span>
+              <span className="truncate" title={c.name}>
+                {c.name}
+              </span>
               <span className="text-footnote text-muted">
                 {t("stats.charts.countryPhotos", { count: c.photoCount })}
               </span>

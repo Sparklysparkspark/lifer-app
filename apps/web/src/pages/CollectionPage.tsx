@@ -222,6 +222,11 @@ export default function CollectionPage() {
         : null,
     [items, itemFilters, deferredSearch, haystacks, targetListSpecies],
   );
+  // The map pins what the list shows, so a filter narrows both.
+  const visibleSpeciesIds = useMemo(
+    () => (visibleItems ? new Set(visibleItems.map((i) => i.speciesId)) : null),
+    [visibleItems],
+  );
   // Scores only the species already found, once per search.
   const searchRanked = useMemo(
     () => (visibleItems ? searchRanks(visibleItems, deferredSearch, haystacks) : null),
@@ -387,6 +392,7 @@ export default function CollectionPage() {
               regionId={prefs.showMapPins ? regionId : null}
               regionName={regionMeta?.name}
               areas={mapAreas}
+              speciesIds={visibleSpeciesIds}
             />
           </Suspense>
         )}
@@ -450,7 +456,14 @@ export default function CollectionPage() {
         ) : visibleItems.length === 0 ? (
           <>
             {needsPackBanner}
-            {url.search ? (
+            {/* Nothing loaded and nothing narrowing what loads: the list itself is empty, not filtered. */}
+            {items?.length === 0 && taxonFilters.size === 0 && includeLand ? (
+              <EmptyState
+                icon={SEARCH_ICON}
+                title={t("collection.emptyList.title")}
+                description={t("collection.emptyList.description")}
+              />
+            ) : url.search ? (
               <EmptyState
                 icon={SEARCH_ICON}
                 title={t("collection.noSearchMatch.title", { search: url.search })}

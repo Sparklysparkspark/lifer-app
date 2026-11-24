@@ -5,6 +5,7 @@
 // selection and scroll survive opening a photo, a species page and coming back.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { apiPath } from "../api/client";
 import Button from "../components/Button";
 import EmptyState from "../components/EmptyState";
@@ -13,7 +14,7 @@ import Modal from "../components/Modal";
 import ProgressiveImg from "../components/ProgressiveImg";
 import PageHeader from "../components/PageHeader";
 import SearchInput from "../components/SearchInput";
-import { Chevron } from "../components/GroupedSpeciesGrid";
+import Chevron from "../components/Chevron";
 import { useWindowRange } from "../components/windowing";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { downloadWithToast } from "../lib/downloadFile";
@@ -47,9 +48,10 @@ function subscribeWide(onChange: () => void) {
 }
 const isWide = () => window.matchMedia?.(WIDE).matches ?? true;
 
+// An uncollected species shows its catalog reference photo instead of one of yours.
 const slideFor = (node: TreeNode, caption: string): LightboxSlide => ({
-  url: `/api/photos/${node.photoId}/display`,
-  thumbUrl: `/api/photos/${node.photoId}/thumb`,
+  url: node.photoId ? `/api/photos/${node.photoId}/display` : (node.referenceUrl ?? ""),
+  thumbUrl: node.photoId ? `/api/photos/${node.photoId}/thumb` : node.referenceUrl,
   caption,
   speciesId: node.speciesId ?? null,
 });
@@ -57,6 +59,7 @@ const slideFor = (node: TreeNode, caption: string): LightboxSlide => ({
 export default function TaxaExplorer() {
   const { t } = useTranslation();
   const toast = useToast();
+  const navigate = useNavigate();
   const speciesName = useSpeciesName();
   const res = useApiResource<{ collected: number; tree: TreeNode[] }>(
     apiPath("/collection/tree", {}, { include: "uncollected" }),
@@ -224,7 +227,10 @@ export default function TaxaExplorer() {
         }
       />
       {tree.collected === 0 ? (
-        <EmptyState title={t("explorer.emptyTitle")} />
+        <EmptyState
+          title={t("explorer.emptyTitle")}
+          action={{ label: t("nav.importPhotos"), onClick: () => navigate("/import") }}
+        />
       ) : (
         <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-8">
           <div>

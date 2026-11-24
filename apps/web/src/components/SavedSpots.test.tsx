@@ -6,12 +6,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const get = vi.fn().mockResolvedValue({ running: false, canUndo: false });
 const post = vi.fn();
 const patch = vi.fn();
+const del = vi.fn();
 vi.mock("../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/client")>()),
   api: {
     get: (...a: unknown[]) => get(...a),
     post: (...a: unknown[]) => post(...a),
     patch: (...a: unknown[]) => patch(...a),
+    delete: (...a: unknown[]) => del(...a),
   },
 }));
 const toast = { show: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn(), dismiss: vi.fn() };
@@ -62,6 +64,31 @@ async function edit() {
 }
 
 describe("SavedSpotsList", () => {
+  it("removes a spot with an Undo that puts the same spot back", async () => {
+    del.mockResolvedValue({ ok: true });
+    post.mockResolvedValue({ ...spot, id: "s2" });
+    const reload = renderList();
+    fireEvent.contextMenu(screen.getByText(NAME));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove spot" }));
+    await waitFor(() => expect(toast.show).toHaveBeenCalled());
+    expect(del).toHaveBeenCalledWith("/saved-spots/s1");
+    const [message, options] = toast.show.mock.calls[0];
+    expect(message).toBe(`Removed ${NAME}.`);
+    reload.mockClear();
+    options.actions[0].onClick();
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    expect(post).toHaveBeenCalledWith("/saved-spots", {
+      name: NAME,
+      lat: 53.9,
+      lon: -122.75,
+      regionId: null,
+      geoprivacy: "obscured",
+      radiusM: 100,
+      notes: null,
+      origin: "map",
+    });
+  });
+
   it("shows the locality, the photos near it that aren't in it, and the privacy", () => {
     renderList();
     expect(screen.getByText("British Columbia, Canada")).toBeTruthy();

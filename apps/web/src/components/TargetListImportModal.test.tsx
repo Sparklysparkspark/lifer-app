@@ -82,6 +82,9 @@ describe("TargetListImportModal", () => {
     expect(post.mock.calls[0][0]).toContain(`regionId=${S(8)}`);
     expect(screen.getByText(/1 species you've seen or photographed stays as it is/)).toBeTruthy();
     expect(screen.getByText("Not found: Nope")).toBeTruthy();
+    // The picks say how many there are, and scroll in their own box when there are many.
+    const heading = screen.getByText("Pick the species for this name");
+    expect(heading.nextElementSibling?.className).toContain("overflow-y-auto");
     expect((screen.getByLabelText("List name") as HTMLInputElement).value).toBe("Costa Rica trip");
   });
 

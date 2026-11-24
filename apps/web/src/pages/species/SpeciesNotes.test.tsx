@@ -50,6 +50,19 @@ describe("SpeciesNotes", () => {
     expect(html).not.toContain("Montane forest.");
   });
 
+  it("skips a heading with no bullets under it, and shows a heading both sets share each time", () => {
+    const id = {
+      ...notes("Size", ["7-8.6 cm."]),
+      sections: [
+        { heading: "Size", bullets: ["7-8.6 cm."] },
+        { heading: "Voice", bullets: [] },
+      ],
+    };
+    const html = render({ ...base, identification_notes: id, habitat_notes: notes("Size", ["Large territories."]) });
+    expect(html).not.toContain(">Voice<");
+    expect(html.match(/>Size</g)).toHaveLength(2);
+  });
+
   it("treats notes with no bullets as missing", () => {
     const html = render({ ...base, identification_notes: notes("Overview", []) });
     expect(html).toContain("is a species of hummingbird");

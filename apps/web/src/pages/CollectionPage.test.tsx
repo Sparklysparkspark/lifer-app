@@ -336,3 +336,53 @@ describe("Include photos from", () => {
     expect(screen.queryByRole("radiogroup", { name: "Include photos from" })).toBeNull();
   });
 });
+
+describe("empty lists and stale filters", () => {
+  function serveList(items: CollectionItem[], zones: Array<{ id: string; name: string; addedByYou: number }> = []) {
+    get.mockImplementation((path: string) => {
+      if (path.startsWith("/regions/r1/sea-zones")) return Promise.resolve({ zones });
+      if (path.startsWith("/regions/r1/species/count")) return Promise.resolve({ total: items.length, collected: 0 });
+      if (path.startsWith("/regions/r1/species?"))
+        return Promise.resolve({
+          items,
+          region: { id: "r1", name: "Freedonia", ebirdRegionCode: null, boundaryGeoJson: null, hasChildren: false },
+          stats: null,
+        });
+      if (path === "/regions") return Promise.resolve({ regions: [region] });
+      if (path === "/offline-packs/index") return Promise.resolve({ packs: [] });
+      if (path === "/settings") return Promise.resolve({ deploymentMode: "server", dataDir: "/l", libraryRoots: [] });
+      return new Promise(() => {});
+    });
+  }
+
+  it("says a list with nothing on it is empty, not filtered", async () => {
+    serveList([]);
+    renderAt("/collection?region=r1&show=collected");
+    expect(await screen.findByText("Nothing on this list yet")).toBeTruthy();
+    expect(screen.queryByText(/match these filters/)).toBeNull();
+  });
+
+  it("clears Animals and sea zones too when an Animals filter emptied the list", async () => {
+    serveList([]);
+    renderAt("/collection?region=r1&taxon=mammalia&show=collected");
+    expect(await screen.findByText("No species here match these filters")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    await waitFor(() => expect(params().has("taxon")).toBe(false));
+    expect(params().has("show")).toBe(false);
+    expect(params().get("region")).toBe("r1");
+  });
+
+  it("drops sea zone ids the region doesn't offer, and Include land with the last one", async () => {
+    serveList([species("a", "Marsh Robin", "collected")], [{ id: "z1", name: "Strait", addedByYou: 1 }]);
+    renderAt("/collection?region=r1&seaZones=gone,z1&includeLand=0");
+    await waitFor(() => expect(params().get("seaZones")).toBe("z1"));
+    expect(params().get("includeLand")).toBe("0");
+  });
+
+  it("clears Include land when none of the ticked zones is offered", async () => {
+    serveList([species("a", "Marsh Robin", "collected")], [{ id: "z1", name: "Strait", addedByYou: 1 }]);
+    renderAt("/collection?region=r1&seaZones=gone&includeLand=0");
+    await waitFor(() => expect(params().has("seaZones")).toBe(false));
+    expect(params().has("includeLand")).toBe(false);
+  });
+});

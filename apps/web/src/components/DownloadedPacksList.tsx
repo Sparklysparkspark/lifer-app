@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { PackStatusEntry } from "../lib/packIndex";
 import { TAXON_CLASS_LABEL } from "@lifer/shared";
-import { api, ApiError, type ApiResponse } from "../api/client";
+import { api, type ApiResponse } from "../api/client";
 import { usePackDownloadJob } from "../hooks/usePackDownloadStatus";
 import PackProgress from "./PackProgress";
 import { formatBytes } from "../lib/format";
@@ -10,7 +10,8 @@ import { nextPackDownloadFinish } from "../lib/waitForPackDownload";
 import { useTranslation } from "react-i18next";
 import { useJobPoll } from "../hooks/useJobPoll";
 import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
-import Pill from "./Pill";
+import SegmentedControl from "./SegmentedControl";
+import Chevron from "./Chevron";
 import Modal from "./Modal";
 import Button from "./Button";
 import FormMessage from "./FormMessage";
@@ -215,7 +216,7 @@ export default function DownloadedPacksList({
       });
       setDeletePreview(preview);
     } catch (err) {
-      setDeleteError(err instanceof ApiError ? err.message : t("offlinePacks.offload.previewFailed"));
+      setDeleteError(errorMessage(err, t("offlinePacks.offload.previewFailed")));
     }
   }
 
@@ -330,9 +331,9 @@ export default function DownloadedPacksList({
 
   return (
     <Panel>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-callout font-semibold text-ink">{t("offlinePacks.downloaded.title")}</p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {groups.length > 0 && (
             <Button
               variant="secondary"
@@ -459,27 +460,24 @@ export default function DownloadedPacksList({
                       {t("offlinePacks.downloaded.groupPackCount", { count: allPacks.length + added.length })}
                     </span>
                   </span>
-                  <span className="text-footnote text-muted">
-                    {formatBytes(groupBytes)} {collapsed ? "▸" : "▾"}
+                  <span className="flex items-center gap-1 text-footnote text-muted">
+                    {formatBytes(groupBytes)} <Chevron open={!collapsed} />
                   </span>
                 </button>
               </div>
               {!collapsed && hasBothTabs && (
-                <div className="mt-1.5 ml-6 flex gap-1">
-                  <Pill
-                    size="sm"
-                    active={activeTab === MAIN_TAB}
-                    onClick={() => setGroupTab(new Map(groupTab).set(groupName, MAIN_TAB))}
-                  >
-                    {t("offlinePacks.downloaded.packsTab", { count: mainCount })}
-                  </Pill>
-                  <Pill
-                    size="sm"
-                    active={activeTab === SEA_ZONES_TAB}
-                    onClick={() => setGroupTab(new Map(groupTab).set(groupName, SEA_ZONES_TAB))}
-                  >
-                    {t("offlinePacks.downloaded.seaZonesTab", { count: seaZones.length })}
-                  </Pill>
+                <div className="mt-1.5 ml-6">
+                  <SegmentedControl
+                    value={activeTab}
+                    onChange={(tab) => setGroupTab(new Map(groupTab).set(groupName, tab))}
+                    options={[
+                      { value: MAIN_TAB, label: t("offlinePacks.downloaded.packsTab", { count: mainCount }) },
+                      {
+                        value: SEA_ZONES_TAB,
+                        label: t("offlinePacks.downloaded.seaZonesTab", { count: seaZones.length }),
+                      },
+                    ]}
+                  />
                 </div>
               )}
               {!collapsed && activeIds.length > 1 && (

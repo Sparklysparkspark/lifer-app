@@ -162,3 +162,21 @@ describe("GroupedSpeciesGrid windowing", () => {
     expect(container.querySelector('[data-scroll-anchor="s2900"]')).not.toBeNull();
   });
 });
+
+describe("Archive group", () => {
+  it("archives at once with Undo, removing only the species the server changed", async () => {
+    const { api } = await import("../api/client");
+    const post = vi.mocked(api.post);
+    post.mockResolvedValue({ changedIds: ["s0", "s1"] });
+    const onChanged = vi.fn();
+    const { getByRole } = renderGrid({ items: manySpecies(3), groupBy: "group", onChanged });
+    await act(async () => getByRole("button", { name: "Archive group" }).click());
+    expect(post).toHaveBeenCalledWith("/collection/bulk", { action: "archive", speciesIds: ["s0", "s1", "s2"] });
+    expect(onChanged).toHaveBeenCalledWith(["s0", "s1"], "removed");
+    const [message, options] = toast.show.mock.lastCall!;
+    expect(message).toBe("Archived 2 species.");
+    await act(async () => options.actions[0].onClick());
+    expect(post).toHaveBeenLastCalledWith("/collection/bulk", { action: "unarchive", speciesIds: ["s0", "s1"] });
+    expect(onChanged).toHaveBeenLastCalledWith(["s0", "s1"], "reload");
+  });
+});

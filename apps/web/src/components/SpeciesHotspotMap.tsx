@@ -209,10 +209,10 @@ export default function SpeciesHotspotMap({
           .setLngLat(f.geometry.coordinates as [number, number])
           .setHTML(
             `<div style="font-size:12px;line-height:1.4">${
-              isReliable ? `<div style="font-weight:600;color:#15803d">${t("hotspotMap.goodChance")}</div>` : ""
+              isReliable ? `<div class="font-semibold text-ink">${t("hotspotMap.goodChance")}</div>` : ""
             }${
-              isSensitive ? `<div style="font-weight:600;color:#b45309">${t("hotspotMap.sensitiveWithheld")}</div>` : ""
-            }${t("hotspotMap.recordShare", { percent: Math.round(recordShare * 100), count: pointCount })}${recencyLine ? `<br/>${recencyLine}` : ""}<br/><span style="color:#78716c">~${centroidLat.toFixed(3)}, ${centroidLon.toFixed(3)} ${t("hotspotMap.areaRadius", { radius: areaRadiusKm })}</span></div>`,
+              isSensitive ? `<div class="font-semibold text-ink">${t("hotspotMap.sensitiveWithheld")}</div>` : ""
+            }${t("hotspotMap.recordShare", { percent: Math.round(recordShare * 100), count: pointCount })}${recencyLine ? `<br/>${recencyLine}` : ""}<br/><span class="text-muted">~${centroidLat.toFixed(3)}, ${centroidLon.toFixed(3)} ${t("hotspotMap.areaRadius", { radius: areaRadiusKm })}</span></div>`,
           )
           .addTo(map);
       });
@@ -261,9 +261,12 @@ export default function SpeciesHotspotMap({
         <span className="font-medium">
           {t("hotspotMap.title")}{" "}
           <span className="font-normal text-muted">
-            {mostRecentYear != null
-              ? t("hotspotMap.locationsLastSeen", { count: hotspots.length, year: String(mostRecentYear) })
-              : t("hotspotMap.locations", { count: hotspots.length })}
+            {/* With a year or search filter on, the count says how many of them show. */}
+            {filteredHotspots.length !== hotspots.length
+              ? t("hotspotMap.locationsOf", { shown: filteredHotspots.length, count: hotspots.length })
+              : mostRecentYear != null
+                ? t("hotspotMap.locationsLastSeen", { count: hotspots.length, year: String(mostRecentYear) })
+                : t("hotspotMap.locations", { count: hotspots.length })}
           </span>
         </span>
         <span className="text-footnote text-muted hover:text-ink hover:underline">

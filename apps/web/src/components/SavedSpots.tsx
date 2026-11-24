@@ -235,7 +235,33 @@ export function SavedSpotsList({
       await reload();
     } catch (err) {
       setError(errorMessage(err, t("savedSpots.removeFailed")));
+      return;
     }
+    // Photos are filed by name, not by spot id, so re-creating it brings everything back.
+    toast.show(t("savedSpots.removedToast", { name: spot.name }), {
+      tone: "success",
+      actions: [
+        {
+          label: t("species.edits.undo"),
+          onClick: () =>
+            void api
+              .post("/saved-spots", {
+                name: spot.name,
+                lat: spot.lat,
+                lon: spot.lon,
+                regionId: spot.regionId,
+                geoprivacy: spot.geoprivacy,
+                radiusM: spot.radiusM,
+                notes: spot.notes,
+                origin: spot.origin,
+                // A worked-out locality is worked out again; only a typed one is sent back.
+                ...(spot.localitySource === "user" && { locality: spot.locality }),
+              })
+              .then(() => reload())
+              .catch((err) => toast.error(errorMessage(err, t("savedSpots.saveFailed")))),
+        },
+      ],
+    });
   }
 
   function saved(before: SavedSpot, next: SavedSpot, renamed: { count: number; background: boolean } | null) {

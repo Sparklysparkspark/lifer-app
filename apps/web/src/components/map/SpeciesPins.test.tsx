@@ -171,11 +171,17 @@ function Where() {
   return <span data-testid="where">{useLocation().pathname + useLocation().search}</span>;
 }
 
-async function renderPins(map: FakeMap) {
+async function renderPins(map: FakeMap, speciesIds?: ReadonlySet<string>) {
   const { default: SpeciesPins } = await import("./SpeciesPins");
   return render(
     <MemoryRouter initialEntries={["/"]}>
-      <SpeciesPins map={map as unknown as MapLibreMap} regionId="r1" regionName="Pin Country" dark={false} />
+      <SpeciesPins
+        map={map as unknown as MapLibreMap}
+        regionId="r1"
+        regionName="Pin Country"
+        dark={false}
+        speciesIds={speciesIds}
+      />
       <Where />
     </MemoryRouter>,
   );
@@ -296,6 +302,31 @@ describe("SpeciesPins", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Open the photos of Pin Fox here" })));
     expect(await screen.findByRole("dialog")).toBeTruthy();
     expect(env.gets.some((g) => g.includes("speciesId=s2"))).toBe(true);
+  });
+
+  it("pins only the species the list shows, without calling the map empty", async () => {
+    const map = new FakeMap();
+    await renderPins(map, new Set(["s2"]));
+    expect(map.getSource(PIN_SOURCE)!.setData.mock.lastCall?.[0].features).toHaveLength(0);
+    expect(screen.queryByTestId("species-pins-empty")).toBeNull();
+  });
+
+  it("ends a cluster card of more than six species with a +N cell that zooms in", async () => {
+    vi.useFakeTimers();
+    const many = Array.from({ length: 8 }, (_, i) => ({ ...PIN, speciesId: `s${i}`, commonName: `Pin ${i}` }));
+    env.data = { pins: many, truncated: false };
+    const map = new FakeMap();
+    map.rendered = [clusterFeature];
+    await renderPins(map);
+    map.getSource(PIN_SOURCE)!.getClusterLeaves.mockResolvedValue(many.map((_, i) => ({ properties: { i } })));
+    act(() => map.fire("mousemove", mouse(50, 50)));
+    await act(async () => vi.advanceTimersByTime(300));
+    const card = screen.getByTestId("species-cluster-card");
+    expect(card.querySelectorAll("img")).toHaveLength(5);
+    vi.useRealTimers();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "+3" })));
+    expect(map.easeTo).toHaveBeenCalled();
+    expect(screen.queryByTestId("species-cluster-card")).toBeNull();
   });
 
   it("titles a one-species cluster with its name and photos", async () => {

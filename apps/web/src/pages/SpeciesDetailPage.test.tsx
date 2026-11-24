@@ -101,6 +101,38 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("SpeciesDetailPage", () => {
+  it("opens a RAW with no JPEG full size from its thumbnail", async () => {
+    const raw = {
+      id: "raw1",
+      filename: "DSC_0001_a_very_long_file_name_from_the_camera.NEF",
+      fileSize: 25_000_000,
+      previewUrl: "/api/raw/raw1/preview",
+      downloadUrl: "/api/raw/raw1/download",
+    };
+    get.mockImplementation((path: string) => {
+      if (path === "/species/sp1") return Promise.resolve(speciesDetail([]));
+      if (path === "/species/sp1/unmatched-raws") return Promise.resolve({ rawFiles: [raw] });
+      return new Promise(() => {});
+    });
+    renderPage();
+    const thumb = await screen.findByRole("button", { name: raw.filename });
+    expect(screen.getByText(raw.filename).getAttribute("title")).toBe(raw.filename);
+    fireEvent.click(thumb);
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+  });
+
+  it("opens the hero photo from the keyboard", async () => {
+    const detail = speciesDetail([]);
+    (detail.species as { reference_photo_url: string | null }).reference_photo_url = "/ref/heron.jpg";
+    serve(detail);
+    renderPage();
+    await screen.findByRole("heading", { level: 1, name: "Great Blue Heron" });
+    const hero = screen.getAllByRole("button", { name: "Great Blue Heron" })[0];
+    expect(hero.tagName).toBe("BUTTON");
+    fireEvent.click(hero);
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+  });
+
   it("shows the species and says when it has no photos yet", async () => {
     serve(speciesDetail([]));
     renderPage();

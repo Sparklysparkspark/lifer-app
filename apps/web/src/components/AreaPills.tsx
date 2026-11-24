@@ -1,10 +1,10 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import SearchInput from "../../components/SearchInput";
-import { useDropdownMenu } from "../../hooks/useDropdownMenu";
-import { MENU_PANEL } from "../../lib/menuClasses";
-import Button from "../../components/Button";
-import { highlightedArea } from "../../lib/mapAreaOutlines";
+import SearchInput from "./SearchInput";
+import { useDropdownMenu } from "../hooks/useDropdownMenu";
+import { MENU_PANEL } from "../lib/menuClasses";
+import Button from "./Button";
+import { highlightedArea } from "../lib/mapAreaOutlines";
 
 const MAX_ROWS = 2;
 const LIST_WIDTH_PX = 256;
@@ -13,7 +13,8 @@ type Area = { id: string; name: string };
 
 /** A region's areas as pills, up to two rows; past that the second row ends in "+ N more", a
  *  searchable list of the rest, so a country with 50 states doesn't push the species down. When
- *  some don't fit, areas with your photos come first, so the places you go back to stay visible. */
+ *  some don't fit, areas with your photos come first, so the places you go back to stay visible.
+ *  Every list of areas to pick from (Collection header, region pickers) uses this one. */
 export default function AreaPills({
   label,
   areas: given,
@@ -21,7 +22,8 @@ export default function AreaPills({
   onPick,
   trailing,
 }: {
-  label: string;
+  /** Leads the first row; none when something beside the pills already says what they are. */
+  label?: string;
   areas: Area[];
   /** Ids of regions you have photos in. */
   withPhotos?: Set<string> | null;
@@ -104,7 +106,7 @@ export default function AreaPills({
 
   return (
     <div ref={rowRef} className="flex flex-wrap items-center gap-2">
-      <span className="text-footnote text-muted">{label}</span>
+      {label && <span className="text-footnote text-muted">{label}</span>}
       {visible.map((area) => (
         <span key={area.id} title={area.name} data-area-pill="" className="flex max-w-64" {...lights(area.id)}>
           <Button
@@ -158,7 +160,8 @@ export default function AreaPills({
                       setQuery("");
                       pick(area.id);
                     }}
-                    className="w-full justify-start text-left"
+                    // Long names wrap inside the row instead of spilling over the next one.
+                    className="h-auto! min-h-8 w-full justify-start py-1 text-left whitespace-normal break-words"
                   >
                     {area.name}
                   </Button>

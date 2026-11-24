@@ -3,7 +3,8 @@ import { useReadyMarker } from "../lib/readyMarker";
 import ProgressiveImg from "../components/ProgressiveImg";
 import { useLocation, useParams, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { api, apiPath, ApiError } from "../api/client";
+import { api, apiPath } from "../api/client";
+import { errorMessage } from "../lib/errorMessage";
 import { formatBytes, formatDate } from "../lib/format";
 import UploadDropzone from "../components/UploadDropzone";
 import RawUpload from "../components/RawUpload";
@@ -12,6 +13,7 @@ import { useVolumeDestination } from "../hooks/useVolumeDestination";
 import CardCropEditor from "../components/CardCropEditor";
 import Menu, { MenuItem, MenuPanel, MenuSection } from "../components/Menu";
 import Button from "../components/Button";
+import { useLightbox } from "../components/Lightbox";
 import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
 import { useGoBack } from "../hooks/useGoBack";
@@ -29,10 +31,6 @@ import ChecklistAdditions from "./species/ChecklistAdditions";
 import { namePartClass, useSpeciesName, useSpeciesNameParts } from "../lib/speciesName";
 import SpeciesNameText from "../components/SpeciesNameText";
 import { storedLastRegionId } from "./collection/useCollectionData";
-
-function errorText(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
-}
 
 export default function SpeciesDetailPage() {
   const { t } = useTranslation();
@@ -60,6 +58,17 @@ export default function SpeciesDetailPage() {
   // Any species, hand-imported or not, can be put on more regions' checklists.
   const [addingToChecklist, setAddingToChecklist] = useState(false);
   const volumeDestination = useVolumeDestination(id ?? "");
+  const rawViewer = useLightbox();
+  const rawSlides = useMemo(
+    () =>
+      unmatchedRaws.map((r) => ({
+        url: r.previewUrl,
+        thumbUrl: r.previewUrl,
+        caption: r.filename,
+        download: { url: r.downloadUrl, filename: r.filename ?? "original.raw" },
+      })),
+    [unmatchedRaws],
+  );
   const { openKey: openRawMenuId, setOpenKey: setOpenRawMenuId, ref: openRawMenuRef } = useDropdownMenu<string>();
   const { openKey: actionsOpen, setOpenKey: setActionsOpen, ref: actionsRef } = useDropdownMenu();
 
@@ -97,7 +106,7 @@ export default function SpeciesDetailPage() {
       load();
       return true;
     } catch (err) {
-      toast.error(errorText(err, failure));
+      toast.error(errorMessage(err, failure));
       return false;
     }
   }
@@ -155,7 +164,7 @@ export default function SpeciesDetailPage() {
       // Back where it was opened from; without one, the Collection replaces the now-dead page.
       goBack("/", { replace: true });
     } catch (err) {
-      toast.error(errorText(err, t("species.detail.removeFailed")));
+      toast.error(errorMessage(err, t("species.detail.removeFailed")));
     } finally {
       setRemovingOtherTaxa(false);
     }
@@ -265,19 +274,28 @@ export default function SpeciesDetailPage() {
           onUpload={() => setShowUploadDialog(true)}
           trip={trip}
         />
-        {/* RAWs filed with no matching JPEG: no capture to rate or preview, so Download is the one action. */}
+        {/* RAWs filed with no matching JPEG: no capture to rate, so viewing and Download are the actions.
+            A long run scrolls inside its own box. */}
         {unmatchedRaws.length > 0 && (
           <section>
             <h2 className="mb-2 text-callout font-medium text-ink">{t("species.detail.rawGallery")}</h2>
-            <div className="flex flex-wrap gap-3">
-              {unmatchedRaws.map((r) => (
+            <div className="flex max-h-[32rem] flex-wrap gap-3 overflow-y-auto">
+              {unmatchedRaws.map((r, i) => (
                 <div key={r.id} className="group relative w-32">
-                  <ProgressiveImg
-                    thumbSrc={r.previewUrl}
-                    fullSrc={r.previewUrl}
-                    alt=""
-                    className="aspect-square w-full rounded-control object-cover"
-                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={r.filename ?? t("species.detail.rawGallery")}
+                    onClick={() => rawViewer.open(rawSlides, i)}
+                    className="aspect-square h-auto! w-full overflow-hidden p-0!"
+                  >
+                    <ProgressiveImg
+                      thumbSrc={r.previewUrl}
+                      fullSrc={r.previewUrl}
+                      alt=""
+                      className="aspect-square w-full rounded-control object-cover"
+                    />
+                  </Button>
                   <Menu
                     open={openRawMenuId === r.id}
                     onToggle={() => setOpenRawMenuId(openRawMenuId === r.id ? null : r.id)}
@@ -289,13 +307,16 @@ export default function SpeciesDetailPage() {
                       </MenuItem>
                     </MenuPanel>
                   </Menu>
-                  <p className="mt-1 truncate text-footnote text-ink">{r.filename}</p>
+                  <p className="mt-1 truncate text-footnote text-ink" title={r.filename ?? undefined}>
+                    {r.filename}
+                  </p>
                   <p className="text-footnote text-muted">{formatBytes(r.fileSize)}</p>
                 </div>
               ))}
             </div>
           </section>
         )}
+        {rawViewer.node}
       </main>
 
       <Modal

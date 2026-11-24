@@ -10,7 +10,7 @@ import { tierLabel } from "../lib/speciesGroups";
 import { orderGroupKeys, speciesGroupKey, type SpeciesGroupBy } from "../lib/speciesGrouping";
 import { useStorageVolumes } from "../hooks/useStorageVolumes";
 import { useSettings } from "../hooks/useSettings";
-import { useConfirm } from "../hooks/useConfirm";
+import Chevron from "./Chevron";
 import { useToast } from "../hooks/useToast";
 import { groupInto } from "../lib/groupInto";
 import { useSpeciesName } from "../lib/speciesName";
@@ -117,23 +117,8 @@ function textWidth(text: string, sizePx: number, weight: number): number {
 
 const CHEVRON_WIDTH = 16;
 
-/** Disclosure chevron: points right when the group is closed, down when open. */
-export function Chevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="m9 6 6 6-6 6" />
-    </svg>
-  );
-}
+// Re-exported for the pages that took it from here before it moved to its own file.
+export { Chevron };
 
 // A link-variant Button: text-footnote, font-medium, and a 1px transparent border each side.
 const linkButtonWidth = (text: string) => textWidth(text, 12, 500) + 2;
@@ -689,21 +674,34 @@ function GroupHeading({
 }) {
   const { t } = useTranslation();
   const [archiving, setArchiving] = useState(false);
-  const confirm = useConfirm();
   const toast = useToast();
 
+  // Reversible, so no confirm: the toast's Undo brings the group back. The server skips species
+  // you've photographed or seen, so only the ids it changed leave the grid.
   async function archiveGroup() {
-    const ok = await confirm({
-      title: t("speciesGrid.archiveConfirm.title", { count: group.items.length, group: group.label }),
-      message: t("speciesGrid.archiveConfirm.message"),
-      confirmLabel: t("speciesGrid.archiveGroup"),
-    });
-    if (!ok) return;
     setArchiving(true);
     try {
-      const speciesIds = group.items.map((i) => i.speciesId);
-      await api.post("/archive/bulk", { speciesIds });
-      onChanged?.(speciesIds, "removed");
+      const { changedIds } = await api.post("/collection/bulk", {
+        action: "archive",
+        speciesIds: group.items.map((i) => i.speciesId),
+      });
+      if (changedIds.length > 0) onChanged?.(changedIds, "removed");
+      toast.show(t("collection.select.doneArchive", { count: changedIds.length }), {
+        tone: "success",
+        actions:
+          changedIds.length > 0
+            ? [
+                {
+                  label: t("species.edits.undo"),
+                  onClick: () =>
+                    void api
+                      .post("/collection/bulk", { action: "unarchive", speciesIds: changedIds })
+                      .then(() => onChanged?.(changedIds, "reload"))
+                      .catch(() => toast.error(t("collection.select.failed"))),
+                },
+              ]
+            : undefined,
+      });
     } catch {
       toast.error(t("speciesGrid.archiveFailed"));
     } finally {

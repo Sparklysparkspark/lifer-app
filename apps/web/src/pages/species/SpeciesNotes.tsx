@@ -160,16 +160,19 @@ function NoteSections({ notes }: { notes: Notes }) {
     // Columns follow the space the notes get: one in the panel, up to three across the page.
     <div className="@container">
       <div className="columns-1 gap-10 @2xl:columns-2 @5xl:columns-3">
-        {notes.sections.map((section) => (
-          <div key={section.heading} className="mb-3 break-inside-avoid">
-            <p className={SECTION_LABEL}>{section.heading}</p>
-            <ul className="list-disc space-y-0.5 pl-4 text-callout text-ink">
-              {section.bullets.map((bullet) => (
-                <li key={bullet}>{bullet}</li>
-              ))}
-            </ul>
-          </div>
-        ))}
+        {/* A heading with no bullets is skipped; merged notes can repeat a heading, so the key has the index. */}
+        {notes.sections
+          .filter((section) => section.bullets?.length > 0)
+          .map((section, i) => (
+            <div key={`${i}-${section.heading}`} className="mb-3 break-inside-avoid">
+              <p className={SECTION_LABEL}>{section.heading}</p>
+              <ul className="list-disc space-y-0.5 pl-4 text-callout text-ink">
+                {section.bullets.map((bullet) => (
+                  <li key={bullet}>{bullet}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
       </div>
     </div>
   );

@@ -167,7 +167,8 @@ describe("OfflinePacksPage", () => {
   });
 
   it("shows why a download couldn't start", async () => {
-    post.mockRejectedValue(new Error("boom"));
+    // A bug's own text never shows; the plain fallback does.
+    post.mockRejectedValue(new TypeError("undefined is not a function"));
     renderPage();
     await selectFreedonia();
     fireEvent.click(await screen.findByRole("button", { name: "Birds" }));
