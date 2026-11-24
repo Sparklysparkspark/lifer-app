@@ -8,6 +8,12 @@ import Lightbox, { useLightbox, type LightboxSlide } from "./Lightbox";
 import TagEditor from "./TagEditor";
 import BackToCollectionLink from "./BackToCollectionLink";
 
+const revealRun = vi.fn();
+vi.mock("../hooks/useRevealOriginal", () => ({
+  useRevealOriginal: () => (ref: string | null | undefined) =>
+    ref ? { kind: "reveal", label: "Reveal in Finder", run: revealRun } : null,
+}));
+
 const toast: ToastApi = { success: vi.fn(), error: vi.fn(), info: vi.fn(), show: vi.fn(), dismiss: vi.fn() };
 
 const slides: LightboxSlide[] = [
@@ -266,5 +272,24 @@ describe("Lightbox photo", () => {
     // In the fixed zoom frame, whose size doesn't depend on the image, so nothing moves when it swaps.
     expect(img().closest("[data-zoom-pane]")).toBeTruthy();
     await waitFor(() => expect(img().getAttribute("src")).toBe("/full.webp"));
+  });
+});
+
+describe("the viewer's file names", () => {
+  it("opens the folder holding a file when its name is clicked", () => {
+    const one: LightboxSlide[] = [
+      { url: "/a.jpg", caption: "Heron", captureId: "c1", info: { files: ["/photos/Belize/6F9A9304.cr3"] } },
+    ];
+    render(
+      <MemoryRouter>
+        <ToastContext.Provider value={toast}>
+          <Lightbox slides={one} index={0} onIndexChange={() => {}} onClose={() => {}} />
+        </ToastContext.Provider>
+      </MemoryRouter>,
+    );
+    const name = screen.getByRole("button", { name: "6F9A9304.cr3" });
+    expect(name.getAttribute("title")).toContain("Reveal in Finder");
+    fireEvent.click(name);
+    expect(revealRun).toHaveBeenCalledTimes(1);
   });
 });

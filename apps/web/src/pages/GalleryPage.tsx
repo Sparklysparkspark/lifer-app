@@ -602,7 +602,7 @@ export default function GalleryPage() {
         ) : (
           <GalleryGrid
             items={gridItems ?? items}
-            bursts={bursts}
+            bursts={display.groupBursts ? bursts : undefined}
             display={display}
             groupBy={groupBy}
             namingStyles={facets.namingStyles}

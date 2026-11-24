@@ -36,6 +36,7 @@ const RATE_NEXT_ACTIONS: KeyAction[] = [
   "rate5Next",
 ];
 import { useToast } from "../hooks/useToast";
+import { useRevealOriginal } from "../hooks/useRevealOriginal";
 import { useOpenInEditors } from "../hooks/useOpenInEditors";
 import { useApiRoute } from "../lib/resource";
 import { api, apiPath } from "../api/client";
@@ -184,6 +185,25 @@ function useDecodedPhotos(slides: LightboxSlide[], index: number): ReadonlySet<s
 }
 
 // Full-size viewer with arrow navigation, zoom/pan, and a caption band for camera info and tags.
+/** A stored file's name; when its folder can be shown on this computer it opens there (the full location on hover). */
+function RevealFileName({ fileRef, revealable }: { fileRef: string; revealable: boolean }) {
+  const reveal = useRevealOriginal()(revealable ? fileRef : null);
+  const name = fileNameOf(fileRef);
+  if (!reveal) return <span title={fileRef}>{name}</span>;
+  return (
+    // raw-control: a link in the caption, light on the dark backdrop. design-token: as the links above
+    <button
+      type="button"
+      title={`${reveal.label}: ${fileRef}`}
+      onClick={reveal.run}
+      // design-token: as the links above
+      className="underline decoration-white/40 hover:text-white"
+    >
+      {name}
+    </button>
+  );
+}
+
 export default function Lightbox({
   slides,
   index,
@@ -868,9 +888,9 @@ export default function Lightbox({
               // Selectable, with the full stored location on hover, for finding the file yourself.
               <p className="mt-0.5 select-text text-footnote text-white/50" onClick={(e) => e.stopPropagation()}>
                 {files.map((ref, i) => (
-                  <span key={ref} title={ref}>
+                  <span key={ref}>
                     {i > 0 && " · "}
-                    {fileNameOf(ref)}
+                    <RevealFileName fileRef={ref} revealable={!otherVersion} />
                   </span>
                 ))}
               </p>
