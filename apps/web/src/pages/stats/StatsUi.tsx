@@ -12,9 +12,7 @@ export function StatCard({ label, value, sub }: { label: string; value: string; 
   return (
     <Panel>
       <p className="text-footnote font-medium text-muted">{label}</p>
-      <p className="mt-1 truncate text-title-1 font-semibold text-ink" title={value}>
-        {value}
-      </p>
+      <p className="mt-1 break-words text-title-1 font-semibold text-ink">{value}</p>
       {sub && <p className="mt-0.5 text-footnote text-muted">{sub}</p>}
     </Panel>
   );
