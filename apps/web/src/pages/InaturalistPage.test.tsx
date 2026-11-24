@@ -793,6 +793,21 @@ describe("InaturalistPage", () => {
       expect(at("Leave all out")).toBeLessThan(at("Ignore sighting"));
     });
 
+    it("offers both Include all and Leave all out once some photos are left out", async () => {
+      lists.sightings = [sighting("Osprey", [capture("c1"), capture("c2"), capture("c3")])];
+      renderPage("/inaturalist?tab=import");
+      fireEvent.keyDown(await screen.findByRole("option", { name: "Osprey" }), { key: "Enter" });
+      const panel = await screen.findByRole("complementary");
+      expect(within(panel).queryByRole("button", { name: "Include all" })).toBeNull();
+      fireEvent.click(within(panel).getByRole("checkbox", { name: "Include photo 1 of 3" }));
+      expect(within(panel).getByRole("button", { name: "Include all" })).toBeTruthy();
+      fireEvent.click(within(panel).getByRole("button", { name: "Leave all out" }));
+      expect(within(panel).queryByRole("button", { name: "Leave all out" })).toBeNull();
+      fireEvent.click(within(panel).getByRole("button", { name: "Include all" }));
+      expect(within(panel).queryByRole("button", { name: "Include all" })).toBeNull();
+      expect(within(panel).getByRole("button", { name: "Leave all out" })).toBeTruthy();
+    });
+
     it("offers Clear filters when nothing matches, and Retry when the lists didn't load", async () => {
       lists.sightings = [sighting("Osprey", [capture("c1")])];
       renderPage("/inaturalist?tab=import");

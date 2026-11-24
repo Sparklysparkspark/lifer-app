@@ -444,13 +444,19 @@ export function PhotoWindow({
       title={<span className="break-words">{name}</span>}
       footerStart={
         picking && (
-          <Button
-            variant="link"
-            size="sm"
-            onClick={() => onExcludedChange(leftOut === 0 ? new Set(photos.map((p) => p.id)) : new Set())}
-          >
-            {leftOut === 0 ? t("inaturalist.import.untickAll") : t("inaturalist.import.tickAll")}
-          </Button>
+          // Each shows only when it would change something, so a half-ticked sighting offers both.
+          <span className="flex gap-3">
+            {leftOut > 0 && (
+              <Button variant="link" size="sm" onClick={() => onExcludedChange(new Set())}>
+                {t("inaturalist.import.tickAll")}
+              </Button>
+            )}
+            {leftOut < total && (
+              <Button variant="link" size="sm" onClick={() => onExcludedChange(new Set(photos.map((p) => p.id)))}>
+                {t("inaturalist.import.untickAll")}
+              </Button>
+            )}
+          </span>
         )
       }
       footer={
