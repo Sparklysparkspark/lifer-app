@@ -2,13 +2,15 @@
   {
     "id": "app.preen.desktop",
     "name": "Preen",
-    "label": "Cull",
+    "label": "Preen",
     "description": "A separate app that culls a memory card fast and sends the keepers into Lifer.",
     "publisher": "the maker of Lifer",
     "homepage": "https://preenwildlife.com",
     "offer": "cull",
     "scopes": ["userdata.read", "userdata.write", "imports.write", "opendata.read", "host.preference"],
     "icon": "M4 5h16v14H4zM8 9h8v6H8z",
+    "iconSrc": "/branding/preen.png",
+    "iconSrcDark": "/branding/preen-dark.png",
     "downloads": {
       "darwin": {
         "url": "https://licence.preenwildlife.com/v1/download/lifer/darwin",

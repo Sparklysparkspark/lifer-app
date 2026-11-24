@@ -119,6 +119,7 @@ function SidebarLink({
   to,
   icon,
   iconSrc,
+  iconSrcDark,
   label,
   end,
   active,
@@ -132,6 +133,8 @@ function SidebarLink({
   /** A line icon's path; or iconSrc, a picture such as a partner's logo, which keeps its own colours. */
   icon?: string;
   iconSrc?: string;
+  /** The picture to use on the dark theme, when its colours need a variant. */
+  iconSrcDark?: string;
   label: string;
   end?: boolean;
   active?: boolean;
@@ -165,8 +168,23 @@ function SidebarLink({
       >
         <span style={iconColor ? { color: iconColor } : undefined} className="flex">
           {iconSrc ? (
-            // design-token: the same 18px as the line icons beside it.
-            <img src={iconSrc} alt="" aria-hidden="true" className="h-[18px] w-[18px] shrink-0 object-contain" />
+            <>
+              {/* design-token: the same 18px as the line icons beside it. */}
+              <img
+                src={iconSrc}
+                alt=""
+                aria-hidden="true"
+                className={`h-[18px] w-[18px] shrink-0 object-contain ${iconSrcDark ? "dark:hidden" : ""}`}
+              />
+              {iconSrcDark && (
+                <img
+                  src={iconSrcDark}
+                  alt=""
+                  aria-hidden="true"
+                  className="hidden h-[18px] w-[18px] shrink-0 object-contain dark:block"
+                />
+              )}
+            </>
           ) : (
             <Icon d={icon ?? ""} />
           )}
@@ -194,23 +212,29 @@ function PluginLinks() {
   const open = menu.openKey;
   return (
     <>
-      {shown.map((p) => (
-        <div
-          key={p.id}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            menu.setOpenKey({ id: p.id, label: p.page.label, point: { x: e.clientX, y: e.clientY } });
-          }}
-        >
-          <SidebarLink
-            to={pluginPath(p.id)}
-            icon={safeIconPath(p.page.icon) ?? ICONS.app}
-            iconColor={safeAccent(p.page.accent) ?? undefined}
-            label={p.page.label}
-            title={p.page.label}
-          />
-        </div>
-      ))}
+      {shown.map((p) => {
+        // An installed app Lifer also suggests keeps its own logo in the sidebar.
+        const logo = SUGGESTED_APPS.find((a) => a.id === p.id);
+        return (
+          <div
+            key={p.id}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              menu.setOpenKey({ id: p.id, label: p.page.label, point: { x: e.clientX, y: e.clientY } });
+            }}
+          >
+            <SidebarLink
+              to={pluginPath(p.id)}
+              icon={safeIconPath(p.page.icon) ?? ICONS.app}
+              iconSrc={logo?.iconSrc}
+              iconSrcDark={logo?.iconSrcDark}
+              iconColor={safeAccent(p.page.accent) ?? undefined}
+              label={logo?.label ?? p.page.label}
+              title={logo?.label ?? p.page.label}
+            />
+          </div>
+        );
+      })}
       {open && (
         <Menu open onToggle={menu.close} menuRef={menu.ref} anchorPoint={open.point}>
           <MenuPanel className="max-w-72">
@@ -243,6 +267,8 @@ function SuggestedLinks() {
           key={a.id}
           to={offerPath(a.id)}
           icon={safeIconPath(a.icon) ?? ICONS.app}
+          iconSrc={a.iconSrc}
+          iconSrcDark={a.iconSrcDark}
           label={a.label}
           title={a.label}
         />

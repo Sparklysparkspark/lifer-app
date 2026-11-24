@@ -266,7 +266,7 @@ test("suggested apps request nothing before Install, and Show suggested apps off
     if (host !== "127.0.0.1" && host !== "api.github.com") outside.push(r.url());
   });
   await page.goto("/gallery");
-  const offer = page.getByRole("navigation").getByRole("link", { name: "Cull", exact: true });
+  const offer = page.getByRole("navigation").getByRole("link", { name: "Preen", exact: true });
   await offer.click();
   await expect(page).toHaveURL(/\/apps\/offer\/app\.preen\.desktop$/);
   await expect(page.getByRole("heading", { name: "Preen" })).toBeVisible();

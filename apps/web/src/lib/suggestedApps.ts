@@ -33,6 +33,9 @@ export interface SuggestedApp {
   scopes?: string[];
   /** Monochrome SVG path data, like a manifest's page icon. */
   icon: string;
+  /** A picture for the sidebar instead (the app's own logo, in its own colours), and its dark-theme variant. */
+  iconSrc?: string;
+  iconSrcDark?: string;
   downloads: Partial<Record<"darwin" | "win32" | "linux", SuggestedInstaller>>;
 }
 
