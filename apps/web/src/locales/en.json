@@ -521,7 +521,7 @@
       "otherTaxaGroupTitle": "No {group} added for {region} yet",
       "otherTaxaTitle": "No other species added for {region} yet",
       "regionFailed": "Couldn't download this region",
-      "seaZones": "Or get fish from a nearby ocean area instead. It's a separate, optional download, not part of {region}'s own download above:",
+      "seaZones": "Or get sea life from a nearby ocean area instead. It's a separate, optional download, not part of {region}'s own download above:",
       "searchInaturalist": "Search iNaturalist",
       "size": "{count, plural, one {# species} other {# species}}, {size}.",
       "starting": "Starting…",
@@ -1454,7 +1454,7 @@
       "sendAnyway": "Send anyway"
     },
     "import": {
-      "summary": "Photos of one species taken close together make one sighting. Click a card to preview it, press Enter to open it, or use Select to pick several.",
+      "summary": "Photos of one species taken close together make one sighting. Click a card or press Enter to open it, or use Select to pick several.",
       "viewLabel": "Show",
       "waiting": "Waiting",
       "search": "Search species",
@@ -1487,6 +1487,8 @@
       "photosAndDate": "{photos}, {date}",
       "somePhotos": "{kept} of {count, plural, one {# photo} other {# photos}}",
       "includePhoto": "Include photo {n} of {count}",
+      "showAllPhotos": "{count, plural, one {Show the photo} other {Show all # photos}}",
+      "openPhoto": "Open photo {n} of {count}",
       "empty": {
         "title": "Nothing to send",
         "description": "Every sighting in your library is on iNaturalist."
@@ -3330,7 +3332,8 @@
     },
     "notes": {
       "credit": "<article>Wikipedia contributors</article> (<licence>CC BY-SA</licence>)",
-      "habitatLabel": "Habitat:"
+      "habitatLabel": "Habitat:",
+      "sourceCredit": "Adapted from <page>{source}</page> (<licence>{licence}</licence>)"
     },
     "photoGrid": {
       "filterAll": "All ({count})",

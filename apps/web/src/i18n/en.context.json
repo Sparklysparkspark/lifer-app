@@ -175,13 +175,13 @@
       "noPack": "<a> wraps a link to the Species downloads page. {region} is a region name.",
       "otherTaxaGroupTitle": "Empty list heading. {group} is an iNaturalist group name in lowercase, e.g. \"insects\" or \"fungi\"; {region} is a place name.",
       "otherTaxaBody": "Other species: the catch-all category for species Lifer has no dataset for, added by hand from iNaturalist.",
-      "seaZones": "Ocean areas are separate downloads of marine fish near a region. {region} is the land region's name."
+      "seaZones": "Ocean areas are separate downloads of sea life (fish, marine mammals, invertebrates, sea turtles) near a region. {region} is the land region's name."
     },
     "toolbar": {
       "recordsSection": "Section title in the collection Filters menu, over filters for species that are rarely recorded or not recorded in decades.",
       "whenSection": "Section title in the collection Filters menu, over the \"likely this month\" and year filters.",
       "showing": "Shown when filters hide some species. {shown} and {total} are formatted numbers.",
-      "seaZones": "Label before checkboxes for sea zones (stretches of ocean) whose fish can be added to the region's list.",
+      "seaZones": "Label before checkboxes for sea zones (stretches of ocean) whose sea life can be added to the region's list.",
       "includeLand": "With a sea zone ticked: also show the land region's species. {region} is the region's name.",
       "ghostOnly": "Filter: only species rarely documented anywhere.",
       "view": "Button opening the layout options (grouping, sort, card size).",
@@ -616,6 +616,8 @@
       "photosAndDate": "Row detail: {photos} is the photo count text, {date} the date or date range.",
       "somePhotos": "Row detail when some photos are unticked: {kept} of {count} photos will be sent.",
       "includePhoto": "Screen-reader label for the tick on each photo thumbnail. {n} is its position, {count} the total.",
+      "showAllPhotos": "Screen-reader name for the +N tile on a card: opens a window with every photo. {count} is the total.",
+      "openPhoto": "Screen-reader name for a photo in the every-photo window: opens it in the viewer. {n} is its position, {count} the total.",
       "empty": {
         "title": "Empty state heading when nothing is left to send.",
         "description": "Empty state text."
@@ -1160,7 +1162,8 @@
       "probably": "Shown when the photo's species is a toss-up but its genus (or family) is clear. {name} is the scientific genus or family name (in <i>); {rank} is genus or family; {article} is a or an for that name in English."
     },
     "notes": {
-      "credit": "Credit line under text taken from Wikipedia. <article> wraps a link to the article, <licence> a link to the CC BY-SA licence."
+      "credit": "Credit line under text taken from Wikipedia. <article> wraps a link to the article, <licence> a link to the CC BY-SA licence.",
+      "sourceCredit": "Credit line under a species summary written from another source. {source} is the source's own credit (kept untranslated) in <page>, a link to its page; {licence} is the licence name, in <licence>, a link to it."
     },
     "about": "Heading of the collapsible overview card on a species page.",
     "checklists": {

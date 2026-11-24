@@ -251,6 +251,18 @@ detail off) or Satellite is picked, and never bundled:
   [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) for non-commercial use. Lifer
   is non-commercial; anyone reusing Lifer commercially must swap this source out.
 
+Some species summaries in the catalog seed are written from two sources other than Wikipedia, and
+each carries its own credit, source link and licence on the species page:
+
+- FishBase: Froese, R. and D. Pauly. Editors. 2024. FishBase. World Wide Web electronic
+  publication. www.fishbase.org, data snapshot v24.07 (July 2024) through rfishbase. Under
+  [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), which FishBase allows on
+  non-commercial sites with a credit and a link back. Anyone reusing Lifer commercially must leave
+  these summaries out.
+- The Reptile Database: Uetz, P. (2016) Reptile database data dump 2014-12. figshare,
+  https://doi.org/10.6084/m9.figshare.3180265, under
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
 The sea zones in the catalog seed and the sea zone packs are derived from two datasets, both
 under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/):
 
