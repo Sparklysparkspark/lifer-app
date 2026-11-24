@@ -5,7 +5,7 @@ description: See where your photos were taken, preview and open them on the map,
 
 # Photo map
 
-The photo map shows where the photos in your [Gallery](./gallery-and-search.md) were taken. Open it from **Map** in the sidebar, or from **View > Show as > Map** in the Gallery. It shows the same photos as the grid: your filters, and a trip or album the Gallery is narrowed to, apply to the map too. A search doesn't; the map says so when one is active. To go back, choose **Show as > Grid**. Lifer remembers the choice in the page address, so reloading or coming back keeps the map.
+The photo map shows where the photos in your [Gallery](./gallery-and-search.md) were taken. Open it from **Map** in the sidebar, or from **View > Show as > Map** in the Gallery. It shows the same photos as the grid: your filters, and a trip or album the Gallery is narrowed to, apply to the map too. A search doesn't; the map says so when one is active. To go back, choose **Show as > Grid**. Lifer remembers the choice in the page address, so reloading or coming back keeps the map. The map stays where you left it: changing a filter or the view, switching to the grid and back, or reloading never moves it. It only frames your photos the first time you open it, and moves when you ask: clicking a country, picking a place in the search or the list, or leaving a region.
 
 ## What it shows {#what-it-shows}
 
@@ -78,9 +78,9 @@ Placing more than 5,000 photos at once runs in the background, with progress and
 
 ## Countries and provinces {#regions}
 
-Click any country, with photos or without, and the map flies to a fixed view of it, the same fit as the country picker on the packs page: the whole country fills the map with a small margin, the rest of the world is dimmed, and panning stays near it. Its provinces or states then become clickable too; click one to go into it the same way. The path above the map, such as **World / Canada / British Columbia**, goes back up a level, as does a click on the dimmed world, and **Reset view** (Cmd+0 on a Mac, Ctrl+0 elsewhere) brings the view back after you zoom or pan.
+Click anywhere inside any country's outline, with photos or without and at any zoom, and the map flies to a fixed view of it, the same fit as the country picker on the packs page: the whole country fills the map with a small margin, the rest of the world is dimmed, and panning stays near it. Its provinces or states then become clickable too; click one to go into it the same way. The path above the map, such as **World / Canada / British Columbia**, goes back up a level, as does a click on the dimmed world, and **Reset view** (Cmd+0 on a Mac, Ctrl+0 elsewhere) brings the view back after you zoom or pan.
 
-Once you've zoomed in past a region's view, clicking land no longer changes the region, so the end of a drag or a look around never takes you elsewhere; dots, circles, rings and spots still open their photos. The end of a drag, a pinch or a scroll never counts as a click.
+Once you've zoomed in past a region's view, clicking that region's own land no longer changes the region (a click on another country still frames it), so the end of a drag or a look around never takes you elsewhere; dots, circles, rings and spots still open their photos. The end of a drag, a pinch or a scroll never counts as a click.
 
 Zooming out stops at the region's view. Keep zooming out (a further pinch, a few more scroll steps or another press of the minus key) and the map lets go, one level up: from a province to its country, then to the whole world, in one movement if you like. **Keep zooming out to leave British Columbia** shows meanwhile. The region is part of the page address, so Back returns to it and a saved link opens on it. Picking a country or province in the search frames it the same way.
 

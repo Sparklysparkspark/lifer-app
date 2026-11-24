@@ -29,7 +29,15 @@ import { MAP_FONT, token } from "../lib/mapStyle";
 import { REGION_MASK_LAYER } from "../lib/mapRegionLayers";
 import { useRegionCamera } from "../hooks/useRegionCamera";
 import { useCuratedTilt } from "../hooks/useCuratedTilt";
-import { curatedPitch, FIT_PADDING, markMove, openingBounds, regionFraming, TILT, type TiltMode } from "../lib/mapCamera";
+import {
+  curatedPitch,
+  FIT_PADDING,
+  markMove,
+  openingBounds,
+  regionFraming,
+  TILT,
+  type TiltMode,
+} from "../lib/mapCamera";
 import { zoomOnto } from "../lib/zoomOnto";
 import {
   clusterRadius,
@@ -136,8 +144,19 @@ const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce
 const PANEL_RESIZE_WAIT_MS = 1000;
 // A click this soon after a pan or zoom ends is its tail, not a click.
 const GESTURE_GRACE_MS = 250;
-// How far past a framing's zoom a click on land still changes the region level.
+// How far past a framed region's zoom a click on land still changes the region level.
 const NEAR_FRAMING_ZOOM = 0.75;
+// Where the map was left, so a remount (grid and back, an empty filter, a theme change, a reload) keeps it.
+const CAMERA_KEY = "lifer:photoMapCamera";
+type SavedCamera = { center: [number, number]; zoom: number; pitch: number; region: string | null };
+function savedCamera(): SavedCamera | null {
+  try {
+    const c = JSON.parse(sessionStorage.getItem(CAMERA_KEY) ?? "null") as SavedCamera | null;
+    return c && Array.isArray(c.center) && Number.isFinite(c.zoom) ? c : null;
+  } catch {
+    return null;
+  }
+}
 const LONG_PRESS_MS = 500;
 
 const groupColours = () => TAXA_GROUPS.flatMap((g) => [g, token(`--color-taxa-${g}`)]);
@@ -639,8 +658,8 @@ export default function PhotoMap({
   const keepCameraRef = useRef(false);
   // What the filtered photos fill, for the way back out of a region.
   const homeBounds = useRef<LngLatBounds | null>(null);
-  // The filter set the camera last framed.
-  const fittedFor = useRef<string | null>(null);
+  // Whether this map has framed the photos: only once, so a filter change never moves the camera.
+  const fitted = useRef(false);
   const [loaded, setLoaded] = useState(false);
   const [showAllRegions, setShowAllRegions] = useState(false);
   const dataRef = useLatest(data);
@@ -762,8 +781,6 @@ export default function PhotoMap({
     up: goUp,
     framedZoom: region.framedZoom,
   });
-  // The photos' own framing zoom: clicks change the region level only near it or a region's.
-  const homeZoomRef = useRef<number | null>(null);
 
   // The framed region's outline: a country's from the shared outlines, a province's fetched.
   useEffect(() => {
@@ -857,9 +874,12 @@ export default function PhotoMap({
   useEffect(() => {
     if (!containerRef.current || mapAvailable === null) return;
     if (mapAvailable) ensurePmtilesProtocol();
+    const here = regionNavRef.current.path.at(-1) ?? null;
+    const saved = savedCamera();
+    const restore = saved && (saved.region ?? null) === here ? saved : null;
     const map = new MapLibreMap({
       container: containerRef.current,
-      ...WORLD_VIEW,
+      ...(restore ?? WORLD_VIEW),
       style: mapStyle(mapAvailable, theme),
       maxZoom: MAP_MAX_ZOOM,
       attributionControl: false,
@@ -875,7 +895,25 @@ export default function PhotoMap({
     // Terrain shows only while tilted.
     tiltTerrain(map, () => true);
     mapRef.current = map;
-    fittedFor.current = null;
+    fitted.current = !!restore;
+    // The same region's framing only takes up its limits, from where the camera was left.
+    if (restore?.region) stillRef.current = true;
+    // A map that hasn't framed anything yet has no view worth keeping.
+    map.on("moveend", () => {
+      if (!fitted.current) return;
+      const { lng, lat } = map.getCenter();
+      const camera: SavedCamera = {
+        center: [lng, lat],
+        zoom: map.getZoom(),
+        pitch: map.getPitch(),
+        region: regionNavRef.current.path.at(-1) ?? null,
+      };
+      try {
+        sessionStorage.setItem(CAMERA_KEY, JSON.stringify(camera));
+      } catch {
+        // Storage blocked: the next map frames the photos afresh.
+      }
+    });
     map.on("load", () => {
       addPhotoLayers(map, { dark: theme === "dark", plain: !mapAvailable });
       const KIND: Record<string, PickKind> = {
@@ -1115,12 +1153,10 @@ export default function PhotoMap({
         !map.isMoving() &&
         performance.now() - gestureEnded > GESTURE_GRACE_MS &&
         (!down || Math.hypot(point.x - down.x, point.y - down.y) <= (down.touch ? 10 : 4));
-      // Only near a framing (a region's, or the photos' own) does a click change the region level;
-      // zoomed in past it, a click on land is probably the end of a look around.
+      // Zoomed in well past a framed region, a click on its land is probably the end of a look around.
       const nearFraming = () => {
         const framed = regionNavRef.current.framedZoom();
-        const zoom = map.getZoom();
-        return zoom <= (framed ?? Math.max(homeZoomRef.current ?? 2, 2)) + NEAR_FRAMING_ZOOM;
+        return framed === null || map.getZoom() <= framed + NEAR_FRAMING_ZOOM;
       };
       map.on("mousemove", (e) => {
         // No halo or preview while a button is held (a drag) or the camera moves.
@@ -1154,6 +1190,8 @@ export default function PhotoMap({
         const nav = regionNavRef.current;
         const area = !hit || hit.layer.id === PROVINCE_FILL || hit.layer.id === COUNTRY_FILL;
         const levels = nearFraming();
+        // Another country's outline always frames it, at any zoom: the hover outline promises that.
+        const otherCountry = hit?.layer.id === COUNTRY_FILL && !nav.path.includes(props.id);
         // In a region, the dimmed world around it goes up a level.
         if (
           area &&
@@ -1228,7 +1266,7 @@ export default function PhotoMap({
         } else if (hit?.layer.id === REGION_RINGS) {
           openSideRef.current(photosOf({ kind: "region", id: props.id, regionOnly: true }));
           focus((hit.geometry as PointGeometry).coordinates);
-        } else if (!levels) {
+        } else if (!levels && !otherCountry) {
           // Zoomed in: land does nothing; the breadcrumb, Reset view and Back change the level.
         } else if (hit?.layer.id === COUNTRY_FILL && nav.path.includes(props.id))
           // Inside the framed region (a province's country is under it too): that region's photos.
@@ -1365,14 +1403,12 @@ export default function PhotoMap({
     const box = openingBounds(points, framings);
     const bounds = box ? new LngLatBounds([box[0], box[1]], [box[2], box[3]]) : new LngLatBounds();
     homeBounds.current = bounds;
-    // Framed once per filter set, so placing photos doesn't throw the view back out; a framed
-    // region keeps its view.
-    if (fittedFor.current === queryString) return;
-    fittedFor.current = queryString;
+    // Framed once per map: a filter, view or placing change leaves the camera where the user put it.
+    if (fitted.current) return;
+    fitted.current = true;
     if (regionNavRef.current.active) return;
     frameView(map, bounds);
-    homeZoomRef.current = map.getZoom();
-  }, [data, loaded, countries, countryCounts, queryString, regionNavRef, regionByIdRef]);
+  }, [data, loaded, countries, countryCounts, regionNavRef, regionByIdRef]);
 
   function onPickPlace(place: FoundPlace) {
     const map = mapRef.current;

@@ -380,6 +380,7 @@ afterEach(() => {
   Object.assign(env, { basemap: false, relief: false });
   vi.useRealTimers();
   maps.length = 0;
+  sessionStorage.clear();
 });
 
 const seen = { search: "" };
@@ -391,6 +392,15 @@ function Where() {
   useEffect(() => void (history.back = () => navigate(-1)), [navigate]);
   return null;
 }
+
+const handlerProps = () => ({
+  onOpenRegion: vi.fn(),
+  onOpenArea: vi.fn(),
+  onOpenPlace: vi.fn(),
+  onShowUnlocated: vi.fn(),
+  onPlacingChange: vi.fn(),
+  onChanged: vi.fn(),
+});
 
 function renderMap(props: Partial<Parameters<typeof PhotoMap>[0]> = {}, url = "/gallery?view=map") {
   const handlers = {
@@ -795,6 +805,61 @@ describe("PhotoMap", () => {
     await clickMap([COUNTRY_HIT]);
     await new Promise((r) => setTimeout(r, 0));
     expect(camera.enter).toHaveBeenCalledTimes(1);
+  });
+
+  it("frames a clicked country however far in the map is zoomed, with no region framed", async () => {
+    serve();
+    renderMap();
+    await screen.findByText("18 of 30 photos placed.");
+    // Zoomed in by hand well past the photos' own framing (a worldwide library frames near zoom 0).
+    await waitFor(() => expect(maps[0].fitBounds).toHaveBeenCalled());
+    maps[0].zoom = 6;
+    await clickMap([COUNTRY_HIT]);
+    expect(seen.search).toContain("region=c1");
+    await waitFor(() => expect(camera.enter).toHaveBeenCalledWith(CANADA_OUTLINE, "CA", null, { still: false }));
+  });
+
+  it("frames another country clicked while zoomed in past a framed region; its own land stays put", async () => {
+    serve();
+    camera.zoom = 3;
+    renderMap({}, "/gallery?view=map&region=no");
+    await waitFor(() => expect(camera.enter).toHaveBeenCalledWith(NORWAY_OUTLINE, "NO", null, { still: false }));
+    maps[0].zoom = 6;
+    await clickMap([{ layer: { id: "photo-map-country-fill" }, properties: { id: "no" } }]);
+    expect(seen.search).not.toContain("at=");
+    await clickMap([COUNTRY_HIT]);
+    expect(seen.search).toContain("region=c1");
+  });
+
+  it("frames the photos once: a filter change or a remount keeps the camera where the user left it", async () => {
+    serve();
+    const { rerender, unmount } = render(
+      <MemoryRouter initialEntries={["/gallery?view=map"]}>
+        <PhotoMap queryString="taxa=aves" {...handlerProps()} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(maps[0]?.fitBounds).toHaveBeenCalledTimes(1));
+    rerender(
+      <MemoryRouter initialEntries={["/gallery?view=map"]}>
+        <PhotoMap queryString="taxa=mammalia" {...handlerProps()} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(get.mock.calls.some(([p]) => p === "/gallery/map?taxa=mammalia")).toBe(true));
+    await act(async () => {});
+    expect(maps[0].fitBounds).toHaveBeenCalledTimes(1);
+    // The user moves the map, then leaves for the grid and comes back.
+    maps[0].zoom = 7;
+    act(() => maps[0].fire("moveend", {}));
+    unmount();
+    render(
+      <MemoryRouter initialEntries={["/gallery?view=map"]}>
+        <PhotoMap queryString="taxa=mammalia" {...handlerProps()} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(maps[1]).toBeTruthy());
+    expect(maps[1].options).toEqual(expect.objectContaining({ center: [20, 10], zoom: 7 }));
+    await screen.findByText("18 of 30 photos placed.");
+    expect(maps[1].fitBounds).not.toHaveBeenCalled();
   });
 
   it("offers 3D or Flat, 3D (automatic) by default and remembered", async () => {
