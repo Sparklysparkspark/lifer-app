@@ -134,11 +134,10 @@ async function pushMarks(d: SyncDeps, result: SyncResult): Promise<boolean> {
         m.scientificName,
       ]);
       const n = (row?.attempts ?? 0) + 1;
-      await d.db.run("UPDATE outbox SET attempts = ?, next_try_at = ? WHERE kind = 'mark' AND ref = ?", [
-        n,
-        new Date(d.now().getTime() + backoffMs(n)).toISOString(),
-        m.scientificName,
-      ]);
+      await d.db.run(
+        "UPDATE outbox SET attempts = ?, next_try_at = ? WHERE kind = 'mark' AND ref = ? AND created_at <= ?",
+        [n, new Date(d.now().getTime() + backoffMs(n)).toISOString(), m.scientificName, at],
+      );
     }
     throw e;
   }
@@ -150,6 +149,18 @@ async function pushMarks(d: SyncDeps, result: SyncResult): Promise<boolean> {
     for (const m of marks) {
       const name = m.scientificName;
       const hubCopy = conflicts.get(name);
+      // Edited again while this was in flight: that edit is newest, so it stays queued, based on the hub's latest.
+      const newer = await d.db.get("SELECT 1 FROM outbox WHERE kind = 'mark' AND ref = ? AND created_at > ?", [
+        name,
+        at,
+      ]);
+      if (newer) {
+        const version = hubCopy ? (hubCopy.updatedAt ?? null) : reply.applied[name];
+        if (version !== undefined)
+          await d.db.run("UPDATE marks SET hub_version = ? WHERE scientific_name = ?", [version, name]);
+        if (!hubCopy && version) result.pushed++;
+        continue;
+      }
       if (hubCopy) {
         const { mark, requeue } = resolveConflict(m, hubCopy);
         const { hubVersion, ...rest } = mark;
@@ -236,11 +247,12 @@ async function pullSmartAlbums(d: SyncDeps): Promise<number> {
 
 async function pullMarks(d: SyncDeps): Promise<void> {
   const { items } = await withRetry(() => d.api.get<{ items: HubMark[] }>("/sync/user-species"), d.sleep);
-  const queued = new Set(
-    (await d.db.all<{ ref: string }>("SELECT ref FROM outbox WHERE kind = 'mark'")).map((r) => r.ref),
-  );
   await inBatches(items, 100, (batch) =>
     d.db.tx(async () => {
+      // Checked inside the transaction, so an edit made while the list downloaded is never overwritten.
+      const queued = new Set(
+        (await d.db.all<{ ref: string }>("SELECT ref FROM outbox WHERE kind = 'mark'")).map((r) => r.ref),
+      );
       for (const hub of batch) {
         if (queued.has(hub.scientificName)) continue;
         const mine = await getMark(d.db, hub.scientificName);

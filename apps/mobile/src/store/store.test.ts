@@ -38,6 +38,35 @@ describe("migrations", () => {
   });
 });
 
+describe("transactions", () => {
+  it("runs overlapping transactions one after another, and a failed one does not block the next", async () => {
+    const db = await migratedDb();
+    const order: string[] = [];
+    const slow = db.tx(async () => {
+      await db.run("INSERT INTO species (scientific_name) VALUES ('A a')");
+      await new Promise((r) => setTimeout(r, 10));
+      order.push("first");
+      throw new Error("boom");
+    });
+    const second = db.tx(async () => {
+      order.push("second");
+      await db.run("INSERT INTO species (scientific_name) VALUES ('B b')");
+    });
+    const third = db.tx(async () => {
+      order.push("third");
+      await db.run("INSERT INTO species (scientific_name) VALUES ('C c')");
+    });
+    await expect(slow).rejects.toThrow("boom");
+    await Promise.all([second, third]);
+    expect(order).toEqual(["first", "second", "third"]);
+    expect(
+      (await db.all<{ scientific_name: string }>("SELECT scientific_name FROM species ORDER BY 1")).map(
+        (r) => r.scientific_name,
+      ),
+    ).toEqual(["B b", "C c"]);
+  });
+});
+
 describe("marks and the life list", () => {
   it("keeps an edit at once and queues it once per species", async () => {
     const db = await migratedDb();

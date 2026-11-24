@@ -98,7 +98,8 @@ export async function editMark(
   const at = now.toISOString();
   await db.tx(async () => {
     await write(db, next, at);
-    await db.run("INSERT OR IGNORE INTO outbox (kind, ref, created_at) VALUES ('mark', ?, ?)", [scientificName, at]);
+    // Replace, so a sync already sending an older copy can tell this edit is newer and keep it queued.
+    await db.run("INSERT OR REPLACE INTO outbox (kind, ref, created_at) VALUES ('mark', ?, ?)", [scientificName, at]);
   });
   return next;
 }

@@ -230,6 +230,34 @@ describe("push", () => {
     expect(await db.all("SELECT * FROM outbox")).toEqual([]);
   });
 
+  it("keeps an edit made while the push was in flight and sends it next time", async () => {
+    const db = await migratedDb();
+    await editMark(db, "Grus grus", { state: "seen" }, NOW);
+    const hub = fakeHub();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const sent: unknown[] = [];
+    const api: SyncApi = {
+      get: hub.api.get,
+      post: async (path, body) => {
+        sent.push(body);
+        await gate;
+        return hub.api.post(path, body);
+      },
+    };
+    const first = runSync(deps(db, api));
+    await new Promise((r) => setTimeout(r, 0));
+    await editMark(db, "Grus grus", { state: "collected" }, new Date(NOW.getTime() + 1000));
+    release();
+    await first;
+    expect(await getMark(db, "Grus grus")).toMatchObject({ state: "collected" });
+    expect(await db.all("SELECT ref FROM outbox")).toEqual([{ ref: "Grus grus" }]);
+    await runSync({ ...deps(db, hub.api), now: () => new Date(NOW.getTime() + 60_000) });
+    expect(hub.marks.get("Grus grus")).toMatchObject({ state: "collected" });
+    expect(await db.all("SELECT * FROM outbox")).toEqual([]);
+    expect(sent).toHaveLength(1);
+  });
+
   it("takes the hub's copy when the hub changed the mark since (newest wins)", async () => {
     const db = await migratedDb();
     const seen = fakeHub({ marks: [hubMark("Grus grus", { state: "seen" })] });

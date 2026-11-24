@@ -148,8 +148,13 @@ export function AppProvider({ boot, children }: { boot: Boot; children: ReactNod
   apiRef.current = api;
   boot.live.api = api;
   boot.live.settings = settings;
-  const running = useRef(false);
+  const running = useRef<Promise<void> | null>(null);
   const lastRun = useRef(0);
+  // A pass still writing the old hub's library must finish before the pairing changes under it.
+  const stopSyncing = useCallback(async () => {
+    apiRef.current = null;
+    await running.current?.catch(() => undefined);
+  }, []);
 
   const refreshMeta = useCallback(async () => {
     const [lastSyncAt, waiting, p] = await Promise.all([
@@ -177,30 +182,32 @@ export function AppProvider({ boot, children }: { boot: Boot; children: ReactNod
   const run = useCallback(async () => {
     const hub = apiRef.current;
     if (!hub || running.current) return;
-    running.current = true;
     lastRun.current = Date.now();
     setSync((s) => ({ ...s, syncing: true }));
     setSyncProgress(null);
-    try {
-      const res = await runSync({
-        db,
-        api: hub,
-        now: () => new Date(),
-        sleep: boot.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
-        onProgress: setSyncProgress,
-      });
-      setSync((s) => ({ ...s, reachable: res.reached, keyRefused: res.unauthorized }));
-      await refreshMeta();
-      bump();
-      if (res.reached && !res.unauthorized) {
-        void media.fillShowcase().then(bump);
-        void smart.refresh().then(bump);
+    running.current = (async () => {
+      try {
+        const res = await runSync({
+          db,
+          api: hub,
+          now: () => new Date(),
+          sleep: boot.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+          onProgress: setSyncProgress,
+        });
+        setSync((s) => ({ ...s, reachable: res.reached, keyRefused: res.unauthorized }));
+        await refreshMeta();
+        bump();
+        if (res.reached && !res.unauthorized) {
+          void media.fillShowcase().then(bump);
+          void smart.refresh().then(bump);
+        }
+      } finally {
+        running.current = null;
+        setSync((s) => ({ ...s, syncing: false }));
+        setSyncProgress(null);
       }
-    } finally {
-      running.current = false;
-      setSync((s) => ({ ...s, syncing: false }));
-      setSyncProgress(null);
-    }
+    })();
+    await running.current;
   }, [db, boot.sleep, refreshMeta, bump, media, smart]);
 
   // On launch and whenever the app comes back to the foreground.
@@ -238,6 +245,7 @@ export function AppProvider({ boot, children }: { boot: Boot; children: ReactNod
         setMode("standalone");
       },
       async connected(p) {
+        await stopSyncing();
         const last = await getMeta<string>(db, "hubInstance");
         if (last && last !== p.hub.instanceId) {
           await media.clear("thumbs");
@@ -252,6 +260,7 @@ export function AppProvider({ boot, children }: { boot: Boot; children: ReactNod
         bump();
       },
       async disconnect() {
+        await stopSyncing();
         await boot.forgetHub();
         await saveMode(db, "standalone");
         setPaired(null);
@@ -260,7 +269,7 @@ export function AppProvider({ boot, children }: { boot: Boot; children: ReactNod
         bump();
       },
     };
-  }, [mode, db, paired, api, media, smart, settings, sync, run, version, bump, prefs, boot, refreshMeta]);
+  }, [mode, db, paired, api, media, smart, settings, sync, run, version, bump, prefs, boot, refreshMeta, stopSyncing]);
 
   if (!value) return null;
   return (
