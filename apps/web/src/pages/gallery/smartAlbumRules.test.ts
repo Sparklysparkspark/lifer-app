@@ -116,6 +116,13 @@ describe("smart album rules", () => {
     );
   });
 
+  it("round-trips and summarizes the RAW photos not edited yet", () => {
+    const rules = rulesFromQuery({ ...base, rawFiles: "unedited" });
+    expect(rules.query).toEqual({ excludeVideo: "1", unedited: "1" });
+    expect(queryFromRules(rules).rawFiles).toBe("unedited");
+    expect(rulesSummary(rules, { regionNames: [], namingStyles: [] })).toBe("RAW files not edited yet");
+  });
+
   it("reads rules saved with the older single shotKind as the axis it stands for", () => {
     const read = (shotKind: string) => {
       const q = queryFromRules({ version: 2, query: { shotKind } as SmartAlbumRulesQuery });

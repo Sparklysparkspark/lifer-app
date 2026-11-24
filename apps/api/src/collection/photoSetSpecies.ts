@@ -3,7 +3,7 @@
 import { pool } from "@lifer/core/db.js";
 import { knownDefaultCrops } from "../albums/defaultCoverCrops.js";
 import { markNameChanged } from "../species/speciesSplits.js";
-import { toCollectionItem, type CollectionRow } from "./collectionItem.js";
+import { rawOnlySql, toCollectionItem, type CollectionRow } from "./collectionItem.js";
 
 export interface SetPhoto {
   species_id: string;
@@ -53,7 +53,8 @@ export async function photoSetSpeciesCards(userId: string, speciesIds: string[],
        CASE WHEN pick.photo_id IS NULL OR pick.photo_id = us.cover_photo_id THEN us.card_crop_y ELSE p.card_crop_y END AS card_crop_y,
        CASE WHEN pick.photo_id IS NULL OR pick.photo_id = us.cover_photo_id THEN us.card_crop_size ELSE p.card_crop_size END AS card_crop_size,
        p.thumb_path IS NOT NULL AS has_cover_photo,
-       sv.label AS cover_volume_label
+       sv.label AS cover_volume_label,
+       ${rawOnlySql("$1")} AS raw_only
      FROM species s
      LEFT JOIN pick ON pick.species_id = s.id
      LEFT JOIN species_rarity r ON r.species_id = s.id

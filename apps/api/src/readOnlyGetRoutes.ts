@@ -65,6 +65,7 @@ export const AUDITED_GET_ROUTES: readonly string[] = [
   "/api/gallery/appearance",
   "/api/gallery/has-video",
   "/api/gallery/similar",
+  "/api/captures/:id/scene",
   "/api/gallery/taxa",
   "/api/gallery/regions-with-photos",
   "/api/gallery/map",

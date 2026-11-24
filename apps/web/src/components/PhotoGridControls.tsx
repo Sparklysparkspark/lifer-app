@@ -26,6 +26,7 @@ const RAW_FILES_OPTIONS: ReadonlyArray<{ value: RawFilesFilter; labelKey: string
   { value: "show", labelKey: "photoFilters.rawFiles.show" },
   { value: "hide", labelKey: "photoFilters.rawFiles.hide" },
   { value: "only", labelKey: "photoFilters.rawFiles.only" },
+  { value: "unedited", labelKey: "photoFilters.rawFiles.unedited" },
 ];
 
 const EDITED_RAW_OPTIONS: ReadonlyArray<{ value: EditedRawFilter; labelKey: string }> = [
@@ -93,6 +94,8 @@ export interface PhotoViewMenuProps<S extends SortOption = SortOption, G extends
   mapPins?: { checked: boolean; onChange: (checked: boolean) => void };
   /** Every version of a photo (prints, edits, exports) as its own item. */
   allVersions?: { checked: boolean; onChange: (checked: boolean) => void };
+  /** Each burst as one stack tile, its best-rated or first photo with the count. */
+  groupBursts?: { checked: boolean; onChange: (checked: boolean) => void };
   /** Which photos count toward a card, as radio choices. */
   counting?: {
     value: string;
@@ -116,6 +119,7 @@ export function PhotoViewMenu<S extends SortOption, G extends GroupOption>({
   hideNames,
   mapPins,
   allVersions,
+  groupBursts,
   counting,
 }: PhotoViewMenuProps<S, G>) {
   const { t } = useTranslation();
@@ -127,6 +131,7 @@ export function PhotoViewMenu<S extends SortOption, G extends GroupOption>({
   const showHideNames = on.has("hideNames") && hideNames;
   const showMapPins = on.has("mapPins") && mapPins;
   const showAllVersions = on.has("versions") && allVersions;
+  const showGroupBursts = on.has("bursts") && groupBursts;
   const showCounting = on.has("counting") && counting;
   return (
     <FilterPopover
@@ -211,7 +216,7 @@ export function PhotoViewMenu<S extends SortOption, G extends GroupOption>({
           <PhotoCaptionOptions prefs={captions} />
         </div>
       )}
-      {(showOrder || showHideNames || showMapPins || showAllVersions) && (
+      {(showOrder || showHideNames || showMapPins || showAllVersions || showGroupBursts) && (
         <div className="space-y-1.5">
           {showOrder &&
             order.map((o) => (
@@ -233,6 +238,11 @@ export function PhotoViewMenu<S extends SortOption, G extends GroupOption>({
           {showAllVersions && (
             <FilterCheckbox checked={allVersions.checked} onChange={allVersions.onChange}>
               {t("versions.showAll")}
+            </FilterCheckbox>
+          )}
+          {showGroupBursts && (
+            <FilterCheckbox checked={groupBursts.checked} onChange={groupBursts.onChange}>
+              {t("bursts.groupOption")}
             </FilterCheckbox>
           )}
         </div>
@@ -353,6 +363,7 @@ export function RawFilterFields({
   onRawFilesChange,
   onEditedRawChange,
   sectionHeading,
+  withUnedited,
 }: {
   rawFiles: RawFilesFilter;
   editedRaw: EditedRawFilter;
@@ -360,9 +371,12 @@ export function RawFilterFields({
   onEditedRawChange: (value: EditedRawFilter) => void;
   /** Titled as its own section, in a popover with several. */
   sectionHeading?: boolean;
+  /** Offers "Not edited yet", the editing backlog, where the server can answer it. */
+  withUnedited?: boolean;
 }) {
   const { t } = useTranslation();
   const Label = sectionHeading ? FilterSectionHeading : FilterFieldLabel;
+  const options = withUnedited ? RAW_FILES_OPTIONS : RAW_FILES_OPTIONS.filter((o) => o.value !== "unedited");
   return (
     <>
       <div role="group" aria-label={t("photoFilters.rawFiles.label")}>
@@ -370,8 +384,11 @@ export function RawFilterFields({
         <SegmentedControl
           value={rawFiles}
           onChange={onRawFilesChange}
-          options={RAW_FILES_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
+          options={options.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
         />
+        {rawFiles === "unedited" && (
+          <p className="mt-1 text-footnote text-muted">{t("photoFilters.rawFiles.uneditedHint")}</p>
+        )}
       </div>
       <div role="group" aria-label={t("photoFilters.editedRaw.label")}>
         <Label>{t("photoFilters.editedRaw.label")}</Label>

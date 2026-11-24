@@ -192,7 +192,13 @@ function SpeciesCard({
                           title: t("speciesCard.badge.addedByYouTitle", { list: checklistLabel(item.userAddedRegion) }),
                           className: "border border-dashed border-line text-muted",
                         }
-                      : null;
+                      : item.rawOnly
+                        ? {
+                            label: t("speciesCard.badge.rawOnly"),
+                            title: t("speciesCard.badge.rawOnlyTitle"),
+                            className: "bg-surface-muted text-muted",
+                          }
+                        : null;
   const { openKey: menuOpen, setOpenKey: setMenuOpen, ref: menuRef } = useDropdownMenu<true>();
   const confirm = useConfirm();
   const toast = useToast();

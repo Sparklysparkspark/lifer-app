@@ -43,6 +43,8 @@ export interface ItemFilters {
   lostOnly: boolean;
   /** Only species marked "needs a better photo". */
   needsBetterOnly?: boolean;
+  /** Only species whose every photo is a RAW with no edited version yet. */
+  rawOnlyOnly?: boolean;
   likelyThisMonthOnly: boolean;
   yearFilter: string;
   search: string;
@@ -68,6 +70,7 @@ export function filterCollectionItems(
     ghostOnly,
     lostOnly,
     needsBetterOnly,
+    rawOnlyOnly,
     likelyThisMonthOnly,
     yearFilter,
     search,
@@ -96,6 +99,7 @@ export function filterCollectionItems(
   if (ghostOnly) filtered = filtered.filter((i) => i.isGhost);
   if (lostOnly) filtered = filtered.filter((i) => i.isLost);
   if (needsBetterOnly) filtered = filtered.filter((i) => i.needsBetterPhoto);
+  if (rawOnlyOnly) filtered = filtered.filter((i) => i.rawOnly);
   if (likelyThisMonthOnly) {
     // Likely = this month holds at least a third of an average month's share of sightings here, so
     // year-round species still count outside their peak.

@@ -204,12 +204,12 @@ describe.skipIf(!url)("collection query rewrite", () => {
         await db.query(collectionQuerySql(maxDepthM), [USER, taxa, hideObscure]),
       ];
       expect(newRes.rows.length).toBe(oldRes.rows.length);
-      // `heard`, `needs_better_photo` and `suggested` are new since the old query; nothing here has any.
-      expect(newRes.rows.every((r) => r.heard === false && r.suggested === false)).toBe(true);
+      // `heard`, `needs_better_photo`, `suggested` and `raw_only` are new since the old query; nothing here has any.
+      expect(newRes.rows.every((r) => r.heard === false && r.suggested === false && !r.raw_only)).toBe(true);
       expect(newRes.rows.every((r) => !r.needs_better_photo)).toBe(true);
-      expect(newRes.rows.map(({ heard: _heard, needs_better_photo: _nb, suggested: _s, ...rest }) => rest)).toEqual(
-        oldRes.rows,
-      );
+      expect(
+        newRes.rows.map(({ heard: _heard, needs_better_photo: _nb, suggested: _s, raw_only: _r, ...rest }) => rest),
+      ).toEqual(oldRes.rows);
     }
     const res = await db.query(collectionQuerySql(60), [USER, null, true]);
     const byId = new Map(res.rows.map((r) => [r.species_id, r]));

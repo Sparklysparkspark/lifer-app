@@ -9,6 +9,7 @@ import {
   type Point,
 } from "@lifer/core/lib/geometry.js";
 import { requireAuth } from "../auth/session.js";
+import { NEAR_KM, nearOutline, parseOutline } from "../collection/pinOutline.js";
 import { Nullable, Uuid, replies, withSchemas } from "../lib/schema.js";
 
 interface RegionBox {
@@ -81,6 +82,37 @@ export async function regionAt(lat: number, lon: number): Promise<{ id: string; 
     const geometry = geometryOf(res.rows[0]?.boundary_geojson);
     if (geometry?.type && exteriorRingsFromGeometry(geometry).some((ring) => pointInRing([lon, lat] as Point, ring)))
       return { id: c.id, name: c.name };
+  }
+  return null;
+}
+
+/** The region holding the point, else the most specific one whose outline is within NEAR_KM (a
+ *  photo from a boat off the coast, as the Collection map counts it). Never a guess further out. */
+export async function regionNear(lat: number, lon: number): Promise<{ id: string; name: string } | null> {
+  const inside = await regionAt(lat, lon);
+  if (inside) return inside;
+  // A box grown by NEAR_KM picks the few outlines worth reading; nearOutline measures exactly.
+  // shortcut: a box isn't grown across the antimeridian, fine until a Fiji coast photo misses.
+  const dLat = NEAR_KM / 111;
+  const dLon = dLat / Math.max(0.01, Math.cos((lat * Math.PI) / 180));
+  const candidates = (await regionBoxes())
+    .filter((r) =>
+      r.boxes.some((b) =>
+        inBox(lat, lon, {
+          minLon: b.minLon - dLon,
+          maxLon: b.maxLon + dLon,
+          minLat: b.minLat - dLat,
+          maxLat: b.maxLat + dLat,
+        }),
+      ),
+    )
+    .sort((a, b) => b.depth - a.depth);
+  for (const c of candidates) {
+    const res = await pool.query<{ boundary_geojson: unknown }>(`SELECT boundary_geojson FROM regions WHERE id = $1`, [
+      c.id,
+    ]);
+    const outline = parseOutline(res.rows[0]?.boundary_geojson);
+    if (outline && nearOutline(outline, lon, lat)) return { id: c.id, name: c.name };
   }
   return null;
 }

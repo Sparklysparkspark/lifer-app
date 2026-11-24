@@ -173,6 +173,11 @@ export interface paths {
                      */
                     onlyRaw?: "0" | "1";
                     /**
+                     * @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version
+                     * @enum {unknown}
+                     */
+                    unedited?: "0" | "1";
+                    /**
                      * @description 1 for only the photos imported hidden because a culling app rejected them
                      * @enum {unknown}
                      */
@@ -384,6 +389,11 @@ export interface paths {
                  */
                 onlyRaw?: "0" | "1";
                 /**
+                 * @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version
+                 * @enum {unknown}
+                 */
+                unedited?: "0" | "1";
+                /**
                  * @description 1 for only the photos imported hidden because a culling app rejected them
                  * @enum {unknown}
                  */
@@ -548,6 +558,11 @@ export interface paths {
                    * @enum {unknown}
                    */
                   onlyRaw?: "0" | "1";
+                  /**
+                   * @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version
+                   * @enum {unknown}
+                   */
+                  unedited?: "0" | "1";
                   /**
                    * @description 1 for only the photos imported hidden because a culling app rejected them
                    * @enum {unknown}
@@ -772,6 +787,11 @@ export interface paths {
                    * @enum {unknown}
                    */
                   onlyRaw?: "0" | "1";
+                  /**
+                   * @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version
+                   * @enum {unknown}
+                   */
+                  unedited?: "0" | "1";
                   /**
                    * @description 1 for only the photos imported hidden because a culling app rejected them
                    * @enum {unknown}
@@ -1160,6 +1180,11 @@ export interface paths {
                  */
                 onlyRaw?: "0" | "1";
                 /**
+                 * @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version
+                 * @enum {unknown}
+                 */
+                unedited?: "0" | "1";
+                /**
                  * @description 1 for only the photos imported hidden because a culling app rejected them
                  * @enum {unknown}
                  */
@@ -1324,6 +1349,11 @@ export interface paths {
                    * @enum {unknown}
                    */
                   onlyRaw?: "0" | "1";
+                  /**
+                   * @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version
+                   * @enum {unknown}
+                   */
+                  unedited?: "0" | "1";
                   /**
                    * @description 1 for only the photos imported hidden because a culling app rejected them
                    * @enum {unknown}
@@ -2333,6 +2363,8 @@ export interface paths {
                 isTarget: boolean;
                 /** @description The user (or a connected app) marked it as needing a better photo */
                 needsBetterPhoto?: boolean;
+                /** @description Collected, and every photo of it is a RAW with no edited version yet */
+                rawOnly?: boolean;
                 tier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 localTier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 tierReason?: string | null;
@@ -2760,6 +2792,11 @@ export interface paths {
                      * @enum {unknown}
                      */
                     onlyRaw?: "0" | "1";
+                    /**
+                     * @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version
+                     * @enum {unknown}
+                     */
+                    unedited?: "0" | "1";
                     /**
                      * @description 1 for only the photos imported hidden because a culling app rejected them
                      * @enum {unknown}
@@ -4687,6 +4724,207 @@ export interface paths {
         };
       };
     };
+    trace?: never;
+  };
+  "/captures/{id}/scene": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * A photo's burst and the scene around it
+     * @description A burst is the photos one camera took less than half a second apart (one second when the camera records whole seconds), cut where the picture changes completely and joined across a pause of up to 15 seconds that looks the same. A scene is the bursts taken one after another at one sighting: it ends at a gap of over 5 minutes, a move of over 200 m, or a different subject by the stored image vectors. Videos and recordings are left out, and a RAW with its JPEG is one photo. At most the 300 photos nearest the asked one are given, with truncated set when there were more.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description The photo's burst: its frames' capture ids in time order */
+              burst: string[];
+              /** @description The scene's bursts in time order; the photo alone when it has no neighbours */
+              scene: {
+                /**
+                 * Format: uuid
+                 * @description The burst's first frame
+                 */
+                burstId: string;
+                frames: ({
+                  /** Format: uuid */
+                  photoId: string;
+                  width: number | null;
+                  height: number | null;
+                  /** Format: uuid */
+                  captureId: string;
+                  /** Format: uuid */
+                  speciesId: string;
+                  scientificName: string;
+                  commonName: string | null;
+                  taxonClass: string;
+                  takenAt: string | null;
+                  cameraModel: string | null;
+                  lens: string | null;
+                  focalLengthMm: (number | string) | null;
+                  aperture: (number | string) | null;
+                  shutter: string | null;
+                  iso: number | null;
+                  qualityRating: number | null;
+                  lat: (number | string) | null;
+                  lon: (number | string) | null;
+                  regionId: string | null;
+                  regionName: string | null;
+                  locationLabel: string | null;
+                  /** @enum {unknown} */
+                  kind: "image" | "video" | "audio";
+                  durationSeconds: (number | string) | null;
+                  tags: string[];
+                  cullVerdict: ("pick" | "reject") | null;
+                  cullLabel:
+                    ("red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray" | "black" | "white") | null;
+                  /** @description Imported hidden because a culling app rejected it */
+                  hidden: boolean;
+                  lifeStage: ("egg" | "larva" | "nymph" | "pupa" | "juvenile" | "subadult" | "adult") | null;
+                  sex: ("male" | "female" | "unknown") | null;
+                  plumage: string | null;
+                  morph: string | null;
+                  isFeatured: boolean | null;
+                  hasRawOriginal: boolean;
+                  inatStatus: ("pending" | "completed") | null;
+                  inatObservationId: string | null;
+                  originalRef: string | null;
+                  originalManaged: boolean | null;
+                  originalKind: string | null;
+                  rawRef: string | null;
+                  taxonOrder: string | null;
+                  family: string | null;
+                  sortOrder: number | null;
+                  isOtherTaxa: boolean;
+                  inatIconicTaxon: string | null;
+                  tier: string | null;
+                  localTier: string | null;
+                  matchScore: number | null;
+                  frame?:
+                    | ({
+                        box: number[] | null;
+                        /** @description The detector wasn't sure: a speck, or found only on a closer look */
+                        boxUnsure: boolean;
+                        /** @description Upright width / height */
+                        aspect: number;
+                        /** @enum {unknown} */
+                        orientation: "horizontal" | "vertical" | "square";
+                        composition:
+                          | ({
+                              /**
+                               * @description Share of the frame the animal fills: under 1.5%, under 10%, under 35%, more
+                               * @enum {unknown}
+                               */
+                              size: "tiny" | "small" | "medium" | "frameFilling";
+                              /** @description Centred on a rule-of-thirds intersection */
+                              thirds: boolean;
+                              /** @description Centred on a golden ratio (phi grid) intersection */
+                              goldenRatio: boolean;
+                              centred: boolean;
+                            } & {
+                              [key: string]: unknown;
+                            })
+                          | null;
+                        /** @description The photo's own light */
+                        light: {
+                          /** @description Mean brightness, 0 to 1 */
+                          luma: number;
+                          /** @description Mean red minus blue, -1 (cool) to 1 (warm) */
+                          warmth: number;
+                          /** @description Share of near-white pixels */
+                          highlights: number;
+                          /** @description Share of near-black pixels */
+                          shadows: number;
+                          /** @description Mean colourfulness, 0 to 1 */
+                          saturation: number;
+                        } & {
+                          [key: string]: unknown;
+                        };
+                      } & {
+                        [key: string]: unknown;
+                      })
+                    | null;
+                  timeMaybeWrong?: boolean | null;
+                  /** @description Only with allVersions=1, on a file listed apart from the photo it belongs to */
+                  version?: {
+                    /**
+                     * Format: uuid
+                     * @description The photo this file is a version of
+                     */
+                    of: string;
+                    label: string | null;
+                    /** @enum {unknown} */
+                    labelKind: "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+                    labelSize: string | null;
+                  };
+                } & {
+                  [key: string]: unknown;
+                })[];
+              }[];
+              position: {
+                /** @description The photo's burst in scene */
+                burst: number;
+                /** @description The photo in its burst */
+                frame: number;
+              };
+              /** @description The scene had more frames than the 300 nearest the photo given here */
+              truncated: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the gallery.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
     trace?: never;
   };
   "/captures/{id}/species": {
@@ -8278,6 +8516,8 @@ export interface paths {
                 isTarget: boolean;
                 /** @description The user (or a connected app) marked it as needing a better photo */
                 needsBetterPhoto?: boolean;
+                /** @description Collected, and every photo of it is a RAW with no edited version yet */
+                rawOnly?: boolean;
                 tier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 localTier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 tierReason?: string | null;
@@ -10805,6 +11045,8 @@ export interface paths {
           includeRaw?: "0" | "1";
           /** @description 1 for only the photos whose only original is a RAW */
           onlyRaw?: "0" | "1";
+          /** @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version */
+          unedited?: "0" | "1";
           /** @description 1 for only the photos imported hidden because a culling app rejected them */
           hidden?: "0" | "1";
           /** @description newest (default), oldest, ratingHigh, ratingLow, taxonomic (field guide order), name (common name), scientific or rarity (rarest first) */
@@ -11067,6 +11309,82 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/gallery/bursts": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /gallery/bursts */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            captureIds: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              bursts: {
+                /** Format: uuid */
+                burstId: string;
+                count: number;
+                captureIds: string[];
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/gallery/has-video": {
     parameters: {
       query?: never;
@@ -11220,6 +11538,8 @@ export interface paths {
           includeRaw?: "0" | "1";
           /** @description 1 for only the photos whose only original is a RAW */
           onlyRaw?: "0" | "1";
+          /** @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version */
+          unedited?: "0" | "1";
           /** @description 1 for only the photos imported hidden because a culling app rejected them */
           hidden?: "0" | "1";
           /** @description Also list each photo's downloadable original, for downloading them all */
@@ -11381,6 +11701,8 @@ export interface paths {
           includeRaw?: "0" | "1";
           /** @description 1 for only the photos whose only original is a RAW */
           onlyRaw?: "0" | "1";
+          /** @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version */
+          unedited?: "0" | "1";
           /** @description 1 for only the photos imported hidden because a culling app rejected them */
           hidden?: "0" | "1";
         };
@@ -11580,6 +11902,8 @@ export interface paths {
           includeRaw?: "0" | "1";
           /** @description 1 for only the photos whose only original is a RAW */
           onlyRaw?: "0" | "1";
+          /** @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version */
+          unedited?: "0" | "1";
           /** @description 1 for only the photos imported hidden because a culling app rejected them */
           hidden?: "0" | "1";
           /** @description region: photos with only a region; none: photos with no location at all */
@@ -11743,6 +12067,8 @@ export interface paths {
           includeRaw?: "0" | "1";
           /** @description 1 for only the photos whose only original is a RAW */
           onlyRaw?: "0" | "1";
+          /** @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version */
+          unedited?: "0" | "1";
           /** @description 1 for only the photos imported hidden because a culling app rejected them */
           hidden?: "0" | "1";
           /** @description A group's key */
@@ -11956,6 +12282,8 @@ export interface paths {
           includeRaw?: "0" | "1";
           /** @description 1 for only the photos whose only original is a RAW */
           onlyRaw?: "0" | "1";
+          /** @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version */
+          unedited?: "0" | "1";
           /** @description 1 for only the photos imported hidden because a culling app rejected them */
           hidden?: "0" | "1";
           /** @description What to look for, e.g. "bird in flight" or "costa rica trip" */
@@ -22450,6 +22778,11 @@ export interface paths {
                      */
                     onlyRaw?: "0" | "1";
                     /**
+                     * @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version
+                     * @enum {unknown}
+                     */
+                    unedited?: "0" | "1";
+                    /**
                      * @description 1 for only the photos imported hidden because a culling app rejected them
                      * @enum {unknown}
                      */
@@ -22645,6 +22978,11 @@ export interface paths {
                    */
                   onlyRaw?: "0" | "1";
                   /**
+                   * @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version
+                   * @enum {unknown}
+                   */
+                  unedited?: "0" | "1";
+                  /**
                    * @description 1 for only the photos imported hidden because a culling app rejected them
                    * @enum {unknown}
                    */
@@ -22807,6 +23145,11 @@ export interface paths {
                      * @enum {unknown}
                      */
                     onlyRaw?: "0" | "1";
+                    /**
+                     * @description 1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version
+                     * @enum {unknown}
+                     */
+                    unedited?: "0" | "1";
                     /**
                      * @description 1 for only the photos imported hidden because a culling app rejected them
                      * @enum {unknown}
@@ -25747,6 +26090,8 @@ export interface paths {
                 isTarget: boolean;
                 /** @description The user (or a connected app) marked it as needing a better photo */
                 needsBetterPhoto?: boolean;
+                /** @description Collected, and every photo of it is a RAW with no edited version yet */
+                rawOnly?: boolean;
                 tier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 localTier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 tierReason?: string | null;
@@ -26273,6 +26618,8 @@ export interface paths {
                 isTarget: boolean;
                 /** @description The user (or a connected app) marked it as needing a better photo */
                 needsBetterPhoto?: boolean;
+                /** @description Collected, and every photo of it is a RAW with no edited version yet */
+                rawOnly?: boolean;
                 tier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 localTier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 tierReason?: string | null;
@@ -40912,6 +41259,8 @@ export interface paths {
                 isTarget: boolean;
                 /** @description The user (or a connected app) marked it as needing a better photo */
                 needsBetterPhoto?: boolean;
+                /** @description Collected, and every photo of it is a RAW with no edited version yet */
+                rawOnly?: boolean;
                 tier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 localTier: ("common" | "occasional" | "uncommon" | "rare" | "legendary" | "unrated") | null;
                 tierReason?: string | null;
@@ -41897,6 +42246,124 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/uploads/identify-animal": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Match species on one animal in a photo being imported
+     * @description JSON with `uploadId` (a photo already checked with POST /uploads/inspect), `regionId` and `box`, the animal in percent of the upright photo (`subjectBoxes` from the check, or any area). Ranks species on that animal alone, and on the same area of the other frames of its burst, which `burst.uploadIds` lists. Saves nothing. 409 `models_not_ready` until the species-matching model is downloaded; 410 when the upload is gone.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @description The photo's finished resumable upload */
+            uploadId: string;
+            /**
+             * Format: uuid
+             * @description The region to rank for, as for POST /uploads/inspect
+             */
+            regionId: string;
+            /** @description The animal, in percent of the upright photo */
+            box: {
+              x: number;
+              y: number;
+              w: number;
+              h: number;
+            };
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              suggestions: ({
+                /** Format: uuid */
+                id: string;
+                scientific_name: string;
+                common_name: string | null;
+                score: number;
+                /** @description your_photos, reference_photo or keyword_tag */
+                source: string;
+                confident?: boolean;
+                matchPercent?: number;
+                /** @description Only on a top suggestion that isn't confident: the genus (else family) most close candidates share, e.g. 'Probably a Lithobates frog' */
+                probably?: {
+                  /** @enum {unknown} */
+                  rank: "genus" | "family";
+                  /** @description Scientific name of the genus or family */
+                  name: string;
+                  taxonClass: string | null;
+                } & {
+                  [key: string]: unknown;
+                };
+              } & {
+                [key: string]: unknown;
+              })[];
+              burst:
+                | ({
+                    uploadIds: string[];
+                  } & {
+                    [key: string]: unknown;
+                  })
+                | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/uploads/inspect": {
     parameters: {
       query?: never;
@@ -42087,6 +42554,14 @@ export interface paths {
                     [key: string]: unknown;
                   })
                 | null;
+              subjectBoxes?: ({
+                x: number;
+                y: number;
+                w: number;
+                h: number;
+              } & {
+                [key: string]: unknown;
+              })[];
               gps:
                 | ({
                     lat: number;

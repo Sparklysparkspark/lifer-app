@@ -39,6 +39,8 @@ import { useGalleryFacets } from "./gallery/useGalleryFacets";
 import { useGalleryFilters } from "./gallery/useGalleryFilters";
 import { useGalleryListing } from "./gallery/useGalleryListing";
 import { useGalleryEdits } from "./gallery/useGalleryEdits";
+import { collapseBursts, useGalleryBursts } from "./gallery/useGalleryBursts";
+import SceneStrip from "./gallery/SceneStrip";
 import { GallerySummary, GalleryToolbar } from "./gallery/GalleryHeader";
 import SaveSmartAlbumModal from "./gallery/SaveSmartAlbumModal";
 import { ManagePinsModal, PinFilterModal, PinnedFilters } from "./gallery/PinnedFilters";
@@ -73,6 +75,8 @@ export default function GalleryPage() {
   const speciesName = useSpeciesName();
   const goBack = useGoBack();
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  // A burst frame the grid doesn't list was picked in the viewer: it pages through that scene.
+  const [sceneItems, setSceneItems] = useState<GalleryItem[] | null>(null);
   // The photos open side by side, in the order they were selected.
   const [compareIds, setCompareIds] = useState<string[] | null>(null);
   const display = useGalleryDisplayPrefs();
@@ -109,7 +113,7 @@ export default function GalleryPage() {
   const groupBy = effectiveGalleryGroupBy(display.groupBy, !!soleRegionId(query.regionIds));
   // Every print, edit and export as its own card (View menu); a search and the Hidden filter list photos.
   const allVersions = display.allVersions && !query.searchQuery && !query.onlyHidden;
-  const listing = useGalleryListing({ query, groupBy, lightboxIndex, allVersions });
+  const listing = useGalleryListing({ query, groupBy, lightboxIndex: sceneItems ? null : lightboxIndex, allVersions });
   const versionNotice = useVersionNotice();
   const {
     items,
@@ -131,6 +135,16 @@ export default function GalleryPage() {
   // A search's quick pass can be a page shorter than the full answer, which would clamp the restore.
   useScrollMemory(!!items && items.length > 0 && !searching);
   useReadyMarker(!!items);
+  const bursts = useGalleryBursts(allVersions ? null : items);
+  // View > Group bursts: one tile per burst. The grid's indexes are mapped back to `items`.
+  const gridItems = useMemo(
+    () => (items && display.groupBursts && !allVersions ? collapseBursts(items, bursts) : items),
+    [items, display.groupBursts, allVersions, bursts],
+  );
+  const itemIndex = useCallback(
+    (i: number) => (gridItems === items || !gridItems || !items ? i : items.indexOf(gridItems[i])),
+    [gridItems, items],
+  );
   const photoMenu = useDropdownMenu<string>();
   const setOpenMenuKey = photoMenu.setOpenKey;
   // The missing-date and missing-region views from Stats: fixing the last one goes back there.
@@ -148,6 +162,15 @@ export default function GalleryPage() {
   const queryKey = galleryParams(query).toString();
   const select = useSelectMode(items, galleryItemId, startInSelectMode, { resetKey: queryKey });
   const { selectMode, setSelectMode, selectedIds, setSelectedIds, dragPreviewIds, dragProps } = select;
+  const { toggle } = select;
+  const { onDragSelectStart, onDragSelectEnter } = dragProps;
+  const openFromGrid = useCallback((i: number) => setLightboxIndex(itemIndex(i)), [itemIndex]);
+  const toggleFromGrid = useCallback(
+    (id: string, i: number, shift: boolean) => toggle(id, itemIndex(i), shift),
+    [toggle, itemIndex],
+  );
+  const dragStartFromGrid = useCallback((i: number) => onDragSelectStart(itemIndex(i)), [onDragSelectStart, itemIndex]);
+  const dragEnterFromGrid = useCallback((i: number) => onDragSelectEnter(itemIndex(i)), [onDragSelectEnter, itemIndex]);
   const edits = useGalleryEdits({
     items,
     setItems: listing.setItems,
@@ -274,10 +297,20 @@ export default function GalleryPage() {
   const morphOptions = useMemo(() => (items ?? []).flatMap((i) => (i.morph ? [i.morph] : [])), [items]);
   const slides = useMemo<LightboxSlide[]>(
     () =>
-      (items ?? []).map((item) => {
+      (sceneItems ?? items ?? []).map((item) => {
         // A version listed on its own is read-only here: its photo's rating, tags and place apply.
-        const readOnly = hiddenView || !!item.version;
+        // A scene's photo the grid doesn't list can only be rated.
+        const outside = !!sceneItems && !items?.some((it) => it.captureId === item.captureId);
+        const readOnly = hiddenView || !!item.version || outside;
         const i = item;
+        const rate = (rating: number | null) => {
+          void rateCapture(i.captureId, rating);
+          if (outside)
+            setSceneItems(
+              (prev) =>
+                prev?.map((it) => (it.captureId === i.captureId ? { ...it, qualityRating: rating } : it)) ?? prev,
+            );
+        };
         return {
           url: `/api/photos/${i.photoId}/display`,
           thumbUrl: `/api/photos/${i.photoId}/thumb`,
@@ -291,7 +324,7 @@ export default function GalleryPage() {
           // Already in its group, the link would lead back here.
           similarHref: readOnly || similarTo ? null : `/gallery?similarTo=${i.captureId}`,
           rating: i.qualityRating,
-          onRate: readOnly ? undefined : (rating: number | null) => rateCapture(i.captureId, rating),
+          onRate: hiddenView || item.version ? undefined : rate,
           tags: i.tags,
           onTagsChange: readOnly ? undefined : (tags: string[]) => tagCapture(i.captureId, tags),
           appearance: i,
@@ -322,6 +355,7 @@ export default function GalleryPage() {
       }),
     [
       items,
+      sceneItems,
       rateCapture,
       tagCapture,
       reassignRef,
@@ -567,7 +601,8 @@ export default function GalleryPage() {
           </>
         ) : (
           <GalleryGrid
-            items={items}
+            items={gridItems ?? items}
+            bursts={bursts}
             display={display}
             groupBy={groupBy}
             namingStyles={facets.namingStyles}
@@ -578,10 +613,10 @@ export default function GalleryPage() {
             menu={photoMenu}
             renderMenu={renderMenu}
             savingDateCaptureId={edits.savingDateCaptureId}
-            onOpen={setLightboxIndex}
-            onToggleSelect={select.toggle}
-            onDragStart={dragProps.onDragSelectStart}
-            onDragEnter={dragProps.onDragSelectEnter}
+            onOpen={openFromGrid}
+            onToggleSelect={toggleFromGrid}
+            onDragStart={dragStartFromGrid}
+            onDragEnter={dragEnterFromGrid}
             onRate={hiddenView ? () => {} : rateCapture}
             onSetTakenAt={hiddenView ? () => {} : edits.setTakenAt}
             onShowPhoto={showPhoto}
@@ -608,9 +643,26 @@ export default function GalleryPage() {
           slides={slides}
           index={lightboxIndex}
           onIndexChange={setLightboxIndex}
-          onClose={() => setLightboxIndex(null)}
+          onClose={() => {
+            setLightboxIndex(null);
+            setSceneItems(null);
+          }}
           tagOptions={edits.tagOptions}
           morphOptions={morphOptions}
+          footer={(slide, follow) =>
+            slide.captureId && !slide.videoUrl && !slide.audioUrl ? (
+              <SceneStrip
+                captureId={slide.captureId}
+                onPick={(frame, scene) => {
+                  follow(frame.captureId);
+                  const list = sceneItems ?? items ?? [];
+                  const at = list.findIndex((it) => it.captureId === frame.captureId);
+                  if (at < 0) setSceneItems(scene);
+                  setLightboxIndex(at >= 0 ? at : scene.findIndex((it) => it.captureId === frame.captureId));
+                }}
+              />
+            ) : null
+          }
         />
       )}
 

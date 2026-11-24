@@ -74,7 +74,7 @@ export function queryFromRules({ query: r }: SmartAlbumRules): Omit<GalleryQuery
     tiers: r.tier ?? [],
     tierRegionId: r.tierRegionId ?? null,
     selectedTaxa: new Set(r.taxa?.split(",").filter(Boolean) ?? []),
-    rawFiles: r.onlyRaw === "1" ? "only" : r.includeRaw === "0" ? "hide" : "show",
+    rawFiles: r.unedited === "1" ? "unedited" : r.onlyRaw === "1" ? "only" : r.includeRaw === "0" ? "hide" : "show",
     editedRaw: r.onlyHasRaw === "1" ? "with" : r.excludeHasRaw === "1" ? "without" : "any",
     mediaFilter:
       r.onlyVideo === "1" ? "videos" : r.onlyAudio === "1" ? "recordings" : r.excludeVideo === "1" ? "photos" : "both",
@@ -144,6 +144,7 @@ export function rulesSummary(
     q.mediaFilter === "both" && t("albums.smart.summary.photosAndVideos"),
     q.rawFiles === "only" && t("albums.smart.summary.rawOnly"),
     q.rawFiles === "hide" && t("albums.smart.summary.rawHidden"),
+    q.rawFiles === "unedited" && t("albums.smart.summary.unedited"),
     q.editedRaw === "with" && t("albums.smart.summary.withRaw"),
     q.editedRaw === "without" && t("albums.smart.summary.withoutRaw"),
     q.onlyHidden && t("gallery.toolbar.hidden"),

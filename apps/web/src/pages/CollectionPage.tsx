@@ -351,6 +351,7 @@ export default function CollectionPage() {
         hasGhost={hasGhost}
         hasLost={hasLost}
         hasNeedsBetter={hasNeedsBetter}
+        hasRawOnly={!!items?.some((i) => i.rawOnly)}
         targetLists={targetLists ? regionListsFirst(targetLists, url.regionId) : undefined}
         shownCount={visibleItems?.length ?? null}
         totalLoaded={items?.length ?? null}

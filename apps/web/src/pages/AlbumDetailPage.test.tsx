@@ -178,6 +178,33 @@ describe("AlbumDetailPage", () => {
     expect(await screen.findByDisplayValue("Ducks")).toBeTruthy();
   });
 
+  it("lists the RAW photos not edited yet from the URL, and the species with only RAW photos", async () => {
+    const answer = get.getMockImplementation()!;
+    get.mockImplementation((path: string) => {
+      const base = path.split("?")[0];
+      if (base === "/gallery/ids") return Promise.resolve({ captureIds: ["c-a"] });
+      if (base === "/albums/a1")
+        return Promise.resolve({
+          ...album("a1", "Ducks"),
+          items: album("a1", "Ducks").items.map((i) => ({ ...i, originalKind: "raw" })),
+        });
+      if (base === "/albums/a1/species")
+        return Promise.resolve({
+          items: [{ ...species("s-a", "Mallard"), rawOnly: true }, species("s-b", "Snowy Owl")],
+        });
+      return answer(path);
+    });
+    renderAt("/albums/a1?unedited=1");
+    await waitFor(() => expect(screen.getAllByRole("img").map((i) => i.getAttribute("alt"))).toEqual(["Mallard"]));
+    const ids = get.mock.calls.map((c) => c[0] as string).find((p) => p.startsWith("/gallery/ids?"))!;
+    expect(new URLSearchParams(ids.split("?")[1]).get("albumId")).toBe("a1");
+    cleanup();
+    renderAt("/albums/a1?view=species&rawOnly=1");
+    expect(await screen.findByText("Mallard")).toBeTruthy();
+    expect(screen.getByText("RAW only")).toBeTruthy();
+    expect(screen.queryByText("Snowy Owl")).toBeNull();
+  });
+
   it("rates from the viewer, as in the Gallery", async () => {
     renderAt("/albums/a1");
     const [first] = await screen.findAllByRole("img");

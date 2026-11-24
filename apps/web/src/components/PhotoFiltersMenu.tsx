@@ -385,6 +385,7 @@ export function PhotoFilterFields({ filters, facets, tagOptions, sections, speci
             onRawFilesChange={filters.setRawFiles}
             onEditedRawChange={filters.setEditedRaw}
             sectionHeading
+            withUnedited
           />
         </div>
       )}

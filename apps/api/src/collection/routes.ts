@@ -7,7 +7,7 @@ import type { PoolClient } from "pg";
 import { pool } from "@lifer/core/db.js";
 import { IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth } from "../auth/session.js";
-import { toCollectionItem } from "./collectionItem.js";
+import { rawOnlySql, toCollectionItem } from "./collectionItem.js";
 import { CollectionCount, CollectionItems, CollectionStats, NotModified } from "./responses.js";
 import { markNameChanged } from "../species/speciesSplits.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
@@ -185,6 +185,7 @@ export function collectionQuerySql(maxDepthM: number): string {
          WHERE ch.user_id = $1 AND ch.species_id = s.id AND hp.kind = 'audio')) AS heard,
       (us.state = 'collected' AND COALESCE((SELECT bool_and(sc.identification_state = 'suggested') FROM captures sc
          WHERE sc.user_id = $1 AND sc.species_id = s.id), false)) AS suggested,
+      ${rawOnlySql("$1")} AS raw_only,
       y.captured_years
     FROM species s
     LEFT JOIN species_rarity r ON r.species_id = s.id

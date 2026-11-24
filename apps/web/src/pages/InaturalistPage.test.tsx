@@ -651,7 +651,7 @@ describe("InaturalistPage", () => {
     renderPage("/inaturalist?tab=completed");
     expect(await screen.findByText("Pigeon Lake, Alberta")).toBeTruthy();
     // Provenance is low-value on a card face.
-    expect(screen.queryByText(/Location placed on iNaturalist|Location from the photo/)).toBeNull();
+    expect(screen.queryByText(/Location placed on iNaturalist|Location: from your photo/)).toBeNull();
     // Nothing on Completed works on a selection, so there's no Select and Cmd-click selects nothing (A1).
     expect(screen.queryByRole("button", { name: "Select" })).toBeNull();
     fireEvent.click(screen.getByRole("option", { name: "Kestrel" }), { metaKey: true });
@@ -718,11 +718,13 @@ describe("InaturalistPage", () => {
   });
 
   it("opens an observation's photos in the same window", async () => {
-    lists.completed = [observation("1", "Merlin", { sentLocation: true })];
+    lists.completed = [observation("1", "Merlin", { sentLocation: true, placeName: "Belize", photoCount: 1 })];
     renderPage("/inaturalist?tab=completed");
     fireEvent.keyDown(await screen.findByRole("option", { name: "Merlin" }), { key: "Enter" });
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Location from the photo")).toBeTruthy();
+    // The place is named once, in the source line.
+    expect(within(dialog).getByText("Location: from your photo, near Belize")).toBeTruthy();
+    expect(within(dialog).queryByText("Belize")).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "View on iNaturalist" }));
     expect(opened).toHaveBeenCalledWith("https://www.inaturalist.org/observations/1");
   });

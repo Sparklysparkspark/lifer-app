@@ -402,6 +402,7 @@ function TripDetail() {
                 hasGhost={speciesItems.some((i) => i.isGhost)}
                 hasLost={speciesItems.some((i) => i.isLost)}
                 hasNeedsBetter={speciesItems.some((i) => i.needsBetterPhoto)}
+                hasRawOnly={speciesItems.some((i) => i.rawOnly)}
                 shownCount={visibleSpecies.length}
                 totalLoaded={speciesItems.length}
                 gridWidth={gridWidth}

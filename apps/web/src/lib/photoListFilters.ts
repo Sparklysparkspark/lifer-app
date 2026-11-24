@@ -6,8 +6,9 @@ import { TIER_ORDER, compareFieldGuideOrder } from "@lifer/shared";
 /** The Gallery API's sort names; the last four are the Collection's species orders. */
 export type PhotoSort =
   "newest" | "oldest" | "ratingHigh" | "ratingLow" | "taxonomic" | "name" | "scientific" | "rarity";
-/** RAW-only photos (a RAW with no edited original beside it): shown, hidden, or the only ones. */
-export type RawFilesFilter = "show" | "hide" | "only";
+/** RAW-only photos (a RAW with no edited original beside it): shown, hidden, or the only ones.
+ *  "unedited" is the editing backlog: only RAWs with no edited version, linked ones included. */
+export type RawFilesFilter = "show" | "hide" | "only" | "unedited";
 /** A RAW-only photo is the user's only copy, so grids show it; a RAW with an edited copy is one photo already. */
 export const DEFAULT_RAW_FILES: RawFilesFilter = "show";
 /** Edited photos, by whether their RAW was imported with them. RAW-only photos always pass. */
@@ -46,6 +47,7 @@ export function rawFilterParams(rawFiles: RawFilesFilter, editedRaw: EditedRawFi
   const out: Record<string, string> = {};
   if (rawFiles === "hide") out.includeRaw = "0";
   if (rawFiles === "only") out.onlyRaw = "1";
+  if (rawFiles === "unedited") out.unedited = "1";
   if (editedRaw === "with") out.onlyHasRaw = "1";
   if (editedRaw === "without") out.excludeHasRaw = "1";
   return out;

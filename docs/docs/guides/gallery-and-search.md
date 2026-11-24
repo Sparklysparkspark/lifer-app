@@ -61,6 +61,7 @@ Search results are sorted by relevance (or highest rated first when you type `be
 - **Size**: the thumbnail size.
 - **Labels** (species names), **Camera info** and **Ratings** (stars you can click to rate) under each photo. They start off; turn on the ones you want. Albums, trips and species pages offer the same three, and share your choice.
 - **Show every version as its own photo**: lists each print, edit and export as its own card instead of one per photo (see [Photo versions](./photo-versions.md#how-counts-work)). It appears once any of your photos has versions.
+- **Group bursts**: shows each burst as one photo, its highest rated (or its first) with the **+N** badge (see [Bursts and scenes](#bursts)). It starts off and Lifer remembers your choice.
 
 **Filters** sets which photos show:
 
@@ -81,7 +82,7 @@ Search results are sorted by relevance (or highest rated first when you type `be
 - **Tag**, once you've added tags.
 - **Date**: a from and to range.
 - **Media type**: **Both**, **Photos** or **Videos**. This only appears once you have videos.
-- **RAW files**: **Show**, **Hide** or **Only** the photos that are just a RAW, with no edited copy.
+- **RAW files**: **Show**, **Hide** or **Only** the photos that are just a RAW, with no edited copy, or **Not edited yet** (see [Find photos that still need editing](#editing-backlog)).
 - **Edited photos**: **Any**, **With RAW** or **Without RAW**.
 
 The number on the **Filters** button counts the filters you've changed, so you can tell why you're seeing fewer photos. The number on **View** counts a grouping or sort you've changed.
@@ -95,6 +96,14 @@ The Gallery can be narrowed to a single trip or album. A chip like **In trip Cos
 You get there from [quick search](#quick-search): on a trip or album page, choose **Search all photos in this trip for "…"** (or album).
 
 Other pages link into the Gallery with a filter already set, too. A tag's photo count on the **Tags** page shows photos with that tag, a place on the **Places** page shows the photos with that place name (it shows under **Place name** in **Filters**), and **Library health** on the [Stats](./stats.md) page shows photos missing a date or a region so you can fix them. Photos missing a date each get a date box. Photos missing a region open in select mode: select the ones taken in one place, choose **Set region…**, and repeat until none are left.
+
+### Find photos that still need editing {#editing-backlog}
+
+In **Filters**, set **RAW files** to **Not edited yet**. The Gallery then shows only RAW photos with no edited version: no JPEG, TIFF or PNG beside the RAW, and none linked to it as a [version](./photo-versions.md). Search and the other filters still apply, **Back** returns to it, and **Clear all filters** turns it off. Albums and trips have it in the same **Filters** menu.
+
+Only edits Lifer has linked count. An edit Lifer hasn't grouped with its RAW is a photo of its own, so the RAW stays on this list until you link them (see [Link a version yourself](./photo-versions.md#link-a-version-yourself)). A JPEG your camera saved beside the RAW counts as an edit.
+
+For whole species, open **Filters** on the Collection, or on a trip's or album's species view, and tick **Only RAW photos so far**: it lists the species whose every photo is still a RAW with no edited version. Their cards say **RAW only**, unless something rarer about the species is shown there instead.
 
 ## Working with photos
 
@@ -180,6 +189,21 @@ The fastest way for many photos is the map: select them and choose **Place on ma
 The dialog shows how it reads what you typed, or why it can't use it. If the photos have no region yet, it offers the region the point falls in as a checkbox; nothing is set unless you tick it. **Clear coordinates** removes the point.
 
 Lifer writes the point into your files like species and ratings: inside a JPEG, TIFF or DNG (replacing the camera's own GPS there), and in the `.xmp` sidecar for a RAW or video. Files outside your library that Lifer only links to keep theirs.
+
+## Bursts and scenes {#bursts}
+
+A **burst** is the photos one camera took in one press of the shutter. A **scene** is the bursts you took one after another at one sighting. In the grid, a photo that is part of a burst shows **+N** in its corner, for the other photos in it.
+
+In the photo viewer, a strip under the caption shows the photo's burst and the scene around it. The open burst shows every photo; each other burst is one photo with its count. Click a photo, or a burst to open it, and the viewer moves there. With the strip focused, <kbd>←</kbd> <kbd>→</kbd> move along it and <kbd>Home</kbd> <kbd>End</kbd> jump to its ends. A photo with nothing taken around it has no strip. When you open a photo the grid doesn't show (a filter hides it), the viewer's arrows then step through that scene's photos until you close it.
+
+How Lifer groups them, from the capture time, camera, lens, location and the picture itself:
+
+- **Bursts**: photos from the same camera taken less than half a second apart. For a photo whose time Lifer has only to the second (most photos), it's one second. A burst is cut where the picture changes completely, and two parts up to 15 seconds apart that look almost the same are joined.
+- **Scenes**: a new scene starts after a gap of more than 5 minutes, a move of more than 200 m (when the photos have coordinates), or when the next burst shows something else. A photo not yet compared by species matching is kept apart by a change of camera or lens, or a gap well over your usual gap between bursts (at least 2 minutes).
+- Videos and sound recordings aren't part of bursts. A RAW and its JPEG are one photo, and so are a photo's versions.
+- The strip holds up to the 300 photos nearest the open one, and says so when a scene has more.
+
+Lifer works the groups out as you look, from the photos already in your library. Nothing is changed or written to your files.
 
 ## Similar photos {#similar-photos}
 

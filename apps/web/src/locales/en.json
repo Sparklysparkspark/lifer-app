@@ -202,6 +202,7 @@
         "photosAndVideos": "Photos and videos",
         "rawHidden": "Without RAW-only photos",
         "rawOnly": "RAW files only",
+        "unedited": "RAW files not edited yet",
         "search": "“{q}”",
         "tag": "Tagged {tag}",
         "videos": "Videos only",
@@ -603,6 +604,8 @@
       "lostOnly": "Not seen in 25 years only",
       "needsBetterOnly": "Needs a better photo",
       "needsBetterOnlyTitle": "Species you or a connected app marked as needing a better photo",
+      "rawOnly": "Only RAW photos so far",
+      "rawOnlyTitle": "Species whose photos are all RAW files with no edited version yet",
       "lostOnlyTitle": "Not recorded anywhere in over 25 years",
       "mainName": "Main name",
       "mainNameCommon": "Common",
@@ -746,6 +749,7 @@
       "invalid_request": "The request wasn't valid. Check what you entered and try again.",
       "library_folder_unavailable": "Lifer's library folder is missing, so this couldn't be saved. Move it back, or choose its new location in Settings > Storage.",
       "model_mismatch": "These recognition vectors come from a different model than the one Lifer uses.",
+      "models_not_ready": "Download the species-matching model in Settings to match an animal.",
       "no_checklist": "This region has no checklist of its own. Pick a country, or a province or state inside one.",
       "no_video_frames": "Couldn't read any frames from this video",
       "not_added": "You haven't added that species to this checklist",
@@ -1428,6 +1432,23 @@
       "subject": "Subject",
       "zoomToggle": "Switch between the whole photo and the animal",
       "linkZoom": "Link zoom",
+      "yourPick": "Your pick",
+      "lookingForPhoto": "Looking for a photo...",
+      "noReferencePhoto": "No reference photo yet",
+      "animal": {
+        "choose": "Choose the animal",
+        "chooseTip": "Match a different animal in your photo, or a part Lifer missed",
+        "identify": "Identify this animal",
+        "identifyTip": "Match species on the animal in the box",
+        "reset": "Reset",
+        "resetTip": "Go back to the animal Lifer found",
+        "hint": "{count, plural, =0 {Drag a box around the animal.} other {Drag a box around the animal, or press its number.}}",
+        "editorLabel": "Box around the animal",
+        "matching": "Matching the animal you chose",
+        "failed": "Couldn't match that animal. Try again.",
+        "unavailable": "This photo is still being checked. Try again in a moment.",
+        "help": "Choose the animal matches species on just one animal: press its number or drag a box around it, then press Enter."
+      },
       "openPhoto": "Photo: click to see it full screen, double-click to zoom, drag to move",
       "help": {
         "keys": "Left and right show more photos of the species. Up and down move between your photos. 1 to 5 switch species, and Enter confirms the one shown.",
@@ -1646,7 +1667,6 @@
       "needsDate": "A date"
     },
     "completed": {
-      "locationPhoto": "Location from the photo",
       "locationInat": "Location placed on iNaturalist",
       "empty": {
         "title": "No completed observations yet",
@@ -2235,7 +2255,9 @@
       "label": "RAW files",
       "show": "Show",
       "hide": "Hide",
-      "only": "Only"
+      "only": "Only",
+      "unedited": "Not edited yet",
+      "uneditedHint": "RAW photos with no edited version. Edits Lifer has linked count."
     },
     "editedRaw": {
       "label": "Edited photos",
@@ -3610,7 +3632,9 @@
       "localTier": "{tier} here",
       "localTierTitle": "Harder to find here than overall. Tap for why.",
       "addedByYou": "Added by you",
-      "addedByYouTitle": "You added this to {list} yourself"
+      "addedByYouTitle": "You added this to {list} yourself",
+      "rawOnly": "RAW only",
+      "rawOnlyTitle": "Every photo of it is a RAW file with no edited version yet"
     },
     "undoFailed": "Couldn't undo. Try again.",
     "hiddenToast": "{name} hidden from this region.",
@@ -4546,6 +4570,18 @@
       "description": "Bursts and repeated shots of one species show up here."
     },
     "groups": "{count, plural, one {# group} other {# groups}}, largest first"
+  },
+  "bursts": {
+    "groupOption": "Group bursts",
+    "badge": "+{count, number}",
+    "badgeLabel": "Burst of {count, plural, one {# photo} other {# photos}}",
+    "stripLabel": "Burst and scene",
+    "burstOnly": "Burst of {count, plural, one {# photo} other {# photos}}",
+    "sceneOnly": "Scene of {count, plural, one {# burst} other {# bursts}}",
+    "burstAndScene": "Burst of {photos, plural, one {# photo} other {# photos}}, scene of {bursts, plural, one {# burst} other {# bursts}}",
+    "truncated": "Showing the {count, plural, one {# photo} other {# photos}} nearest this one",
+    "frame": "Frame {index, number} of {count, number}",
+    "burst": "Burst {index, number} of {total, number}, {count, plural, one {# photo} other {# photos}}"
   },
   "versions": {
     "title": "Versions",

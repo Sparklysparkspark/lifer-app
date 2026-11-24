@@ -252,6 +252,10 @@
                                         "enum": ["0", "1"],
                                         "description": "1 for only the photos whose only original is a RAW"
                                       },
+                                      "unedited": {
+                                        "enum": ["0", "1"],
+                                        "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version"
+                                      },
                                       "hidden": {
                                         "enum": ["0", "1"],
                                         "description": "1 for only the photos imported hidden because a culling app rejected them"
@@ -518,6 +522,10 @@
                             "enum": ["0", "1"],
                             "description": "1 for only the photos whose only original is a RAW"
                           },
+                          "unedited": {
+                            "enum": ["0", "1"],
+                            "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version"
+                          },
                           "hidden": {
                             "enum": ["0", "1"],
                             "description": "1 for only the photos imported hidden because a culling app rejected them"
@@ -741,6 +749,10 @@
                                 "onlyRaw": {
                                   "enum": ["0", "1"],
                                   "description": "1 for only the photos whose only original is a RAW"
+                                },
+                                "unedited": {
+                                  "enum": ["0", "1"],
+                                  "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version"
                                 },
                                 "hidden": {
                                   "enum": ["0", "1"],
@@ -1016,6 +1028,10 @@
                                 "onlyRaw": {
                                   "enum": ["0", "1"],
                                   "description": "1 for only the photos whose only original is a RAW"
+                                },
+                                "unedited": {
+                                  "enum": ["0", "1"],
+                                  "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version"
                                 },
                                 "hidden": {
                                   "enum": ["0", "1"],
@@ -1589,6 +1605,10 @@
                             "enum": ["0", "1"],
                             "description": "1 for only the photos whose only original is a RAW"
                           },
+                          "unedited": {
+                            "enum": ["0", "1"],
+                            "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version"
+                          },
                           "hidden": {
                             "enum": ["0", "1"],
                             "description": "1 for only the photos imported hidden because a culling app rejected them"
@@ -1812,6 +1832,10 @@
                                 "onlyRaw": {
                                   "enum": ["0", "1"],
                                   "description": "1 for only the photos whose only original is a RAW"
+                                },
+                                "unedited": {
+                                  "enum": ["0", "1"],
+                                  "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version"
                                 },
                                 "hidden": {
                                   "enum": ["0", "1"],
@@ -2856,6 +2880,10 @@
                             "type": "boolean",
                             "description": "The user (or a connected app) marked it as needing a better photo"
                           },
+                          "rawOnly": {
+                            "type": "boolean",
+                            "description": "Collected, and every photo of it is a RAW with no edited version yet"
+                          },
                           "tier": {
                             "anyOf": [
                               { "enum": ["common", "occasional", "uncommon", "rare", "legendary", "unrated"] },
@@ -3309,6 +3337,10 @@
                                   "onlyRaw": {
                                     "enum": ["0", "1"],
                                     "description": "1 for only the photos whose only original is a RAW"
+                                  },
+                                  "unedited": {
+                                    "enum": ["0", "1"],
+                                    "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version"
                                   },
                                   "hidden": {
                                     "enum": ["0", "1"],
@@ -4738,6 +4770,414 @@
           },
           "401": {
             "description": "Missing key, or the key lacks the photos.write scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/captures/{id}/scene": {
+      "get": {
+        "summary": "A photo's burst and the scene around it",
+        "description": "A burst is the photos one camera took less than half a second apart (one second when the camera records whole seconds), cut where the picture changes completely and joined across a pause of up to 15 seconds that looks the same. A scene is the bursts taken one after another at one sighting: it ends at a gap of over 5 minutes, a move of over 200 m, or a different subject by the stored image vectors. Videos and recordings are left out, and a RAW with its JPEG is one photo. At most the 300 photos nearest the asked one are given, with truncated set when there were more.",
+        "tags": ["gallery"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "gallery.read",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["burst", "scene", "position", "truncated"],
+                  "properties": {
+                    "burst": {
+                      "type": "array",
+                      "items": { "type": "string", "format": "uuid" },
+                      "description": "The photo's burst: its frames' capture ids in time order"
+                    },
+                    "scene": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["burstId", "frames"],
+                        "properties": {
+                          "burstId": { "type": "string", "format": "uuid", "description": "The burst's first frame" },
+                          "frames": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "photoId",
+                                "width",
+                                "height",
+                                "captureId",
+                                "speciesId",
+                                "scientificName",
+                                "commonName",
+                                "taxonClass",
+                                "takenAt",
+                                "cameraModel",
+                                "lens",
+                                "focalLengthMm",
+                                "aperture",
+                                "shutter",
+                                "iso",
+                                "qualityRating",
+                                "lat",
+                                "lon",
+                                "regionId",
+                                "regionName",
+                                "locationLabel",
+                                "kind",
+                                "durationSeconds",
+                                "tags",
+                                "cullVerdict",
+                                "cullLabel",
+                                "hidden",
+                                "lifeStage",
+                                "sex",
+                                "plumage",
+                                "morph",
+                                "isFeatured",
+                                "hasRawOriginal",
+                                "inatStatus",
+                                "inatObservationId",
+                                "originalRef",
+                                "originalManaged",
+                                "originalKind",
+                                "rawRef",
+                                "taxonOrder",
+                                "family",
+                                "sortOrder",
+                                "isOtherTaxa",
+                                "inatIconicTaxon",
+                                "tier",
+                                "localTier",
+                                "matchScore"
+                              ],
+                              "properties": {
+                                "photoId": { "type": "string", "format": "uuid" },
+                                "width": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
+                                "height": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
+                                "captureId": { "type": "string", "format": "uuid" },
+                                "speciesId": { "type": "string", "format": "uuid" },
+                                "scientificName": { "type": "string" },
+                                "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                "taxonClass": { "type": "string" },
+                                "takenAt": {
+                                  "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+                                },
+                                "cameraModel": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                "lens": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                "focalLengthMm": {
+                                  "anyOf": [
+                                    { "anyOf": [{ "type": "number" }, { "type": "string" }] },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "aperture": {
+                                  "anyOf": [
+                                    { "anyOf": [{ "type": "number" }, { "type": "string" }] },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "shutter": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                "iso": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
+                                "qualityRating": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
+                                "lat": {
+                                  "anyOf": [
+                                    { "anyOf": [{ "type": "number" }, { "type": "string" }] },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "lon": {
+                                  "anyOf": [
+                                    { "anyOf": [{ "type": "number" }, { "type": "string" }] },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "regionId": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] },
+                                "regionName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                "locationLabel": {
+                                  "anyOf": [
+                                    { "type": "string", "description": "The place name under its region, e.g. a park" },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "kind": { "enum": ["image", "video", "audio"] },
+                                "durationSeconds": {
+                                  "anyOf": [
+                                    { "anyOf": [{ "type": "number" }, { "type": "string" }] },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "tags": { "type": "array", "items": { "type": "string" } },
+                                "cullVerdict": { "anyOf": [{ "enum": ["pick", "reject"] }, { "type": "null" }] },
+                                "cullLabel": {
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "red",
+                                        "orange",
+                                        "yellow",
+                                        "green",
+                                        "blue",
+                                        "purple",
+                                        "gray",
+                                        "black",
+                                        "white"
+                                      ]
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "hidden": {
+                                  "type": "boolean",
+                                  "description": "Imported hidden because a culling app rejected it"
+                                },
+                                "lifeStage": {
+                                  "anyOf": [
+                                    { "enum": ["egg", "larva", "nymph", "pupa", "juvenile", "subadult", "adult"] },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "sex": {
+                                  "anyOf": [
+                                    {
+                                      "enum": ["male", "female", "unknown"],
+                                      "description": "unknown: looked at and can't tell"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "plumage": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                "morph": {
+                                  "anyOf": [
+                                    { "type": "string", "description": "Colour morph, e.g. dark morph" },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "isFeatured": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean",
+                                      "description": "Its species' cover photo (null when the species has none)"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "hasRawOriginal": { "type": "boolean" },
+                                "inatStatus": {
+                                  "anyOf": [
+                                    {
+                                      "enum": ["pending", "completed"],
+                                      "description": "Its iNaturalist observation: unfinished or complete; null when not sent"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "inatObservationId": {
+                                  "anyOf": [
+                                    { "type": "string", "description": "The iNaturalist observation it was sent as" },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "originalRef": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                "originalManaged": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+                                "originalKind": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                "rawRef": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                "taxonOrder": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                "family": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                "sortOrder": {
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "description": "The species' place in its published field guide sequence, where there is one"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "isOtherTaxa": { "type": "boolean" },
+                                "inatIconicTaxon": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                "tier": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "description": "The species' rarity tier (the user's own if set)"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "localTier": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "description": "With a region filter: the species' tier in that region; null otherwise or when unknown"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "matchScore": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "description": "How well a search matched; null for the plain listing"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "frame": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "required": ["box", "boxUnsure", "aspect", "orientation", "composition", "light"],
+                                      "properties": {
+                                        "box": {
+                                          "anyOf": [
+                                            {
+                                              "type": "array",
+                                              "items": { "type": "number" },
+                                              "minItems": 4,
+                                              "maxItems": 4,
+                                              "description": "The detector's best animal box [x1, y1, x2, y2] as fractions of the upright photo"
+                                            },
+                                            { "type": "null" }
+                                          ]
+                                        },
+                                        "boxUnsure": {
+                                          "type": "boolean",
+                                          "description": "The detector wasn't sure: a speck, or found only on a closer look"
+                                        },
+                                        "aspect": { "type": "number", "description": "Upright width / height" },
+                                        "orientation": { "enum": ["horizontal", "vertical", "square"] },
+                                        "composition": {
+                                          "anyOf": [
+                                            {
+                                              "type": "object",
+                                              "required": ["size", "thirds", "goldenRatio", "centred"],
+                                              "properties": {
+                                                "size": {
+                                                  "enum": ["tiny", "small", "medium", "frameFilling"],
+                                                  "description": "Share of the frame the animal fills: under 1.5%, under 10%, under 35%, more"
+                                                },
+                                                "thirds": {
+                                                  "type": "boolean",
+                                                  "description": "Centred on a rule-of-thirds intersection"
+                                                },
+                                                "goldenRatio": {
+                                                  "type": "boolean",
+                                                  "description": "Centred on a golden ratio (phi grid) intersection"
+                                                },
+                                                "centred": { "type": "boolean" }
+                                              },
+                                              "additionalProperties": true,
+                                              "description": "Where the animal sits; null without a sure box"
+                                            },
+                                            { "type": "null" }
+                                          ]
+                                        },
+                                        "light": {
+                                          "type": "object",
+                                          "required": ["luma", "warmth", "highlights", "shadows", "saturation"],
+                                          "properties": {
+                                            "luma": { "type": "number", "description": "Mean brightness, 0 to 1" },
+                                            "warmth": {
+                                              "type": "number",
+                                              "description": "Mean red minus blue, -1 (cool) to 1 (warm)"
+                                            },
+                                            "highlights": {
+                                              "type": "number",
+                                              "description": "Share of near-white pixels"
+                                            },
+                                            "shadows": {
+                                              "type": "number",
+                                              "description": "Share of near-black pixels"
+                                            },
+                                            "saturation": {
+                                              "type": "number",
+                                              "description": "Mean colourfulness, 0 to 1"
+                                            }
+                                          },
+                                          "additionalProperties": true,
+                                          "description": "The photo's own light"
+                                        }
+                                      },
+                                      "additionalProperties": true,
+                                      "description": "Composition and light read from the photo; null until the background job reads it"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "timeMaybeWrong": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean",
+                                      "description": "The sun was well below the horizon at the photo's place and time, yet the photo is plainly daylit, so its time is probably wrong. Null when unknown, or for a sensitive species on a device key"
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                },
+                                "version": {
+                                  "type": "object",
+                                  "required": ["of", "label", "labelKind", "labelSize"],
+                                  "properties": {
+                                    "of": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "description": "The photo this file is a version of"
+                                    },
+                                    "label": {
+                                      "anyOf": [
+                                        { "type": "string", "description": "The name the user gave this version" },
+                                        { "type": "null" }
+                                      ]
+                                    },
+                                    "labelKind": {
+                                      "enum": ["original", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"]
+                                    },
+                                    "labelSize": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                                  },
+                                  "description": "Only with allVersions=1, on a file listed apart from the photo it belongs to"
+                                }
+                              },
+                              "additionalProperties": true
+                            }
+                          }
+                        }
+                      },
+                      "description": "The scene's bursts in time order; the photo alone when it has no neighbours"
+                    },
+                    "position": {
+                      "type": "object",
+                      "required": ["burst", "frame"],
+                      "properties": {
+                        "burst": { "type": "integer", "description": "The photo's burst in scene" },
+                        "frame": { "type": "integer", "description": "The photo in its burst" }
+                      }
+                    },
+                    "truncated": {
+                      "type": "boolean",
+                      "description": "The scene had more frames than the 300 nearest the photo given here"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the gallery.read scope",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           },
           "default": {
@@ -7501,6 +7941,10 @@
                             "type": "boolean",
                             "description": "The user (or a connected app) marked it as needing a better photo"
                           },
+                          "rawOnly": {
+                            "type": "boolean",
+                            "description": "Collected, and every photo of it is a RAW with no edited version yet"
+                          },
                           "tier": {
                             "anyOf": [
                               { "enum": ["common", "occasional", "uncommon", "rare", "legendary", "unrated"] },
@@ -9868,6 +10312,13 @@
             "schema": { "enum": ["0", "1"] }
           },
           {
+            "name": "unedited",
+            "in": "query",
+            "required": false,
+            "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version",
+            "schema": { "enum": ["0", "1"] }
+          },
+          {
             "name": "hidden",
             "in": "query",
             "required": false,
@@ -10310,6 +10761,67 @@
         }
       }
     },
+    "/gallery/bursts": {
+      "post": {
+        "summary": "POST /gallery/bursts",
+        "tags": ["gallery"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["captureIds"],
+                "properties": {
+                  "captureIds": { "type": "array", "items": { "type": "string", "format": "uuid" }, "maxItems": 500 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["bursts"],
+                  "properties": {
+                    "bursts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["burstId", "count", "captureIds"],
+                        "properties": {
+                          "burstId": { "type": "string", "format": "uuid" },
+                          "count": { "type": "integer" },
+                          "captureIds": { "type": "array", "items": { "type": "string", "format": "uuid" } }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
     "/gallery/has-video": {
       "get": {
         "summary": "Whether the library has any videos",
@@ -10633,6 +11145,13 @@
             "in": "query",
             "required": false,
             "description": "1 for only the photos whose only original is a RAW",
+            "schema": { "enum": ["0", "1"] }
+          },
+          {
+            "name": "unedited",
+            "in": "query",
+            "required": false,
+            "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version",
             "schema": { "enum": ["0", "1"] }
           },
           {
@@ -10989,6 +11508,13 @@
             "in": "query",
             "required": false,
             "description": "1 for only the photos whose only original is a RAW",
+            "schema": { "enum": ["0", "1"] }
+          },
+          {
+            "name": "unedited",
+            "in": "query",
+            "required": false,
+            "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version",
             "schema": { "enum": ["0", "1"] }
           },
           {
@@ -11438,6 +11964,13 @@
             "schema": { "enum": ["0", "1"] }
           },
           {
+            "name": "unedited",
+            "in": "query",
+            "required": false,
+            "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version",
+            "schema": { "enum": ["0", "1"] }
+          },
+          {
             "name": "hidden",
             "in": "query",
             "required": false,
@@ -11820,6 +12353,13 @@
             "schema": { "enum": ["0", "1"] }
           },
           {
+            "name": "unedited",
+            "in": "query",
+            "required": false,
+            "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version",
+            "schema": { "enum": ["0", "1"] }
+          },
+          {
             "name": "hidden",
             "in": "query",
             "required": false,
@@ -12192,6 +12732,13 @@
             "in": "query",
             "required": false,
             "description": "1 for only the photos whose only original is a RAW",
+            "schema": { "enum": ["0", "1"] }
+          },
+          {
+            "name": "unedited",
+            "in": "query",
+            "required": false,
+            "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version",
             "schema": { "enum": ["0", "1"] }
           },
           {
@@ -20432,6 +20979,10 @@
                                     "enum": ["0", "1"],
                                     "description": "1 for only the photos whose only original is a RAW"
                                   },
+                                  "unedited": {
+                                    "enum": ["0", "1"],
+                                    "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version"
+                                  },
                                   "hidden": {
                                     "enum": ["0", "1"],
                                     "description": "1 for only the photos imported hidden because a culling app rejected them"
@@ -20684,6 +21235,10 @@
                                   "enum": ["0", "1"],
                                   "description": "1 for only the photos whose only original is a RAW"
                                 },
+                                "unedited": {
+                                  "enum": ["0", "1"],
+                                  "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version"
+                                },
                                 "hidden": {
                                   "enum": ["0", "1"],
                                   "description": "1 for only the photos imported hidden because a culling app rejected them"
@@ -20913,6 +21468,10 @@
                                   "onlyRaw": {
                                     "enum": ["0", "1"],
                                     "description": "1 for only the photos whose only original is a RAW"
+                                  },
+                                  "unedited": {
+                                    "enum": ["0", "1"],
+                                    "description": "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version"
                                   },
                                   "hidden": {
                                     "enum": ["0", "1"],
@@ -23209,6 +23768,10 @@
                             "type": "boolean",
                             "description": "The user (or a connected app) marked it as needing a better photo"
                           },
+                          "rawOnly": {
+                            "type": "boolean",
+                            "description": "Collected, and every photo of it is a RAW with no edited version yet"
+                          },
                           "tier": {
                             "anyOf": [
                               { "enum": ["common", "occasional", "uncommon", "rare", "legendary", "unrated"] },
@@ -23673,6 +24236,10 @@
                           "needsBetterPhoto": {
                             "type": "boolean",
                             "description": "The user (or a connected app) marked it as needing a better photo"
+                          },
+                          "rawOnly": {
+                            "type": "boolean",
+                            "description": "Collected, and every photo of it is a RAW with no edited version yet"
                           },
                           "tier": {
                             "anyOf": [
@@ -36173,6 +36740,10 @@
                             "type": "boolean",
                             "description": "The user (or a connected app) marked it as needing a better photo"
                           },
+                          "rawOnly": {
+                            "type": "boolean",
+                            "description": "Collected, and every photo of it is a RAW with no edited version yet"
+                          },
                           "tier": {
                             "anyOf": [
                               { "enum": ["common", "occasional", "uncommon", "rare", "legendary", "unrated"] },
@@ -37030,6 +37601,126 @@
         }
       }
     },
+    "/uploads/identify-animal": {
+      "post": {
+        "summary": "Match species on one animal in a photo being imported",
+        "description": "JSON with `uploadId` (a photo already checked with POST /uploads/inspect), `regionId` and `box`, the animal in percent of the upright photo (`subjectBoxes` from the check, or any area). Ranks species on that animal alone, and on the same area of the other frames of its burst, which `burst.uploadIds` lists. Saves nothing. 409 `models_not_ready` until the species-matching model is downloaded; 410 when the upload is gone.",
+        "tags": ["photos"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "photos.write",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["uploadId", "regionId", "box"],
+                "properties": {
+                  "uploadId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "The photo's finished resumable upload"
+                  },
+                  "regionId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "The region to rank for, as for POST /uploads/inspect"
+                  },
+                  "box": {
+                    "type": "object",
+                    "required": ["x", "y", "w", "h"],
+                    "properties": {
+                      "x": { "type": "number", "maximum": 100, "minimum": 0 },
+                      "y": { "type": "number", "maximum": 100, "minimum": 0 },
+                      "w": { "type": "number", "maximum": 100, "exclusiveMinimum": 0 },
+                      "h": { "type": "number", "maximum": 100, "exclusiveMinimum": 0 }
+                    },
+                    "description": "The animal, in percent of the upright photo"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["suggestions", "burst"],
+                  "properties": {
+                    "suggestions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "scientific_name", "common_name", "score", "source"],
+                        "properties": {
+                          "id": { "type": "string", "format": "uuid" },
+                          "scientific_name": { "type": "string" },
+                          "common_name": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "score": { "type": "number" },
+                          "source": { "type": "string", "description": "your_photos, reference_photo or keyword_tag" },
+                          "confident": { "type": "boolean" },
+                          "matchPercent": { "type": "number" },
+                          "probably": {
+                            "type": "object",
+                            "required": ["rank", "name", "taxonClass"],
+                            "properties": {
+                              "rank": { "enum": ["genus", "family"] },
+                              "name": { "type": "string", "description": "Scientific name of the genus or family" },
+                              "taxonClass": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "description": "The top candidate's catalog class, e.g. amphibia"
+                                  },
+                                  { "type": "null" }
+                                ]
+                              }
+                            },
+                            "additionalProperties": true,
+                            "description": "Only on a top suggestion that isn't confident: the genus (else family) most close candidates share, e.g. 'Probably a Lithobates frog'"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    },
+                    "burst": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "required": ["uploadIds"],
+                          "properties": { "uploadIds": { "type": "array", "items": { "type": "string" } } },
+                          "additionalProperties": true
+                        },
+                        { "type": "null" }
+                      ]
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the photos.write scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
     "/uploads/inspect": {
       "post": {
         "summary": "Check a photo before importing it",
@@ -37336,6 +38027,20 @@
                         },
                         { "type": "null" }
                       ]
+                    },
+                    "subjectBoxes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["x", "y", "w", "h"],
+                        "properties": {
+                          "x": { "type": "number" },
+                          "y": { "type": "number" },
+                          "w": { "type": "number" },
+                          "h": { "type": "number" }
+                        },
+                        "additionalProperties": true
+                      }
                     },
                     "gps": {
                       "anyOf": [

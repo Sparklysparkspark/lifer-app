@@ -75,6 +75,7 @@ export function useCollectionUrlState() {
   const ghostOnly = searchParams.get("ghostOnly") === "1";
   const lostOnly = searchParams.get("lostOnly") === "1";
   const needsBetterOnly = searchParams.get("needsBetter") === "1";
+  const rawOnlyOnly = searchParams.get("rawOnly") === "1";
   const likelyThisMonthOnly = searchParams.get("likelyThisMonth") === "1";
   // A calendar year the species must have a real capture in; empty means any year.
   const yearFilter = searchParams.get("year") || "";
@@ -94,6 +95,7 @@ export function useCollectionUrlState() {
       ghostOnly,
       lostOnly,
       needsBetterOnly,
+      rawOnlyOnly,
       likelyThisMonthOnly,
       yearFilter,
       search,
@@ -108,6 +110,7 @@ export function useCollectionUrlState() {
       ghostOnly,
       lostOnly,
       needsBetterOnly,
+      rawOnlyOnly,
       likelyThisMonthOnly,
       yearFilter,
       search,
@@ -124,6 +127,7 @@ export function useCollectionUrlState() {
         ghostOnly: null,
         lostOnly: null,
         needsBetter: null,
+        rawOnly: null,
         likelyThisMonth: null,
         year: null,
         introduced: null,
@@ -159,6 +163,7 @@ export function useCollectionUrlState() {
     ghostOnly,
     lostOnly,
     needsBetterOnly,
+    rawOnlyOnly,
     likelyThisMonthOnly,
     yearFilter,
     introducedFilter,

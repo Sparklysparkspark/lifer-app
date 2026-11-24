@@ -25,6 +25,9 @@ export const CollectionItem = Open({
   needsBetterPhoto: Type.Optional(
     Type.Boolean({ description: "The user (or a connected app) marked it as needing a better photo" }),
   ),
+  rawOnly: Type.Optional(
+    Type.Boolean({ description: "Collected, and every photo of it is a RAW with no edited version yet" }),
+  ),
   tier: Nullable(Tier),
   localTier: Nullable(Tier),
   tierReason: Type.Optional(Nullable(Type.String())),

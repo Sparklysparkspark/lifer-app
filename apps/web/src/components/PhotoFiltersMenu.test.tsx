@@ -89,3 +89,34 @@ describe("PhotoFiltersMenu Clear all", () => {
     expect(onChange).toHaveBeenCalledWith(new Set());
   });
 });
+
+describe("RAW files filter", () => {
+  it("offers Not edited yet with its hint, and switching away picks the other choice", () => {
+    const filters = {
+      query: {
+        appearance: NONE,
+        regionIds: [],
+        tiers: [],
+        selectedTaxa: new Set(),
+        rawFiles: "unedited",
+        editedRaw: "any",
+      },
+      activeFilterCount: 1,
+      setRawFiles: vi.fn(),
+      setEditedRaw: vi.fn(),
+    } as unknown as GalleryFilters;
+    render(
+      <PhotoFilterFields
+        filters={filters}
+        facets={{ appearance: null } as unknown as GalleryFacets}
+        tagOptions={[]}
+        sections={["raw"]}
+      />,
+    );
+    const group = screen.getByRole("group", { name: "RAW files" });
+    expect(group.textContent).toContain("Not edited yet");
+    expect(screen.getByText("RAW photos with no edited version. Edits Lifer has linked count.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Only" }));
+    expect(filters.setRawFiles).toHaveBeenCalledWith("only");
+  });
+});

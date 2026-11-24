@@ -118,7 +118,20 @@ export function useGalleryFilters(
   );
   // Persisted browsing presets: every photo, RAW-only ones included, and no videos is the default.
   // Only a user's own pick is stored, so a saved "hide" stays and counts as an active filter.
-  const [rawFiles, setRawFiles] = usePreset<RawFilesFilter>(keys.rawFiles, DEFAULT_RAW_FILES, seed?.rawFiles);
+  const [rawPreset, setRawPreset] = usePreset<RawFilesFilter>(
+    keys.rawFiles,
+    DEFAULT_RAW_FILES,
+    seed && (seed.rawFiles === "unedited" ? DEFAULT_RAW_FILES : seed.rawFiles),
+  );
+  // The editing backlog is a filter, not a preset: kept in the URL (?unedited=1), never saved.
+  const [unedited, setUnedited] = useState(() =>
+    fromUrl ? searchParams.get("unedited") === "1" : seed.rawFiles === "unedited",
+  );
+  const rawFiles: RawFilesFilter = unedited ? "unedited" : rawPreset;
+  function setRawFiles(value: RawFilesFilter) {
+    setUnedited(value === "unedited");
+    if (value !== "unedited") setRawPreset(value);
+  }
   const [editedRaw, setEditedRaw] = usePreset<EditedRawFilter>(keys.editedRaw, "any", seed?.editedRaw);
   const [mediaFilter, setMediaFilter] = usePreset<MediaFilter>(keys.media, "photos", seed?.mediaFilter);
   // YYYY-MM-DD; the server treats dateTo as inclusive.
@@ -257,6 +270,7 @@ export function useGalleryFilters(
     hidden: onlyHidden ? "1" : null,
     onlyFeatured: onlyFeatured ? "1" : null,
     notOnInat: notOnInat ? "1" : null,
+    unedited: unedited ? "1" : null,
     taxa: [...selectedTaxa].join(",") || null,
     dateFrom: dateFrom || null,
     dateTo: dateTo || null,

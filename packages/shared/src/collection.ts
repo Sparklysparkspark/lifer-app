@@ -24,6 +24,8 @@ export interface CollectionItem {
   isTarget: boolean;
   /** The "needs a better photo" mark (migration 176), set by the user or a connected app. */
   needsBetterPhoto?: boolean;
+  /** Collected, and every photo of it is a RAW with no edited version yet. */
+  rawOnly?: boolean;
   tier: RarityTier | null;
   /** Region-scoped rarity against the rest of the viewed region's checklist, immune to the
    *  per-country effort skew of the global tier. Only set on GET /regions/:id/species rows. */

@@ -46,6 +46,7 @@ export default function CollectionToolbar({
   hasGhost,
   hasLost,
   hasNeedsBetter,
+  hasRawOnly = false,
   targetLists,
   shownCount,
   totalLoaded,
@@ -74,6 +75,8 @@ export default function CollectionToolbar({
   hasLost: boolean;
   /** Some species carry the "needs a better photo" mark, so its filter is worth offering. */
   hasNeedsBetter: boolean;
+  /** Some species have only unedited RAW photos, so the backlog filter is worth offering. */
+  hasRawOnly?: boolean;
   /** The user's target lists, the viewed region's first, for the Targets filter. */
   targetLists?: TargetList[];
   shownCount: number | null;
@@ -115,6 +118,7 @@ export default function CollectionToolbar({
     (url.ghostOnly ? 1 : 0) +
     (url.lostOnly ? 1 : 0) +
     (url.needsBetterOnly ? 1 : 0) +
+    (url.rawOnlyOnly ? 1 : 0) +
     (url.likelyThisMonthOnly ? 1 : 0) +
     (url.yearFilter ? 1 : 0) +
     (url.introducedFilter !== "any" ? 1 : 0) +
@@ -343,6 +347,17 @@ export default function CollectionToolbar({
                 title={t("collection.toolbar.needsBetterOnlyTitle")}
               >
                 {t("collection.toolbar.needsBetterOnly")}
+              </FilterCheckbox>
+            </div>
+          )}
+          {(hasRawOnly || url.rawOnlyOnly) && (
+            <div className="mt-1.5">
+              <FilterCheckbox
+                checked={url.rawOnlyOnly}
+                onChange={(c) => updateParam("rawOnly", c ? "1" : null)}
+                title={t("collection.toolbar.rawOnlyTitle")}
+              >
+                {t("collection.toolbar.rawOnly")}
               </FilterCheckbox>
             </div>
           )}

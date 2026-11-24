@@ -117,9 +117,10 @@ const canSetLocation = (o: ObservationSummary) => !!o.noLocationOnInat && (o.cap
 /** Where the location and date came from: small print in the window, never on the card. */
 function sourceLine(t: TFunction, obs: ObservationSummary) {
   if (obs.foundOnInat) return t("inaturalist.completed.found");
-  const location = obs.sentLocation
-    ? t("inaturalist.completed.locationPhoto")
-    : t("inaturalist.completed.locationInat");
+  const from = { mode: obs.photoCount > 1 ? "all" : "one", place: obs.placeName ?? "" };
+  const location = !obs.sentLocation
+    ? t("inaturalist.completed.locationInat")
+    : t(obs.placeName ? "inaturalist.import.locationFromNear" : "inaturalist.import.locationFrom", from);
   return obs.dateFromInat ? t("inaturalist.completed.withDateInat", { location }) : location;
 }
 
@@ -515,7 +516,8 @@ export default function ObservationsTab({
           // Where its location and date came from is small print here, not on the card.
           info={[
             photoLine(t, detail),
-            detail.placeName ?? null,
+            // Completed names the place in its source line ("from your photo, near Belize").
+            pending || !detail.sentLocation || detail.foundOnInat ? (detail.placeName ?? null) : null,
             ...statusLines(detail),
             pending ? null : sourceLine(t, detail),
           ]}

@@ -13,6 +13,7 @@ import { createLimiter } from "@lifer/core/lib/concurrency.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
 import { queueRecheck } from "../captures/recheck.js";
 import { regionAt } from "../regions/regionAt.js";
+import { placeLabel } from "../places/placeLabel.js";
 import { cookieSecureFor, hashToken, requireAuth, requireScope } from "../auth/session.js";
 import { getInstallSetting, setInstallSetting } from "../lib/installSettings.js";
 import { linkedServer, serverFetch } from "../sync/serverLink.js";
@@ -565,6 +566,19 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
         request.user!.id,
         clusters.map((c) => c.captureIds),
       );
+      const placeNames = await Promise.all(
+        clusters.map((cluster) => {
+          const rows = cluster.captureIds.map((id) => byId.get(id)!).filter(Boolean);
+          const r =
+            rows.find((x) => x.location_label || x.region_name) ?? rows.find((x) => x.lat != null && x.lon != null);
+          return placeLabel({
+            label: r?.location_label ?? null,
+            region: r?.region_name ?? null,
+            lat: r?.lat ?? null,
+            lon: r?.lon ?? null,
+          });
+        }),
+      );
       return {
         ignoredCount,
         totalCount: all.length,
@@ -577,12 +591,7 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
           latestTakenAt: cluster.latestTakenAt,
           matched: byId.get(cluster.captureIds[0])?.matched ?? false,
           taxonClass: byId.get(cluster.captureIds[0])?.taxon_class ?? null,
-          placeName: (() => {
-            const placed = cluster.captureIds
-              .map((id) => byId.get(id))
-              .find((r) => r?.location_label || r?.region_name);
-            return placed ? placeText(placed.location_label, placed.region_name) : null;
-          })(),
+          placeName: placeNames[i],
           captures: cluster.captureIds.map((id) => ({
             id,
             currentPhotoId: byId.get(id)?.current_photo_id ?? null,
@@ -1761,10 +1770,6 @@ async function sendObservation(
   }
 }
 
-/** "Pigeon Lake, Alberta": a photo's place label with its region, either alone when that's all there is. */
-const placeText = (label: string | null, region: string | null) =>
-  label && region ? `${label}, ${region}` : (label ?? region ?? "");
-
 async function listByStatus(userId: string, status: "pending" | "completed") {
   const res = await pool.query<{
     inat_observation_id: string;
@@ -1784,6 +1789,7 @@ async function listByStatus(userId: string, status: "pending" | "completed") {
     taxon_class: string | null;
     location_label: string | null;
     region_name: string | null;
+    point: string[] | null;
     inat_photo_id: string | null;
     capture_ids: string[];
   }>(
@@ -1813,7 +1819,9 @@ async function listByStatus(userId: string, status: "pending" | "completed") {
          bool_or(o.date_from_inaturalist) OVER w AS date_from_inaturalist,
          s.taxon_class,
          max(c.location_label) OVER w AS location_label,
-         max(rg.name) OVER w AS region_name
+         max(rg.name) OVER w AS region_name,
+         -- One photo's own point, for a place when none is named or filed.
+         max(CASE WHEN c.lat IS NOT NULL AND c.lon IS NOT NULL THEN ARRAY[c.lat, c.lon] END) OVER w AS point
        FROM capture_inaturalist_observations o
        JOIN captures c ON c.id = o.capture_id
        JOIN species s ON s.id = c.species_id
@@ -1830,8 +1838,18 @@ async function listByStatus(userId: string, status: "pending" | "completed") {
     [userId, status],
   );
   const queue = await loadLocationQueue(userId);
+  const placeNames = await Promise.all(
+    res.rows.map((r) =>
+      placeLabel({
+        label: r.location_label,
+        region: r.region_name,
+        lat: r.point?.[0] ?? null,
+        lon: r.point?.[1] ?? null,
+      }),
+    ),
+  );
   return {
-    observations: res.rows.map((r) => ({
+    observations: res.rows.map((r, i) => ({
       observationId: r.inat_observation_id,
       speciesId: r.species_id,
       scientificName: r.scientific_name,
@@ -1849,7 +1867,7 @@ async function listByStatus(userId: string, status: "pending" | "completed") {
       dateFromInat: r.date_from_inaturalist,
       foundOnInat: r.found_on_inaturalist,
       taxonClass: r.taxon_class,
-      placeName: r.location_label || r.region_name ? placeText(r.location_label, r.region_name) : null,
+      placeName: placeNames[i],
       inatPhotoId: r.inat_photo_id,
       captureIds: r.capture_ids,
       // Completed means iNaturalist had a location then; on To finish, a date note means it has one.

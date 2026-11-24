@@ -77,7 +77,21 @@ export interface CollectionRow {
   user_added_kind?: string | null;
   /** Region rows only: where the user's photos of it were taken (checklist.ts PHOTOGRAPHED_WHERE_SQL). */
   photographed_where?: "here" | "elsewhere" | null;
+  /** rawOnlySql: every photo of it is still an unedited RAW. */
+  raw_only?: boolean | null;
 }
+
+/** A collected species whose every photo is a RAW with no edited version: none beside a RAW and
+ *  none linked to one (linked versions are hidden captures, so the second probe finds them).
+ *  `user` is the user id's SQL parameter; `s` and `us` are the query's species and user_species. */
+export const rawOnlySql = (user: string) => `(us.state = 'collected'
+  AND EXISTS (SELECT 1 FROM captures rc JOIN originals ro ON ro.capture_id = rc.id
+    WHERE rc.user_id = ${user} AND rc.species_id = s.id AND rc.hidden_at IS NULL AND ro.kind = 'raw')
+  AND NOT EXISTS (SELECT 1 FROM captures ec JOIN originals eo ON eo.capture_id = ec.id
+    WHERE ec.user_id = ${user} AND ec.species_id = s.id AND ec.hidden_at IS NULL AND eo.kind <> 'raw')
+  AND NOT EXISTS (SELECT 1 FROM captures gc JOIN capture_versions gv ON gv.group_capture_id = gc.id AND gv.state = 'linked'
+    JOIN originals vo ON vo.capture_id = gv.capture_id
+    WHERE gc.user_id = ${user} AND gc.species_id = s.id AND gc.hidden_at IS NULL AND vo.kind <> 'raw'))`;
 
 // Ghost: fewer GBIF records than this, or no reference photo at all. Packs set only the thumb
 // path, not reference_photo, so both must be checked.
@@ -121,6 +135,7 @@ export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNIC
     state,
     isTarget: row.is_target === true,
     needsBetterPhoto: row.needs_better_photo === true,
+    rawOnly: row.raw_only === true,
     // A tier the user set wins: over the local tier where there is one, else over the worldwide one.
     tier: row.override_tier && row.local_tier === undefined ? row.override_tier : row.tier,
     localTier: row.override_tier && row.local_tier !== undefined ? row.override_tier : (row.local_tier ?? null),

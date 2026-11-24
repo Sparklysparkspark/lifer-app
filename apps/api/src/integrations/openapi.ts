@@ -396,6 +396,13 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
       }),
     },
   },
+  "/uploads/identify-animal": {
+    post: {
+      summary: "Match species on one animal in a photo being imported",
+      description:
+        "JSON with `uploadId` (a photo already checked with POST /uploads/inspect), `regionId` and `box`, the animal in percent of the upright photo (`subjectBoxes` from the check, or any area). Ranks species on that animal alone, and on the same area of the other frames of its burst, which `burst.uploadIds` lists. Saves nothing. 409 `models_not_ready` until the species-matching model is downloaded; 410 when the upload is gone.",
+    },
+  },
   "/uploads/space": {
     post: {
       summary: "Check free disk space for an import",
@@ -532,6 +539,13 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
       summary: "Groups of near-identical photos (bursts and repeats), largest first",
       description:
         "Photos of the same species, taken within 15 seconds and almost the same picture, or within 3 minutes and closer still, judged by their stored image vectors. Photos with no date or no vector are never grouped. List a group with GET /gallery?similarTo= its captureId. Lifer only lists them: nothing is changed or deleted.",
+    },
+  },
+  "/captures/{id}/scene": {
+    get: {
+      summary: "A photo's burst and the scene around it",
+      description:
+        "A burst is the photos one camera took less than half a second apart (one second when the camera records whole seconds), cut where the picture changes completely and joined across a pause of up to 15 seconds that looks the same. A scene is the bursts taken one after another at one sighting: it ends at a gap of over 5 minutes, a move of over 200 m, or a different subject by the stored image vectors. Videos and recordings are left out, and a RAW with its JPEG is one photo. At most the 300 photos nearest the asked one are given, with truncated set when there were more.",
     },
   },
   "/gallery/appearance": {

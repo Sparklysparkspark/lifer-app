@@ -1,4 +1,10 @@
 {
+  "bursts": {
+    "badge": "On a photo in the grid: how many other photos are in its burst (photos taken in one press of the shutter), like +11.",
+    "burstAndScene": "Above the viewer's strip of nearby photos. A scene is the bursts taken one after another at one sighting.",
+    "frame": "Accessible name of a photo in the open burst, like Frame 3 of 12.",
+    "burst": "Accessible name of a burst tile in the strip: its place among the scene's bursts and its photo count."
+  },
   "archiveHealth": {
     "ignoreAllConfirm": {
       "title": "{total} is {count} formatted with digit grouping, like 2,500: every file on the list, including any not shown."
@@ -492,6 +498,12 @@
     "locationsOf": "Locality map heading: {shown} locations pass the filters out of {count}."
   },
   "import": {
+    "compare": {
+      "yourPick": "On a species card the user searched for and added to the compare strip, in place of a match percent: it was their choice, not a suggestion.",
+      "animal": {
+        "identify": "Button while the user moves a box over one animal in their photo: matches species on that animal only."
+      }
+    },
     "known": {
       "edited": "New photos whose file changed since an earlier import, probably edited in another app.",
       "inLifer": "First line after a folder or files are picked. {total} is every picked file, formatted with digit grouping; joined to skippedCount and newCount with commas.",
@@ -692,7 +704,6 @@
       "action": "Button: opens Settings > Integrations."
     },
     "completed": {
-      "locationPhoto": "Row detail: the location sent came from the photo's GPS.",
       "locationInat": "Row detail: the person placed the location on iNaturalist and Lifer copied it back.",
       "empty": {
         "title": "Empty state heading.",
@@ -895,7 +906,9 @@
     },
     "rawFiles": {
       "label": "Filter heading: RAW-only files (photos with no edited JPEG) can be shown, hidden, or shown alone.",
-      "only": "Filter option: show only RAW files."
+      "only": "Filter option: show only RAW files.",
+      "unedited": "Filter option: only RAW photos with no edited version yet (the photos still to edit).",
+      "uneditedHint": "Shown under the RAW files filter while Not edited yet is chosen: an edit counts only once Lifer has linked it to the RAW as a version."
     },
     "editedRaw": {
       "label": "Filter heading: edited photos, filtered by whether a RAW file is paired with them.",

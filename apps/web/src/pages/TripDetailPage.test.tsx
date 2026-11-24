@@ -192,6 +192,34 @@ describe("TripDetailPage", () => {
     expect(await screen.findAllByRole("img")).toHaveLength(2);
   });
 
+  it("lists the RAW photos not edited yet from the URL, asking the server which have no edit linked", async () => {
+    // A saved "hide RAW files" preset doesn't empty the backlog.
+    localStorage.setItem("lifer:tripRawFiles", JSON.stringify("hide"));
+    serve({ kind: "raw" });
+    const answer = get.getMockImplementation()!;
+    get.mockImplementation((path: string) =>
+      path.startsWith("/gallery/ids?") ? Promise.resolve({ captureIds: ["c2"] }) : answer(path),
+    );
+    renderAt("/trips/t1?view=gallery&unedited=1");
+    await waitFor(() => expect(screen.getAllByRole("img").map((i) => i.getAttribute("alt"))).toEqual(["Ridge Jay"]));
+    const ids = get.mock.calls.map((c) => c[0] as string).find((p) => p.startsWith("/gallery/ids?"))!;
+    const params = new URLSearchParams(ids.split("?")[1]);
+    expect([params.get("tripId"), params.get("unedited"), params.get("includeRaw")]).toEqual(["t1", "1", null]);
+  });
+
+  it("narrows the species to those with only RAW photos so far, marked on the card", async () => {
+    const answer = get.getMockImplementation()!;
+    get.mockImplementation((path: string) =>
+      path === "/trips/t1/species"
+        ? Promise.resolve({ items: [{ ...species("a", "Marsh Robin"), rawOnly: true }, species("b", "Ridge Jay")] })
+        : answer(path),
+    );
+    renderAt("/trips/t1?rawOnly=1");
+    expect(await screen.findByText("Marsh Robin")).toBeTruthy();
+    expect(screen.getByText("RAW only")).toBeTruthy();
+    expect(screen.queryByText("Ridge Jay")).toBeNull();
+  });
+
   it("explains a saved 'hide RAW files' that empties the trip, and shows them on request", async () => {
     localStorage.setItem("lifer:tripRawFiles", JSON.stringify("hide"));
     serve({ kind: "raw" });

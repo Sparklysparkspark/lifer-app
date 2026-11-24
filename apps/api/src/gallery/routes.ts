@@ -154,6 +154,8 @@ export interface GalleryFilters {
   onlyRaw: boolean;
   excludeHasRaw: boolean;
   onlyHasRaw: boolean;
+  /** The editing backlog: RAW photos with no edited version (UNEDITED_SQL). */
+  unedited: boolean;
   onlyVideo: boolean;
   onlyAudio: boolean;
   excludeVideo: boolean;
@@ -305,6 +307,9 @@ export const GalleryFilterQuery = Type.Object({
   excludeHasRaw: OnOff("1 to leave out edited photos that have a RAW original (RAW-only photos stay)"),
   includeRaw: OnOff("0 to leave out photos whose only original is a RAW"),
   onlyRaw: OnOff("1 for only the photos whose only original is a RAW"),
+  unedited: OnOff(
+    "1 for RAW photos with no edited version yet: no JPEG, TIFF or PNG beside the RAW or linked to it as a version",
+  ),
   hidden: OnOff("1 for only the photos imported hidden because a culling app rejected them"),
 });
 export type GalleryFilterQuery = Static<typeof GalleryFilterQuery>;
@@ -368,6 +373,7 @@ export function parseGalleryFilters(q: GalleryFilterQuery): GalleryFilters | { e
     onlyRaw: q.onlyRaw === "1",
     excludeHasRaw: q.excludeHasRaw === "1",
     onlyHasRaw: q.onlyHasRaw === "1",
+    unedited: q.unedited === "1",
     onlyVideo: q.onlyVideo === "1",
     onlyAudio: q.onlyAudio === "1",
     excludeVideo: q.excludeVideo === "1",
@@ -415,6 +421,7 @@ export async function galleryFiltersFor(
       onlyRaw: false,
       excludeHasRaw: false,
       onlyHasRaw: false,
+      unedited: false,
       onlyVideo: false,
       onlyAudio: false,
       excludeVideo: false,
@@ -511,6 +518,7 @@ export function galleryFilterSql(f: GalleryFilters, param: (v: unknown) => strin
           .join(" OR ")})`
       : "",
     rawFilterSql(f),
+    f.unedited ? UNEDITED_SQL : "",
     f.onlyVideo ? "AND p.kind = 'video'" : "",
     f.onlyAudio ? "AND p.kind = 'audio'" : "",
     // The Photos choice: recordings are their own media type.
@@ -519,6 +527,13 @@ export function galleryFilterSql(f: GalleryFilters, param: (v: unknown) => strin
     .filter(Boolean)
     .join("\n           ");
 }
+
+// The editing backlog: a RAW is all the photo shows, and nothing beside it or linked to it as a
+// version is an edit or export. Edits Lifer hasn't linked can't count.
+const UNEDITED_SQL = `AND o.kind = 'raw'
+           AND NOT EXISTS (SELECT 1 FROM originals ue WHERE ue.capture_id = c.id AND ue.kind <> 'raw')
+           AND NOT EXISTS (SELECT 1 FROM capture_versions uv JOIN originals ue ON ue.capture_id = uv.capture_id
+             WHERE uv.group_capture_id = c.id AND uv.state = 'linked' AND ue.kind <> 'raw')`;
 
 /** The RAW filters as AND clauses over capture `c` and its main original `o` (GALLERY_ITEM_JOINS'),
  *  shared with the iNaturalist To send list so both read the same. */

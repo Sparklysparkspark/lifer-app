@@ -7,7 +7,7 @@ import { pool } from "@lifer/core/db.js";
 import { isUuid } from "../lib/validate.js";
 import { requireAuth } from "../auth/session.js";
 import { IdParams, Open, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
-import { toCollectionItem } from "../collection/collectionItem.js";
+import { rawOnlySql, toCollectionItem } from "../collection/collectionItem.js";
 import { AggregateSpecies, RegionSpecies } from "./responses.js";
 import { markNameChanged } from "../species/speciesSplits.js";
 import { outlineOf } from "../collection/map.js";
@@ -334,6 +334,7 @@ const checklistItemColumns = (
            ${userAddedColumns},
            (us.state = 'seen' AND EXISTS (SELECT 1 FROM captures ch JOIN photos hp ON hp.id = ch.current_photo_id
               WHERE ch.user_id = ${userParam} AND ch.species_id = s.id AND hp.kind = 'audio')) AS heard,
+           ${rawOnlySql(userParam)} AS raw_only,
            (SELECT array_agg(DISTINCT EXTRACT(YEAR FROM cy.taken_at)::int)
               FROM captures cy WHERE cy.user_id = ${userParam} AND cy.species_id = s.id AND cy.taken_at IS NOT NULL) AS captured_years`;
 

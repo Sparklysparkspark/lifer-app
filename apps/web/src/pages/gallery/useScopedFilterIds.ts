@@ -20,7 +20,9 @@ export function needsServerFilter(q: GalleryQuery): boolean {
     q.onlyFeatured ||
     q.notOnInat ||
     q.missingCoordinates ||
-    q.onlyHidden
+    q.onlyHidden ||
+    // A loaded photo knows it's RAW only, not whether an edit is linked to it.
+    q.rawFiles === "unedited"
   );
 }
 
