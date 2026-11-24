@@ -24,6 +24,7 @@ When you add something that is remembered, add a row and a test.
 | Versions window: list or grid       | `lifer:versions.view`                                    | Nothing to point at; an unknown or unreadable value goes back to a list for a few files and a grid for many.                   | `PhotoVersions.test.tsx`                            |
 | Gallery: Group bursts               | `lifer:galleryGroupBursts`, and `?bursts=` in the URL    | Nothing to point at; unreadable storage reads as off, and a link's `?bursts=` wins over the saved choice.                      | `useGalleryDisplayPrefs.test.ts`                    |
 | Photo grids: Version labels         | `lifer:showVersionLabels`                                | Nothing to point at; unreadable storage reads as on.                                                                           | `PhotoGrid.test.tsx`                                |
+| Collection: Show progress by group  | `lifer:collectionGroupProgressHidden`                    | Nothing to point at; unreadable storage reads as on.                                                                           | `useCollectionDisplayPrefs.test.tsx`                |
 
 ## Saved in the library
 

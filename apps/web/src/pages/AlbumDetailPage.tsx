@@ -629,6 +629,7 @@ function AlbumDetail() {
                 cardMinWidth={prefs.cardMinWidth}
                 hideLabels={prefs.hideLabels}
                 hideNames={prefs.hideNames}
+                groupBands={prefs.showGroupProgress}
                 onWidthChange={setGridWidth}
                 onChanged={onSpeciesChanged}
                 backLabel={album.name}

@@ -65,18 +65,6 @@ describe("MediaCard slots", () => {
   });
 });
 
-describe("MediaCard overlay layout", () => {
-  it("puts the text on the photo, inside the body, and the count beside the actions", () => {
-    renderCard({ layout: "overlay", count: { value: "14", label: "14 photos" } });
-    const media = screen.getByRole("img", { name: "Flicker" }).parentElement!;
-    expect(media.contains(screen.getByText("Northern Flicker"))).toBe(true);
-    expect(media.className).toContain("bg-media");
-    const count = screen.getByRole("img", { name: "14 photos" });
-    expect(screen.getByRole("link").contains(count)).toBe(false);
-    expect(count.previousElementSibling).toBe(screen.getByRole("button", { name: "More" }));
-  });
-});
-
 describe("Thumb", () => {
   it("shows a picture from elsewhere when there's no library photo, and the library photo first", () => {
     const { container, rerender } = render(<Thumb photoId={null} src="https://example.org/p.jpg" />);

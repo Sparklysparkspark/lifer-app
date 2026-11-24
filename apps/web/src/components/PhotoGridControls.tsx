@@ -92,6 +92,8 @@ export interface PhotoViewMenuProps<S extends SortOption = SortOption, G extends
   hideNames?: { checked: boolean; onChange: (checked: boolean) => void };
   /** Pins on the region map where each species was photographed. */
   mapPins?: { checked: boolean; onChange: (checked: boolean) => void };
+  /** Progress per animal group: the Collection's group cards and each group's band. */
+  groupProgress?: { checked: boolean; onChange: (checked: boolean) => void };
   /** Every version of a photo (prints, edits, exports) as its own item. */
   allVersions?: { checked: boolean; onChange: (checked: boolean) => void };
   /** Each burst as one stack tile, its best-rated or first photo with the count. */
@@ -118,6 +120,7 @@ export function PhotoViewMenu<S extends SortOption, G extends GroupOption>({
   order,
   hideNames,
   mapPins,
+  groupProgress,
   allVersions,
   groupBursts,
   counting,
@@ -130,6 +133,7 @@ export function PhotoViewMenu<S extends SortOption, G extends GroupOption>({
   const showOrder = on.has("order") && order;
   const showHideNames = on.has("hideNames") && hideNames;
   const showMapPins = on.has("mapPins") && mapPins;
+  const showGroupProgress = on.has("groupProgress") && groupProgress;
   const showAllVersions = on.has("versions") && allVersions;
   const showGroupBursts = on.has("bursts") && groupBursts;
   const showCounting = on.has("counting") && counting;
@@ -216,7 +220,7 @@ export function PhotoViewMenu<S extends SortOption, G extends GroupOption>({
           <PhotoCaptionOptions prefs={captions} />
         </div>
       )}
-      {(showOrder || showHideNames || showMapPins || showAllVersions || showGroupBursts) && (
+      {(showOrder || showHideNames || showMapPins || showGroupProgress || showAllVersions || showGroupBursts) && (
         <div className="space-y-1.5">
           {showOrder &&
             order.map((o) => (
@@ -233,6 +237,11 @@ export function PhotoViewMenu<S extends SortOption, G extends GroupOption>({
           {showMapPins && (
             <FilterCheckbox checked={mapPins.checked} onChange={mapPins.onChange}>
               {t("collection.toolbar.showMapPins")}
+            </FilterCheckbox>
+          )}
+          {showGroupProgress && (
+            <FilterCheckbox checked={groupProgress.checked} onChange={groupProgress.onChange}>
+              {t("collection.toolbar.showGroupProgress")}
             </FilterCheckbox>
           )}
           {showAllVersions && (

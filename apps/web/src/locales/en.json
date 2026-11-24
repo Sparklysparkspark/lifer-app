@@ -651,6 +651,7 @@
       "year": "Photographed in year",
       "groupSpecies": "Species",
       "showMapPins": "Show map pins",
+      "showGroupProgress": "Show progress by group",
       "uncollectedColour": "Show uncollected species in colour",
       "uncollectedColourTitle": "Species you have not photographed show their cover in full colour instead of grey."
     },

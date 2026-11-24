@@ -517,7 +517,7 @@ export default function CollectionPage() {
                   photographed={visibleItems.filter((i) => i.state === "collected" || i.state === "seen").length}
                 />
               )}
-            {items && (
+            {items && prefs.showGroupProgress && (
               <CategoryCards
                 items={items}
                 available={taxa.availableTaxonFilters}
@@ -544,6 +544,7 @@ export default function CollectionPage() {
                 countryRegionName={tree.countryAncestor?.name}
                 hideLabels={prefs.hideLabels}
                 hideNames={prefs.hideNames}
+                groupBands={prefs.showGroupProgress}
                 onWidthChange={setGridWidth}
                 selection={gridSelection}
               />

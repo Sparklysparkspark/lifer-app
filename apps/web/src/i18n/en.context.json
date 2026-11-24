@@ -209,7 +209,8 @@
       "groupSpecies": "View menu group option: one card per species, opened to see what's inside.",
       "uncollectedColour": "View menu checkbox on the Collection page: show covers of species the user has not photographed in full colour instead of the default grey. Off by default. Sentence case.",
       "uncollectedColourTitle": "Tooltip for the uncollected-in-colour checkbox in the View menu.",
-      "showMapPins": "View menu checkbox on the Collection page: show pins on the region map where the user photographed each species. On by default."
+      "showMapPins": "View menu checkbox on the Collection page: show pins on the region map where the user photographed each species. On by default.",
+      "showGroupProgress": "View menu checkbox on the Collection, trip and album pages: show how many species the user has photographed in each animal group (Birds, Mammals...), as a row of cards over the list and as a large count heading each group. On by default. Sentence case."
     },
     "map": {
       "noPins": "Shown on the Collection map when no photo here has coordinates. <placeLink> opens the Gallery map's Needs placing tray, where photos get a location.",

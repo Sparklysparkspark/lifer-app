@@ -38,10 +38,7 @@ export const designTokens = {
     "map-elevation-high": "#c4a982",
     "map-elevation-peak": "#ffffff",
     "map-sky": "#c9d9e3",
-    "map-horizon": "#eef0ea",
-    "media": "#141516",
-    "glass": "#fbf7eed9",
-    "glass-line": "#ffffff80"
+    "map-horizon": "#eef0ea"
   },
   "dark": {
     "surround": "#262626",
@@ -80,9 +77,7 @@ export const designTokens = {
     "map-elevation-high": "#4d4537",
     "map-elevation-peak": "#8a8d89",
     "map-sky": "#0f151b",
-    "map-horizon": "#2b2e2c",
-    "glass": "#1c1e1fd9",
-    "glass-line": "#ffffff1f"
+    "map-horizon": "#2b2e2c"
   },
   "spacing": {
     "page": 24,
@@ -96,10 +91,6 @@ export const designTokens = {
     "badge": 4
   },
   "type": {
-    "display": {
-      "size": 40,
-      "lineHeight": 1.05
-    },
     "large-title": {
       "size": 28,
       "lineHeight": 1.2

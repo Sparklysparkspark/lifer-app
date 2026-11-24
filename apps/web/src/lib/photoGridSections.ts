@@ -56,6 +56,7 @@ export type ViewSection =
   | "order"
   | "hideNames"
   | "mapPins"
+  | "groupProgress"
   | "versions"
   | "bursts"
   | "counting"

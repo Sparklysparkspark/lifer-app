@@ -34,6 +34,8 @@ export function useCollectionDisplayPrefs() {
   const [mapCollapsed, setMapCollapsed] = usePersistedFlag("collectionMapCollapsed");
   // Stored as hidden so the default, shown, needs nothing saved.
   const [mapPinsHidden, setMapPinsHidden] = usePersistedFlag("collectionMapPinsHidden");
+  // Stored as hidden so the default, shown, needs nothing saved.
+  const [groupProgressHidden, setGroupProgressHidden] = usePersistedFlag("collectionGroupProgressHidden");
   // Off by default: not-yet-photographed covers stay grey.
   const [uncollectedColour, setUncollectedColour] = usePersistedFlag("uncollectedColour");
   // Saved as a level, not a place, so it follows the page: a country page reads "province" as its country.
@@ -53,6 +55,9 @@ export function useCollectionDisplayPrefs() {
     toggleMapCollapsed: () => setMapCollapsed(!mapCollapsed),
     showMapPins: !mapPinsHidden,
     setShowMapPins: (on: boolean) => setMapPinsHidden(!on),
+    // The animal group cards over the Collection and the bands heading each group.
+    showGroupProgress: !groupProgressHidden,
+    setShowGroupProgress: (on: boolean) => setGroupProgressHidden(!on),
     photographedIn,
     setPhotographedIn,
   };

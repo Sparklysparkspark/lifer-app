@@ -58,7 +58,6 @@ export default function CategoryCards({
           <MediaCard
             key={s.taxon}
             className="w-52 shrink-0"
-            layout="overlay"
             mediaClassName={`aspect-[4/3] ${s.own ? "" : "cover-uncollected"}`}
             media={
               src ? (
@@ -81,9 +80,10 @@ export default function CategoryCards({
             title={label}
             titleClassName="text-headline"
             lines={[
-              <p key="n" className="flex flex-wrap items-baseline gap-x-1.5">
-                <span className="text-display font-bold tabular-nums">{formatNumber(s.collected)}</span>
-                <span className="text-footnote opacity-85">
+              // As the page header's count, a size down.
+              <p key="n" className="text-title-3 font-semibold tabular-nums text-ink">
+                {formatNumber(s.collected)}{" "}
+                <span className="text-footnote font-normal text-muted">
                   {t("collection.breadcrumb.ofTotal", { total: formatNumber(s.total) })}
                 </span>
               </p>,

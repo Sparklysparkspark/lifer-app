@@ -257,7 +257,7 @@ Work packages:
 
 ## Decisions (2026-11-24)
 
-1. Photo-filled cards become the default, once the maintainer approves the mockup in the running app.
+1. Photo-filled cards become the default, once the maintainer approves the mockup in the running app. Reviewed in the app: rejected, it read as a different app and lost the Collection's charm. The classic light card stays, with the photo count and line-icon marks; the category row and class bands stay behind a View option (Show progress by group, on by default).
 2. Category art uses the user's own photos.
 3. Mapterhorn relief: check the licence, then add it under Automatic.
 4. Other-language common names (RF-K6) and insects: parked on the to-do list for a future catalog update.

@@ -96,11 +96,16 @@ describe("GroupedSpeciesGrid windowing", () => {
     const { container } = renderGrid({ items });
     expect(container.querySelectorAll(".cover-seen")).toHaveLength(1);
     expect(container.querySelectorAll(".cover-uncollected")).toHaveLength(1);
-    // Photo-filled cards keep white names on the scrim; the smallest, classic cards mute them.
-    expect(container.querySelectorAll(".text-uncollected")).toHaveLength(0);
+    expect(container.querySelectorAll(".text-uncollected")).toHaveLength(1);
+  });
+
+  it("heads animal groups with a progress band only when asked", () => {
+    const items = manySpecies(4).map((it, i) => ({ ...it, state: i === 0 ? ("collected" as const) : it.state }));
+    const banded = renderGrid({ items, groupBy: "broad", groupBands: true });
+    expect(banded.getAllByRole("progressbar")).toHaveLength(1);
     cleanup();
-    const small = renderGrid({ items, cardMinWidth: 120 });
-    expect(small.container.querySelectorAll(".text-uncollected")).toHaveLength(1);
+    const plain = renderGrid({ items, groupBy: "broad" });
+    expect(plain.queryAllByRole("progressbar")).toHaveLength(0);
   });
 
   it("lays out rows as CSS auto-fill would", () => {

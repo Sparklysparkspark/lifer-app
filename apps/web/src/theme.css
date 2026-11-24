@@ -52,13 +52,6 @@
   --color-map-elevation-peak: #ffffff;
   --color-map-sky: #c9d9e3;
   --color-map-horizon: #eef0ea;
-  /* Near-black behind photo-filled cards in both themes, so photos pop and a slow image never
-     flashes the cream page (bg-media). */
-  --color-media: #141516;
-  /* Floating panels over a photo or map (bg-glass, border-glass-line); solid enough to read as a
-     surface where the system asks for reduced transparency. */
-  --color-glass: #fbf7eed9;
-  --color-glass-line: #ffffff80;
 }
 
 .dark {
@@ -100,8 +93,6 @@
   --color-map-elevation-peak: #8a8d89;
   --color-map-sky: #0f151b;
   --color-map-horizon: #2b2e2c;
-  --color-glass: #1c1e1fd9;
-  --color-glass-line: #ffffff1f;
 }
 
 @theme inline {
@@ -136,9 +127,6 @@
   --color-map-line-province: var(--color-map-line-province);
   --color-map-relief-highlight: var(--color-map-relief-highlight);
   --color-map-label: var(--color-map-label);
-  --color-media: var(--color-media);
-  --color-glass: var(--color-glass);
-  --color-glass-line: var(--color-glass-line);
 }
 
 @theme {
@@ -161,10 +149,6 @@
   /* Named text styles, after Apple's (Large Title down to Caption): use these rather than raw
      sizes, so a screen's hierarchy reads the same everywhere. text-large-title, text-title-1...
      In rem, so the browser's and the Mac's text size settings scale them. */
-  /* Headline counts ("212 of 480") on class headers, category cards and Stats; pair with
-     tabular-nums so digits line up. */
-  --text-display: 2.5rem;
-  --text-display--line-height: 1.05;
   --text-large-title: 1.75rem;
   --text-large-title--line-height: 1.2;
   --text-title-1: 1.5rem;

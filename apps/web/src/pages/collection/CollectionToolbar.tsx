@@ -26,6 +26,7 @@ const VIEW_SECTIONS: readonly ViewSection[] = [
   "order",
   "hideNames",
   "mapPins",
+  "groupProgress",
   "counting",
   "nameSettings",
 ];
@@ -243,6 +244,12 @@ export default function CollectionToolbar({
         ]}
         hideNames={{ checked: prefs.hideNames, onChange: prefs.setHideNames }}
         mapPins={mapShown ? { checked: prefs.showMapPins, onChange: prefs.setShowMapPins } : undefined}
+        // Only where it shows something: the Collection's group cards, or bands when grouped by animal.
+        groupProgress={
+          !bare || url.groupBy === "broad"
+            ? { checked: prefs.showGroupProgress, onChange: prefs.setShowGroupProgress }
+            : undefined
+        }
         // Place names are data. A province choice reads as the country where there's no province.
         counting={
           photoPlaces

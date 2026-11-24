@@ -52,8 +52,7 @@ export interface GridSelection {
 export type GroupBy = "none" | SpeciesGroupBy;
 export type SortBy = "taxonomic" | "name" | "scientific" | "rarity" | "localRarity";
 
-// At or below this card width the name box uses tighter spacing (see SpeciesCard `compact`); above
-// it cards are photo-filled, names on the photo (too small to read there at these sizes).
+// At or below this card width the name box uses tighter spacing (see SpeciesCard `compact`).
 const COMPACT_CARD_WIDTH = 150;
 
 // "unrated" ranks after "common": it isn't easier, just unknown.
@@ -135,7 +134,7 @@ function groupProgress(group: SpeciesGroup): { collected: number; total: number 
 
 // The heading's parts as rendered: arrow, gap-2, label (text-callout medium), gap-2, count (text-footnote),
 // then gap-x-3 and the archive button when it has one. A band's label is text-title-3 semibold with
-// no count beside it, and its number line (text-display, then text-callout) can be the wider part.
+// no count beside it, and its number line (text-callout, the number semibold) can be the wider part.
 function headingWidthFor(
   group: SpeciesGroup,
   collapsed: boolean,
@@ -149,10 +148,11 @@ function headingWidthFor(
   if (band && !collapsed) {
     const { collected, total } = groupProgress(group);
     const top = CHEVRON_WIDTH + 8 + textWidth(group.label, 17, 600) + buttons;
-    const number =
-      textWidth(formatNumber(collected), 40, 700) +
-      6 +
-      textWidth(i18n.t("collection.breadcrumb.ofTotal", { total: formatNumber(total) }), 14, 400);
+    const number = textWidth(
+      `${formatNumber(collected)} ${i18n.t("collection.breadcrumb.ofTotal", { total: formatNumber(total) })}`,
+      14,
+      600,
+    );
     return Math.ceil(Math.max(top, number)) + 1;
   }
   const width =
@@ -190,6 +190,7 @@ export default function GroupedSpeciesGrid({
   countryRegionName,
   hideLabels,
   hideNames,
+  groupBands = false,
   selection,
   backLabel,
   tripId,
@@ -213,6 +214,8 @@ export default function GroupedSpeciesGrid({
   countryRegionName?: string;
   hideLabels?: boolean;
   hideNames?: boolean;
+  /** Grouped by animal group: each group heads with a band of its photographed count and bar. */
+  groupBands?: boolean;
   /** Present while selecting: cards pick instead of open, and headings offer "Select group". */
   selection?: GridSelection;
   /** A card or bulk action changed species in this list; the parent patches its rows. */
@@ -307,7 +310,7 @@ export default function GroupedSpeciesGrid({
   const archivable = (group: SpeciesGroup) => packSmallGroups && !PINNED_KEYS.has(group.key);
   // Animal groups (Owls, Frogs & Toads) head with a band and their own "22 of 48"; families and
   // tiers keep the one-line heading.
-  const banded = (group: SpeciesGroup) => groupBy === "broad" && !PINNED_KEYS.has(group.key);
+  const banded = (group: SpeciesGroup) => groupBands && groupBy === "broad" && !PINNED_KEYS.has(group.key);
   const gap = gapPxFor(cardMinWidth);
   const selecting = !!selection;
   const blocks = useMemo(
@@ -327,19 +330,21 @@ export default function GroupedSpeciesGrid({
             isCollapsed,
             packSmallGroups && !PINNED_KEYS.has(group.key),
             selecting,
-            groupBy === "broad" && !PINNED_KEYS.has(group.key),
+            groupBands && groupBy === "broad" && !PINNED_KEYS.has(group.key),
           ),
       }),
-    [groups, groupBy, collapsed, packSmallGroups, width, cardMinWidth, gap, selecting],
+    [groups, groupBy, collapsed, packSmallGroups, width, cardMinWidth, gap, selecting, groupBands],
   );
 
   // Measured heights, keyed by block (a row by its first species), kept across re-layouts. A
   // row's is stored beyond its square photos, so it still fits after a resize; unmeasured rows
   // and headings borrow the latest measurement.
   const [measuredHeights] = useState(() => new Map<string, number>());
-  const overlay = cardMinWidth > COMPACT_CARD_WIDTH;
-  const nameBoxGuess =
-    hideNames || overlay ? 2 : cardMinWidth <= COMPACT_CARD_WIDTH ? COMPACT_NAME_BOX_ESTIMATE_PX : NAME_BOX_ESTIMATE_PX;
+  const nameBoxGuess = hideNames
+    ? 2
+    : cardMinWidth <= COMPACT_CARD_WIDTH
+      ? COMPACT_NAME_BOX_ESTIMATE_PX
+      : NAME_BOX_ESTIMATE_PX;
   const [measured, setMeasured] = useState({ version: 0, row: -1, heading: -1 });
   const [blockObserver] = useState(() =>
     typeof ResizeObserver === "undefined"
@@ -531,8 +536,7 @@ export default function GroupedSpeciesGrid({
     showVolumeBadge: multiDriveInUse,
     hideLabels,
     hideNames,
-    compact: !overlay,
-    overlay,
+    compact: cardMinWidth <= COMPACT_CARD_WIDTH,
     cardImageSide,
     backLabel,
     tripId,
@@ -786,11 +790,10 @@ function GroupHeading({
   return (
     <div className="flex flex-col gap-1">
       {heading}
-      <p className="flex items-baseline gap-1.5 whitespace-nowrap">
-        <span className="text-display font-bold tabular-nums text-ink">{formatNumber(progress.collected)}</span>
-        <span className="text-callout text-muted">
-          {t("collection.breadcrumb.ofTotal", { total: formatNumber(progress.total) })}
-        </span>
+      {/* As the page header's count, quieter than the group's name. */}
+      <p className="whitespace-nowrap text-callout text-muted">
+        <span className="font-semibold tabular-nums text-ink">{formatNumber(progress.collected)}</span>{" "}
+        {t("collection.breadcrumb.ofTotal", { total: formatNumber(progress.total) })}
       </p>
       <ProgressBar
         determinate
