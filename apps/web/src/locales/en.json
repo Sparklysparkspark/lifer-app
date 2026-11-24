@@ -65,7 +65,17 @@
       },
       "share": "Share…",
       "shareNeedsServer": "Sharing needs a Lifer server",
-      "delete": "Delete album"
+      "delete": "Delete album",
+      "speciesLoadFailed": "Couldn't load this album's species.",
+      "removeFailed": "Couldn't remove this photo from the album.",
+      "excludeFailed": "Couldn't exclude this photo from the album.",
+      "ratingFailed": "Couldn't save that rating.",
+      "deleteFailed": "Couldn't delete this album",
+      "renameFailed": "Couldn't rename this album.",
+      "descriptionFailed": "Couldn't save the description.",
+      "coverStyleFailed": "Couldn't change the cover style.",
+      "coverFailed": "Couldn't set the album cover.",
+      "coverTileFailed": "Couldn't change this cover tile."
     },
     "empty": {
       "description": "Group your favorite photos into a named collection you can browse or share.",
@@ -103,7 +113,7 @@
       "adjustCover": "Adjust position",
       "isCover": "Album cover ✓",
       "removeFromAlbum": "Remove from album",
-      "selected": "{count} selected",
+      "selected": "{count, number} selected",
       "setCover": "Use as album cover"
     },
     "rename": {
@@ -136,7 +146,23 @@
       "showLocations": "Show exact locations",
       "showLocationsDescription": "Sensitive species only ever show their province or state and country.",
       "locationsFailed": "Couldn't change this link",
-      "locationsToggle": "Exact locations"
+      "locationsToggle": "Exact locations",
+      "meta": {
+        "downloadsAllowed": "Downloads allowed",
+        "expiresOn": "Expires {date}"
+      },
+      "loadFailed": "Couldn't load share links.",
+      "createdCopied": "Link created and copied",
+      "createdNotCopied": "Link created. Copy it from the list below.",
+      "createFailed": "Couldn't create this share link",
+      "revokeConfirm": {
+        "title": "Revoke this share link?",
+        "message": "Anyone with this link loses access.",
+        "confirm": "Revoke link"
+      },
+      "revokeFailed": "Couldn't revoke this share link.",
+      "copied": "Link copied",
+      "copyFailed": "Couldn't copy the link."
     },
     "smart": {
       "counting": "Counting matches…",
@@ -498,7 +524,7 @@
     "noFilterMatch": {
       "clear": "Clear filters",
       "description": "Clear the filters to see every species on this list again.",
-      "title": "None of the {count, number} species here match these filters"
+      "title": "{count, plural, one {The species here doesn't match these filters} other {None of the {count, number} species here match these filters}}"
     },
     "noHubCountries": {
       "description": "Pick a country above, or add one in <regionsLink>Species downloads</regionsLink>.",
@@ -629,6 +655,10 @@
       "viewSpecies": "View species",
       "openPhotos": "Open the photos of {name} here",
       "photosFailed": "Couldn't load the photos here."
+    },
+    "emptyList": {
+      "title": "Nothing on this list yet",
+      "description": "Species you add or photograph here show up on this list."
     }
   },
   "collectionStats": {
@@ -639,7 +669,7 @@
     "rarityFor": "Rarity for",
     "overall": "Overall",
     "byYear": "By year",
-    "noDated": "No dated captures yet."
+    "noDated": "No dated photos yet."
   },
   "commandPalette": {
     "label": "Search Lifer",
@@ -702,7 +732,9 @@
     "rename": "Rename",
     "retry": "Retry",
     "save": "Save",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "view": "View",
+    "undo": "Undo"
   },
   "errors": {
     "api": {
@@ -1083,7 +1115,31 @@
         "slow": "Loading map detail"
       }
     },
-    "similarNone": "Nothing else looks almost the same as this photo."
+    "similarNone": "Nothing else looks almost the same as this photo.",
+    "edits": {
+      "dateFailed": "Couldn't save that date",
+      "ratingFailed": "Couldn't save that rating",
+      "tagsFailed": "Couldn't save those tags",
+      "rateSomeFailed": "{failed, number} of {count, plural, one {# photo} other {# photos}} couldn't be rated",
+      "rated": "Rated {count, plural, one {# photo} other {# photos}}",
+      "hiddenOne": "Hidden. Find it under Hidden in the Gallery's filters",
+      "hiddenMany": "{count, plural, one {# photo hidden. Find it} other {# photos hidden. Find them}} under Hidden in the Gallery's filters",
+      "unhideFailed": "Couldn't unhide those photos",
+      "hideFailed": "Couldn't hide that photo",
+      "originalsFailed": "Couldn't find the selected originals",
+      "noOriginals": "None of the selected photos has an original to download",
+      "preparingDownloads": "Preparing {count, plural, one {# download} other {# downloads}}…",
+      "downloadsFailed": "{failed, number} of {count, plural, one {# original} other {# originals}} couldn't be downloaded",
+      "moveBackFailed": "Couldn't move every photo back",
+      "movedOne": "Moved to {species}",
+      "movedMany": "Moved {count, plural, one {# photo} other {# photos}} to {species}",
+      "featuredFailed": "Couldn't change the featured photo",
+      "deleteFailed": "Couldn't delete that photo",
+      "deleteManyFailed": "Couldn't delete those photos",
+      "addToAlbumFailed": "Couldn't add those photos to the album",
+      "reassignFailed": "Couldn't reassign this photo",
+      "reassignSomeFailed": "{failed, number} of {count, plural, one {# photo} other {# photos}} couldn't be reassigned"
+    }
   },
   "mapRegion": {
     "pathLabel": "Map location",
@@ -1128,19 +1184,19 @@
         "question": "What happens if I open a region I haven't downloaded?"
       },
       "uploadPaths": {
-        "answer": "All three end up with the same organized folder structure, they're just different starting points. A species page's upload is for a photo (or a few) of one specific species. Import is for a big batch where you'll assign species one by one afterward. Trips is for a whole folder from an outing that references files in place rather than copying them in.",
-        "question": "What's the difference between uploading on a species page, Import, and Trips?"
+        "answer": "All three end up with the same organized folder structure, they're just different starting points. A species page's Import is for a photo (or a few) of one specific species. Import is for a big batch where you'll assign species one by one afterward. Trips is for a whole folder from an outing that references files in place rather than copying them in.",
+        "question": "What's the difference between importing on a species page, Import, and Trips?"
       }
     },
     "faqTitle": "F.A.Q.",
     "library": {
       "drives": "A library spread across several drives can register each one in <storageLink>Settings → Storage</storageLink>, and Lifer remembers which drive each photo is on. Most people never need this.",
       "editedJpeg": "your edited JPEG",
-      "intro": "Every original photo you upload goes straight into your library's <strong>Storage location</strong>, grouped by animal group (Birds/Mammals/Fish/Other) then species, so your library stays usable outside Lifer too:",
+      "intro": "Every original photo you import goes straight into your library's <strong>Storage location</strong>, grouped by animal group (Birds/Mammals/Fish/Other) then species, so your library stays usable outside Lifer too:",
       "matchingRaw": "matching RAW file",
       "speciesName": "species name",
       "title": "Your library structure",
-      "folderLayout": "A different <libraryLink>Folder layout</libraryLink> files photos by year instead, under <code>{folder}</code> (each photo's own capture year, not the year you uploaded it), or by date, trip or place.",
+      "folderLayout": "A different <libraryLink>Folder layout</libraryLink> files photos by year instead, under <code>{folder}</code> (each photo's own capture year, not the year you imported it), or by date, trip or place.",
       "yearTaken": "year taken"
     },
     "steps": {
@@ -1149,11 +1205,11 @@
         "title": "Browse & organize"
       },
       "bulk": {
-        "body": "One species at a time is fine for a handful of photos, but for a whole session's worth, use <importLink>Import</importLink>. Drop in a batch of photos, assign a species to each one, and upload them all together. That way you don't need to navigate to each species page one by one.",
-        "title": "Bulk import"
+        "body": "One species at a time is fine for a handful of photos, but for a whole session's worth, use <importLink>Import</importLink>. Drop in a batch of photos, assign a species to each one, and import them all together. That way you don't need to navigate to each species page one by one.",
+        "title": "Import a whole session"
       },
       "raw": {
-        "body": "The quickest way for a whole session: on <importLink>Import photos</importLink>, open <strong>\"Add RAWs to existing photos\"</strong> and point <strong>\"Choose a folder\"</strong> at your whole SD card. Lifer matches each RAW to the JPEG you already imported from it, by file name and capture time, and files it under that species, with no species to pick. You can also drop RAWs in with their JPEGs in a normal import. A RAW that doesn't match anything is simply left alone on your card rather than guessed at. To keep a RAW you haven't edited yet, add it from that species' page with <strong>Upload</strong>, then <strong>\"Choose RAW files\"</strong>.",
+        "body": "The quickest way for a whole session: on <importLink>Import photos</importLink>, open <strong>\"Add RAWs to existing photos\"</strong> and point <strong>\"Choose a folder\"</strong> at your whole SD card. Lifer matches each RAW to the JPEG you already imported from it, by file name and capture time, and files it under that species, with no species to pick. You can also drop RAWs in with their JPEGs in a normal import. A RAW that doesn't match anything is simply left alone on your card rather than guessed at. To keep a RAW you haven't edited yet, add it from that species' page with <strong>Import</strong>, then <strong>\"Choose RAW files\"</strong>.",
         "title": "Match RAW files"
       },
       "regions": {
@@ -1166,9 +1222,9 @@
         "title": "Import a trip"
       },
       "upload": {
-        "body": "Browse to a region (or search directly), pick a species, and hit <strong>Upload</strong> on its page. Or go to the <importLink>Import</importLink> page and bulk import a bunch of photos at once.",
+        "body": "Browse to a region (or search directly), pick a species, and hit <strong>Import</strong> on its page. Or go to the <importLink>Import</importLink> page and bring in a batch of photos at once.",
         "counts": "A species only counts as \"photographed\" once you've attached a real photo of your own. You can also mark a species as \"seen\" in case you didn't manage to get a photo. Photos will be automatically sorted into labelled folders in the directory of your choosing.",
-        "title": "Upload a species"
+        "title": "Import photos of a species"
       }
     },
     "stepsTitle": "Recommended usage flow",
@@ -1207,7 +1263,8 @@
     "unhideGroupFailed": "Couldn't unhide that group. Try again.",
     "unhiding": "Unhiding…",
     "wholeCountry": "Whole country",
-    "description": "Kept off one region's checklist only. Photos and records stay."
+    "description": "Kept off one region's checklist only. Photos and records stay.",
+    "noneInScope": "Nothing hidden in {scope}."
   },
   "hotspotMap": {
     "radius": "(±{radius}km)",
@@ -1232,9 +1289,10 @@
     "sensitiveNote": "This is an eBird Sensitive Species (or sensitive in this region/season). Its exact location can't be shown, the marked area is deliberately widened to protect it from targeted disturbance, capture, or hunting, matching eBird's own sensitive-species list.",
     "moreOnInaturalist": "See more recent sightings on iNaturalist ↗",
     "sightingYears": "Sighting years",
-    "searchPlaceholder": "Search coordinates…",
+    "searchPlaceholder": "Filter by coordinates, e.g. 49.28",
     "noMatch": "No locations match this filter.",
-    "sensitiveBadge": "⚠ sensitive"
+    "sensitiveBadge": "Sensitive",
+    "locationsOf": "({shown, number} of {count, plural, one {# location} other {# locations}})"
   },
   "import": {
     "bulk": {
@@ -1268,22 +1326,22 @@
       "show": "Show them",
       "hide": "Hide them",
       "imported": "Already in Lifer",
-      "skippedBefore": "Skipped before, not in your library",
+      "skippedBefore": "Skipped before, not in Lifer",
       "more": "And {formatted} more",
-      "checking": "Checking {formatted} files against your library",
+      "checking": "Checking {formatted, plural, one {{formatted} file} other {{formatted} files}} against your library",
       "inLifer": "{count, plural, one {{formatted} of {total} files is already in Lifer} other {{formatted} of {total} files are already in Lifer}}",
       "skippedCount": "{count, plural, one {{formatted} skipped before} other {{formatted} skipped before}}",
       "newCount": "{count, plural, =0 {none are new} one {{formatted} is new} other {{formatted} are new}}",
       "inLiferAs": "Already in Lifer as {species}",
       "inLiferTitle": "{count, plural, one {Already in Lifer ({formatted})} other {Already in Lifer ({formatted})}}",
       "skippedTitle": "{count, plural, one {Skipped before ({formatted})} other {Skipped before ({formatted})}}",
-      "clear": "Clear out the ones already in Lifer",
-      "clearNone": "None of these files could be cleared: Lifer couldn't confirm a matching copy in your library.",
+      "clear": "Move the ones already in Lifer to the Trash",
+      "clearNone": "None of these files could be moved to the Trash: Lifer couldn't confirm a matching copy in your library.",
       "clearTitle": "{count, plural, one {Move {formatted} file to the Trash?} other {Move {formatted} files to the Trash?}}",
-      "clearMessage": "Each one is already in your library with exactly the same content. Files you skipped before stay where they are. Put them back from the Trash if you need them.",
+      "clearMessage": "Each one is already in Lifer with exactly the same content. Files you skipped before stay where they are. Put them back from the Trash if you need them.",
       "clearConfirm": "{count, plural, one {Move {formatted} file to the Trash} other {Move {formatted} files to the Trash}}",
       "cleared": "{count, plural, one {Moved {formatted} file} other {Moved {formatted} files}}{sidecars, plural, =0 {} one { and # sidecar file} other { and # sidecar files}} to the Trash. {count, plural, one {It's still there if you need it.} other {They're still there if you need them.}}",
-      "clearFailed": "Couldn't clear out those files"
+      "clearFailed": "Couldn't move those files to the Trash"
     },
     "recentFolders": {
       "title": "Recent folders",
@@ -1295,10 +1353,10 @@
     "skippedManager": {
       "open": "Review skipped ({formatted})",
       "title": "Skipped photos",
-      "description": "Photos you left out of an import stay out when you import their folder again. Forget one to have it offered next time.",
+      "description": "Photos you skip stay skipped when you import their folder again. Forget one to have it offered next time.",
       "removed": "Removed",
       "notWildlife": "Not wildlife",
-      "noAnimal": "Marked no animal",
+      "noAnimal": "Marked not wildlife",
       "forget": "Forget",
       "forgetAll": "Forget all",
       "done": "Done",
@@ -1306,17 +1364,18 @@
       "forgetFailed": "Couldn't forget that photo. Try again."
     },
     "skipped": {
-      "title": "Left out of this import ({formatted})",
+      "title": "Skipped ({formatted})",
       "notWildlife": "Not wildlife ({formatted})",
       "marked": "Marked not wildlife ({formatted})",
-      "duplicates": "Already in your library ({formatted})",
+      "duplicates": "Already in Lifer ({formatted})",
       "looksLike": "Doesn't look like wildlife: it looks like {looksLike}",
       "markedNote": "You marked it as not wildlife",
       "asSpecies": "Imported as {species}",
       "asSpeciesOn": "Imported as {species}, {date}",
       "remove": "Remove from this import",
       "removeAll": "Remove all",
-      "importAll": "Import all anyway"
+      "importAll": "Import all anyway",
+      "similar": "Look like photos you have ({formatted})"
     },
     "cullMarks": {
       "skip": "Skip them",
@@ -1341,17 +1400,22 @@
       "remove": "Remove",
       "importAnyway": "Import anyway",
       "earlierPhoto": "Your earlier photo of {species}",
-      "duplicateExact": "Looks like you've already imported this photo: {species}{dated, select, yes {, {date}} other {}}. Importing it anyway files it under that species.",
-      "duplicateSimilar": "Looks like you've already imported a very similar photo (maybe edited or re-exported): {species}{dated, select, yes {, {date}} other {}}. Importing it anyway files it under that species.",
+      "duplicateExact": "This photo is already in Lifer: {species}{dated, select, yes {, {date}} other {}}. Importing it anyway files it under that species.",
+      "duplicateSimilar": "A very similar photo (maybe edited or re-exported) is already in Lifer: {species}{dated, select, yes {, {date}} other {}}. Importing it anyway files it under that species.",
       "notWildlife": "This doesn't look like wildlife (it looks like {looksLike}), so it won't be imported.",
       "noConfidentMatch": "No confident match. Closest guesses:",
       "noAnimal": "Not wildlife",
-      "noAnimalTip": "Leave this photo out: there's no animal in it",
+      "noAnimalTip": "Skip this photo: it isn't wildlife",
       "noAnimalMarked": "You marked this photo as not wildlife, so it won't be imported.",
       "maybeNote": "Might be {looksLike}. Skip it?",
       "keep": "Keep",
       "compare": "Compare",
-      "compareTip": "Look at your photo beside the suggested species' photos"
+      "compareTip": "Look at your photo beside the suggested species' photos",
+      "meta": {
+        "rawMatch": "RAW for your photo already in Lifer",
+        "editedVersion": "Edited version of the photo you already have",
+        "samePhotoAs": "Same photo as {name}"
+      }
     },
     "compare": {
       "title": "Compare",
@@ -1384,7 +1448,7 @@
     "rows": {
       "filed": "{photos, plural, one {# photo} other {# photos}} filed under {species, plural, one {# species} other {# species}}",
       "view": "View",
-      "duplicateCount": "{formatted} already imported",
+      "duplicateCount": "{formatted} already in Lifer",
       "undo": "Undo",
       "undoPartlyFailed": "Undo partly failed: {count, plural, one {# file} other {# files}} couldn't be removed. Try undo again.",
       "placesSet": "{count, plural, one {Place set for # photo} other {Places set for {formatted} photos}}",
@@ -1444,10 +1508,10 @@
     },
     "move": {
       "label": "Move photos into my library",
-      "help": "Photos and their .xmp sidecar files are moved to the Trash once they are safely in your library.",
+      "help": "After import, originals and their .xmp sidecars go to the Trash, including ones already in Lifer. Put them back from there if needed.",
       "moved": "{count, plural, one {Moved {formatted} photo} other {Moved {formatted} photos}}{sidecars, plural, =0 { into your library.} one { and # sidecar file into your library.} other { and # sidecar files into your library.}}",
-      "cleared": "{count, plural, one {Cleared {formatted} already in Lifer} other {Cleared {formatted} already in Lifer}}{sidecars, plural, =0 {.} one {, with # sidecar file.} other {, with # sidecar files.}}",
-      "stayed": "{count, plural, one {{formatted} skipped, still where it was.} other {{formatted} skipped, still where they were.}}",
+      "cleared": "{count, plural, one {Moved {formatted} already in Lifer to the Trash} other {Moved {formatted} already in Lifer to the Trash}}{sidecars, plural, =0 {.} one {, with # sidecar file.} other {, with # sidecar files.}}",
+      "stayed": "{count, plural, one {{formatted} original stayed where it was.} other {{formatted} originals stayed where they were.}}",
       "reasons": {
         "notInSourceFolder": "The original stays where it is: it isn't in a folder you chose.",
         "inLibrary": "The original stays where it is: it's in your library's own folders.",
@@ -1487,9 +1551,9 @@
       "action": "Send to iNaturalist",
       "sending": "Sending to iNaturalist...",
       "nothingToSend": "Nothing to send. These photos are already on iNaturalist, or their species isn't matched there yet.",
-      "sent": "{count, plural, one {Sent # observation to iNaturalist.} other {Sent # observations to iNaturalist.}}",
+      "sent": "{count, plural, one {Sent # sighting to iNaturalist.} other {Sent # sightings to iNaturalist.}}",
       "sentOneIncomplete": "Sent. Add what's missing on iNaturalist, then come back to Lifer.",
-      "sentIncomplete": "{count, plural, one {Sent # observation.} other {Sent # observations.}} {incomplete, plural, one {# needs} other {# need}} a location or date on iNaturalist.",
+      "sentIncomplete": "{count, plural, one {Sent # sighting.} other {Sent # sightings.}} {incomplete, plural, one {# needs} other {# need}} a location or date on iNaturalist.",
       "finish": "Show",
       "view": "View on iNaturalist",
       "linkedExisting": "{count, plural, one {# sighting was already on iNaturalist, so Lifer linked it.} other {# sightings were already on iNaturalist, so Lifer linked them.}}",
@@ -1622,7 +1686,7 @@
       "noDate": "{count, plural, one {# has no date yet} other {# have no date yet}}"
     },
     "existing": {
-      "noModel": "Download the species-matching model in Settings to compare pictures. Until then, Lifer links nothing by itself.",
+      "noModel": "Download the species-matching model in Settings to compare photos. Until then, Lifer links nothing by itself.",
       "reading": "Reading your observations",
       "comparing": "Comparing photos",
       "linked": "{count, plural, one {Linked # photo to an observation you already have on iNaturalist.} other {Linked # photos to observations you already have on iNaturalist.}}",
@@ -1638,7 +1702,7 @@
       "likeness": {
         "same": "Looks the same",
         "probably": "Probably the same",
-        "unknown": "Pictures not compared"
+        "unknown": "Photos not compared"
       },
       "taxon": {
         "same": "Same species",
@@ -1708,7 +1772,7 @@
   "lightbox": {
     "saveFrame": "Save frame at {time} as a photo",
     "frameSaved": "Frame saved as a photo",
-    "frameDuplicate": "That frame is already in your library",
+    "frameDuplicate": "That frame is already in Lifer",
     "frameFailed": "Couldn't save that frame",
     "ebirdChecklist": "Open checklist on eBird",
     "label": "Photo viewer",
@@ -1723,7 +1787,7 @@
     "similar": "Similar photos"
   },
   "manageTags": {
-    "title": "Manage tags",
+    "title": "Tags",
     "loadFailed": "Couldn't load tags. Try again.",
     "renameFailed": "Couldn't rename that tag.",
     "deleteFailed": "Couldn't delete that tag. Try again.",
@@ -1825,18 +1889,20 @@
     "removeConfirm": {
       "title": "Remove \"{name}\" from {count, plural, one {# photo} other {# photos}}?",
       "message": "Their regions stay.",
-      "confirm": "Remove"
+      "confirm": "Remove name"
     },
     "help": {
       "remove": "Removing a name takes it off its photos and keeps each photo's region. Renaming to a name you already use merges the two, and Lifer asks first.",
       "scope": "Changes include hidden photos, which the counts leave out, but not photos in the Trash. With place folders in your folder layout, the files move to match."
-    }
+    },
+    "noPlaceNames": "No photos have a place name yet."
   },
   "placeName": {
     "listLabel": "Place names you've used",
     "detail": "· {region} · {count, plural, one {# photo} other {# photos}}",
     "detailNoRegion": "· {count, plural, one {# photo} other {# photos}}",
-    "regionInCountry": "{region}, {country}"
+    "regionInCountry": "{region}, {country}",
+    "photoCount": "{count, plural, one {# photo} other {# photos}}"
   },
   "nameChanged": {
     "title": "Name changed",
@@ -1956,7 +2022,7 @@
       "intro": "These regions would restore reference data for the species your reimport found missing:",
       "none": "None of the available regions cover the missing species from your library. They may not have downloads yet.",
       "select": "Select these regions",
-      "uncovered": "{count} species aren't covered by any available region yet."
+      "uncovered": "{count, plural, one {# species isn't} other {# species aren't}} covered by any available region yet."
     },
     "regionsLoadFailed": "Couldn't load the region list.",
     "searchPlaceholder": "Search for a country…",
@@ -2072,7 +2138,7 @@
       "title": "Seen and targets"
     },
     "versions": {
-      "body": "Edits, prints and exports of one photo are grouped, so it counts once.",
+      "body": "Edits, prints and exports of one photo are linked, so it counts once.",
       "title": "Photo versions"
     }
   },
@@ -2295,7 +2361,7 @@
     "chooseFailed": "Couldn't read that catalogue",
     "reading": "Reading the catalogue",
     "applying": "Importing",
-    "found": "{total} photos in the catalogue, {matched} already in Lifer",
+    "found": "{total, plural, one {{total} photo} other {{total} photos}} in the catalogue, {matched} already in Lifer",
     "changes": "What to bring over",
     "nothing": "Nothing in this catalogue",
     "groupCounts": "{total, plural, one {# item} other {# items}}, {change} would change, {conflicts, plural, one {# differs} other {# differ}} from Lifer",
@@ -2357,7 +2423,7 @@
     "answerFailed": "Couldn't answer {name}.",
     "compareCode": "Check that {name} shows this code:",
     "deny": "Don't Allow",
-    "revokeLater": "You can disconnect it any time in Settings.",
+    "revokeLater": "You can revoke it any time in Settings.",
     "scopes": {
       "imports": "Import photos into your library",
       "hostPreference": "Ask to open inside Lifer instead of in its own window",
@@ -2613,7 +2679,7 @@
       "neverSynced": "Not synced yet.",
       "lastSynced": "Last synced {when}.",
       "imported": "{count, plural, one {# photo brought in.} other {# photos brought in.}}",
-      "unrecognized": "{count, plural, one {# left out: Lifer couldn't tell the species.} other {# left out: Lifer couldn't tell the species.}}",
+      "unrecognized": "{count, plural, one {# skipped: Lifer couldn't tell the species.} other {# skipped: Lifer couldn't tell the species.}}",
       "skipped": "{count, plural, one {# video or RAW file skipped.} other {# videos and RAW files skipped.}}",
       "listing": "Reading your albums",
       "importing": "Bringing in photos",
@@ -2692,7 +2758,7 @@
       },
       "reorganize": "Reorganize",
       "reorganizing": "Reorganizing…",
-      "reorganizeResult": "Moved {moved} of {total} files ({skipped} already in place, {failed} failed).",
+      "reorganizeResult": "Moved {moved, number} of {total, plural, one {# file} other {# files}} ({skipped, number} already in place, {failed, number} failed).",
       "reorganizeFailed": "Couldn't reorganize your photos",
       "folderLayout": {
         "label": "Folder layout",
@@ -2872,7 +2938,7 @@
         "importing": "Importing…",
         "stopped": "Stopped. Files already in progress were still added.",
         "description": "Your files stay where they are unless \"Move photos into my library\" is on.",
-        "progress": "Photos: {photos} of {totalPhotos} · RAW files: {raws} of {totalRaws}"
+        "progress": "Photos: {photos} of {totalPhotos}, RAW files: {raws} of {totalRaws}"
       },
       "summary": {
         "added": "Added {count, plural, one {# photo} other {# photos}}{known, plural, =0 {} other { (# already in Lifer)}}{raws, plural, =0 {} one { and matched # RAW file} other { and matched # RAW files}}.",
@@ -2981,19 +3047,19 @@
       },
       "saveFailed": "Couldn't update this setting",
       "updateConfirm": {
-        "title": "Update existing photos?",
+        "title": "Reorganize existing photos?",
         "message": "This renames existing photo folders and refreshes embedded tags to match your current naming style."
       },
-      "updatePhotos": "Update photos",
+      "updatePhotos": "Reorganize",
       "updating": "Updating…",
-      "updateResult": "Updated {moved} of {total} photos to match ({skipped} already matched, {failed} failed).",
-      "updateFailed": "Couldn't update your existing photos",
+      "updateResult": "Moved {moved, number} of {total, plural, one {# file} other {# files}} ({skipped, number} already in place, {failed, number} failed).",
+      "updateFailed": "Couldn't reorganize your photos",
       "nameFormat": "Name format",
       "nameFormatDescription": "For species folders and photo tags. The first part a species has leads; the rest follow in brackets.",
       "moveUp": "Move {name} up",
       "moveDown": "Move {name} down",
       "abaHint": "ABA codes appear once you download a North or Central American region.",
-      "rename": "Rename existing photos",
+      "rename": "Reorganize existing photos",
       "renameDescription": "New photos use the format above; this updates folders and tags already in your library."
     },
     "storage": {
@@ -3231,12 +3297,12 @@
       "lastSynced": "Last synced {when}",
       "neverSynced": "Hasn't synced yet",
       "loadFailed": "Couldn't load your paired phones.",
-      "revoke": "Remove",
+      "revoke": "Revoke",
       "revokeConfirm": {
-        "title": "Remove \"{name}\"?",
+        "title": "Revoke \"{name}\"?",
         "message": "This phone stops syncing right away. Photos already on it stay there, and pairing again connects it once more."
       },
-      "revokeFailed": "Couldn't remove the phone.",
+      "revokeFailed": "Couldn't revoke the phone.",
       "optionFailed": "Couldn't change that setting.",
       "whenClosedTitle": "When Lifer is closed",
       "keepSyncing": "Keep syncing with your phone when Lifer is closed",
@@ -3271,10 +3337,10 @@
       "addPlaceholder": "e.g. Finals",
       "add": "Add",
       "lookLabel": "Look for versions in a folder",
-      "lookDescription": "Groups a folder's photos again with the names above. Photos you split or linked stay as they are.",
+      "lookDescription": "Links a folder's photos again with the names above. Photos you split or linked stay as they are.",
       "look": "Choose folder",
       "looking": "Looking for versions",
-      "found": "{linked, plural, one {Grouped # version} other {Grouped # versions}}, {suggested, plural, one {# to review on the Import page} other {# to review on the Import page}}.",
+      "found": "{linked, plural, one {Linked # version} other {Linked # versions}}{suggested, plural, =0 {.} one {, # to review on the Import page.} other {, # to review on the Import page.}}",
       "foundNone": "No new versions found.",
       "saveFailed": "Couldn't save the folder names. Try again."
     }
@@ -3334,7 +3400,7 @@
       "removeSpecies": "Remove species",
       "rawGallery": "RAW gallery",
       "download": "Download",
-      "upload": "Upload",
+      "upload": "Import",
       "markSeenFailed": "Couldn't mark this species as seen",
       "updateFailed": "Couldn't update this species",
       "addTargetFailed": "Couldn't add to targets",
@@ -3348,7 +3414,7 @@
       "removeConfirm": {
         "title": "Remove this species?",
         "message": "You can add it back later by searching iNaturalist.",
-        "confirm": "Remove"
+        "confirm": "Remove species"
       },
       "removeFailed": "Couldn't remove this species. Try again."
     },
@@ -3405,7 +3471,7 @@
       "filterVideo": "Video ({count})",
       "empty": {
         "title": "Not photographed yet",
-        "description": "Upload a photo to add this species to your collection."
+        "description": "Import a photo to add this species to your collection."
       },
       "uploading": "Uploading",
       "bestShot": "Best shot",
@@ -3429,7 +3495,7 @@
       "placeholder": "Jump to species…",
       "searchInaturalist": "Search iNaturalist ↗",
       "searchInaturalistNoMatch": "No local match for \"{query}\", search iNaturalist ↗",
-      "turnOnInaturalist": "Turn on iNaturalist search in Settings to add any species"
+      "turnOnInaturalist": "Search iNaturalist for any species"
     },
     "seasonality": {
       "byWeek": "Observations by week",
@@ -3442,7 +3508,7 @@
       "correctIdTo": "Correct ID to:",
       "rate": "Rate:",
       "reassigning": "Reassigning…",
-      "selectedCount": "{count} selected",
+      "selectedCount": "{count, number} selected",
       "typeSpecies": "Type a species…",
       "hide": "Hide",
       "deleteSelected": "Delete selected",
@@ -3515,7 +3581,7 @@
       "help": "Copies the pages and web-sized photos into a folder you pick, ready to put on any web host. Your originals are not touched.",
       "action": "Save to a folder",
       "copying": "Copying photos",
-      "progress": "({done} of {total} files)",
+      "progress": "({done} of {total, plural, one {{total} file} other {{total} files}})",
       "done": "{count, plural, =0 {Nothing new to copy into {folder}.} one {Saved the site into {folder}, with # photo file.} other {Saved the site into {folder}, with # photo files.}}"
     },
     "share": {
@@ -3567,7 +3633,7 @@
     "removeConfirm": {
       "title": "Remove this species?",
       "message": "You can add it back later by searching iNaturalist.",
-      "confirm": "Remove"
+      "confirm": "Remove species"
     },
     "removeFailed": "Couldn't remove this species. Try again.",
     "markedSeen": "Marked {name} as seen.",
@@ -4042,7 +4108,11 @@
     "restoring": "Restoring…",
     "retention": "Deleted photos are removed for good after {days} days. Restore any before then.",
     "selectedCount": "{count, number} selected",
-    "title": "Trash"
+    "title": "Trash",
+    "raw": {
+      "deletedToo": "RAW will also be deleted",
+      "kept": "RAW will be kept"
+    }
   },
   "trips": {
     "card": {
@@ -4124,7 +4194,7 @@
       "missing": "{count, plural, one {# file can't be found. It's listed when the move ends.} other {# files can't be found. They're listed when the move ends.}}",
       "moveButton": "{count, plural, =0 {Move files} one {Move # file} other {Move # files}}",
       "moveFailed": "Couldn't start moving the files",
-      "found": "Found {found, number} of {total, number} photos there.",
+      "found": "Found {found, number} of {total, plural, one {# photo} other {# photos}} there.",
       "notThere": "{count, plural, one {# file isn't there or has changed, so it keeps its old location.} other {# files aren't there or have changed, so they keep their old location.}}",
       "wildlifeTitle": "Set wildlife folder",
       "wildlifeDescription": "Where new photos for this trip are saved, sorted by species. Make a Wildlife folder in the trip's folder with New folder if you like.",
@@ -4222,14 +4292,14 @@
       "importing": "Importing…",
       "importPhotos": "Import photos",
       "summary": "{count, plural, one {# new photo} other {# new photos}} · {ready} ready to import",
-      "notWildlife": "{count} not wildlife, left out",
+      "notWildlife": "{count} not wildlife, skipped",
       "assignSelected": "Assign {count} selected to:",
       "importCount": "Import {count, plural, one {# photo} other {# photos}}",
       "regionForSuggestions": "Region for species suggestions (also saved as each photo's location):",
       "batchLocation": "Location for this batch (optional):",
       "pickRegion": "Pick a region to see species suggestions below.",
       "copiedTo": "Imported photos are copied to {folder}, sorted by species. The originals stay where they are.",
-      "removeRow": "Leave this photo out of the import"
+      "removeRow": "Skip this photo"
     },
     "start": {
       "startDate": "Start date",
@@ -4268,7 +4338,7 @@
       "confirmed": "{count, plural, one {# photo} other {# photos}} linked",
       "suggested": "{count, plural, one {# photo} other {# photos}} suggested",
       "confirm": "{count, plural, one {Link # photo} other {Link # photos}}",
-      "confirmedToast": "Linked {count} photos to the checklist",
+      "confirmedToast": "Linked {count, plural, one {{count} photo} other {{count} photos}} to the checklist",
       "dismiss": "Not these photos",
       "open": "Open on eBird",
       "gather": "Gather photos into a folder",
@@ -4323,6 +4393,11 @@
     "toast": {
       "dismiss": "Dismiss",
       "region": "Notifications"
+    },
+    "selectAll": "Select all",
+    "deselectAll": "Deselect all",
+    "selection": {
+      "selected": "{count, number} selected"
     }
   },
   "updates": {
@@ -4371,7 +4446,7 @@
       "duplicate": "already added, skipped",
       "filedUnder": "filed under {name}",
       "noneFound": "No supported RAW files found in that selection",
-      "title": "Upload RAW files"
+      "title": "Import RAW files"
     }
   },
   "volumeDestination": {
@@ -4432,7 +4507,7 @@
     "ignoredAll": "{count, plural, one {{total} file ignored} other {{total} files ignored}}",
     "ignoreAllFailed": "Couldn't ignore the files",
     "noMatch": "No files match “{search}”",
-    "showingFirst": "Showing the first {shown} of {total} files.",
+    "showingFirst": "Showing the first {shown} of {total, plural, one {{total} file} other {{total} files}}.",
     "problem": {
       "changed": "Contents changed",
       "unreadable": "Can't be read",
@@ -4474,7 +4549,7 @@
     "title": "Similar photos",
     "description": "Bursts and repeats: photos of one species, taken moments apart, that look almost the same.",
     "help": {
-      "how": "Lifer compares the picture of each photo with the ones taken just before it. Photos of the same species taken within 15 seconds that look almost alike, or within 3 minutes that look nearly identical, form a group.",
+      "how": "Lifer compares each photo with the ones taken just before it. Photos of the same species taken within 15 seconds that look almost alike, or within 3 minutes that look nearly identical, form a group.",
       "review": "Open a group to compare, rate, hide or delete its photos. Lifer never removes anything by itself.",
       "missing": "Photos with no date, and photos still waiting for species matching, aren't grouped yet."
     },
@@ -4517,7 +4592,7 @@
       "manual": "Linked by you",
       "versionFolder": "Linked: same name, in a versions folder, same moment and camera"
     },
-    "useAsPhoto": "Use this as the photo",
+    "useAsPhoto": "Use as the photo",
     "splitOut": "Split out",
     "linkTo": "Link to another photo",
     "linkTitle": "Link to another photo",
@@ -4528,7 +4603,7 @@
     "linkSearch": "Search photos",
     "linkSearchPlaceholder": "File name, species or date",
     "linkToPhoto": "Link to {name}",
-    "shownToast": "Showing {name}",
+    "shownToast": "{name} is now used as the photo",
     "splitToast": "{name} is a photo of its own again",
     "linkedToast": "Linked as a version",
     "undo": "Undo",
@@ -4540,7 +4615,7 @@
       "link": "Link",
       "notSame": "Not the same",
       "linkedToast": "{count, plural, one {Linked # version} other {Linked # versions}}",
-      "dismissedToast": "Kept apart"
+      "dismissedToast": "Marked not the same"
     },
     "badge": "{count, plural, one {# version} other {# versions}}",
     "label": {
@@ -4554,17 +4629,17 @@
       "hdr": "HDR",
       "withSize": "{kind} {size}"
     },
-    "manage": "Manage versions",
+    "manage": "Versions",
     "rename": "Rename",
     "renameLabel": "Version name",
     "renamedToast": "Version renamed",
-    "shownEverywhere": "Shown as the photo",
+    "shownEverywhere": "Used as the photo",
     "showAll": "Show every version as its own photo",
     "showingAll": "Showing all versions ({count, plural, one {# file} other {# files}})",
     "showPhoto": "Show its photo",
-    "importHint": "Keep prints and edits in a folder next to the original, such as Prints, Versions or B&W, and Lifer groups them as one photo.",
+    "importHint": "Keep prints and edits in a folder next to the original, such as Prints, Versions or B&W, and Lifer links them as one photo.",
     "notice": {
-      "found": "Found {versions, plural, one {# version} other {# versions}} of {photos, plural, one {# photo} other {# photos}}. Each is grouped as one photo.",
+      "found": "Found {versions, plural, one {# version} other {# versions}} of {photos, plural, one {# photo} other {# photos}}. Each counts as one photo.",
       "howItWorks": "See how it works",
       "dismiss": "Dismiss"
     }
@@ -4697,7 +4772,7 @@
   },
   "review": {
     "title": "Review identifications",
-    "progress": "{confirmed} of {total} photos confirmed",
+    "progress": "{confirmed} of {total, plural, one {{total} photo} other {{total} photos}} confirmed",
     "loadFailed": "Couldn't load the photos waiting for review.",
     "emptyTitle": "Nothing to review",
     "emptyDescription": "Photos Lifer names by itself wait here until you confirm them.",

@@ -15,12 +15,10 @@
     "offlinePacks.downloaded.selectAll",
     "trips.suggestions.selectAll"
   ],
-  "jargon": [
-    "guide.steps.bulk.title",
-    "guide.steps.upload.body",
-    "hiddenSpecies.drillIn",
-    "otherTaxa.bulkHint",
-    "regionBrowser.drillIn"
-  ],
-  "emoji": ["hotspotMap.sensitiveBadge"]
+  "jargon": ["hiddenSpecies.drillIn", "otherTaxa.bulkHint", "regionBrowser.drillIn"],
+  "plural": [
+    "inaturalist.import.locationFrom",
+    "inaturalist.import.locationFromNear",
+    "offlinePacks.downloaded.sizeBreakdown"
+  ]
 }

@@ -15,7 +15,8 @@
   },
   "albums": {
     "addTo": {
-      "newPlaceholder": "Placeholder of the field for creating a new album to add the photos to."
+      "newPlaceholder": "Placeholder of the field for creating a new album to add the photos to.",
+      "onlySmart": "Add to album dialog when every album is a smart album, which can't take hand-picked photos."
     },
     "detail": {
       "importAlbum": "Button: import new photos straight into this album.",
@@ -451,6 +452,12 @@
         "failed": "Quiet line on the photo map when online tiles could not load (offline or the provider is down); the offline map stays.",
         "slow": "Quiet line under the map's layers button when online map detail is taking a while on a slow connection; the offline map shows meanwhile. Not an error."
       }
+    },
+    "edits": {
+      "rateSomeFailed": "{failed} photos of {count} selected couldn't be rated.",
+      "downloadsFailed": "{failed} originals of {count} couldn't be downloaded.",
+      "reassignSomeFailed": "{failed} photos of {count} couldn't be moved to another species.",
+      "movedMany": "{species} is a species name."
     }
   },
   "guide": {
@@ -477,7 +484,8 @@
     "unhideChildren": {
       "title": "{names} is a list of province or state names, already joined (\"Ontario and Quebec\")."
     },
-    "wholeCountry": "Picker entry for species hidden from the country itself rather than one of its provinces."
+    "wholeCountry": "Picker entry for species hidden from the country itself rather than one of its provinces.",
+    "noneInScope": "{scope} is a region name, like British Columbia, or the phrase for all hidden species."
   },
   "hotspotMap": {
     "radius": "{radius} is a distance in kilometres around an approximate point.",
@@ -490,7 +498,8 @@
     "sensitiveBadge": "Short badge on a location in the list: the species is eBird-sensitive there.",
     "years": {
       "last1": "Filter option for record years."
-    }
+    },
+    "locationsOf": "Locality map heading: {shown} locations pass the filters out of {count}."
   },
   "import": {
     "known": {
@@ -566,7 +575,7 @@
     },
     "move": {
       "label": "A switch beside the Import drop area, desktop app only. On: originals are moved to the system Trash after they're safely copied into the library.",
-      "stayed": "Ends the import summary, after moved and cleared, e.g. \"Moved 42 photos into your library. Cleared 3 already in Lifer. 3 skipped, still where they were.\"",
+      "stayed": "Ends the import summary, after moved and cleared, e.g. \"Moved 42 photos into your library. Moved 3 already in Lifer to the Trash. 3 originals stayed where they were.\" Counts only originals Lifer didn't move.",
       "moved": "Starts the import summary. {sidecars} is how many .xmp sidecar files (metadata files other photo apps keep beside a photo) went to the Trash with the photos, e.g. \"Moved 8 photos and 6 sidecar files into your library.\"",
       "cleared": "After moved in the import summary: files the library already had, sent to the Trash, with their .xmp sidecar files."
     },
@@ -578,6 +587,9 @@
     "tripFit": {
       "one": "Asked above a group of import photos taken during an existing trip. {dates} is the trip's date range, like \"May 3 – 10, 2026\".",
       "added": "Shown on the group once the user chose Add to trip, before importing."
+    },
+    "skipped": {
+      "similar": "Import page list of photos that look like ones already in Lifer but aren't exact copies (maybe edited). {formatted} is the count with digit grouping."
     }
   },
   "inaturalist": {
@@ -826,7 +838,8 @@
   "placeName": {
     "detail": "After a suggested place name: its region (and country) and how many of the user's photos carry it. Starts with a middle dot separating it from the name.",
     "detailNoRegion": "After a suggested place name with no region: how many of the user's photos carry it.",
-    "regionInCountry": "A region and the country it is in, like Alberta, Canada."
+    "regionInCountry": "A region and the country it is in, like Alberta, Canada.",
+    "photoCount": "Shown after a place name's region in the place picker, joined by the app's list separator."
   },
   "nameChanged": {
     "title": "Modal title: a species the user has photos of was split by taxonomists into several species.",
@@ -1474,6 +1487,10 @@
     },
     "job": {
       "ofTotal": "Progress of a background job, e.g. \"12 MB of 40 MB\" or \"4 of 11\". {done} and {total} are already formatted."
+    },
+    "selectAll": "Selection bar: selects every item in the list, including ones not loaded yet.",
+    "selection": {
+      "selected": "Selection bar count of chosen items."
     }
   },
   "upload": {
@@ -1486,7 +1503,8 @@
       "message": "{fileName} is the uploaded file's name, {species} a species name.",
       "messageWithDate": "{fileName} is the uploaded file's name, {species} a species name, {date} the date the existing photo was taken.",
       "position": "After the dialog title when several possible duplicates wait: this is the first of {total}.",
-      "skip": "Button: don't import this file because it is probably a duplicate."
+      "skip": "Button: don't import this file because it is probably a duplicate.",
+      "skipAll": "Possible duplicate dialog, left of the footer: skips every waiting duplicate. {count} is how many are waiting."
     },
     "raw": {
       "addedCount": "{added} of {total} RAW files were filed.",
@@ -1681,5 +1699,8 @@
     "lowSpace": {
       "message": "One line under the toolbar on every page when the disk holding Lifer's data is nearly full. {free} is a size like \"4.2 GB\"."
     }
+  },
+  "review": {
+    "progress": "{confirmed} and {total} are counts already formatted with digit grouping, like 2,500."
   }
 }

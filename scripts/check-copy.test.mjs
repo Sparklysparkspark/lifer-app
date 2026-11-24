@@ -47,3 +47,32 @@ test("long descriptions warn without failing", () => {
   assert.equal(r.errors.length, 0);
   assert.equal(r.warnings.length, 1);
 });
+
+test("a count before a noun needs plural syntax", () => {
+  assert.equal(run("a.b", "Linked {count} photos to the checklist"), 1);
+  assert.equal(run("a.b", "{done} of {total, number} files"), 1);
+  assert.equal(run("a.b", "{count} species aren't covered"), 1);
+  assert.equal(run("a.b", "Linked {count, plural, one {# photo} other {# photos}}"), 0);
+  assert.equal(run("a.b", "{total, plural, one {{total} photo} other {{total} photos}} found"), 0);
+  assert.equal(run("a.b", "{species} photos"), 0);
+});
+
+test("the add-on's names only on its offer, Select all only on the shared pair", () => {
+  assert.equal(run("settings.apps.title", "Open Cull"), 1);
+  assert.equal(run("suggestedApps.cull.title", "Preen culls a card"), 0);
+  assert.equal(run("x.y", "Photos a culling app marked rejected"), 0);
+  assert.equal(run("ui.selectAll", "Select all"), 0);
+  assert.equal(run("ui.deselectAll", "Deselect all"), 0);
+});
+
+test("vocabulary flags a synonym in scope, unless allowed", () => {
+  const terms = [
+    { use: "Import", avoid: "\\bupload\\b", allow: ["upload.failed"] },
+    { use: "Already in Lifer", avoid: "already in your library", keys: "^import\\." },
+  ];
+  const v = (key, text) => checkCopy(new Map([[key, text]]), {}, terms).errors.length;
+  assert.equal(v("species.detail.upload", "Upload"), 1);
+  assert.equal(v("upload.failed", "Upload failed"), 0);
+  assert.equal(v("import.known.x", "Already in your library (3)"), 1);
+  assert.equal(v("settings.x", "Photos already in your library"), 0);
+});

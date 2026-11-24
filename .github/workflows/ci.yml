@@ -44,6 +44,8 @@ jobs:
       - run: npm run check:design-tokens
       # en.json copy rules (Q-03). The script lands with that package.
       - run: npm run check:copy
+      # Raw error text, count templates, confirms on reversible actions, dead thumbnails, keymap drift.
+      - run: npm run check:ux-code
       # Unit tests for the check scripts themselves (scripts/*.test.mjs).
       - run: npm run test:scripts
       # Phone app: no raw colours or touchables outside the house components, en.json keys.

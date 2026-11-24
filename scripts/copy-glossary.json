@@ -1,0 +1,63 @@
+{
+  "_about": "One word per concept (ux-rules W12). check:copy fails when a value matches `avoid` (case-insensitive) in a key matching `keys` (all keys when absent), unless the key is in `allow`.",
+  "terms": [
+    {
+      "use": "photo (or video)",
+      "avoid": "\\bpictures?\\b|\\bimages?\\b|\\bcaptures\\b"
+    },
+    {
+      "use": "Import (Upload only for the network transfer status)",
+      "avoid": "\\bupload(s|ed)?\\b",
+      "allow": [
+        "upload.banner.finished",
+        "upload.banner.progressLabel",
+        "upload.failed",
+        "upload.banner.waiting",
+        "import.rows.uploadFailed",
+        "settings.sync.lastSent"
+      ]
+    },
+    {
+      "use": "Send (iNaturalist)",
+      "avoid": "\\b(upload|post)(s|ed|ing)?\\b",
+      "keys": "^inaturalist\\."
+    },
+    {
+      "use": "Not wildlife",
+      "avoid": "\\bno animal\\b(?! group)"
+    },
+    {
+      "use": "Already in Lifer",
+      "avoid": "already in your library|already imported",
+      "keys": "^(import|upload|lightbox|trips\\.scanReview)\\."
+    },
+    {
+      "use": "Skip / Skipped",
+      "avoid": "\\bleft out\\b|\\bleave (it|this photo|them) out\\b",
+      "keys": "^(import|upload|trips\\.(scanReview|jobs)|settings\\.(reimport|immich))\\."
+    },
+    {
+      "use": "Link (versions)",
+      "avoid": "\\bgroup(s|ed)?\\b",
+      "keys": "^(versions|settings\\.versions|setupTips\\.versions)\\."
+    },
+    {
+      "use": "Move to Trash",
+      "avoid": "\\bclear(s|ed)? out\\b"
+    },
+    {
+      "use": "Revoke (a paired phone, device, key or link)",
+      "avoid": "\\b(remove|disconnect)\\b",
+      "keys": "\\.revoke"
+    },
+    {
+      "use": "Revoke (Disconnect only for the iNaturalist account and connected apps)",
+      "avoid": "\\bdisconnects?\\b",
+      "allow": [
+        "settings.integrations.disconnect",
+        "settings.integrations.disconnectFailed",
+        "connectedApps.removeHint"
+      ]
+    }
+  ]
+}
