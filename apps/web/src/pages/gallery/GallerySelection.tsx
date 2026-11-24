@@ -17,6 +17,7 @@ import CoordinatesModal from "../../components/CoordinatesModal";
 import type { Appearance } from "@lifer/shared";
 import { AppearanceModal } from "../../components/Appearance";
 import { SelectionBar, type BarAction } from "../../components/SelectionActionRow";
+import { deleteBarActions } from "../../hooks/useDeleteCaptures";
 import { COMPARE_MAX, COMPARE_MIN } from "../../lib/compareZoom";
 
 // Same region picker as a photo's location editor, for the whole selection.
@@ -151,26 +152,7 @@ export function GallerySelectBar({
     variant: regionFirst ? "primary" : "secondary",
     loading: bulk.settingRegion,
   };
-  // Trash keeps a RAW deleted with its photo too, so neither needs a confirm.
-  const deleteActions: BarAction[] = [
-    ...(selectedHaveRaw
-      ? [
-          {
-            key: "deleteWithRaw",
-            label: t("gallery.select.deleteWithRaw"),
-            onClick: () => void edits.deleteSelected(true),
-            variant: "danger" as const,
-            menuOnly: true,
-          },
-        ]
-      : []),
-    {
-      key: "delete",
-      label: t("gallery.select.deleteSelected"),
-      onClick: () => void edits.deleteSelected(),
-      variant: "danger",
-    },
-  ];
+  const deleteActions = deleteBarActions(t, selectedHaveRaw, edits.deleteSelected);
   const actions: BarAction[] = targetAlbumId
     ? [
         {

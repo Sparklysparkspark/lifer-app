@@ -106,4 +106,14 @@ describe("PhotoMenu", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Hide video" }));
     expect(calls).toEqual(["close", "hide"]);
   });
+
+  it("offers Delete with RAW files only beside an edited original", () => {
+    const withRaw = vi.fn();
+    const { unmount } = renderMenu({ onDelete: () => {}, onDeleteWithRaw: withRaw });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete with RAW files" }));
+    expect(withRaw).toHaveBeenCalled();
+    unmount();
+    renderMenu({ photo: { ...photo, originalKind: "raw" }, onDelete: () => {}, onDeleteWithRaw: withRaw });
+    expect(screen.queryByRole("menuitem", { name: "Delete with RAW files" })).toBeNull();
+  });
 });

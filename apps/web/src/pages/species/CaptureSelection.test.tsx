@@ -25,7 +25,7 @@ const edits = () =>
     rateSelected: vi.fn(),
     reassignSelected: vi.fn(),
     addBulkTags: vi.fn(),
-    deleteDialog: { setOpen: vi.fn() },
+    deleteSelected: vi.fn(),
   }) as unknown as CaptureEdits;
 
 describe("CaptureSelectBar", () => {

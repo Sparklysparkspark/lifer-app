@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import EmptyState from "../../components/EmptyState";
@@ -26,7 +26,6 @@ import { filterBucketFor, fullSizeUrl, type PhotoFilter, type SpeciesCapture, ty
 import {
   captureCounts,
   captureInfo,
-  deleteNoun,
   selectionHasSeparateRaw,
   locationText,
   matchesFilter,
@@ -36,7 +35,7 @@ import {
 } from "./photoGridHelpers";
 import { useCaptureEdits } from "./useCaptureEdits";
 import CaptureEditModal, { type CaptureEdit } from "../../components/CaptureEditModal";
-import { CaptureSelectBar, DeleteCapturesDialog } from "./CaptureSelection";
+import { CaptureSelectBar } from "./CaptureSelection";
 import type { Appearance } from "@lifer/shared";
 import { AppearanceSummary } from "../../components/Appearance";
 
@@ -94,7 +93,6 @@ export default function SpeciesPhotoGrid({
   const placingCapture = placingCaptureId ? captures.find((c) => c.id === placingCaptureId) : undefined;
   const [editing, setEditing] = useState<{ captureId: string; edit: CaptureEdit } | null>(null);
   const editingCapture = editing && captures.find((c) => c.id === editing.captureId);
-  const deleteButtonRef = useRef<HTMLButtonElement>(null);
 
   const counts = useMemo(() => captureCounts(captures), [captures]);
   const photoFilter = chosenFilter ?? (counts.edited > 0 ? "edited" : "all");
@@ -229,7 +227,8 @@ export default function SpeciesPhotoGrid({
         onSetLocation={() => setPlacingCaptureId(c.id)}
         onInatSent={load}
         onHide={() => void edits.hide([c.id])}
-        onDelete={() => edits.requestDeleteCapture(c.id)}
+        onDelete={() => void edits.deletePhoto(c.id)}
+        onDeleteWithRaw={() => void edits.deletePhoto(c.id, true)}
       />
     );
   }
@@ -288,17 +287,15 @@ export default function SpeciesPhotoGrid({
           </div>
         </div>
 
-        {selectMode && <CaptureSelectBar selectedCount={selectedIds.size} edits={edits} />}
+        {selectMode && (
+          <CaptureSelectBar
+            selectedCount={selectedIds.size}
+            selectedHaveRaw={selectionHasSeparateRaw(selectedCaptures)}
+            edits={edits}
+          />
+        )}
         <FormMessage error={edits.reassignError} className="mb-2" />
       </div>
-
-      <DeleteCapturesDialog
-        dialog={edits.deleteDialog}
-        count={selectedIds.size}
-        noun={deleteNoun(selectedCaptures)}
-        selectedHaveRaw={selectionHasSeparateRaw(selectedCaptures)}
-        deleteButtonRef={deleteButtonRef}
-      />
 
       {captures.length === 0 && pendingUploadCount === 0 ? (
         <div>

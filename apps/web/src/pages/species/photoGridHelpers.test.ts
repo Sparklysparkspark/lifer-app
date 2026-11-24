@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   captureCounts,
-  deleteNoun,
   selectionHasSeparateRaw,
   locationText,
   matchesFilter,
@@ -126,20 +125,10 @@ describe("photosSectionTitle", () => {
   });
 });
 
-describe("deleteNoun", () => {
-  it("names the selection by what's in it", () => {
-    const video = capture("v", { photo_kind: "video" });
-    expect(deleteNoun([capture("a")])).toBe("photo");
-    expect(deleteNoun([video])).toBe("video");
-    expect(deleteNoun([video, capture("a")])).toBe("file");
-    expect(deleteNoun([])).toBe("photo");
-  });
-
-  it("calls RAW-only photos RAWs, and offers deleting a RAW only beside an edited original", () => {
+describe("selectionHasSeparateRaw", () => {
+  it("offers deleting a RAW only beside an edited original", () => {
     const rawOnly = capture("r", { original_kind: "raw", has_raw_original: true });
     const editedWithRaw = capture("e", { original_kind: "jpeg", has_raw_original: true });
-    expect(deleteNoun([rawOnly])).toBe("RAW");
-    expect(deleteNoun([rawOnly, editedWithRaw])).toBe("photo");
     expect(selectionHasSeparateRaw([rawOnly])).toBe(false);
     expect(selectionHasSeparateRaw([rawOnly, editedWithRaw])).toBe(true);
   });

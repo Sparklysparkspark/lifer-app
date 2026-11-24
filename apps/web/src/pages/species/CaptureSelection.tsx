@@ -1,24 +1,25 @@
-import type { RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import SpeciesPicker from "../../components/SpeciesPicker";
 import TagEditor from "../../components/TagEditor";
-import Modal from "../../components/Modal";
 import Button from "../../components/Button";
-import Checkbox from "../../components/Checkbox";
 import StarRating from "../../components/StarRating";
 import { SelectionBar, type BarAction } from "../../components/SelectionActionRow";
+import { deleteBarActions } from "../../hooks/useDeleteCaptures";
 import type { CaptureEdits } from "./useCaptureEdits";
 
 // Select mode's bar, the shared one: correct the ID, add tags or rate every selected photo, or
 // hide or delete them.
 export function CaptureSelectBar({
   selectedCount,
+  selectedHaveRaw = false,
   edits,
   total,
   onSelectAll,
   onDeselectAll,
 }: {
   selectedCount: number;
+  /** A selected photo has a RAW beside its edited original, so "Delete with RAW files" applies. */
+  selectedHaveRaw?: boolean;
   edits: CaptureEdits;
   /** How many photos are listed, for Select all. */
   total?: number;
@@ -28,12 +29,7 @@ export function CaptureSelectBar({
   const { t } = useTranslation();
   const actions: BarAction[] = [
     { key: "hide", label: t("species.selection.hide"), onClick: () => void edits.hideSelected() },
-    {
-      key: "delete",
-      label: t("species.selection.deleteSelected"),
-      variant: "danger",
-      onClick: () => edits.deleteDialog.setOpen(true),
-    },
+    ...deleteBarActions(t, selectedHaveRaw, edits.deleteSelected),
   ];
   return (
     <div className="mb-2">
@@ -77,54 +73,5 @@ export function CaptureSelectBar({
         }
       />
     </div>
-  );
-}
-
-// Used for one photo too (its menu's Delete selects just it), so the trash wording lives here only.
-export function DeleteCapturesDialog({
-  dialog,
-  count,
-  noun,
-  selectedHaveRaw,
-  deleteButtonRef,
-}: {
-  dialog: CaptureEdits["deleteDialog"];
-  count: number;
-  noun: "file" | "video" | "photo" | "RAW" | "recording";
-  selectedHaveRaw: boolean;
-  deleteButtonRef: RefObject<HTMLButtonElement | null>;
-}) {
-  const { t } = useTranslation();
-  return (
-    <Modal
-      open={dialog.open}
-      onClose={dialog.cancel}
-      title={t("species.selection.deleteTitle", { count, noun })}
-      size="sm"
-      onKeyDown={dialog.onKeyDown}
-      initialFocusRef={deleteButtonRef}
-      footer={
-        <>
-          <Button variant="secondary" onClick={dialog.cancel} disabled={dialog.deleting}>
-            {t("common.cancel")}
-          </Button>
-          <Button
-            ref={deleteButtonRef}
-            variant="danger"
-            onClick={() => void dialog.confirm()}
-            loading={dialog.deleting}
-          >
-            {t("common.delete")}
-          </Button>
-        </>
-      }
-    >
-      <p className="text-callout text-muted">{t("species.selection.trashMessage", { noun })}</p>
-      {selectedHaveRaw && (
-        <Checkbox checked={dialog.deleteRawToo} onChange={dialog.setDeleteRawToo} className="mt-3">
-          {t("species.selection.deleteRawToo")}
-        </Checkbox>
-      )}
-    </Modal>
   );
 }

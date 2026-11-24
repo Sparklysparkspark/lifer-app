@@ -85,6 +85,7 @@ export default function TripPhotoGrid({
             {...photoEdits.menuActions(photo.captureId)}
             location={photo.locationLabel}
             onDelete={() => void edits.deletePhoto(photo.captureId)}
+            onDeleteWithRaw={() => void edits.deletePhoto(photo.captureId, true)}
           />
         )}
         renderLabel={(photo) => (

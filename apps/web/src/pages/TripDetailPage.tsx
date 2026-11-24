@@ -25,6 +25,7 @@ import Panel from "../components/Panel";
 import { usePersistedState } from "../hooks/usePersistedState";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { useSelectMode } from "../hooks/useSelectMode";
+import { deleteBarActions } from "../hooks/useDeleteCaptures";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { PhotoViewMenu } from "../components/PhotoGridControls";
 import PhotoFiltersMenu from "../components/PhotoFiltersMenu";
@@ -517,24 +518,7 @@ function TripDetail() {
           actions={[
             { key: "album", label: t("albums.addTo.button"), onClick: () => setAddingSelection(true) },
             { key: "remove", label: t("trips.detail.removeSelected"), onClick: () => void removeSelected() },
-            // Trash keeps a RAW deleted with its photo too, so neither needs a confirm.
-            ...(edits.selectedHaveRaw
-              ? [
-                  {
-                    key: "deleteWithRaw",
-                    label: t("gallery.select.deleteWithRaw"),
-                    onClick: () => void edits.deleteSelected(true),
-                    variant: "danger" as const,
-                    menuOnly: true,
-                  },
-                ]
-              : []),
-            {
-              key: "delete",
-              label: t("trips.detail.deleteSelected"),
-              onClick: () => void edits.deleteSelected(),
-              variant: "danger",
-            },
+            ...deleteBarActions(t, edits.selectedHaveRaw, edits.deleteSelected),
           ]}
         >
           {addingSelection && (

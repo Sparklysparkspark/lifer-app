@@ -1,7 +1,6 @@
 import type { LightboxSlide } from "../../components/Lightbox";
 import { photoFilePaths } from "../../lib/photoFilePaths";
 import i18n from "../../i18n";
-import { mediaNoun } from "../../lib/mediaNoun";
 import { filterBucketFor, type PhotoFilter, type SpeciesCapture } from "./types";
 
 export type PhotoSort = "newest" | "oldest" | "rating";
@@ -74,16 +73,7 @@ export function captureInfo(c: SpeciesCapture): NonNullable<LightboxSlide["info"
   };
 }
 
-export function deleteNoun(selected: SpeciesCapture[]): "file" | "video" | "photo" | "RAW" | "recording" {
-  return mediaNoun(
-    selected.some((c) => c.photo_kind === "video"),
-    selected.some((c) => c.photo_kind !== "video" && c.photo_kind !== "audio"),
-    selected.length > 0 && selected.every((c) => c.original_kind === "raw"),
-    selected.some((c) => c.photo_kind === "audio"),
-  );
-}
-
-/** Whether any selected photo has a RAW beside its edited original, for "also delete the RAW". A
+/** Whether any selected photo has a RAW beside its edited original, for "Delete with RAW files". A
  *  RAW-only photo is its RAW, so deleting it removes the RAW anyway. */
 export function selectionHasSeparateRaw(selected: SpeciesCapture[]): boolean {
   return selected.some((c) => c.has_raw_original && c.original_kind !== "raw");

@@ -5,9 +5,9 @@ import { dateOnlyToTakenAt } from "@lifer/shared";
 import type { useGoBack } from "../../hooks/useGoBack";
 import { api, apiPath } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
+import { useDeleteCaptures } from "../../hooks/useDeleteCaptures";
 import type { useSelectMode } from "../../hooks/useSelectMode";
 import { errorMessage } from "../../lib/errorMessage";
-import { photosDeleted } from "../../lib/resource";
 import { downloadFile, pickDownloadFolder } from "../../lib/downloadFile";
 import { pluralize } from "../../lib/pluralize";
 import { useSpeciesName } from "../../lib/speciesName";
@@ -264,41 +264,6 @@ export function useGalleryEdits({
     }
   }
 
-  // Trash keeps them, so deleting needs no confirm: the toast's Undo restores them.
-  function showTrashed(captureIds: string[]) {
-    toast.show(t("gallery.edits.trashed", { count: captureIds.length }), {
-      tone: "success",
-      actions: [
-        { label: t("common.view"), onClick: () => navigate("/trash") },
-        {
-          label: t("common.undo"),
-          onClick: () =>
-            void Promise.allSettled(
-              captureIds.map((captureId) => api.post(apiPath("/trash/{id}/restore", { id: captureId }), {})),
-            ).then((results) => {
-              const failed = results.filter((r) => r.status === "rejected").length;
-              if (failed > 0) toast.error(t("trash.restoreManyFailed", { count: failed }));
-              photosDeleted();
-              loadRef.current({ keepLoaded: true });
-            }),
-        },
-      ],
-    });
-  }
-
-  async function deletePhoto(captureId: string) {
-    closeMenu();
-    try {
-      await api.delete(apiPath("/captures/{id}", { id: captureId }));
-      photosDeleted();
-      setItems((prev) => prev?.filter((it) => it.captureId !== captureId) ?? prev);
-      setTotal((n) => (n === null ? n : Math.max(0, n - 1)));
-      showTrashed([captureId]);
-    } catch (err) {
-      toast.error(errorMessage(err, t("gallery.edits.deleteFailed")));
-    }
-  }
-
   // In the album picker, leaving select mode goes back to the album.
   function exitSelectMode() {
     setBulkTags([]);
@@ -324,21 +289,16 @@ export function useGalleryEdits({
     }
   }
 
-  /** `deleteRaw` also deletes each RAW beside an edited original once Trash purges it. */
-  async function deleteSelected(deleteRaw = false) {
-    if (!selectMode || selectedCaptureIds.size === 0) return;
-    const ids = new Set(selectedCaptureIds);
-    try {
-      await api.post("/captures/batch-delete", { captureIds: [...ids], deleteRaw });
-      photosDeleted();
-      exitSelectMode();
+  const { deletePhoto, deleteSelected } = useDeleteCaptures({
+    select,
+    exitSelectMode,
+    onDeleted: (captureIds) => {
+      const ids = new Set(captureIds);
       setItems((prev) => prev?.filter((it) => !ids.has(it.captureId)) ?? prev);
       setTotal((n) => (n === null ? n : Math.max(0, n - ids.size)));
-      showTrashed([...ids]);
-    } catch (err) {
-      toast.error(errorMessage(err, t("gallery.edits.deleteManyFailed")));
-    }
-  }
+    },
+    reload: () => loadRef.current({ keepLoaded: true }),
+  });
 
   async function reassignSpecies(captureId: string, to: SpeciesResult) {
     setEditing(null);

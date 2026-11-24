@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
-import { matches } from "../../lib/keymap";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { api, apiPath, ApiError } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
+import { useDeleteCaptures } from "../../hooks/useDeleteCaptures";
 import type { useSelectMode } from "../../hooks/useSelectMode";
 import type { SpeciesCapture } from "./types";
 import { ignore } from "../../lib/ignore";
-import { photosDeleted } from "../../lib/resource";
 import { useSpeciesName } from "../../lib/speciesName";
 import type { SpeciesResult } from "../../components/SpeciesPicker";
 
@@ -35,14 +34,11 @@ export function useCaptureEdits({
   const toast = useToast();
   const navigate = useNavigate();
   const speciesName = useSpeciesName();
-  const { selectMode, selectedIds, setSelectedIds, clear: clearSelection, exit: exitSelect } = select;
+  const { selectMode, selectedIds, exit: exitSelect } = select;
   const [tagOptions, setTagOptions] = useState<string[]>([]);
   const [bulkTags, setBulkTags] = useState<string[]>([]);
   const [batchReassigning, setBatchReassigning] = useState(false);
   const [reassignError, setReassignError] = useState<string | null>(null);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [deleteRawToo, setDeleteRawToo] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -223,42 +219,7 @@ export function useCaptureEdits({
     }
   }
 
-  // Single-photo delete shares the batch dialog so the trash wording lives in one place.
-  function requestDeleteCapture(captureId: string) {
-    closeMenu();
-    setSelectedIds(new Set([captureId]));
-    setConfirmingDelete(true);
-  }
-
-  function cancelDelete() {
-    setConfirmingDelete(false);
-    setDeleteRawToo(false);
-    if (!selectMode) clearSelection();
-  }
-
-  async function confirmDeleteSelected() {
-    if (deleting) return;
-    setDeleting(true);
-    try {
-      await api.post("/captures/batch-delete", { captureIds: [...selectedIds], deleteRaw: deleteRawToo });
-      photosDeleted();
-      setConfirmingDelete(false);
-      setDeleteRawToo(false);
-      exitSelectMode();
-      load();
-    } catch (err) {
-      toast.error(errorText(err, t("species.edits.deleteFailed")));
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  function onDeleteDialogKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (!matches(e, "confirm") || e.nativeEvent.isComposing || e.defaultPrevented) return;
-    if ((e.target as HTMLElement).tagName === "BUTTON") return;
-    e.preventDefault();
-    void confirmDeleteSelected();
-  }
+  const { deletePhoto, deleteSelected } = useDeleteCaptures({ select, exitSelectMode, onDeleted: load, reload: load });
 
   return {
     tagOptions,
@@ -276,17 +237,8 @@ export function useCaptureEdits({
     reassignSpecies,
     reassignSelected,
     addBulkTags,
-    requestDeleteCapture,
-    deleteDialog: {
-      open: confirmingDelete,
-      setOpen: setConfirmingDelete,
-      cancel: cancelDelete,
-      confirm: confirmDeleteSelected,
-      onKeyDown: onDeleteDialogKeyDown,
-      deleting,
-      deleteRawToo,
-      setDeleteRawToo,
-    },
+    deletePhoto,
+    deleteSelected,
   };
 }
 

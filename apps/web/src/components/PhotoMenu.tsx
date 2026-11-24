@@ -51,6 +51,7 @@ export default function PhotoMenu({
   onHide,
   endItems,
   onDelete,
+  onDeleteWithRaw,
 }: {
   /** From Menu, which measures the panel and moves it to stay on the page. */
   ref?: Ref<HTMLDivElement>;
@@ -80,6 +81,8 @@ export default function PhotoMenu({
   /** The page's own removal (remove from album), before Delete. */
   endItems?: ReactNode;
   onDelete?: () => void;
+  /** Shown only when a RAW sits beside an edited original; a RAW-only photo's Delete covers its RAW. */
+  onDeleteWithRaw?: () => void;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -185,6 +188,11 @@ export default function PhotoMenu({
           {onDelete && (
             <MenuItem danger onSelect={act(onDelete)}>
               {t("photoMenu.delete", { kind })}
+            </MenuItem>
+          )}
+          {onDeleteWithRaw && photo.hasRaw && photo.originalKind !== "raw" && (
+            <MenuItem danger onSelect={act(onDeleteWithRaw)}>
+              {t("gallery.select.deleteWithRaw")}
             </MenuItem>
           )}
         </MenuSection>
