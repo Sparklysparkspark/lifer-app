@@ -44,6 +44,7 @@ Collective nouns work too, as a small easter egg: `murder of crows`, `parliament
 - **Newest and oldest**: `latest owl`, `my last bald eagle` or `oldest photo of a moose` puts that one photo first, with the rest below.
 - **Shot type**: `flight`, `behaviour`, `at rest`, `close up` (or `portrait`) and `environmental` work like the **Shot type** filter, and combine: `environmental flight`, `close-up behaviour`, `heron in flight`.
 - **Camera**: `R5`, `iphone` or `shot on R50` keeps photos from a camera you've used.
+- **File name**: `6F9A8042.CR3` or `IMG_1234` shows just the photo with that file, including its RAW and edited versions. The extension is optional, and part of a name (`6F9A804`) finds every file starting with it, exact names first.
 - **Time of day**: `golden hour`, `sunrise`, `sunset`, `night`, `morning`, `midday`, `afternoon` and `evening`. For photos with GPS coordinates, Lifer works out where the sun was. Photos without them are judged by how they look.
 - **Photo styles**: `black and white` (or `b&w`, `monochrome`), `minimalist`, `high key`, `low key`, `backlit`, `golden light`, `bokeh`, `motion blur`, `sharp` and `blurry` are judged by how the photo looks. `black and white bird` means a bird with those colours instead.
 

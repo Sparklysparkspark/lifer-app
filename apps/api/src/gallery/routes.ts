@@ -17,6 +17,7 @@ import { PLACE_NAME_MAX } from "../captures/places.js";
 import { versionLabel } from "../uploads/versionGrouping.js";
 import { EMBEDDING_MODEL_VERSION, SCENE_MODEL_VERSION } from "@lifer/core/config.js";
 import { filesCaptureOf } from "../lib/versionFiles.js";
+import { capturesByFileName, fileNameQuery } from "./fileNameSearch.js";
 import { dismissSimilarGroup, setDismissed, similarGroupOf, similarGroups } from "./similar.js";
 import {
   parseSearchQuery,
@@ -878,13 +879,13 @@ export async function searchGallery(
   const quick = opts.quick ?? false;
   const stamp = await libraryStamp(userId);
   // LEFT JOIN: a photo without a vector or scene is still found by name, group, place and date.
-  const rowsFor = (f: GalleryFilters) => {
+  const rowsFor = (f: GalleryFilters, onlyIds?: string[]) => {
     const params: unknown[] = [userId, EMBEDDING_MODEL_VERSION, SCENE_MODEL_VERSION];
     const param = (v: unknown) => {
       params.push(v);
       return `$${params.length}`;
     };
-    const where = galleryFilterSql(f, param);
+    const where = galleryFilterSql(f, param) + (onlyIds ? ` AND c.id = ANY(${param(onlyIds)}::uuid[])` : "");
     return searchRows(
       userId,
       stamp,
@@ -909,6 +910,19 @@ export async function searchGallery(
       params,
     );
   };
+  // A file name finds just its photos, in the lookup's order; with none, the query is read as words.
+  const fileName = fileNameQuery(q);
+  if (fileName) {
+    const ids = await capturesByFileName(userId, fileName);
+    if (ids.length > 0) {
+      const byId = new Map((await rowsFor(filters, ids)).rows.map((r) => [r.capture_id, r]));
+      const items = ids.flatMap((id) => (byId.has(id) ? [{ row: byId.get(id)!, score: null }] : []));
+      if (items.length > 0) {
+        const labels = parseSearchQuery("", { species: [], places: [], latinGroups: new Map() }).labels;
+        return { items, interpretation: { ...labels, description: null, count: null, stars: null } };
+      }
+    }
+  }
   const [res, vocab, latinGroups, catalogHeads] = await Promise.all([
     rowsFor(filters),
     searchVocabulary(userId, stamp),
