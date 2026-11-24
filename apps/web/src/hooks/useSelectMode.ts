@@ -1,17 +1,50 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+/** `selected` without the ids not in `visible`; the same Set when nothing was dropped. */
+export function pruneSelection(selected: ReadonlySet<string>, visible: Iterable<string>): Set<string> {
+  const keep = new Set(visible);
+  const next = new Set([...selected].filter((id) => keep.has(id)));
+  return next.size === selected.size ? (selected as Set<string>) : next;
+}
+
+export interface SelectModeOptions {
+  /** Drops selected ids that leave `items` (a filter, search or reload hid them), so an action
+   *  never reaches photos no longer on screen. Off for a page whose Select all also takes ids it
+   *  hasn't loaded yet (the Gallery): that one passes `resetKey` instead. */
+  pruneToItems?: boolean;
+  /** The selection clears whenever this changes, e.g. the page's query string. */
+  resetKey?: unknown;
+}
+
 // Shared grid select mode: shift-click selects a range, click-and-drag selects what the pointer
 // passes over. Indices are positions in `items`. Callbacks are stable for memoized tiles.
-export function useSelectMode<T>(items: T[] | null, getId: (item: T) => string, initialSelectMode = false) {
+export function useSelectMode<T>(
+  items: T[] | null,
+  getId: (item: T) => string,
+  initialSelectMode = false,
+  { pruneToItems = false, resetKey }: SelectModeOptions = {},
+) {
   const [selectMode, setSelectMode] = useState(initialSelectMode);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const lastSelectedIndexRef = useRef<number | null>(null);
+  // The shift-click anchor's id, to find it again when `items` changes order or length.
+  const lastSelectedIdRef = useRef<string | null>(null);
   const itemsRef = useRef(items);
   const getIdRef = useRef(getId);
   useLayoutEffect(() => {
     itemsRef.current = items;
     getIdRef.current = getId;
   });
+
+  useEffect(() => {
+    if (!pruneToItems || !items) return;
+    const ids = items.map(getIdRef.current);
+    setSelectedIds((prev) => pruneSelection(prev, ids));
+    const anchor = lastSelectedIdRef.current;
+    const at = anchor == null ? -1 : ids.indexOf(anchor);
+    lastSelectedIndexRef.current = at >= 0 ? at : null;
+    if (at < 0) lastSelectedIdRef.current = null;
+  }, [items, pruneToItems]);
 
   const idsBetween = useCallback((a: number, b: number): string[] => {
     const list = itemsRef.current;
@@ -24,6 +57,7 @@ export function useSelectMode<T>(items: T[] | null, getId: (item: T) => string, 
     (id: string, index: number, shiftKey: boolean) => {
       const last = lastSelectedIndexRef.current;
       lastSelectedIndexRef.current = index;
+      lastSelectedIdRef.current = id;
       if (shiftKey && last != null && itemsRef.current) {
         const rangeIds = idsBetween(last, index);
         setSelectedIds((prev) => new Set([...prev, ...rangeIds]));
@@ -83,6 +117,8 @@ export function useSelectMode<T>(items: T[] | null, getId: (item: T) => string, 
         const rangeIds = idsBetween(current.anchor, current.hover);
         setSelectedIds((prev) => new Set([...prev, ...rangeIds]));
         lastSelectedIndexRef.current = current.hover;
+        const hovered = list[current.hover];
+        lastSelectedIdRef.current = hovered ? getIdRef.current(hovered) : null;
       }
     }
     window.addEventListener("mouseup", finishDrag);
@@ -92,7 +128,16 @@ export function useSelectMode<T>(items: T[] | null, getId: (item: T) => string, 
   const clear = useCallback(() => {
     setSelectedIds(new Set());
     lastSelectedIndexRef.current = null;
+    lastSelectedIdRef.current = null;
   }, []);
+
+  // Not on mount: a page may start with a selection of its own.
+  const resetKeyRef = useRef(resetKey);
+  useEffect(() => {
+    if (Object.is(resetKeyRef.current, resetKey)) return;
+    resetKeyRef.current = resetKey;
+    clear();
+  }, [resetKey, clear]);
 
   const exit = useCallback(() => {
     setSelectMode(false);

@@ -170,3 +170,24 @@ export function formatList(
 ): string {
   return new Intl.ListFormat(locale ?? currentLocale, { style: "long", type }).format(items);
 }
+
+/** Short facts about one thing on one line, like "Canon R5, 500mm, ISO 800", in the active
+ *  locale's list style. Empty parts are left out. Use it instead of joining fragments with " · ". */
+export function metaLine(parts: ReadonlyArray<string | null | undefined | false>, locale?: string): string {
+  const shown = parts.filter((p): p is string => typeof p === "string" && p.trim() !== "");
+  return new Intl.ListFormat(locale ?? currentLocale, { style: "short", type: "unit" }).format(shown);
+}
+
+// --- Durations ---
+
+/** A clip's length as a clock, "0:07", "4:05" or "1:02:09", with the active locale's digits. */
+export function formatDuration(seconds: number | string | null | undefined, locale?: string): string {
+  const total = Math.round(Number(seconds));
+  if (seconds == null || seconds === "" || !Number.isFinite(total) || total < 0) return "";
+  const two = (n: number) => formatNumber(n, { minimumIntegerDigits: 2, useGrouping: false }, locale);
+  const plain = (n: number) => formatNumber(n, { useGrouping: false }, locale);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h > 0 ? `${plain(h)}:${two(m)}:${two(s)}` : `${plain(m)}:${two(s)}`;
+}

@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ManageList } from "./ManageListPage";
+import ManageListPage, { ManageList } from "./ManageListPage";
 
 afterEach(cleanup);
 // The "⋯" menu measures its panel; jsdom has no ResizeObserver.
@@ -66,5 +66,31 @@ describe("ManageList", () => {
     expect(items).toEqual(["Rename", "Delete"]);
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
     expect(removed).toBe(true);
+  });
+});
+
+describe("ManageListPage no-match text", () => {
+  const page = (search: string, noMatch: string | null) => (
+    <MemoryRouter>
+      <ManageListPage
+        title="Places"
+        backLabel="Settings"
+        search={{ value: search, onChange: () => {}, placeholder: "Search places" }}
+        noMatch={noMatch}
+      >
+        <p>Saved spots</p>
+      </ManageListPage>
+    </MemoryRouter>
+  );
+
+  it("never claims nothing matches an empty search, and keeps the other sections", () => {
+    render(page("", 'No places match "".'));
+    expect(screen.queryByText('No places match "".')).toBeNull();
+    expect(screen.getByText("Saved spots")).toBeTruthy();
+  });
+
+  it("says so once something is typed", () => {
+    render(page("heron", 'No places match "heron".'));
+    expect(screen.getByText('No places match "heron".')).toBeTruthy();
   });
 });

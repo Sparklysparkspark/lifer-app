@@ -110,10 +110,14 @@ export default function ActionRow({ actions: items }: { actions: BarAction[] }) 
   );
 }
 
-/** Select mode's bar, the same on every page: the count, what's working, the page's own links
- *  (Select all), then the actions, or a line asking for a selection. `children` holds dialogs. */
+/** Select mode's bar, the same on every page: the count, what's working, Select all and
+ *  Deselect all (given `onSelectAll`), the page's own links, then the actions, or a line asking
+ *  for a selection. `children` holds dialogs. */
 export function SelectionBar({
   count,
+  total,
+  onSelectAll,
+  onDeselectAll,
   busyLabel,
   links,
   emptyText,
@@ -121,6 +125,11 @@ export function SelectionBar({
   children,
 }: {
   count: number;
+  /** How many there are to select; Select all shows while fewer are selected. */
+  total?: number;
+  onSelectAll?: () => void;
+  /** Defaults to nothing; give it with onSelectAll, as every Select all has its Deselect all. */
+  onDeselectAll?: () => void;
   busyLabel?: string | null;
   links?: ReactNode;
   emptyText: string;
@@ -132,9 +141,39 @@ export function SelectionBar({
     <div className="flex items-center gap-3 border-b border-line bg-surface-muted px-page py-2 text-footnote">
       <span className="shrink-0 text-muted">{t("gallery.select.selected", { count: formatNumber(count) })}</span>
       {busyLabel && <InlineSpinner size="xs" label={busyLabel} />}
+      <SelectAllLinks count={count} total={total} onSelectAll={onSelectAll} onDeselectAll={onDeselectAll} />
       {links}
       {count === 0 ? <span className="min-w-0 flex-1 text-muted">{emptyText}</span> : <ActionRow actions={actions} />}
       {children}
     </div>
+  );
+}
+
+/** The Select all and Deselect all pair, each shown only when it would change something. */
+export function SelectAllLinks({
+  count,
+  total,
+  onSelectAll,
+  onDeselectAll,
+}: {
+  count: number;
+  total?: number;
+  onSelectAll?: () => void;
+  onDeselectAll?: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <>
+      {onSelectAll && (total == null || count < total) && (
+        <Button variant="link" size="sm" onClick={onSelectAll} className="shrink-0">
+          {t("gallery.map.selectAll")}
+        </Button>
+      )}
+      {onDeselectAll && count > 0 && (
+        <Button variant="link" size="sm" onClick={onDeselectAll} className="shrink-0">
+          {t("gallery.map.deselectAll")}
+        </Button>
+      )}
+    </>
   );
 }

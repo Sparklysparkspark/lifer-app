@@ -1,7 +1,7 @@
-import { useRef } from "react";
 import { useTranslation } from "react-i18next";
+import FilePickArea from "./FilePickArea";
 import { enqueueUploads } from "../lib/uploadQueue";
-import { PHOTO_ACCEPT, VIDEO_ACCEPT } from "../lib/photoFormats";
+import { PHOTO_ACCEPT, VIDEO_ACCEPT, isVideoFile, photoFormatOf } from "../lib/photoFormats";
 
 // Queues photos (JPEG, PNG, WebP, TIFF, HEIC) and videos (MP4, MOV) for background upload and
 // closes; progress shows in the global upload banner. RAWs go through RawUpload instead.
@@ -21,9 +21,10 @@ export default function UploadDropzone({
   onClose?: () => void;
 }) {
   const { t } = useTranslation();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  function handleUpload(files: File[]) {
+  function handleUpload(picked: File[]) {
+    // A drop or a folder brings whatever is there; only photos and videos are queued.
+    const files = picked.filter((f) => photoFormatOf(f) || isVideoFile(f));
     if (files.length === 0) return;
     enqueueUploads(speciesId, files, {
       volumeId: volumeId || undefined,
@@ -37,21 +38,10 @@ export default function UploadDropzone({
   }
 
   return (
-    // The whole dashed box opens the file picker, not just the "Choose photos" text.
-    <div
-      onClick={() => fileInputRef.current?.click()}
-      className="cursor-pointer rounded-panel border-2 border-dashed border-line p-6 text-center transition-colors hover:bg-surface-muted"
-    >
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        accept={`${PHOTO_ACCEPT},${VIDEO_ACCEPT}`}
-        className="hidden"
-        id="upload-input"
-        onChange={(e) => handleUpload(Array.from(e.target.files ?? []))}
-      />
-      <span className="text-callout text-muted hover:underline">{t("upload.choosePhotosOrVideos")}</span>
-    </div>
+    <FilePickArea
+      prompt={t("upload.choosePhotosOrVideos")}
+      accept={`${PHOTO_ACCEPT},${VIDEO_ACCEPT}`}
+      onFiles={(files) => handleUpload(Array.from(files))}
+    />
   );
 }

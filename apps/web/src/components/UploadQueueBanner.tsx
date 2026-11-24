@@ -1,6 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { useUploadQueue, resolveDuplicate } from "../lib/uploadQueue";
 import { formatDate } from "../lib/format";
+import { useSpeciesName } from "../lib/speciesName";
+import { useLightbox } from "./Lightbox";
+import { Thumb } from "./MediaCard";
 import { useRateLimitWaiting } from "../lib/rateLimitWait";
 import InlineSpinner from "./InlineSpinner";
 import Modal from "./Modal";
@@ -27,6 +30,10 @@ export default function UploadQueueBanner() {
   const sentBytes = sized.reduce((sum, j) => sum + (j.done ? j.totalBytes! : (j.sentBytes ?? 0)), 0);
   const uploadFraction = totalBytes > 0 && sentBytes < totalBytes ? sentBytes / totalBytes : null;
   const takenOn = pendingDuplicate ? formatDate(pendingDuplicate.info.takenAt, "short") : "";
+  const speciesName = useSpeciesName();
+  const viewer = useLightbox();
+  const existingPhotoId = pendingDuplicate?.info.photoId ?? null;
+  const skipAll = () => pendingDuplicates.forEach((d) => resolveDuplicate(d.jobId, "skip"));
 
   return (
     <>
@@ -77,6 +84,13 @@ export default function UploadQueueBanner() {
         onClose={() => pendingDuplicate && resolveDuplicate(pendingDuplicate.jobId, "skip")}
         dismissOnBackdrop={false}
         size="sm"
+        footerStart={
+          pendingDuplicates.length > 1 && (
+            <Button variant="secondary" onClick={skipAll}>
+              {t("upload.duplicate.skipAll", { count: pendingDuplicates.length })}
+            </Button>
+          )
+        }
         title={
           <>
             {t("upload.duplicate.title")}
@@ -100,6 +114,25 @@ export default function UploadQueueBanner() {
           )
         }
       >
+        {existingPhotoId && pendingDuplicate && (
+          // raw-control: the photo is the button; it opens full size to compare.
+          <button
+            type="button"
+            onClick={() =>
+              viewer.open([
+                {
+                  url: `/api/photos/${existingPhotoId}/display`,
+                  thumbUrl: `/api/photos/${existingPhotoId}/thumb`,
+                  caption: speciesName(pendingDuplicate.info),
+                },
+              ])
+            }
+            aria-label={t("import.review.earlierPhoto", { species: speciesName(pendingDuplicate.info) })}
+            className="mb-3 block h-32 w-32 cursor-zoom-in overflow-hidden rounded-control focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            <Thumb photoId={existingPhotoId} className="h-full w-full" />
+          </button>
+        )}
         {pendingDuplicate && (
           <p className="text-callout text-muted">
             {takenOn
@@ -115,6 +148,7 @@ export default function UploadQueueBanner() {
           </p>
         )}
       </Modal>
+      {viewer.node}
     </>
   );
 }

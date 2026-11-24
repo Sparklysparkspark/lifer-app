@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   KEYMAP,
@@ -139,5 +140,17 @@ describe("keymap registry", () => {
     };
     walk(join(__dirname, ".."));
     expect(offenders).toEqual([]);
+  });
+});
+
+// Other apps that share Lifer's shortcuts keep a copy of this keymap; a change here must reach them.
+describe("keymap fingerprint", () => {
+  it("changes only on purpose", () => {
+    const entries = Object.entries(KEYMAP).sort(([a], [b]) => a.localeCompare(b));
+    const fingerprint = createHash("sha256").update(JSON.stringify(entries)).digest("hex").slice(0, 16);
+    expect(
+      fingerprint,
+      "The keymap changed: update the copies of it that other apps keep, then this fingerprint.",
+    ).toBe("f9b393538c4be3a3");
   });
 });

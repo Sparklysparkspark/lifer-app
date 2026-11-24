@@ -22,6 +22,7 @@
       "failed": "Couldn't add to the album. Try again.",
       "added": "Added {count, plural, one {# photo} other {# photos}} to {album}",
       "empty": "No albums yet. Create one below.",
+      "onlySmart": "Smart albums choose their own photos. Create an album below to add these.",
       "newPlaceholder": "New album…"
     },
     "cover": {
@@ -4346,6 +4347,7 @@
     "choosePhotosOrVideos": "Choose photos or videos",
     "duplicate": {
       "importAnyway": "Import anyway",
+      "skipAll": "Skip all ({count, number})",
       "message": "\"{fileName}\" looks like a photo you already have of {species}.",
       "messageWithDate": "\"{fileName}\" looks like a photo you already have of {species} from {date}.",
       "position": "(1 of {total})",

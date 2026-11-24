@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   formatBytes,
   formatDate,
+  formatDuration,
+  metaLine,
   formatList,
   formatMonthName,
   formatNumber,
@@ -140,5 +142,22 @@ describe("formatRelativeTime", () => {
   it("is empty for no date", () => {
     expect(formatRelativeTime(null, now)).toBe("");
     expect(formatRelativeTime("not a date", now)).toBe("");
+  });
+});
+
+describe("metaLine", () => {
+  it("lists the parts present in the locale's style, with no dot separators", () => {
+    expect(metaLine(["Canon R5", null, "", "ISO 800", false], "en")).toBe("Canon R5, ISO 800");
+    expect(metaLine([], "en")).toBe("");
+  });
+});
+
+describe("formatDuration", () => {
+  it("shows a clip's length as a clock", () => {
+    expect(formatDuration(7, "en")).toBe("0:07");
+    expect(formatDuration("245.4", "en")).toBe("4:05");
+    expect(formatDuration(3729, "en")).toBe("1:02:09");
+    expect(formatDuration(null)).toBe("");
+    expect(formatDuration("abc")).toBe("");
   });
 });

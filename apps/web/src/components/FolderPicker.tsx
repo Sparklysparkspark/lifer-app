@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import i18n from "../i18n";
 import { api } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
 import { matches } from "../lib/keymap";
 import Button from "./Button";
+import FolderPath from "./FolderPath";
 import FormMessage from "./FormMessage";
 import TextField from "./TextField";
 
@@ -15,18 +16,40 @@ interface DirectoryListing {
   entries: Array<{ name: string; path: string }>;
 }
 
-// Directory listing of the API's filesystem (GET /settings/browse-directory). A server starts at
-// its allowed roots and refuses anything outside them, with the message shown here.
-export function FolderBrowser({
-  onChoose,
-  onCancel,
-  initialPath,
-}: {
+interface FolderBrowserProps {
   onChoose: (path: string) => void;
   onCancel: () => void;
   /** Where to open; a folder that's gone falls back to the top level. */
   initialPath?: string;
-}) {
+}
+
+// Directory listing of the API's filesystem (GET /settings/browse-directory). A server starts at
+// its allowed roots and refuses anything outside them, with the message shown here. Inline, with
+// its buttons under the list; Escape inside it cancels.
+export function FolderBrowser(props: FolderBrowserProps) {
+  const { body, footer } = useFolderBrowser(props);
+  return (
+    <div
+      className="space-y-2 rounded-panel border border-line p-3"
+      onKeyDown={(e) => {
+        if (!matches(e, "close")) return;
+        // Peels back this layer only, not a dialog it sits in.
+        e.stopPropagation();
+        props.onCancel();
+      }}
+    >
+      {body}
+      {footer && <div className="flex flex-wrap justify-end gap-2 pt-1">{footer}</div>}
+    </div>
+  );
+}
+
+/** The folder browser split for a dialog: `body` goes in the Modal's content and `footer` (Cancel,
+ *  New folder, Use this folder) in its `footer`, where a dialog's buttons belong. */
+export function useFolderBrowser({ onChoose, onCancel, initialPath }: FolderBrowserProps): {
+  body: ReactNode;
+  footer: ReactNode;
+} {
   const { t } = useTranslation();
   const [browsing, setBrowsing] = useState<DirectoryListing | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,12 +93,24 @@ export function FolderBrowser({
   }
 
   if (!browsing)
-    return error ? <FormMessage error={error} /> : <p className="text-callout text-muted">{t("common.loading")}</p>;
+    return {
+      body: error ? <FormMessage error={error} /> : <p className="text-callout text-muted">{t("common.loading")}</p>,
+      footer: (
+        <Button variant="secondary" size="sm" onClick={onCancel}>
+          {t("common.cancel")}
+        </Button>
+      ),
+    };
   const currentPath = browsing.path;
 
-  return (
-    <div className="space-y-2 rounded-panel border border-line p-3">
-      <p className="truncate text-footnote text-muted">{currentPath ?? t("folderPicker.roots")}</p>
+  const body = (
+    <div className="space-y-2">
+      {/* The folder's own name first, so a long path never hides where you are. */}
+      {currentPath ? (
+        <FolderPath path={currentPath} className="text-footnote" />
+      ) : (
+        <p className="text-footnote text-muted">{t("folderPicker.roots")}</p>
+      )}
       <div className="max-h-48 space-y-0.5 overflow-y-auto">
         {rooted && currentPath !== null && !browsing.parent && (
           // raw-control: a row of the folder list.
@@ -135,23 +170,27 @@ export function FolderBrowser({
           </Button>
         </div>
       )}
-      <div className="flex gap-2 pt-1">
-        <Button size="sm" onClick={() => currentPath && onChoose(currentPath)} disabled={currentPath === null}>
-          {t("folderPicker.use")}
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => setNewName(newName === null ? "" : null)}
-          disabled={currentPath === null}
-        >
-          {t("folderPicker.newFolder")}
-        </Button>
-        <Button variant="secondary" size="sm" onClick={onCancel}>
-          {t("common.cancel")}
-        </Button>
-      </div>
       <FormMessage error={error} />
     </div>
   );
+  // Dialog order (ux-rules M11): Cancel, the secondary, then the primary last.
+  const footer = (
+    <>
+      <Button variant="secondary" size="sm" onClick={onCancel}>
+        {t("common.cancel")}
+      </Button>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => setNewName(newName === null ? "" : null)}
+        disabled={currentPath === null}
+      >
+        {t("folderPicker.newFolder")}
+      </Button>
+      <Button size="sm" onClick={() => currentPath && onChoose(currentPath)} disabled={currentPath === null}>
+        {t("folderPicker.use")}
+      </Button>
+    </>
+  );
+  return { body, footer };
 }

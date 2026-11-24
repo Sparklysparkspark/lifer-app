@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } fr
 import { createPortal } from "react-dom";
 import { matches } from "../lib/keymap";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { SEARCH_DEBOUNCE_MS } from "../lib/searchNormalize";
 import AddOtherTaxaModal from "./AddOtherTaxaModal";
@@ -10,7 +10,8 @@ import type { SpeciesResult } from "./speciesResult";
 import type { ProbableGroup } from "./ProbableGroupText";
 import SearchInput from "./SearchInput";
 import { useLatest } from "../hooks/useLatest";
-import { useSettings } from "../hooks/useSettings";
+import { useServerSetting } from "../pages/settings/useServerSetting";
+import Button from "./Button";
 import { namePartClass, useSpeciesNameParts } from "../lib/speciesName";
 import SpeciesNameText from "./SpeciesNameText";
 import { useAnchoredBox } from "../lib/anchoredBox";
@@ -42,6 +43,7 @@ export default function SpeciesPicker({
   inline = false,
   anchorRef,
   ariaLabel,
+  onCancel,
 }: {
   onSelect?: (r: SpeciesResult) => void;
   autoFocus?: boolean;
@@ -55,6 +57,9 @@ export default function SpeciesPicker({
   anchorRef?: RefObject<HTMLElement | null>;
   /** When the placeholder is only an example. */
   ariaLabel?: string;
+  /** Leaving without a pick: Escape with nothing typed and no list open, or focus moving away.
+   *  For a picker opened in place of something (an import row's species), to put that back. */
+  onCancel?: () => void;
 }) {
   const { t } = useTranslation();
   const speciesNameParts = useSpeciesNameParts();
@@ -64,8 +69,13 @@ export default function SpeciesPicker({
   const [resultsFor, setResultsFor] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
-  const anyTaxaSearchEnabled = useSettings().settings?.anyTaxaSearchEnabled ?? false;
+  const anyTaxaSearch = useServerSetting("anyTaxaSearchEnabled", "/settings/any-taxa-search");
+  const anyTaxaSearchEnabled = anyTaxaSearch.value ?? false;
   const [otherTaxaModalOpen, setOtherTaxaModalOpen] = useState(false);
+  // Read by the blur timer: moving focus into the iNaturalist dialog isn't leaving the picker.
+  const otherTaxaOpenRef = useLatest(otherTaxaModalOpen);
+  const onCancelRef = useLatest(onCancel);
+  const rootRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const listId = useId();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -142,6 +152,13 @@ export default function SpeciesPicker({
     setOtherTaxaModalOpen(true);
   }
 
+  // The search is a live lookup on iNaturalist, so it's opt-in; asking for it here opts in, and
+  // the search opens with what was typed, without leaving the page (an import's rows stay).
+  async function turnOnInatSearch() {
+    await anyTaxaSearch.save(true);
+    openInatSearch();
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (matches(e, "listNext")) {
       e.preventDefault();
@@ -166,6 +183,10 @@ export default function SpeciesPicker({
       // content, so Escape closes the dialog.
       e.preventDefault();
       setOpen(false);
+    } else if (matches(e, "close") && onCancel && !listOpen && !query) {
+      e.preventDefault();
+      e.stopPropagation();
+      onCancel();
     }
   }
 
@@ -192,7 +213,7 @@ export default function SpeciesPicker({
         );
 
   return (
-    <div className={inline || anchorRef ? "w-full" : "relative w-64"}>
+    <div ref={rootRef} className={inline || anchorRef ? "w-full" : "relative w-64"}>
       <SearchInput
         value={query}
         onChange={(v) => {
@@ -207,7 +228,13 @@ export default function SpeciesPicker({
           setOpen(true);
         }}
         onBlur={() => {
-          blurTimerRef.current = setTimeout(() => setOpen(false), 100);
+          blurTimerRef.current = setTimeout(() => {
+            setOpen(false);
+            // Still inside (the iNaturalist link, its dialog) isn't leaving.
+            const focus = document.activeElement;
+            const inside = rootRef.current?.contains(focus) || popoverRef.current?.contains(focus);
+            if (!inside && !otherTaxaOpenRef.current) onCancelRef.current?.();
+          }, 100);
         }}
         onKeyDown={handleKeyDown}
         inputProps={{
@@ -285,14 +312,19 @@ export default function SpeciesPicker({
             }`}
           >
             <p>{t("species.picker.noMatch")}</p>
-            <Link
-              to="/settings/species"
+            <Button
+              variant="link"
+              size="sm"
+              loading={anyTaxaSearch.saving}
+              tooltip={{ label: t("import.invertebrate.searchOptIn") }}
+              onClick={() => void turnOnInatSearch()}
               // Keeps focus so the blur timer doesn't close this before the click lands.
               onMouseDown={(e) => e.preventDefault()}
-              className="mt-1 block text-footnote underline hover:text-ink"
+              className="mt-1 underline"
             >
               {t("species.picker.turnOnInaturalist")}
-            </Link>
+            </Button>
+            {anyTaxaSearch.error && <p className="mt-1 text-footnote">{anyTaxaSearch.error}</p>}
           </div>
         ),
       )}

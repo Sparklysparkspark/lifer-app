@@ -82,7 +82,9 @@ export default function ManageListPage({
   isEmpty?: boolean;
   /** `action` is for pages whose header actions hide while empty, e.g. an Add button. */
   empty?: { icon: ReactNode; title: string; description: string; action?: { label: string; onClick: () => void } };
-  /** Shown instead of the content when a search or filter hides everything. */
+  /** Shown instead of the content when a search or filter hides everything. Ignored while the
+   *  page's search box is empty, so a page never claims `No places match ""`; a page with other
+   *  sections renders ManageNoMatch in place of its list instead. */
   noMatch?: string | null;
   /** Photo grids use the full width; lists stay a readable width. */
   wide?: boolean;
@@ -91,6 +93,7 @@ export default function ManageListPage({
   const { t } = useTranslation();
   const ready = !loading && !error;
   const showChrome = ready && !isEmpty;
+  const showNoMatch = !!noMatch && (!search || search.value.trim() !== "");
 
   return (
     <div className="flex-1 bg-canvas">
@@ -152,12 +155,17 @@ export default function ManageListPage({
           <EmptyState icon={empty.icon} title={empty.title} description={empty.description} action={empty.action} />
         ) : (
           <div className={`space-y-section ${wide ? "" : "max-w-3xl"}`}>
-            {noMatch ? <p className="py-8 text-body text-muted">{noMatch}</p> : children}
+            {showNoMatch ? <ManageNoMatch text={noMatch!} /> : children}
           </div>
         )}
       </main>
     </div>
   );
+}
+
+/** "Nothing matches", in place of one list on a page that has other sections too. */
+export function ManageNoMatch({ text }: { text: string }) {
+  return <p className="py-8 text-body text-muted">{text}</p>;
 }
 
 // One grouped list per section: a rounded container with hairline separators, each row with a

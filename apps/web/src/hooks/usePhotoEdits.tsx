@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { api, apiPath, ApiError } from "../api/client";
+import { api, apiPath } from "../api/client";
 import CaptureEditModal, { type CaptureEdit, type EditedCapture } from "../components/CaptureEditModal";
 import CoordinatesModal from "../components/CoordinatesModal";
 import type { SpeciesResult } from "../components/SpeciesPicker";
+import { errorMessage } from "../lib/errorMessage";
 import { ignore } from "../lib/ignore";
 import { useSpeciesName } from "../lib/speciesName";
 import { useToast } from "./useToast";
@@ -26,10 +27,6 @@ export type EditablePhoto = Omit<EditedCapture, "tags"> & {
   lat?: number | string | null;
   lon?: number | string | null;
 };
-
-function errorText(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.message : fallback;
-}
 
 // A photo menu's longer edits (tags, ID, second species, location) and Hide, for pages whose
 // photos aren't the species page's or the Gallery's. Each change shows at once through `update`,
@@ -65,7 +62,7 @@ export function usePhotoEdits({
       try {
         await api.patch(apiPath("/captures/{id}/tags", { id: captureId }), { tags });
       } catch (err) {
-        toast.error(errorText(err, t("species.edits.tagsFailed")));
+        toast.error(errorMessage(err, t("species.edits.tagsFailed")));
         reload();
       }
     },
@@ -78,7 +75,7 @@ export function usePhotoEdits({
     try {
       await api.patch(apiPath("/species/{id}/cover", { id: speciesId }), { photoId: featured ? null : photoId });
     } catch (err) {
-      toast.error(errorText(err, t("species.edits.featuredFailed")));
+      toast.error(errorMessage(err, t("species.edits.featuredFailed")));
     }
     reload();
   }
@@ -88,7 +85,7 @@ export function usePhotoEdits({
       await api.post(apiPath("/captures/{id}/species", { id: captureId }), { speciesId: otherSpeciesId });
       reload();
     } catch (err) {
-      toast.error(errorText(err, t("species.edits.tagSpeciesFailed")));
+      toast.error(errorMessage(err, t("species.edits.tagSpeciesFailed")));
     }
   }
 
@@ -97,7 +94,7 @@ export function usePhotoEdits({
     try {
       await api.patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: to.id });
     } catch (err) {
-      toast.error(errorText(err, t("species.edits.reassignFailed")));
+      toast.error(errorMessage(err, t("species.edits.reassignFailed")));
       return;
     }
     reload();
@@ -135,13 +132,13 @@ export function usePhotoEdits({
             ),
           )
           .then(reload)
-          .catch((err) => toast.error(errorText(err, t("species.edits.unhideFailed"))));
+          .catch((err) => toast.error(errorMessage(err, t("species.edits.unhideFailed"))));
       toast.show(
         captureIds.length === 1 ? t("species.edits.hidden") : t("species.edits.hiddenMany", { count: res.hidden }),
         { tone: "success", actions: [{ label: t("species.edits.undo"), onClick: undo }] },
       );
     } catch (err) {
-      toast.error(errorText(err, t("species.edits.hideFailed")));
+      toast.error(errorMessage(err, t("species.edits.hideFailed")));
     }
   }
 

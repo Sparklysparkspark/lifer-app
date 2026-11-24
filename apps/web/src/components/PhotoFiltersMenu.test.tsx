@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { PhotoFilterFields } from "./PhotoFiltersMenu";
+import PhotoFiltersMenu, { PhotoFilterFields } from "./PhotoFiltersMenu";
 import type { GalleryFilters } from "../pages/gallery/useGalleryFilters";
 import type { AppearanceFacets, GalleryFacets } from "../pages/gallery/useGalleryFacets";
 import type { AppearanceFilter } from "../pages/gallery/types";
@@ -63,5 +63,29 @@ describe("Appearance filter", () => {
     expect(list.querySelectorAll("input[type=checkbox]")).toHaveLength(12);
     fireEvent.click(screen.getByRole("checkbox", { name: /morph 290/ }));
     expect(filters.setAppearance).toHaveBeenCalledWith("morph", ["morph 5", "morph 290"]);
+  });
+});
+
+describe("PhotoFiltersMenu Clear all", () => {
+  it("ends the menu with Clear all once a filter is on, clearing the species choice too", () => {
+    const filters = {
+      query: { appearance: NONE, regionIds: [], tiers: [], selectedTaxa: new Set() },
+      activeFilterCount: 2,
+      clearFilters: vi.fn(),
+    } as unknown as GalleryFilters;
+    const onChange = vi.fn();
+    render(
+      <PhotoFiltersMenu
+        filters={filters}
+        facets={{ appearance: null } as unknown as GalleryFacets}
+        tagOptions={[]}
+        sections={[]}
+        species={{ options: [], selected: new Set(["s1"]), onChange }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear all filters" }));
+    expect(filters.clearFilters).toHaveBeenCalledOnce();
+    expect(onChange).toHaveBeenCalledWith(new Set());
   });
 });

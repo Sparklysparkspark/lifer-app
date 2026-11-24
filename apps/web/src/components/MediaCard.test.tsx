@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import MediaCard, { CARD_SELECTED, PhotoMosaic, SelectedRing } from "./MediaCard";
+import MediaCard, { CARD_SELECTED, PhotoMosaic, SelectedRing, Thumb } from "./MediaCard";
 
 afterEach(cleanup);
 
@@ -46,6 +46,31 @@ describe("MediaCard", () => {
     const media = screen.getByRole("img").parentElement!;
     expect(media.className).toContain("rounded-[calc(var(--radius-panel)-1px)]");
     expect(screen.getByRole("link").querySelectorAll("p")).toHaveLength(0);
+  });
+});
+
+describe("MediaCard slots", () => {
+  it("pins the footer to the bottom of the text block, after the lines", () => {
+    renderCard({ footer: <span>Ready to send</span> });
+    const footer = screen.getByText("Ready to send").parentElement!;
+    expect(footer.className).toContain("mt-auto");
+    expect(footer.previousElementSibling?.textContent).toBe("Burnaby");
+  });
+
+  it("reserves two title lines only when asked", () => {
+    const { rerender } = renderCard();
+    expect(screen.getByText("Northern Flicker").className).not.toContain("min-h-[2lh]");
+    rerender(<MediaCard media={null} title="Northern Flicker" titleLines={2} renderBody={(p) => <a {...p} />} />);
+    expect(screen.getByText("Northern Flicker").className).toContain("min-h-[2lh]");
+  });
+});
+
+describe("Thumb", () => {
+  it("shows a picture from elsewhere when there's no library photo, and the library photo first", () => {
+    const { container, rerender } = render(<Thumb photoId={null} src="https://example.org/p.jpg" />);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("https://example.org/p.jpg");
+    rerender(<Thumb photoId="p1" src="https://example.org/p.jpg" />);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("/api/photos/p1/thumb");
   });
 });
 

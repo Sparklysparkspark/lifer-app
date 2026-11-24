@@ -26,6 +26,8 @@ export default function MediaCard({
   titleClassName = "",
   lines = [],
   badge,
+  footer,
+  titleLines,
   textClassName = "",
   compact = false,
   selected = false,
@@ -45,6 +47,11 @@ export default function MediaCard({
   /** Muted lines under the title; empty ones are skipped and elements pass through as they are. */
   lines?: ReactNode[];
   badge?: ReactNode;
+  /** Status or actions pinned to the card's bottom, so they line up across a row whatever the
+   *  title and lines above them take. */
+  footer?: ReactNode;
+  /** Reserves this many title lines, so cards in a row keep one shape (clamp the title to match). */
+  titleLines?: 1 | 2;
   /** Dims or otherwise styles the text block. */
   textClassName?: string;
   /** The smallest card sizes: a tighter text block. */
@@ -73,7 +80,11 @@ export default function MediaCard({
       </div>
       {hasText && (
         <div className={`flex flex-1 flex-col ${compact ? "gap-0 px-1.5 py-1" : "gap-0.5 p-3"} ${textClassName}`}>
-          <p className={`break-words font-medium leading-tight text-ink ${titleClassName}`}>{title}</p>
+          <p
+            className={`break-words font-medium leading-tight text-ink ${titleLines === 2 ? "min-h-[2lh]" : ""} ${titleClassName}`}
+          >
+            {title}
+          </p>
           {lines.map((line, i) =>
             !line ? null : typeof line === "string" ? (
               <p key={i} className="break-words text-footnote text-muted">
@@ -84,6 +95,7 @@ export default function MediaCard({
             ),
           )}
           {badge && <div className={compact ? "mt-0.5" : "mt-1"}>{badge}</div>}
+          {footer != null && footer !== false && <div className="mt-auto pt-1">{footer}</div>}
         </div>
       )}
     </>
@@ -114,25 +126,29 @@ export function SelectedRing({ radiusPx }: { radiusPx?: number }) {
   );
 }
 
-/** A photo filling its box, or the empty fill when there is none; dimmed when left out. */
+/** A photo filling its box, or the empty fill when there is none; dimmed when left out. `src` is
+ *  a picture from elsewhere (an iNaturalist photo) for when there is no library photo. */
 export function Thumb({
   photoId,
+  src,
   dim = false,
   className = "",
 }: {
   photoId: string | null;
+  src?: string | null;
   dim?: boolean;
   className?: string;
 }) {
   const look = `h-full w-full object-cover ${dim ? "opacity-35 grayscale" : ""}`;
+  const thumbSrc = photoId ? `/api/photos/${photoId}/thumb` : src;
   return (
     <div className={`overflow-hidden bg-surface-muted ${className}`}>
-      {photoId && <ProgressiveImg thumbSrc={`/api/photos/${photoId}/thumb`} alt="" className={look} />}
+      {thumbSrc && <ProgressiveImg thumbSrc={thumbSrc} alt="" className={look} />}
     </div>
   );
 }
 
-export type MosaicPhoto = { id: string; photoId: string | null; dim?: boolean };
+export type MosaicPhoto = { id: string; photoId: string | null; src?: string | null; dim?: boolean };
 const MOSAIC = 3;
 
 /** The cover plus up to two more, with a count of the rest over the last. Fills its box. */
@@ -150,7 +166,7 @@ export function PhotoMosaic({ photos }: { photos: MosaicPhoto[] }) {
             i === 0 && mosaic.length > 1 ? "col-span-2 row-span-2" : mosaic.length === 2 ? "row-span-2" : ""
           }`}
         >
-          <Thumb photoId={p.photoId} dim={p.dim} className="absolute inset-0" />
+          <Thumb photoId={p.photoId} src={p.src} dim={p.dim} className="absolute inset-0" />
           {more > 0 && i === mosaic.length - 1 && (
             // design-token: a scrim over photos, like PhotoTile's duration badge, reads the same in both themes.
             <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-footnote font-medium text-white">

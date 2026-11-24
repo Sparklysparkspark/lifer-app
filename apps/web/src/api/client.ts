@@ -60,10 +60,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith("/auth/") && !path.startsWith("/share/")) unauthorizedHandler?.();
-    const body = await res.json().catch(() => ({ error: res.statusText }));
+    const body = await res.json().catch(() => ({}));
     const code = typeof body.code === "string" ? body.code : undefined;
-    // An uncoded 500 is an unexpected failure whose text can be raw server detail (ux-rules S1).
-    const message = res.status === 500 && !code ? userMessage({ status: 500 }) : (body.error ?? res.statusText);
+    // An uncoded 5xx, or an answer with no JSON error (a proxy's 502, a 413), would show raw server
+    // or HTTP status text, so it gets a plain sentence instead (ux-rules S1).
+    const message =
+      (res.status >= 500 && !code) || typeof body.error !== "string" ? userMessage({ status: res.status }) : body.error;
     const apiErr = new ApiError(res.status, message, code);
     if (typeof body.needed === "number") apiErr.needed = body.needed;
     if (typeof body.free === "number") apiErr.free = body.free;

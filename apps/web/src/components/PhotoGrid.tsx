@@ -2,7 +2,8 @@ import { memo, useCallback, useState, type Dispatch, type ReactNode, type RefObj
 import MasonryGrid from "./MasonryGrid";
 import PhotoTile from "./PhotoTile";
 import InlineSpinner from "./InlineSpinner";
-import { Chevron } from "./GroupedSpeciesGrid";
+import Chevron from "./Chevron";
+import { formatNumber } from "../lib/format";
 import { useVersionCounts } from "../lib/photoVersions";
 
 /** What a tile shows for one item. */
@@ -187,9 +188,7 @@ export default function PhotoGrid<T>({
                 >
                   <Chevron open={!group.collapsed} />
                   <span className="min-w-0 break-words">{group.label}</span>{" "}
-                  <span className="text-footnote font-normal text-muted">
-                    ({group.entries.length.toLocaleString()})
-                  </span>
+                  <span className="text-footnote font-normal text-muted">({formatNumber(group.entries.length)})</span>
                 </button>
               </h2>
               {group.action}

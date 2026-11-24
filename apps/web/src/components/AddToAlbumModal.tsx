@@ -6,11 +6,49 @@ import Button from "./Button";
 import FormMessage from "./FormMessage";
 import { NameField } from "./TextField";
 import EmptyState from "./EmptyState";
+import SearchInput from "./SearchInput";
+import { Spinner } from "./LoadingScreen";
 import { useToast } from "../hooks/useToast";
+import { normalizeForSearch } from "../lib/searchNormalize";
 
 interface AlbumOption {
   id: string;
   name: string;
+  createdAt?: string;
+}
+
+// Longer lists get a search box.
+const SEARCH_AT = 8;
+const RECENT_KEY = "lifer:recentAlbums";
+const RECENT_MAX = 20;
+
+function readRecent(): string[] {
+  try {
+    const ids: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecent(albumId: string) {
+  try {
+    const ids = [albumId, ...readRecent().filter((id) => id !== albumId)].slice(0, RECENT_MAX);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(ids));
+  } catch {
+    // Only an ordering convenience; a private window simply forgets it.
+  }
+}
+
+/** The albums last added to first (`recent`, newest first), then the newest albums. */
+export function orderAlbums<T extends AlbumOption>(albums: T[], recent: string[]): T[] {
+  const rank = new Map(recent.map((id, i) => [id, i]));
+  return [...albums].sort((a, b) => {
+    const ra = rank.get(a.id) ?? Infinity;
+    const rb = rank.get(b.id) ?? Infinity;
+    if (ra !== rb) return ra - rb;
+    return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+  });
 }
 
 // Picks an album or creates one, for a photo menu's "Add to album" and the select toolbars.
@@ -25,6 +63,9 @@ export default function AddToAlbumModal({
 }) {
   const { t } = useTranslation();
   const [albums, setAlbums] = useState<AlbumOption[] | null>(null);
+  // Smart albums were left out, so "no albums yet" wouldn't be true.
+  const [hasSmart, setHasSmart] = useState(false);
+  const [query, setQuery] = useState("");
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +77,14 @@ export default function AddToAlbumModal({
       .get("/albums")
       .then((res) => {
         // A smart album's rules choose its photos, so it can't take hand-picked ones.
-        if (!cancelled) setAlbums(res.albums.filter((a) => !a.rules));
+        if (cancelled) return;
+        setAlbums(
+          orderAlbums(
+            res.albums.filter((a) => !a.rules),
+            readRecent(),
+          ),
+        );
+        setHasSmart(res.albums.some((a) => a.rules));
       })
       .catch(() => {
         if (cancelled) return;
@@ -66,6 +114,7 @@ export default function AddToAlbumModal({
   const addTo = (albumId: string, name: string) =>
     run(name, async () => {
       await api.post(apiPath("/albums/{id}/captures", { id: albumId }), { captureIds });
+      rememberRecent(albumId);
     });
 
   function createAndAdd(e: FormEvent) {
@@ -74,8 +123,12 @@ export default function AddToAlbumModal({
     void run(newName.trim(), async () => {
       const created = await api.post("/albums", { name: newName.trim() });
       await api.post(apiPath("/albums/{id}/captures", { id: created.id }), { captureIds });
+      rememberRecent(created.id);
     });
   }
+
+  const q = normalizeForSearch(query.trim());
+  const shown = albums && q ? albums.filter((a) => normalizeForSearch(a.name).includes(q)) : albums;
 
   return (
     <Modal
@@ -88,13 +141,24 @@ export default function AddToAlbumModal({
         </Button>
       }
     >
-      <div className="mt-1 max-h-56 overflow-y-auto border-y border-line">
-        {!albums ? (
-          <p className="py-2 text-callout text-muted">{t("common.loading")}</p>
+      {albums && albums.length > SEARCH_AT && (
+        <SearchInput
+          value={query}
+          onChange={setQuery}
+          placeholder={t("albums.sections.searchAlbums")}
+          aria-label={t("albums.sections.searchAlbums")}
+          className="mb-2"
+        />
+      )}
+      <div className="mt-1 max-h-72 overflow-y-auto border-y border-line">
+        {!albums || !shown ? (
+          <Spinner />
         ) : albums.length === 0 ? (
-          <EmptyState compact title={t("albums.addTo.empty")} />
+          <EmptyState compact title={t(hasSmart ? "albums.addTo.onlySmart" : "albums.addTo.empty")} />
+        ) : shown.length === 0 ? (
+          <EmptyState compact title={t("albums.sections.noMatch", { query: query.trim() })} />
         ) : (
-          albums.map((a) => (
+          shown.map((a) => (
             // raw-control: a row of the album list, not a free-standing button.
             <button
               key={a.id}

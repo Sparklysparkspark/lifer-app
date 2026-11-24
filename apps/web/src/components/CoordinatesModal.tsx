@@ -48,7 +48,8 @@ export default function CoordinatesModal({
   suggestRegion: boolean;
   /** `region` is set when the user also chose the suggested region. */
   onSaved: (point: { lat: number; lon: number } | null, region: { id: string; name: string } | null) => void;
-  /** Given, the saved toast offers Undo (the shared location history); runs after it. */
+  /** Runs after the saved toast's Undo (the shared location history) to reload the page. Without
+   *  it, Undo hands the photo's earlier point back through onSaved (the viewer's own copy). */
   onUndone?: () => void;
   onClose: () => void;
   /** One photo's place name and region, so they can be edited here too. */
@@ -68,8 +69,9 @@ export default function CoordinatesModal({
   const [addingPlace, setAddingPlace] = useState<string | null>(null);
   // A place picked from the list: saving files the photos under it, while the text still shows its centre.
   const [chosen, setChosen] = useState<ChosenPlace | null>(null);
-  const filing = useFileUnderPlace(onUndone ?? (() => {}));
-  const undo = useUndoLocation(onUndone ?? (() => {}));
+  const afterUndo = onUndone ?? (() => onSaved(hasPoint ? { lat: lat!, lon: lon! } : null, null));
+  const filing = useFileUnderPlace(afterUndo);
+  const undo = useUndoLocation(afterUndo);
   const parsed = parseCoordinates(text);
   const point = parsed.ok ? parsed : null;
   const pointKey = point ? `${point.lat},${point.lon}` : null;
@@ -180,7 +182,7 @@ export default function CoordinatesModal({
           : t("coordinates.cleared");
       toast.show(message, {
         tone: "success",
-        actions: onUndone ? [{ label: t("savedSpots.undo"), onClick: () => void undo() }] : [],
+        actions: [{ label: t("savedSpots.undo"), onClick: () => void undo() }],
       });
       onClose();
     } catch (err) {

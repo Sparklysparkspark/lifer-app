@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { ToastContext, type ToastApi } from "../hooks/useToast";
-import Lightbox, { type LightboxSlide } from "./Lightbox";
+import Lightbox, { useLightbox, type LightboxSlide } from "./Lightbox";
 import TagEditor from "./TagEditor";
 import BackToCollectionLink from "./BackToCollectionLink";
 
@@ -69,6 +69,46 @@ describe("Lightbox keyboard", () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onIndexChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("Lightbox counter", () => {
+  it("counts against the page's own total, formatted, when only some photos are loaded", () => {
+    render(
+      <MemoryRouter>
+        <ToastContext.Provider value={toast}>
+          <Lightbox slides={slides} index={1} total={4812} onIndexChange={() => {}} onClose={() => {}} />
+        </ToastContext.Provider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("2 / 4,812")).toBeTruthy();
+  });
+});
+
+describe("useLightbox", () => {
+  function Thumbs() {
+    const viewer = useLightbox();
+    return (
+      <>
+        <button type="button" onClick={() => viewer.open(slides, 2)}>
+          Open
+        </button>
+        {viewer.node}
+      </>
+    );
+  }
+  it("opens the photo a thumbnail was clicked on, and closes again", () => {
+    render(
+      <MemoryRouter>
+        <ToastContext.Provider value={toast}>
+          <Thumbs />
+        </ToastContext.Provider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect(screen.getByText("Green Heron")).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByText("Green Heron")).toBeNull();
   });
 });
 

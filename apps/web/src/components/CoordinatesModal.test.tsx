@@ -76,6 +76,18 @@ describe("CoordinatesModal", () => {
     expect(post).toHaveBeenLastCalledWith("/captures/location/undo");
   });
 
+  it("offers Undo from the viewer too, putting the earlier point back on its copy", async () => {
+    post.mockResolvedValue({ updated: 1, restored: 1 });
+    const { onSaved, onClose } = renderModal({ lat: 10, lon: 20 });
+    fireEvent.change(field(), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Clear coordinates" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const opts = toast.show.mock.calls[0][1] as { actions: Array<{ label: string; onClick: () => void }> };
+    opts.actions.find((a) => a.label === "Undo")!.onClick();
+    await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith({ lat: 10, lon: 20 }, null));
+    expect(post).toHaveBeenLastCalledWith("/captures/location/undo");
+  });
+
   it("explains unreadable input and keeps Save off", () => {
     renderModal();
     fireEvent.change(field(), { target: { value: "95, 10" } });

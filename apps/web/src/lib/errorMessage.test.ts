@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ApiError } from "../api/client";
 import { errorMessage } from "./errorMessage";
 
 describe("errorMessage", () => {
@@ -28,8 +29,16 @@ describe("errorMessage", () => {
       "You're offline. Check your connection and try again.",
     );
     vi.unstubAllGlobals();
-    // Other TypeErrors are bugs with their own message.
-    expect(errorMessage(new TypeError("x is not a function"), "fallback")).toBe("x is not a function");
+  });
+  it("never shows the runtime's own error text", () => {
+    expect(errorMessage(new TypeError("x is not a function"), "fallback")).toBe("fallback");
+    expect(errorMessage(new SyntaxError("Unexpected token <"), "fallback")).toBe("fallback");
+    expect(errorMessage(new DOMException("The user aborted a request.", "AbortError"), "fallback")).toBe("fallback");
+  });
+  it("keeps an ApiError's message, already plain or translated", () => {
+    expect(errorMessage(new ApiError(409, "Wait for the scan to finish"), "fallback")).toBe(
+      "Wait for the scan to finish",
+    );
   });
   it("falls back for empty or unknown values", () => {
     expect(errorMessage("", "fallback")).toBe("fallback");

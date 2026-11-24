@@ -23,15 +23,16 @@ export default function FarPhotosConfirm({
       <p className="text-ink">
         {t("placePicker.far", { count: far.count, formatted: formatNumber(far.count), km: formatNumber(far.km) })}
       </p>
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" loading={busy} onClick={() => onFile(false)}>
-          {t("placePicker.fileAnyway")}
+      {/* Dialog order (ux-rules M11): right-aligned, Cancel first, the primary last. */}
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
+          {t("common.cancel")}
         </Button>
         <Button variant="secondary" size="sm" disabled={busy} onClick={() => onFile(true)}>
           {t("placePicker.moveToo")}
         </Button>
-        <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
-          {t("common.cancel")}
+        <Button size="sm" loading={busy} onClick={() => onFile(false)}>
+          {t("placePicker.fileAnyway")}
         </Button>
       </div>
     </div>

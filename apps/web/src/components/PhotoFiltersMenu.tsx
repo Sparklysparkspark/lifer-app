@@ -49,11 +49,29 @@ export interface SpeciesFilterChoices {
   onChange: (next: ReadonlySet<string>) => void;
 }
 
-/** The Filters button and menu every photo grid shares. The badge is filters.activeFilterCount. */
+/** The Filters button and menu every photo grid shares. The badge is filters.activeFilterCount;
+ *  with any filter on, the menu ends with Clear all, so every grid page has it. */
 export default function PhotoFiltersMenu(props: FilterFieldsProps) {
+  const { t } = useTranslation();
+  const { filters, species } = props;
+  const activeCount = filters.activeFilterCount + (species?.selected.size ? 1 : 0);
   return (
-    <FilterPopover activeCount={props.filters.activeFilterCount + (props.species?.selected.size ? 1 : 0)}>
+    <FilterPopover activeCount={activeCount}>
       <PhotoFilterFields {...props} />
+      {activeCount > 0 && (
+        <div className="mt-2 flex justify-end border-t border-line pt-2">
+          <Button
+            variant="link"
+            size="sm"
+            onClick={() => {
+              filters.clearFilters();
+              species?.onChange(new Set());
+            }}
+          >
+            {t("gallery.toolbar.clearAll")}
+          </Button>
+        </div>
+      )}
     </FilterPopover>
   );
 }

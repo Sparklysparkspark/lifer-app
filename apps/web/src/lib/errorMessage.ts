@@ -8,9 +8,17 @@ import { userMessage } from "./userMessage";
 // fetch's own rejection when no answer came back (Chrome, Firefox, Safari wordings).
 const NO_ANSWER = /failed to fetch|networkerror|load failed/i;
 
+// The runtime's own errors ("x is not a function", "Unexpected token <", an aborted request) are
+// bugs or plumbing, never words for a person. A plain Error is the app's own (often a translated
+// `new Error(t(...))`), and an ApiError's message is already plain (api/client.ts).
+const RUNTIME_ERRORS = [TypeError, SyntaxError, RangeError, ReferenceError, EvalError, URIError];
+const isRuntimeError = (err: unknown) =>
+  RUNTIME_ERRORS.some((E) => err instanceof E) || (typeof DOMException !== "undefined" && err instanceof DOMException);
+
 export function errorMessage(err: unknown, fallback: string): string {
   // Plain words ("You're offline...") rather than the browser's "Failed to fetch" (ux-rules S1, S9).
   if (err instanceof TypeError && NO_ANSWER.test(err.message)) return userMessage(err);
+  if (isRuntimeError(err)) return fallback;
   if (typeof err === "string") return err.trim() || fallback;
   if (err instanceof Error) return err.message.trim() || fallback;
   if (err && typeof err === "object") {

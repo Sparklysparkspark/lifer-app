@@ -23,7 +23,7 @@ describe("FolderBrowser", () => {
         : Promise.resolve({ path: "/home/me", parent: null, entries: [] }),
     );
     render(<FolderBrowser initialPath="/Volumes/unplugged/exports" onChoose={() => {}} onCancel={() => {}} />);
-    await waitFor(() => expect(screen.getByText("/home/me")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTitle("/home/me")).toBeTruthy());
     expect(get).toHaveBeenCalledTimes(2);
   });
 
@@ -43,7 +43,7 @@ describe("FolderBrowser", () => {
       target: { value: "Wildlife" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
-    await waitFor(() => expect(screen.getByText("/trips/Belize 2026/Wildlife")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTitle("/trips/Belize 2026/Wildlife")).toBeTruthy());
     expect(post).toHaveBeenCalledWith("/settings/browse-directory/new-folder", {
       parent: "/trips/Belize 2026",
       name: "Wildlife",
@@ -67,8 +67,21 @@ describe("FolderBrowser", () => {
     const onChoose = vi.fn();
     render(<FolderBrowser initialPath="/Users/me/Desktop/Belize 2026" onChoose={onChoose} onCancel={() => {}} />);
     fireEvent.click(await screen.findByRole("button", { name: "Wildlife" }));
-    await waitFor(() => expect(screen.getByText("/Users/me/Desktop/Belize 2026/Wildlife")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTitle("/Users/me/Desktop/Belize 2026/Wildlife")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Use this folder" }));
     expect(onChoose).toHaveBeenCalledWith("/Users/me/Desktop/Belize 2026/Wildlife");
+  });
+
+  it("lays out Cancel, New folder, then Use this folder, and cancels on Escape", async () => {
+    get.mockResolvedValue({ path: "/home/me/Pictures/2026 Belize trip", parent: "/home/me/Pictures", entries: [] });
+    const onCancel = vi.fn();
+    render(<FolderBrowser onChoose={() => {}} onCancel={onCancel} />);
+    const use = await screen.findByRole("button", { name: "Use this folder" });
+    const footer = [...use.parentElement!.querySelectorAll("button")].map((b) => b.textContent);
+    expect(footer).toEqual(["Cancel", "New folder", "Use this folder"]);
+    // The folder's own name leads, the full path is on hover.
+    expect(screen.getByTitle("/home/me/Pictures/2026 Belize trip").textContent).toMatch(/^2026 Belize trip/);
+    fireEvent.keyDown(use, { key: "Escape" });
+    expect(onCancel).toHaveBeenCalledOnce();
   });
 });

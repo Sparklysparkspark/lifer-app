@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -41,7 +41,7 @@ import { useApiRoute } from "../lib/resource";
 import { api, apiPath } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
 import { openExternal } from "../lib/openExternal";
-import { formatDate } from "../lib/format";
+import { formatDate, formatDuration, formatNumber } from "../lib/format";
 import { downloadWithToast } from "../lib/downloadFile";
 import { ignore } from "../lib/ignore";
 import { backStateFor } from "../lib/backLabel";
@@ -192,6 +192,7 @@ export default function Lightbox({
   tagOptions,
   morphOptions,
   backLabel,
+  total,
 }: {
   slides: LightboxSlide[];
   index: number;
@@ -203,6 +204,9 @@ export default function Lightbox({
   morphOptions?: string[];
   /** What the species page's back link calls this page, when it has a name (a trip's, an album's). */
   backLabel?: string;
+  /** How many photos the page has in all, when only some are loaded as slides, so the counter
+   *  agrees with the page's own count. */
+  total?: number;
 }) {
   // Arrows sit over the native video controls, so on video slides they fade out when the mouse idles.
   const toast = useToast();
@@ -507,10 +511,7 @@ export default function Lightbox({
   ]
     .filter(Boolean)
     .join(" · ");
-  const durationLabel =
-    slide.info?.durationSeconds != null
-      ? `${Math.floor(Number(slide.info.durationSeconds) / 60)}:${String(Math.round(Number(slide.info.durationSeconds) % 60)).padStart(2, "0")}`
-      : null;
+  const durationLabel = formatDuration(slide.info?.durationSeconds) || null;
   // Left out when the caption already gives the date (the Gallery's and species page's do).
   const fullDate = formatDate(slide.info?.takenAt, "medium");
   const takenLabel = fullDate && !slide.caption?.includes(formatDate(slide.info?.takenAt)) ? fullDate : null;
@@ -909,7 +910,7 @@ export default function Lightbox({
                 )}
                 {slides.length > 1 && (
                   <span className="text-footnote text-white/40">
-                    {index + 1} / {slides.length}
+                    {formatNumber(index + 1)} / {formatNumber(Math.max(total ?? 0, slides.length))}
                   </span>
                 )}
               </div>
@@ -956,6 +957,27 @@ export default function Lightbox({
     </div>,
     document.body,
   );
+}
+
+/** Lets any thumbnail open full size: `viewer.open(slides, index)` from its click, and render
+ *  `viewer.node` once anywhere in the component (the viewer portals to the page's top). */
+export function useLightbox(): {
+  open: (slides: LightboxSlide[], index?: number) => void;
+  node: ReactNode;
+} {
+  const [shown, setShown] = useState<{ slides: LightboxSlide[]; index: number } | null>(null);
+  const open = useCallback((slides: LightboxSlide[], index = 0) => {
+    if (slides.length > 0) setShown({ slides, index: Math.min(Math.max(index, 0), slides.length - 1) });
+  }, []);
+  const node = shown ? (
+    <Lightbox
+      slides={shown.slides}
+      index={shown.index}
+      onIndexChange={(index) => setShown((s) => s && { ...s, index })}
+      onClose={() => setShown(null)}
+    />
+  ) : null;
+  return { open, node };
 }
 
 /** Whether the app itself is fullscreen: the desktop window (main.tsx marks <html data-fullscreen>)

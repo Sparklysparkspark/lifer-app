@@ -51,6 +51,26 @@ describe("error text", () => {
     });
   });
 
+  it("says a gateway or timeout status in plain words, never its HTTP text", async () => {
+    vi.stubGlobal("navigator", { onLine: true });
+    for (const status of [502, 503, 504]) {
+      reply(status, { error: "Bad Gateway" });
+      await expect(api.get("/gallery")).rejects.toMatchObject({
+        status,
+        message: "Couldn't reach Lifer. Check your connection and try again.",
+      });
+    }
+    // A proxy's own page: no JSON, so only the status text was there to show.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<html>413</html>", { status: 413, statusText: "Payload Too Large" })),
+    );
+    await expect(api.post("/uploads", new FormData())).rejects.toMatchObject({
+      status: 413,
+      message: "Something went wrong. Please try again.",
+    });
+  });
+
   it("keeps the server's words for a coded 500 and for other statuses", async () => {
     reply(500, { error: "Couldn't move this library", code: "storage_move_failed" });
     await expect(api.get("/x")).rejects.toMatchObject({ message: "Couldn't move this library" });
