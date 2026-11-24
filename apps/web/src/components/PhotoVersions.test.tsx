@@ -134,6 +134,35 @@ describe("the viewer's version switcher", () => {
     expect(shownSrc()).toBe("/api/photos/p3/display");
   });
 
+  it("lists a RAW behind its edit to switch to, without counting it", async () => {
+    get.mockImplementation(async (path: string) => {
+      if (path.startsWith("/captures/version-counts")) return { counts: { r1: 1 } };
+      if (path.includes("/versions"))
+        return {
+          groupCaptureId: "r1",
+          files: [],
+          versions: [
+            version("r1", "p1", { labelKind: "original", isGroup: true, rawOnly: true }),
+            version("r2", "p2", { labelKind: "bw", shown: true }),
+          ],
+          nearby: [],
+        };
+      if (path.includes("/ebird")) return { checklists: [] };
+      return {};
+    });
+    wrap(
+      <Lightbox
+        slides={[{ url: "/api/photos/p1/display", captureId: "r1", caption: "Moose" }]}
+        index={0}
+        onIndexChange={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    expect(await screen.findByRole("radio", { name: "Original" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Black and white" })).toBeTruthy();
+    expect(screen.queryByText(/\d versions?/)).toBeNull();
+  });
+
   it("renames a version in place, and Escape only cancels the rename", async () => {
     openViewer();
     fireEvent.doubleClick(await screen.findByRole("radio", { name: "Black and white" }));
@@ -276,6 +305,19 @@ describe("the Versions dialog", () => {
     expect(screen.queryByRole("group", { name: "Show files as" })).toBeNull();
     openDialog([...PAIR, file("print", "v2"), file("bw", "v3")]);
     expect(await screen.findByText("3 versions, counted as one photo")).toBeTruthy();
+    // A RAW of its own, behind its edit, is listed but not counted.
+    openDialog([
+      file("edit", "g1", { role: "export", shown: true }),
+      file("raw", "v2", { kind: "raw", fileName: "raw.cr3", format: "CR3" }),
+    ]);
+    expect(await screen.findByText("2 files: your camera original and an export")).toBeTruthy();
+    expect(screen.getByText("raw.cr3")).toBeTruthy();
+    openDialog([
+      file("edit", "g1", { role: "export", shown: true }),
+      file("raw", "v2", { kind: "raw", fileName: "raw.cr3", format: "CR3" }),
+      file("print", "v3", { role: "export" }),
+    ]);
+    expect(await screen.findByText("2 versions, counted as one photo")).toBeTruthy();
   });
 
   it("marks only the file that is the photo as shown", async () => {
@@ -376,8 +418,23 @@ describe("the Gallery's View menu", () => {
     const onChange = vi.fn();
     render(<PhotoViewMenu sections={["versions"]} activeCount={0} allVersions={{ checked: false, onChange }} />);
     fireEvent.click(screen.getByRole("button", { name: /View/ }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Show every version as its own photo" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Show every version and RAW as its own photo" }));
     expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("offers Version labels with the captions, on by default", async () => {
+    const { usePhotoCaptionPrefs } = await import("../hooks/usePhotoCaptionPrefs");
+    function Menu() {
+      return <PhotoViewMenu sections={["captions"]} activeCount={0} captions={usePhotoCaptionPrefs()} />;
+    }
+    render(<Menu />);
+    fireEvent.click(screen.getByRole("button", { name: /View/ }));
+    const box = screen.getByRole("checkbox", { name: "Version labels" }) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    expect(box.checked).toBe(false);
+    expect(localStorage.getItem("lifer:showVersionLabels")).toBe("false");
+    fireEvent.click(box);
   });
 });
 

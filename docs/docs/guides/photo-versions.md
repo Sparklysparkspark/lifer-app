@@ -100,7 +100,7 @@ Some examples:
 
 ## Seeing and switching versions {#switching}
 
-A photo with versions shows a small stack badge, like **3 versions**, in the Gallery, on species pages, trips and albums.
+A photo with versions shows a small stack badge, like **3 versions**, in the Gallery, on species pages, trips and albums. A RAW is not counted as a version, so a RAW and its edited JPG show no badge; use the **RAW files** filter to find photos with a RAW. To hide the badges, turn off **View > Version labels** in any photo grid.
 
 Open the photo, and the viewer lists its versions by name under the photo, with the original, edits and exports marked. Click one to see it, or press <kbd>Option</kbd>+<kbd>←</kbd> and <kbd>Option</kbd>+<kbd>→</kbd> (<kbd>Alt</kbd>+<kbd>←</kbd> and <kbd>Alt</kbd>+<kbd>→</kbd> on Windows and Linux). Seeing a version doesn't change which one is the photo. When two versions are the same size, the zoom stays where it is, so you can compare details.
 
@@ -108,7 +108,7 @@ File actions follow the version you see. In the viewer, **Open in** an editor op
 
 - **Rename**: double-click a version's name, or click **Rename**, type a name like "Gallery print" and press <kbd>Enter</kbd>. <kbd>Esc</kbd> cancels. Clear the name to go back to the one Lifer chose.
 - **Use this as the photo**: shows that version everywhere the photo appears: grids, the species card and albums. Use it to show the RAW's preview instead of an edit. Undo is in the message that follows.
-- **Manage versions**: the button at the top of the viewer opens the **Versions** window. It lists every file with its size and format, and why it was grouped. The line under the title says what it holds, like "2 files: your camera original and an export" for a RAW and its JPG, or "3 versions" for a photo with prints and edits. **Shown** marks the one file that is the photo. From there you can **Split out** a version that isn't the same photo (it becomes a photo of its own again, and Lifer won't group it again).
+- **Manage versions**: the button at the top of the viewer opens the **Versions** window. It lists every file with its size and format, and why it was grouped. The line under the title says what it holds, like "2 files: your camera original and an export" for a RAW and its JPG, or "3 versions" for a photo with prints and edits. A RAW is listed with the files but not counted as a version. **Shown** marks the one file that is the photo. From there you can **Split out** a version that isn't the same photo (it becomes a photo of its own again, and Lifer won't group it again).
 - **List or Grid**: switch the Versions window between rows and large thumbnails. A few files open as a list and many as a grid, until you pick one, which Lifer remembers. Each file's **⋯** menu has the same actions in both.
 - **See a file full size**: click its thumbnail. A RAW shows its own preview, not the JPG beside it. Use <kbd>←</kbd> and <kbd>→</kbd> to go through the files, and <kbd>Esc</kbd> to go back to the Versions window.
 
@@ -138,4 +138,4 @@ On Windows and Linux, use <kbd>Alt</kbd> for <kbd>Option</kbd> and <kbd>Ctrl</kb
 
 A photo with versions counts once everywhere: life list, species counts, stats, trips and albums. Ratings, tags and places belong to the photo, not to each version.
 
-To see every file instead, turn on **View > Show every version as its own photo** in the Gallery. Each version then gets its own card, marked with its name and a **Show its photo** link, and the count under the title says "Showing all versions". Counts elsewhere don't change. Selecting is off while this is on, since an action could apply to a version or to its whole photo; a version's **⋯** menu has **Use this as the photo**, **Split out** and **Versions** instead.
+To see every file instead, turn on **View > Show every version and RAW as its own photo** in the Gallery. Each version, and a RAW kept behind its edit, then gets its own card, marked with its name and a **Show its photo** link, and the count under the title says "Showing all versions and RAWs". Counts elsewhere don't change. Selecting is off while this is on, since an action could apply to a version or to its whole photo; a version's **⋯** menu has **Use this as the photo**, **Split out** and **Versions** instead.

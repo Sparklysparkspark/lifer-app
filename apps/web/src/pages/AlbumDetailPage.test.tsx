@@ -205,7 +205,7 @@ describe("AlbumDetailPage", () => {
     cleanup();
     renderAt("/albums/a1?view=species&rawOnly=1");
     expect(await screen.findByText("Mallard")).toBeTruthy();
-    expect(screen.getByText("RAW only")).toBeTruthy();
+    expect(screen.queryByText("RAW only")).toBeNull();
     expect(screen.queryByText("Snowy Owl")).toBeNull();
   });
 

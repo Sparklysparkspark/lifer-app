@@ -30,6 +30,37 @@ export function useVersionCounts(): ReadonlyMap<string, number> {
   return versionCounts.use().data ?? NO_COUNTS;
 }
 
+const VERSION_LABELS_KEY = "lifer:showVersionLabels";
+
+// One shared choice, so hiding the badges in one grid's View menu hides them in every grid.
+const versionLabelsShown = createStore<boolean>(
+  (() => {
+    try {
+      return localStorage.getItem(VERSION_LABELS_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  })(),
+);
+
+/** Whether photo grids show the stack badge and a version's own name. On unless turned off. */
+export function useVersionLabels(): [boolean, (on: boolean) => void] {
+  return [versionLabelsShown.use(), setVersionLabels];
+}
+
+function setVersionLabels(on: boolean): void {
+  versionLabelsShown.set(on);
+  try {
+    localStorage.setItem(VERSION_LABELS_KEY, JSON.stringify(on));
+  } catch {
+    // Storage off: the choice lasts until a reload.
+  }
+}
+
+/** How many of a photo's versions count: a RAW-only one is a file of the photo, not a version. */
+export const countedVersions = (versions: ReadonlyArray<Pick<PhotoVersion, "rawOnly">>) =>
+  versions.filter((v) => !v.rawOnly).length;
+
 /** After a link, split or a background grouping, so every badge follows. */
 export const refreshVersionCounts = () => versionCounts.refresh().catch(() => undefined);
 

@@ -5461,6 +5461,8 @@ export interface paths {
                 fileName: string;
                 isGroup: boolean;
                 shown: boolean;
+                /** @description Only RAW files: listed and switchable, but not counted as a version */
+                rawOnly: boolean;
               }[];
               /** @description Photos taken within two minutes, to link to; /versions/candidates searches the rest */
               nearby: {

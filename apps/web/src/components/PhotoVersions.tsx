@@ -86,6 +86,8 @@ function PhotoVersionsPanel({
   const groupId = group.data?.groupCaptureId ?? captureId;
   const captureCount = new Set(files.map((f) => f.captureId)).size;
   const grouped = captureCount > 1;
+  // A RAW-only capture is one of the photo's files, not a version.
+  const versionCount = new Set(files.filter((f) => f.kind !== "raw").map((f) => f.captureId)).size;
   const shownCapture = files.find((f) => f.shown)?.captureId;
   const view: FilesView =
     savedView === "list" || savedView === "grid" ? savedView : files.length > LIST_MAX ? "grid" : "list";
@@ -199,8 +201,8 @@ function PhotoVersionsPanel({
   // What the list holds, said plainly: a RAW and its JPG are one photo's files, not versions.
   const summary = !group.data
     ? undefined
-    : grouped
-      ? t("versions.summary", { count: captureCount })
+    : versionCount > 1
+      ? t("versions.summary", { count: versionCount })
       : files.length > 1
         ? t("versions.filesSummary", {
             count: files.length,

@@ -28,6 +28,10 @@ const LABEL_MAX = 80;
 const FOLDER_NAME_MAX = 60;
 const FOLDER_NAMES_MAX = 50;
 
+// A capture counts as a version when it has a file other than a RAW (kind 'raw', as the RAW filters).
+const NOT_RAW_ONLY = (captureId: string) =>
+  `EXISTS (SELECT 1 FROM originals vo WHERE vo.capture_id = ${captureId} AND vo.kind <> 'raw')`;
+
 const Role = Nullable(Type.Enum(["original", "edit", "export"]));
 const Evidence = Nullable(Type.Enum(["document_id", "time_serial_suffix", "suggested", "manual", "version_folder"]));
 const LabelKind = Type.Enum(["original", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"], {
@@ -45,6 +49,7 @@ const Version = Type.Object({
   fileName: Type.String(),
   isGroup: Type.Boolean(),
   shown: Type.Boolean(),
+  rawOnly: Type.Boolean({ description: "Only RAW files: listed and switchable, but not counted as a version" }),
 });
 
 const VersionFile = Type.Object({
@@ -261,6 +266,8 @@ export async function captureVersionRoutes(fastify: FastifyInstance): Promise<vo
             fileName: f.fileName,
             isGroup: f.isGroup,
             shown: f.captureId === shownCapture,
+            // Named after its non-RAW file when it has one, so a RAW here means it has nothing else.
+            rawOnly: f.kind === "raw",
           };
         }),
         nearby: await describeCandidates(
@@ -423,7 +430,8 @@ export async function captureVersionRoutes(fastify: FastifyInstance): Promise<vo
     },
   );
 
-  // How many photos each group holds (itself included), for the stack badge on photo grids.
+  // How many versions each group holds (itself included), for the stack badge on photo grids.
+  // A RAW-only member is a file of the photo, not a version (the RAW files filter finds those).
   // Only groups are listed, so a library of single photos answers with almost nothing.
   app.get(
     "/captures/version-counts",
@@ -439,8 +447,11 @@ export async function captureVersionRoutes(fastify: FastifyInstance): Promise<vo
     },
     async (request) => {
       const res = await pool.query<{ group_capture_id: string; n: number }>(
-        `SELECT group_capture_id, count(*)::int + 1 AS n FROM capture_versions
-         WHERE user_id = $1 AND state = 'linked' GROUP BY group_capture_id`,
+        `SELECT cv.group_capture_id,
+                (count(*) FILTER (WHERE ${NOT_RAW_ONLY("cv.capture_id")})
+                  + CASE WHEN ${NOT_RAW_ONLY("cv.group_capture_id")} THEN 1 ELSE 0 END)::int AS n
+         FROM capture_versions cv
+         WHERE cv.user_id = $1 AND cv.state = 'linked' GROUP BY cv.group_capture_id`,
         [request.user!.id],
       );
       return { counts: Object.fromEntries(res.rows.map((r) => [r.group_capture_id, r.n])) };

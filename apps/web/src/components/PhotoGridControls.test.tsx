@@ -29,13 +29,20 @@ describe("photo grid filter controls", () => {
     );
   });
 
-  it("offers the same three caption choices on every page", () => {
-    const prefs = { showLabels: true, showCameraInfo: false, showRatings: true } as PhotoCaptionPrefs;
+  // Version labels joined the captions so every grid's View menu offers it.
+  it("offers the same caption choices on every page", () => {
+    const prefs = {
+      showLabels: true,
+      showCameraInfo: false,
+      showRatings: true,
+      showVersionLabels: true,
+    } as PhotoCaptionPrefs;
     const html = renderToStaticMarkup(<PhotoCaptionOptions prefs={prefs} />);
     expect([...html.matchAll(/<input[^>]*>([^<]+)<\/label>/g)].map((m) => m[1])).toEqual([
       "Labels",
       "Camera info",
       "Ratings",
+      "Version labels",
     ]);
   });
 });

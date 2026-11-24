@@ -50,7 +50,7 @@ import { useFocusTrap } from "../hooks/useFocusTrap";
 import { sharpestShown } from "./ProgressiveImg";
 import { VersionStrip, usePhotoVersions } from "./PhotoVersions";
 import { StackIcon } from "./PhotoTile";
-import { openPhotoVersions, photoVersionsPanel, type PhotoVersion } from "../lib/photoVersions";
+import { countedVersions, openPhotoVersions, photoVersionsPanel, type PhotoVersion } from "../lib/photoVersions";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 
 /** A slide's identity across reloads; trip slides carry no captureId, and their URL is per photo. */
@@ -613,7 +613,10 @@ export default function Lightbox({
                   className="flex h-8 items-center gap-1.5 rounded-full bg-white/10 px-3 text-footnote text-white transition-colors hover:bg-white/20"
                 >
                   <StackIcon className="h-3.5 w-3.5" />
-                  {t("versions.badge", { count: versions.length })}
+                  {/* A RAW behind its edit can be switched to but isn't counted as a version. */}
+                  {countedVersions(versions) > 1
+                    ? t("versions.badge", { count: countedVersions(versions) })
+                    : t("versions.manage")}
                 </button>
               )}
             </Tooltip>

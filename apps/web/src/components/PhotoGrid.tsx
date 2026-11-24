@@ -4,7 +4,7 @@ import PhotoTile from "./PhotoTile";
 import InlineSpinner from "./InlineSpinner";
 import Chevron from "./Chevron";
 import { formatNumber } from "../lib/format";
-import { useVersionCounts } from "../lib/photoVersions";
+import { useVersionCounts, useVersionLabels } from "../lib/photoVersions";
 
 /** What a tile shows for one item. */
 export interface PhotoGridTileData {
@@ -93,6 +93,7 @@ export default function PhotoGrid<T>({
 }) {
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const versionCounts = useVersionCounts();
+  const [showVersionLabels] = useVersionLabels();
   const setOpenKey = menu?.setOpenKey;
   const toggleMenu = useCallback(
     (key: string) => {
@@ -151,7 +152,8 @@ export default function PhotoGrid<T>({
               cornerRadiusPx={cornerRadiusPx}
               selectMode={select.selectMode}
               selected={select.selectedIds.has(id) || previewIds.has(id)}
-              versionCount={versionCounts.get(id)}
+              versionCount={showVersionLabels ? versionCounts.get(id) : undefined}
+              hideVersionLabel={!showVersionLabels}
               menuOpen={menuOpen}
               contextAnchor={menuOpen && anchor?.key === id ? anchor : null}
               menuContent={renderMenu ? (menuOpen ? renderMenu(cell.item) : null) : undefined}
@@ -216,6 +218,7 @@ const GridTile = memo(function GridTile({
   selectMode,
   selected,
   versionCount,
+  hideVersionLabel,
   menuOpen,
   contextAnchor,
   menuContent,
@@ -236,6 +239,7 @@ const GridTile = memo(function GridTile({
   selectMode: boolean;
   selected: boolean;
   versionCount?: number;
+  hideVersionLabel: boolean;
   menuOpen: boolean;
   contextAnchor: Anchor | null;
   /** Undefined: no menu at all. Null: closed. */
@@ -256,7 +260,7 @@ const GridTile = memo(function GridTile({
       kind={tile.kind ?? undefined}
       durationSeconds={tile.durationSeconds == null ? null : Number(tile.durationSeconds)}
       versionCount={versionCount}
-      versionLabel={tile.versionLabel}
+      versionLabel={hideVersionLabel ? undefined : tile.versionLabel}
       burstCount={tile.burstCount}
       onOpen={() => onOpen(index)}
       selectMode={selectMode}

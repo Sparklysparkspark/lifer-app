@@ -60,7 +60,8 @@ Search results are sorted by relevance (or highest rated first when you type `be
 - **Sort**: **Newest first**, **Oldest first**, **Highest rated first** and **Lowest rated first** (unrated photos sort as if they had 3 stars), or the Collection's species orders: **Field guide order**, **Common name**, **Scientific name** and **Rarity** (rarest first). The species orders keep each species' photos together, newest first. Albums and trips offer the same sorts; a species page sorts by date and rating only.
 - **Size**: the thumbnail size.
 - **Labels** (species names), **Camera info** and **Ratings** (stars you can click to rate) under each photo. They start off; turn on the ones you want. Albums, trips and species pages offer the same three, and share your choice.
-- **Show every version as its own photo**: lists each print, edit and export as its own card instead of one per photo (see [Photo versions](./photo-versions.md#how-counts-work)). It appears once any of your photos has versions.
+- **Version labels**: the stack badge like **3 versions** on a photo with versions, and a version's name when it has a card of its own. On by default; turn it off to hide them in every photo grid.
+- **Show every version and RAW as its own photo**: lists each print, edit, export and RAW as its own card instead of one per photo (see [Photo versions](./photo-versions.md#how-counts-work)). It appears once any of your photos has versions.
 - **Group bursts**: shows each burst as one photo, its highest rated (or its first) with the **+N** badge (see [Bursts and scenes](#bursts)). It starts off and Lifer remembers your choice.
 
 **Filters** sets which photos show:

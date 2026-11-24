@@ -332,6 +332,9 @@ export function PhotoCaptionOptions({ prefs }: { prefs: PhotoCaptionPrefs }) {
       <FilterCheckbox checked={prefs.showRatings} onChange={prefs.setShowRatings}>
         {t("photoFilters.display.ratings")}
       </FilterCheckbox>
+      <FilterCheckbox checked={prefs.showVersionLabels} onChange={prefs.setShowVersionLabels}>
+        {t("photoFilters.display.versionLabels")}
+      </FilterCheckbox>
     </>
   );
 }

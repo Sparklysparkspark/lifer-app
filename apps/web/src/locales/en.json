@@ -2304,7 +2304,8 @@
     "display": {
       "labels": "Labels",
       "cameraInfo": "Camera info",
-      "ratings": "Ratings"
+      "ratings": "Ratings",
+      "versionLabels": "Version labels"
     }
   },
   "connectedApps": {
@@ -3629,9 +3630,7 @@
       "localTier": "{tier} here",
       "localTierTitle": "Harder to find here than overall. Tap for why.",
       "addedByYou": "Added by you",
-      "addedByYouTitle": "You added this to {list} yourself",
-      "rawOnly": "RAW only",
-      "rawOnlyTitle": "Every photo of it is a RAW file with no edited version yet"
+      "addedByYouTitle": "You added this to {list} yourself"
     },
     "undoFailed": "Couldn't undo. Try again.",
     "hiddenToast": "{name} hidden from this region.",
@@ -4650,8 +4649,8 @@
     "renameLabel": "Version name",
     "renamedToast": "Version renamed",
     "shownEverywhere": "Used as the photo",
-    "showAll": "Show every version as its own photo",
-    "showingAll": "Showing all versions ({count, plural, one {# file} other {# files}})",
+    "showAll": "Show every version and RAW as its own photo",
+    "showingAll": "Showing all versions and RAWs ({count, plural, one {# file} other {# files}})",
     "showPhoto": "Show its photo",
     "importHint": "Keep prints and edits in a folder next to the original, such as Prints, Versions or B&W, and Lifer links them as one photo.",
     "notice": {

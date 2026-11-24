@@ -5604,7 +5604,8 @@
                           "labelSize",
                           "fileName",
                           "isGroup",
-                          "shown"
+                          "shown",
+                          "rawOnly"
                         ],
                         "properties": {
                           "captureId": { "type": "string", "format": "uuid" },
@@ -5638,7 +5639,11 @@
                           },
                           "fileName": { "type": "string" },
                           "isGroup": { "type": "boolean" },
-                          "shown": { "type": "boolean" }
+                          "shown": { "type": "boolean" },
+                          "rawOnly": {
+                            "type": "boolean",
+                            "description": "Only RAW files: listed and switchable, but not counted as a version"
+                          }
                         }
                       },
                       "description": "One per photo of the group, the original first, in a steady order for a switcher"

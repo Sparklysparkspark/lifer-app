@@ -216,7 +216,7 @@ describe("TripDetailPage", () => {
     );
     renderAt("/trips/t1?rawOnly=1");
     expect(await screen.findByText("Marsh Robin")).toBeTruthy();
-    expect(screen.getByText("RAW only")).toBeTruthy();
+    expect(screen.queryByText("RAW only")).toBeNull();
     expect(screen.queryByText("Ridge Jay")).toBeNull();
   });
 
