@@ -36,7 +36,14 @@ describe.skipIf(!dir)("on a full disk", () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
-  afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  // The tests abort downloads mid-stream, so connections may still be open: drop them or close() waits.
+  afterAll(
+    () =>
+      new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      }),
+  );
 
   it("reports the volume's free space", async () => {
     const free = await freeSpace(dir!);
