@@ -63,6 +63,13 @@ describe("applySpeciesCorrections", () => {
     expect(t.rows[0]).toEqual({ iucn_status: "EX", fully_extinct: true });
   });
 
+  it("unlinks an eBird code set to null", async () => {
+    await client.query(`UPDATE species SET ebird_code = 'xxxxx1' WHERE id = $1`, [speciesId]);
+    await applySpeciesCorrections(client, [{ scientificName: "Chelonoidis niger", reason: "test", ebirdCode: null }]);
+    const s = await client.query(`SELECT ebird_code FROM species WHERE id = $1`, [speciesId]);
+    expect(s.rows[0].ebird_code).toBeNull();
+  });
+
   it("reports a correction whose species isn't in the catalog", async () => {
     expect(await applySpeciesCorrections(client, [{ scientificName: "Nonexistus nullus", reason: "test" }])).toEqual([
       "Nonexistus nullus",

@@ -17,7 +17,8 @@
 //   npx tsx src/scripts/compute-local-tiers.ts --countries="Costa Rica" --calibrate     (preview + anchor table)
 //   npx tsx src/scripts/compute-local-tiers.ts --countries="Costa Rica,Canada" --apply
 //   npx tsx src/scripts/compute-local-tiers.ts --apply                                   (every country)
-// Options: --inputs forces re-reading the partitions; --strict exits non-zero when an anchor misses;
+// Options: --inputs forces re-reading the partitions (a country with none on disk but stored
+// province inputs is rated from those, its groups and country summed again); --strict exits non-zero when an anchor misses;
 // --allow-skip lets a country with checklist rows but no partitions on disk keep its old tiers, or
 // none (it fails the run otherwise, since those rows would ship unchecked or unrated).
 import { createReadStream, existsSync, readdirSync, readFileSync } from "node:fs";
@@ -27,6 +28,7 @@ import { fileURLToPath } from "node:url";
 import { pool } from "@lifer/core/db.js";
 import { cachedPlaceCounts } from "../regions/inatChecklist.js";
 import { cachedEbirdCodes } from "./add-new-species-to-checklists.js";
+import { inatConfirmedListings, loadCatalogIndex, type CatalogIndex } from "./apply-inat-membership.js";
 import { bboxDiagonalDegrees, exteriorRingsFromGeometry, ringBoundingBox } from "@lifer/core/lib/geometry.js";
 import {
   coreRangeDiagonalKm,
@@ -244,6 +246,30 @@ export async function refreshTierInputs(country: Country): Promise<boolean> {
   for (const [groupId, inputs] of groupTotals) await writeInputs(groupId, inputs);
   await writeInputs(country.id, total);
   return true;
+}
+
+/** Each group's and the country's record inputs summed again from its provinces' stored rows, as
+ *  refreshTierInputs sums the partitions. Rebuilding a country or group list
+ *  (build-country-checklists.ts) drops them, and without them every bird there reads as
+ *  unrecorded. The years aren't stored, so a sum's distinct years are its best province's. */
+export async function sumAreaRecordInputs(country: Country): Promise<void> {
+  const areas: Array<[string, string[]]> = [
+    ...country.groups.map((g): [string, string[]] => [g.id, g.provinceIds]),
+    [country.id, country.provinces.map((p) => p.id)],
+  ];
+  for (const [areaId, provinceIds] of areas) {
+    await pool.query(
+      `UPDATE region_species SET live_recent_records = NULL, recent_distinct_years = NULL WHERE region_id = $1`,
+      [areaId],
+    );
+    await pool.query(
+      `UPDATE region_species rs SET live_recent_records = v.n, recent_distinct_years = v.y
+       FROM (SELECT species_id, sum(live_recent_records)::int AS n, max(recent_distinct_years) AS y FROM region_species
+             WHERE region_id = ANY($2) AND live_recent_records IS NOT NULL GROUP BY species_id) v
+       WHERE rs.region_id = $1 AND rs.species_id = v.species_id`,
+      [areaId, provinceIds],
+    );
+  }
 }
 
 // iNaturalist's iconic groups mapped to tier groups, for each place's photo totals.
@@ -907,6 +933,9 @@ async function deleteRows(rows: Array<{ region_id: string; species_id: string }>
   );
 }
 
+// Species never change during a tiers run, so the iNaturalist index is loaded once.
+let inatIndex: Promise<CatalogIndex> | undefined;
+
 /** Birds eBird has never had reported in the country and nobody has recorded there in 15 years,
  *  usually museum and zoo records filed under the institution's location. eBird's lists include
  *  rare strays, so real vagrants stay. The country's list is its provinces' cached eBird lists
@@ -940,7 +969,14 @@ export async function removeBirdsEbirdNeverHad(
        AND NOT EXISTS (SELECT 1 FROM region_species_manual_overrides o WHERE o.region_id = rs.region_id AND o.species_id = rs.species_id)`,
     [[...names.keys()]],
   );
-  const found = rows.rows.filter((r) => !r.ebird_code || !(lists.get(r.region_id) ?? countryList).has(r.ebird_code));
+  // iNaturalist decides membership: eBird's absence never removes a bird it confirms there.
+  inatIndex ??= loadCatalogIndex();
+  const confirmed = await inatConfirmedListings(pool, await inatIndex, [...names.keys()]);
+  const found = rows.rows.filter(
+    (r) =>
+      !confirmed.has(`${r.region_id}|${r.species_id}`) &&
+      (!r.ebird_code || !(lists.get(r.region_id) ?? countryList).has(r.ebird_code)),
+  );
   if (apply) await deleteRows(found);
   return found.map((r) => ({ region: names.get(r.region_id) ?? "", species: r.species }));
 }
@@ -1030,23 +1066,25 @@ async function main() {
   for (const country of countries) {
     const hasEffort = (await pool.query(`SELECT 1 FROM region_group_effort WHERE region_id = $1 LIMIT 1`, [country.id]))
       .rowCount;
-    if (forceInputs || !hasEffort) {
-      const ok = await refreshTierInputs(country);
-      if (!ok) {
-        // Null when the country lists nothing, so there's nothing to rate.
-        const tiered = (
-          await pool.query<{ tiered: boolean | null }>(
-            `SELECT bool_or(local_tier IS NOT NULL) AS tiered FROM region_species WHERE region_id = ANY($1)`,
-            [regionIdsOf(country)],
-          )
-        ).rows[0].tiered;
-        console.log(
-          `[tiers] ${country.name}: no province partitions on disk, skipped` +
-            (tiered ? " (its rows keep the tiers they had)" : tiered === false ? " (its rows stay unrated)" : ""),
-        );
-        if (tiered != null) skipped.push(country.name);
-        continue;
-      }
+    const read = (forceInputs || !hasEffort) && (await refreshTierInputs(country));
+    if (!read && hasEffort) {
+      // No partitions to read (or none asked for): rate from the province inputs already stored.
+      if (forceInputs) console.log(`[tiers] ${country.name}: no province partitions on disk, using the stored inputs`);
+      await sumAreaRecordInputs(country);
+    } else if (!read) {
+      // Null when the country lists nothing, so there's nothing to rate.
+      const tiered = (
+        await pool.query<{ tiered: boolean | null }>(
+          `SELECT bool_or(local_tier IS NOT NULL) AS tiered FROM region_species WHERE region_id = ANY($1)`,
+          [regionIdsOf(country)],
+        )
+      ).rows[0].tiered;
+      console.log(
+        `[tiers] ${country.name}: no province partitions on disk, skipped` +
+          (tiered ? " (its rows keep the tiers they had)" : tiered === false ? " (its rows stay unrated)" : ""),
+      );
+      if (tiered != null) skipped.push(country.name);
+      continue;
     }
     // Photo counts are read from the cached iNaturalist lists every run: cheap, and they're
     // what the tiers are rated on first.

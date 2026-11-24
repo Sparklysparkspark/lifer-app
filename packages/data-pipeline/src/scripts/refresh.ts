@@ -38,7 +38,8 @@
 //   regions      iNaturalist places for regions that have none, then province checklists, then the
 //                vernacular groups (regions/vernacular.ts), then each country's and group's list
 //                from its provinces (and the country's own iNaturalist list), then every sea
-//                zone's list from the same downloads. From cached data (iNaturalist lists are
+//                zone's fish and marine mammals from the same downloads and its other marine life
+//                from OBIS (data/obis-checklist-cache). From cached data (iNaturalist lists are
 //                reused while younger than LIFER_INAT_CACHE_MAX_AGE_DAYS, 90).
 //   places       Example city, most populous province and alias names per region (Natural Earth
 //                populated places, data/reference/region-aliases.json).
@@ -437,6 +438,7 @@ async function regions(opts: Options) {
     runScript(PIPELINE_DIR, "src/scripts/replace-sea-zones.ts", ["--apply"]);
     runScript(PIPELINE_DIR, "src/scripts/fetch-worms-environment.ts", []);
     runScript(PIPELINE_DIR, "src/scripts/compute-sea-zones-offline.ts", ["--apply"]);
+    runScript(PIPELINE_DIR, "src/scripts/build-sea-zones-marine.ts", ["--apply"]);
     return { seaZonesOnly: true };
   }
   // Without it province lists leave out eBird's region lists, so two runs differ by environment.
@@ -477,6 +479,12 @@ async function regions(opts: Options) {
     "--apply",
     ...(opts.countries ? [`--countries=${opts.countries.join(",")}`] : []),
   ]);
+  // iNaturalist decides membership and vagrants at every level; the passes below follow it.
+  runScript(PIPELINE_DIR, "src/scripts/apply-inat-membership.ts", [
+    "--apply",
+    "--no-followups",
+    ...(opts.countries ? [`--countries=${opts.countries.join(",")}`] : []),
+  ]);
   runScript(PIPELINE_DIR, "src/scripts/remove-escapes.ts", ["--apply"]);
   // Birds eBird counts only as escapees come off, and its Naturalized and Provisional ones are
   // marked introduced, at every level: after the country lists, which can bring them back.
@@ -491,6 +499,8 @@ async function regions(opts: Options) {
   // species off and keep a marine species at the edge of its range.
   runScript(PIPELINE_DIR, "src/scripts/fetch-worms-environment.ts", []);
   runScript(PIPELINE_DIR, "src/scripts/compute-sea-zones-offline.ts", ["--apply"]);
+  // The other marine life (molluscs, corals, echinoderms, crustaceans, turtles...) from OBIS.
+  runScript(PIPELINE_DIR, "src/scripts/build-sea-zones-marine.ts", ["--apply"]);
   return {
     countries: opts.countries ?? "all",
     groupsCreated: vernacular.groupsCreated,

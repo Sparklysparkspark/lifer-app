@@ -94,6 +94,7 @@ const SEA_SNAKE_GENERA = [
 const EXCLUDED_FAMILIES = [
   "Balaenidae",
   "Balaenopteridae",
+  "Cetotheriidae",
   "Delphinidae",
   "Eschrichtiidae",
   "Kogiidae",

@@ -126,6 +126,7 @@ count as one for the gate's freshness check, and nothing else needs to rerun.
 ## Script inventory by category
 
 ### Catalog names and species (`packages/data-pipeline/src/scripts/` unless noted)
+
 - `reconcile-species-names.ts`: links catalog species to the names GBIF (Catalogue of Life),
   iNaturalist and eBird use now, as synonyms, iNaturalist ids and eBird codes. `--zip-names`,
   `--stage=col,gbifkey,inat,history,ebird` (gbifkey moves a checklist species whose GBIF key became a synonym to the accepted key), `--checkpoint=` (resumable), `--report=`, `--apply`, or
@@ -192,6 +193,7 @@ count as one for the gate's freshness check, and nothing else needs to rerun.
 - `build-species-synonym-map.ts`: the gbif_key synonym map `load-seed.ts` uses.
 
 ### Region checklists (`packages/data-pipeline/src/scripts/`)
+
 - **`refresh-all-provinces.ts`**: runs `compute-provinces-bulk.ts`'s per-country GBIF download
   cycle for every country, one at a time. Checkpointed after each country, so rerunning the same
   command resumes with the next one without re-submitting downloads. `--countries=`, `--apply`,
@@ -238,6 +240,14 @@ count as one for the gate's freshness check, and nothing else needs to rerun.
 - `build-country-checklists.ts`: each country's list from its provinces, its own well-evidenced
   species, and its iNaturalist list, and each regional group's from its provinces.
   `--countries=`, `--apply`
+- `apply-inat-common-names.ts` (`npm run apply-inat-common-names`): iNaturalist's name for every non-bird; `data/reference/common-name-overrides.json` (scientific name to display name) wins over it and is never held back. `--apply`
+- `apply-inat-membership.ts` (`npm run apply-inat-membership`): iNaturalist decides each province's
+  and country's list (one research-grade observation in its place) and its vagrants (seen in at
+  most 2 of the last 10 complete years, where the group is well observed; GBIF's flag only where
+  iNaturalist can't tell). Groups are rebuilt from their provinces. Yearly counts are cached in
+  `data/inat-year-counts-cache`, so a rerun resumes. Prints per-region changes and spot checks;
+  with `--apply` it then reruns the escape, eBird exotics and introduced passes
+  (`--no-followups` skips them). Rerun the tiers afterwards. `--countries=`, `--apply`
 - `apply-ebird-exotics.ts`: birds' exotic status from eBird's observations of the last 30 days in
   each province (needs `EBIRD_API_KEY`; cached in `data/ebird-exotic-cache`, one more window per
   run once the newest is 90 days old, at most `--max-requests` a run as eBird allows 500 an hour).
@@ -261,10 +271,16 @@ count as one for the gate's freshness check, and nothing else needs to rerun.
   zone stays when a neighbouring zone has it well recorded, unless that neighbour is across a land
   bridge (`src/build/sea-basins.ts`: the Caribbean and Panama's Pacific coast). Run by the regions stage. `--apply`, `--zones=`, `--countries=` (some downloads only, for trying it out),
   `--concurrency=`
+- `build-sea-zones-marine.ts` (`npm run build-sea-zones-marine`): every sea zone's molluscs,
+  cnidarians, echinoderms, crustaceans, sponges, tunicates, sea turtles and sea snakes from OBIS
+  checklists of the zone polygon, cached in `data/obis-checklist-cache/`. Replaces only those
+  classes' rows; strays from another ocean go to `data/review/sea-zones-marine-strays.tsv`. Run by
+  the regions stage after the fish. `--apply`, `--zones=`, `--offline`
 - `compute-sea-zones.ts`: one sea zone's checklist from live GBIF polygon searches, for a targeted
   recompute; ~13s a request, so not for every zone. `--apply`, `--zones=`, `--recompute`
 
 ### Rarity tiers (`packages/data-pipeline/src/scripts/`)
+
 - `compute-local-tiers.ts`: absolute tiers for every checklist row from the province data on disk
   and the cached iNaturalist counts (`packages/data-pipeline/src/build/local-tier-model.ts`), plus
   the removal checks that need those inputs (unconfirmed, extinct, never-photographed species, and
@@ -354,6 +370,7 @@ metadata is iNaturalist Open Data on the AWS Open Data Sponsorship Program. GBIF
 species iNaturalist leaves without open photos are a later step.
 
 ### Enrichment and vectors
+
 - **`enrich-all-species.ts`**: photos and descriptions from iNaturalist and Wikipedia.
   `--taxa=`, `--listed-only`. Skips enriched species, safe to rerun. Without `--taxa=` it first
   builds a GBIF checklist for each North American country that has none, to order the work
@@ -428,6 +445,7 @@ species iNaturalist leaves without open photos are a later step.
   the `--apply`, or the vectors stage recomputes every vector with the old model.
 
 ### Data checks (`packages/data-pipeline/src/scripts/`)
+
 - `check-fossil-status.ts`: flags fossil-only species as fully extinct.
 - `detect-unobserved-legendary.ts`, `detect-implausible-regions.ts`: read-only passes flagging
   likely-bad data for review.
@@ -438,6 +456,7 @@ The two vagrant scripts write their JSONL logs to `data/reports/vagrant/` at the
 (gitignored), or to `VAGRANT_REPORTS_DIR` when it's set.
 
 ### Packs and the catalog seed (`packages/data-pipeline/src/`)
+
 - **`scripts/refresh.ts`**: the one command (see above). Its pack stage is `pipeline/packs.ts`
   and its gate `pipeline/gate.ts`.
 - `scripts/doctor.ts` (`npm run doctor -w data-pipeline`, `-- --publish` for publishing too):
@@ -471,6 +490,7 @@ The two vagrant scripts write their JSONL logs to `data/reports/vagrant/` at the
   that dies partway leaves only that schema, which the next build drops.
 
 ### Recurring ops
+
 - `backup.ts` (data-pipeline): the one cron-worthy script outside the refresh: a `pg_dump -Fc` of
   `DATABASE_URL` (through the Docker container when no matching `pg_dump` is installed,
   `pipeline/dbSnapshot.ts`) and an archive of `DATA_DIR`, into `LIFER_BACKUP_DIR`
@@ -478,21 +498,24 @@ The two vagrant scripts write their JSONL logs to `data/reports/vagrant/` at the
 - `clear-gbif-cache.ts` (data-pipeline): clears cached GBIF responses. `--like=`
 
 ### Desktop build tooling (`apps/desktop/scripts/`)
+
 `npm run dist -w desktop` chains `prepare-resources.js`, `fetch-node-sidecar.js`,
 `fetch-catalog-seed.js`, `tauri-build.js` and `resign-macos.js`. `headless-postgres.js`
 (`start`/`stop`/`status`/`url`) runs the app's embedded Postgres as an independent process, so a
 long-running script can point `DATABASE_URL` at it while the app is rebuilt or relaunched.
 
 ### npm aliases
+
 Besides the build-seed aliases below, `npm run <alias> -w data-pipeline` runs: `refresh`,
 `doctor`, `migrate`, `load-seed`, `fix-catalog-audit`, `build-region-pack`, `build-pack-index`, `replace-sea-zones`,
 `backup`, `enrich-all-species`, `backfill-descriptions`, `apply-photo-licenses` (the photo license
 policy once, after editing photos by hand; the vectors stage also applies it before computing
-  vectors) and
+vectors) and
 `backfill-photo-withheld` (`species.photo_withheld` for listed species with no publishable photo;
 `--dry-run`, `--no-network`).
 
 ### Taxon seeds (`packages/data-pipeline/src/build/`)
+
 `build-seed-*.ts` build one taxon group's species from GBIF and the trait sources in
 [DATA_SOURCES.md](./DATA_SOURCES.md). Each has an npm alias: `build-seed` (birds),
 `build-seed-mammals`, `-fish`, `-amphibians`, `-squamata`, `-testudines`, `-corals`,
@@ -508,5 +531,6 @@ tiers: `load-seed` starts a new species as unrated (reason `no_data`) and never 
 existing tier, and the refresh's tiers stage rates it.
 
 ### Everything else
+
 `packages/data-pipeline/src/fetch/*.ts` are library modules, one per source, used by the seed
 builders and the refresh.

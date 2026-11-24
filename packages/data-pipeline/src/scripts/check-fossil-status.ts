@@ -22,12 +22,13 @@ import { pool } from "@lifer/core/db.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { RAW_DIR } from "@lifer/core/rawCache.js";
 import { httpFetch } from "@lifer/core/lib/http.js";
+import { fileURLToPath } from "node:url";
 
 const CONCURRENCY = 4;
-const CACHE_DIR = path.join(RAW_DIR, "gbif-species-profiles");
-const RECENT_OBS_CACHE_DIR = path.join(RAW_DIR, "gbif-recent-observations");
+export const CACHE_DIR = path.join(RAW_DIR, "gbif-species-profiles");
+export const RECENT_OBS_CACHE_DIR = path.join(RAW_DIR, "gbif-recent-observations");
 // Sources whose extinct flag is trusted on its own (it still loses to any source saying extant).
-const TAXONOMIC_SOURCES = new Set([
+export const TAXONOMIC_SOURCES = new Set([
   "The Paleobiology Database",
   "Catalogue of Life",
   "World Register of Marine Species",
@@ -176,7 +177,9 @@ async function main() {
   await pool.end();
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

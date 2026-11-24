@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  extinctReason,
   majorityClassByOrder,
   parseFixes,
   parsePasses,
@@ -139,5 +140,64 @@ describe("unlistedBirds", () => {
     expect(unlistedBirds(thin, well, lists, known, 3)).toEqual([{ region_id: "full", code: "x" }]);
     // Too few well-recorded birds to judge the list.
     expect(unlistedBirds(thin, well, lists, known, 4)).toEqual([]);
+  });
+});
+
+describe("extinctReason", () => {
+  const bird = {
+    scientific_name: "Anas fossilis",
+    taxon_class: "aves",
+    common_name: null,
+    ebird_code: null,
+    gbif_key: "1",
+  };
+  const none = { ebirdByName: new Map(), ebirdByCode: new Map(), profile: () => null, recent: () => null };
+  const known = {
+    sci: "Anas fossilis",
+    common: "Fossil Duck",
+    code: "fosduc1",
+    category: "species",
+    family: "",
+    order: "",
+    extinct: false,
+    reportAs: "",
+  };
+
+  it("hides a nameless bird eBird doesn't know, but not one it does or one with a name", () => {
+    expect(extinctReason(bird, none)).toMatch(/fossil or a retired name/);
+    expect(extinctReason(bird, { ...none, ebirdByName: new Map([[bird.scientific_name, known]]) })).toBeNull();
+    expect(extinctReason({ ...bird, common_name: "Fossil Duck" }, none)).toBeNull();
+    expect(extinctReason({ ...bird, taxon_class: "actinopterygii" }, none)).toBeNull();
+  });
+
+  it("follows eBird's extinct flag", () => {
+    const lost = { ...known, extinct: true };
+    expect(
+      extinctReason(
+        { ...bird, common_name: "Fossil Duck" },
+        { ...none, ebirdByName: new Map([[bird.scientific_name, lost]]) },
+      ),
+    ).toMatch(/eBird/);
+    // An old name eBird has moved, matched by its code.
+    expect(
+      extinctReason(
+        { ...bird, scientific_name: "Porzana fossilis", common_name: "Fossil Duck", ebird_code: "fosduc1" },
+        { ...none, ebirdByCode: new Map([["fosduc1", lost]]) },
+      ),
+    ).toMatch(/eBird/);
+  });
+
+  it("needs a taxonomic source, no source saying extant, and no recent observation", () => {
+    const fish = { ...bird, taxon_class: "actinopterygii", common_name: "Old Fish" };
+    const ev = (extinct: string[], extant: string[], recent: number | null) => ({
+      ...none,
+      profile: () => ({ extinct, extant }),
+      recent: () => recent,
+    });
+    expect(extinctReason(fish, ev(["The Paleobiology Database"], [], 0))).toMatch(/Paleobiology/);
+    expect(extinctReason(fish, ev(["The Paleobiology Database"], ["IUCN"], 0))).toBeNull();
+    expect(extinctReason(fish, ev(["Some Checklist"], [], 0))).toBeNull();
+    expect(extinctReason(fish, ev(["Catalogue of Life"], [], 3))).toBeNull();
+    expect(extinctReason(fish, ev(["Catalogue of Life"], [], null))).toBeNull();
   });
 });

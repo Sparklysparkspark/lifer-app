@@ -19,18 +19,73 @@
   { "match": ["United Arab Emirates"], "aliases": ["UAE", "Emirates"] },
   {
     "match": ["Democratic Republic of the Congo", "Dem. Rep. Congo"],
-    "aliases": ["DR Congo", "DRC", "Congo-Kinshasa", "Zaire"]
+    "aliases": ["Democratic Republic of the Congo", "DR Congo", "DRC", "Congo-Kinshasa", "Zaire"]
   },
   { "match": ["Republic of the Congo", "Congo"], "aliases": ["Congo-Brazzaville"] },
   { "match": ["Vatican", "Vatican City"], "aliases": ["Holy See"] },
-  { "match": ["Bosnia and Herzegovina", "Bosnia and Herz."], "aliases": ["Bosnia"] },
+  { "match": ["Bosnia and Herzegovina", "Bosnia and Herz."], "aliases": ["Bosnia and Herzegovina", "Bosnia"] },
   { "match": ["The Bahamas", "Bahamas"], "aliases": ["Bahamas", "The Bahamas"] },
   { "match": ["The Gambia", "Gambia"], "aliases": ["Gambia", "The Gambia"] },
   { "match": ["Hong Kong"], "aliases": ["Hong Kong SAR", "HK"] },
   { "match": ["Macao", "Macau"], "aliases": ["Macau", "Macao SAR"] },
   { "match": ["Scotland"], "aliases": ["Alba"] },
   { "match": ["Wales"], "aliases": ["Cymru"] },
-  { "match": ["Faroe Islands", "Faeroe Islands"], "aliases": ["Faroes", "Faeroes"] },
-  { "match": ["Falkland Islands", "Falkland Is."], "aliases": ["Malvinas", "Islas Malvinas"] },
-  { "match": ["Saint Martin", "St-Martin"], "aliases": ["Sint Maarten"] }
+  {
+    "match": ["Faroe Islands", "Faeroe Islands", "Faeroe Is."],
+    "aliases": ["Faroe Islands", "Faeroe Islands", "Faroes", "Faeroes"]
+  },
+  { "match": ["Falkland Islands", "Falkland Is."], "aliases": ["Falkland Islands", "Malvinas", "Islas Malvinas"] },
+  { "match": ["Saint Martin", "St-Martin"], "aliases": ["Saint Martin", "Saint-Martin"] },
+  { "match": ["Antigua and Barbuda", "Antigua and Barb."], "aliases": ["Antigua and Barbuda"] },
+  { "match": ["Ashmore and Cartier Islands", "Ashmore and Cartier Is."], "aliases": ["Ashmore and Cartier Islands"] },
+  {
+    "match": ["British Indian Ocean Territory", "Br. Indian Ocean Ter."],
+    "aliases": ["British Indian Ocean Territory"]
+  },
+  { "match": ["Brazilian Island", "Brazilian I."], "aliases": ["Brazilian Island"] },
+  { "match": ["British Virgin Islands", "British Virgin Is."], "aliases": ["British Virgin Islands"] },
+  { "match": ["Cayman Islands", "Cayman Is."], "aliases": ["Cayman Islands"] },
+  { "match": ["Central African Republic", "Central African Rep."], "aliases": ["Central African Republic"] },
+  { "match": ["Clipperton Island", "Clipperton I."], "aliases": ["Clipperton Island"] },
+  { "match": ["Cook Islands", "Cook Is."], "aliases": ["Cook Islands"] },
+  { "match": ["Coral Sea Islands", "Coral Sea Is."], "aliases": ["Coral Sea Islands"] },
+  { "match": ["Dominican Republic", "Dominican Rep."], "aliases": ["Dominican Republic"] },
+  { "match": ["Equatorial Guinea", "Eq. Guinea"], "aliases": ["Equatorial Guinea"] },
+  { "match": ["French Polynesia", "Fr. Polynesia"], "aliases": ["French Polynesia"] },
+  {
+    "match": ["French Southern and Antarctic Lands", "Fr. S. Antarctic Lands"],
+    "aliases": ["French Southern and Antarctic Lands"]
+  },
+  {
+    "match": ["Heard Island and McDonald Islands", "Heard I. and McDonald Is."],
+    "aliases": ["Heard Island and McDonald Islands"]
+  },
+  {
+    "match": ["Australian Indian Ocean Territories", "Indian Ocean Ter."],
+    "aliases": ["Australian Indian Ocean Territories"]
+  },
+  { "match": ["Marshall Islands", "Marshall Is."], "aliases": ["Marshall Islands"] },
+  { "match": ["Northern Mariana Islands", "N. Mariana Is."], "aliases": ["Northern Mariana Islands"] },
+  { "match": ["Pitcairn Islands", "Pitcairn Is."], "aliases": ["Pitcairn Islands"] },
+  {
+    "match": ["South Georgia and the South Sandwich Islands", "S. Geo. and the Is."],
+    "aliases": ["South Georgia and the South Sandwich Islands"]
+  },
+  { "match": ["South Sudan", "S. Sudan"], "aliases": ["South Sudan"] },
+  { "match": ["Solomon Islands", "Solomon Is."], "aliases": ["Solomon Islands"] },
+  { "match": ["Saint Barthélemy", "St-Barthélemy"], "aliases": ["Saint Barthélemy"] },
+  { "match": ["Saint Kitts and Nevis", "St. Kitts and Nevis"], "aliases": ["Saint Kitts and Nevis"] },
+  { "match": ["Saint Pierre and Miquelon", "St. Pierre and Miquelon"], "aliases": ["Saint Pierre and Miquelon"] },
+  {
+    "match": ["Saint Vincent and the Grenadines", "St. Vin. and Gren."],
+    "aliases": ["Saint Vincent and the Grenadines"]
+  },
+  { "match": ["Turks and Caicos Islands", "Turks and Caicos Is."], "aliases": ["Turks and Caicos Islands"] },
+  {
+    "match": ["United States Minor Outlying Islands", "U.S. Minor Outlying Is."],
+    "aliases": ["United States Minor Outlying Islands"]
+  },
+  { "match": ["United States Virgin Islands", "U.S. Virgin Is."], "aliases": ["United States Virgin Islands"] },
+  { "match": ["Western Sahara", "W. Sahara"], "aliases": ["Western Sahara"] },
+  { "match": ["Wallis and Futuna", "Wallis and Futuna Is."], "aliases": ["Wallis and Futuna"] }
 ]

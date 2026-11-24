@@ -1,265 +1,266 @@
 zone	basin	species_before	removed_edge_across_basin	removed_basin_stray	species_after	deep_sea_for_review
-Trinidadian and Tobagonian part of the North Atlantic Ocean	atlantic	491	0	0	491	0
-Adriatic Sea	atlantic	301	0	0	301	0
-Aegean Sea	atlantic	328	0	0	328	0
-Alboran Sea	atlantic	330	0	0	330	0
-Andaman or Burma Sea	indo-pacific	1018	0	0	1018	0
-Angolan part of the South Atlantic Ocean	atlantic	635	0	0	635	0
-Antiguan and Barbudan part of the North Atlantic Ocean	atlantic	47	0	0	47	0
-Arabian Sea	indo-pacific	1088	0	0	1088	0
-Arafura Sea	indo-pacific	1894	0	0	1894	0
-Argentinian part of the South Atlantic Ocean	atlantic	327	0	0	327	0
-Argentinian part of the South Pacific Ocean	polar	48	0	0	48	0
-Australian part of the Indian Ocean	indo-pacific	3402	0	0	3402	0
-Australian part of the Indian Ocean (Christmas Island)	indo-pacific	357	0	0	357	0
-Australian part of the Indian Ocean (Cocos Islands)	indo-pacific	203	0	0	203	0
-Australian part of the Indian Ocean (Heard and McDonald Islands)	polar	80	0	0	80	0
-Australian part of the South Pacific Ocean	indo-pacific	622	0	0	622	0
-Australian part of the South Pacific Ocean (Macquarie Island)	polar	128	0	0	128	0
-Australian part of the South Pacific Ocean (Norfolk Island)	indo-pacific	447	0	0	447	0
-Baffin Bay	polar	117	0	0	117	0
-Bahamian part of the North Atlantic Ocean	atlantic	1358	0	0	1358	0
-Balearic (Iberian Sea)	atlantic	447	0	0	447	0
-Bali Sea	indo-pacific	1005	0	0	1005	0
-Baltic Sea	atlantic	166	0	0	166	0
-Banda Sea	indo-pacific	1511	0	0	1511	0
-Barbadian part of the North Atlantic Ocean	atlantic	202	0	0	202	0
-Barentsz Sea	polar	171	0	0	171	0
-Bass Strait	indo-pacific	734	0	0	734	0
-Bay of Bengal	indo-pacific	1079	0	0	1079	0
-Bay of Biscay	atlantic	306	0	0	306	0
-Bay of Fundy	atlantic	189	0	0	189	0
-Beaufort Sea	polar	111	0	0	111	0
-Bering Sea	indo-pacific	473	0	0	473	0
-Bismarck Sea	indo-pacific	1056	0	0	1056	0
-Bissau-Guinean part of the North Atlantic Ocean	atlantic	486	0	0	486	0
-Black Sea	atlantic	133	0	0	133	0
-Brazilian part of the North Atlantic Ocean	atlantic	408	0	0	408	0
-Brazilian part of the South Atlantic Ocean	atlantic	1125	0	0	1125	0
-Brazilian part of the South Atlantic Ocean (Trindade)	atlantic	154	0	0	154	0
-Bristol Channel	atlantic	173	0	0	173	0
-British part of the North Atlantic Ocean	atlantic	364	0	0	364	0
+Trinidadian and Tobagonian part of the North Atlantic Ocean	atlantic	550	0	0	550	0
+Tyrrhenian Sea	atlantic	883	0	0	883	0
+Mediterranean Sea - Western Basin	atlantic	1419	0	0	1419	0
+Adriatic Sea	atlantic	792	0	0	792	0
+Aegean Sea	atlantic	868	0	0	868	0
+Mediterranean Sea - Eastern Basin	atlantic	1154	0	0	1154	0
+United States part of the North Atlantic Ocean	atlantic	3864	0	0	3864	0
+Barbadian part of the North Atlantic Ocean	atlantic	206	0	0	206	0
+Bahamian part of the North Atlantic Ocean	atlantic	2084	0	0	2084	0
+United States part of the North Atlantic Ocean (Puerto Rico)	atlantic	705	0	0	705	0
+British part of the North Atlantic Ocean (Bermuda)	atlantic	868	0	0	868	0
+Caribbean Sea	atlantic	3662	0	0	3662	0
+Cuban part of the North Atlantic Ocean	atlantic	997	0	0	997	0
+Gulf of Mexico	atlantic	4006	0	0	4006	0
+United States part of the North Pacific Ocean	indo-pacific	2144	0	0	2144	0
+The Coastal Waters of Southeast Alaska and British Columbia	indo-pacific	1114	0	0	1114	0
+Canadian part of the North Pacific Ocean	indo-pacific	887	0	0	887	0
+Malacca Strait	indo-pacific	1766	0	0	1766	0
+Arabian Sea	indo-pacific	1788	0	0	1788	0
+Bay of Bengal	indo-pacific	1624	0	0	1624	0
+South China Sea	indo-pacific	5662	0	0	5662	0
+Alboran Sea	atlantic	724	0	0	724	0
+Andaman or Burma Sea	indo-pacific	2284	0	0	2284	0
+Angolan part of the South Atlantic Ocean	atlantic	705	0	0	705	0
+Antiguan and Barbudan part of the North Atlantic Ocean	atlantic	52	0	0	52	0
+Arafura Sea	indo-pacific	2850	0	0	2850	0
+Argentinian part of the South Atlantic Ocean	atlantic	620	0	0	620	0
+Argentinian part of the South Pacific Ocean	polar	106	0	0	106	0
+Australian part of the Indian Ocean	indo-pacific	5940	0	0	5940	0
+Australian part of the Indian Ocean (Christmas Island)	indo-pacific	493	0	0	493	0
+Australian part of the Indian Ocean (Cocos Islands)	indo-pacific	322	0	0	322	0
+Australian part of the Indian Ocean (Heard and McDonald Islands)	polar	121	0	0	121	0
+Australian part of the South Pacific Ocean	indo-pacific	677	0	0	677	0
+Australian part of the South Pacific Ocean (Macquarie Island)	polar	199	0	0	199	0
+Australian part of the South Pacific Ocean (Norfolk Island)	indo-pacific	566	0	0	566	0
+Baffin Bay	polar	182	0	0	182	0
+Balearic (Iberian Sea)	atlantic	1041	0	0	1041	0
+Bali Sea	indo-pacific	2177	0	0	2177	0
+Baltic Sea	atlantic	273	0	0	273	0
+Banda Sea	indo-pacific	2698	0	0	2698	0
+Barentsz Sea	polar	407	0	0	407	0
+Bass Strait	indo-pacific	1708	0	0	1708	0
+Bay of Biscay	atlantic	859	0	0	859	0
+Bay of Fundy	atlantic	488	0	0	488	0
+Beaufort Sea	polar	248	0	0	248	0
+Bering Sea	indo-pacific	834	0	0	834	0
+Bismarck Sea	indo-pacific	2073	0	0	2073	0
+Bissau-Guinean part of the North Atlantic Ocean	atlantic	501	0	0	501	0
+Black Sea	atlantic	212	0	0	212	0
+Brazilian part of the North Atlantic Ocean	atlantic	443	0	0	443	0
+Brazilian part of the South Atlantic Ocean	atlantic	1934	0	0	1934	0
+Brazilian part of the South Atlantic Ocean (Trindade)	atlantic	219	0	0	219	0
+Bristol Channel	atlantic	533	0	0	533	0
+British part of the North Atlantic Ocean	atlantic	816	0	0	816	0
+British part of the North Atlantic Ocean (British Virgin Islands)	atlantic	149	0	0	149	0
+British part of the North Atlantic Ocean (Turks and Caicos Islands)	atlantic	453	0	0	453	0
+British part of the South Atlantic Ocean (Ascension)	atlantic	128	0	0	128	0
+British part of the South Atlantic Ocean (Saint Helena)	atlantic	143	0	0	143	0
+British part of the South Atlantic Ocean (Tristan da Cunha)	atlantic	85	0	0	85	0
+British part of the South Pacific Ocean (Pitcairn)	indo-pacific	70	0	0	70	0
+Canadian part of the Arctic Ocean	polar	12	0	0	12	0
+Canadian part of the North Atlantic Ocean	atlantic	1188	0	0	1188	0
+Cape Verdean part of the North Atlantic Ocean	atlantic	716	0	0	716	0
+Celebes Sea	indo-pacific	2727	0	0	2727	0
+Celtic Sea	atlantic	1064	0	0	1064	0
+Ceram Sea	indo-pacific	1514	0	0	1514	0
+Chilean part of the South Atlantic Ocean	polar	116	0	0	116	0
+Chilean part of the South Pacific Ocean	indo-pacific	940	0	0	940	0
+Chilean part of the South Pacific Ocean (Easter Island)	indo-pacific	139	0	0	139	0
+Chilean part of the South Pacific Ocean (Islas San Félix and San Ambrosio)	indo-pacific	68	0	0	68	0
+Chukchi Sea	polar	287	0	0	287	0
+Colombian part of the North Pacific Ocean	indo-pacific	1085	0	0	1085	0
+Comoran part of the Indian Ocean	indo-pacific	70	0	0	70	0
+Congolese part of the South Atlantic Ocean (Democratic Republic of)	atlantic	163	0	0	163	0
+Congolese part of the South Atlantic Ocean (Republic of)	atlantic	454	0	0	454	0
+Coral Sea	indo-pacific	8938	0	0	8938	0
+Costa Rican part of the North Pacific Ocean	indo-pacific	1214	0	0	1214	0
+Danish part of the Arctic Ocean (Greenland)	polar	18	0	0	18	0
+Danish part of the North Atlantic Ocean (Faeroe)	atlantic	302	0	0	302	0
+Danish part of the North Atlantic Ocean (Greenland)	atlantic	257	0	0	257	0
+Davis Strait	atlantic	391	0	0	391	0
+Dominican part of the North Atlantic Ocean (Republic)	atlantic	540	0	0	540	0
+East Siberian Sea	polar	39	0	0	39	0
+Eastern China Sea	indo-pacific	4262	0	0	4262	0
+Ecuadorian part of the North Pacific Ocean	indo-pacific	293	0	0	293	0
+Ecuadorian part of the North Pacific Ocean (Galapagos)	indo-pacific	402	0	0	402	0
+Ecuadorian part of the South Pacific Ocean	indo-pacific	577	0	0	577	0
+Ecuadorian part of the South Pacific Ocean (Galapagos)	indo-pacific	839	0	0	839	0
+English Channel	atlantic	1007	0	0	1007	0
+Equatorial Guinean part of the South Atlantic Ocean	atlantic	112	0	0	112	0
+Fijian part of the South Pacific Ocean	indo-pacific	2331	0	0	2331	0
+Flores Sea	indo-pacific	1512	0	0	1512	0
+French part of the Indian Ocean (Amsterdam and Saint Paul Islands)	indo-pacific	64	0	0	64	0
+French part of the Indian Ocean (Crozet Islands)	indo-pacific	111	0	0	111	0
+French part of the Indian Ocean (Kerguélen)	indo-pacific	304	0	0	304	0
+French part of the Indian Ocean (Réunion)	indo-pacific	1058	0	0	1058	0
+French part of the North Atlantic Ocean	atlantic	178	0	0	178	0
+French part of the North Atlantic Ocean (French Guiana)	atlantic	363	0	0	363	0
+French part of the North Atlantic Ocean (Guadeloupe)	atlantic	54	0	0	54	0
+French part of the North Atlantic Ocean (Martinique)	atlantic	43	0	0	43	0
+French part of the North Atlantic Ocean (Saint-Pierre and Miquelon)	atlantic	135	0	0	135	0
+French part of the North Pacific Ocean (Clipperton Island)	indo-pacific	131	0	0	131	0
+French part of the South Pacific Ocean (French Polynesia)	indo-pacific	1859	0	0	1859	0
+French part of the South Pacific Ocean (New Caledonia)	indo-pacific	893	0	0	893	0
+French part of the South Pacific Ocean (Wallis and Futuna)	indo-pacific	839	0	0	839	0
+Gabonese part of the South Atlantic Ocean	atlantic	550	0	0	550	0
+Gambian part of the North Atlantic Ocean	atlantic	212	0	0	212	0
+Ghanaian part of the North Atlantic Ocean	atlantic	21	0	0	21	0
+Great Australian Bight	indo-pacific	2157	0	0	2157	0
+Greenland Sea	polar	358	0	0	358	0
+Guatemalan part of the North Pacific Ocean	indo-pacific	257	0	0	257	0
+Guinean part of the North Atlantic Ocean	atlantic	447	0	0	447	0
+Gulf of Aden	indo-pacific	455	0	0	455	0
+Gulf of Alaska	indo-pacific	775	0	0	775	0
+Gulf of Aqaba	indo-pacific	752	0	0	752	0
+Gulf of Boni	indo-pacific	174	0	0	174	0
+Gulf of Bothnia	atlantic	113	0	0	113	0
+Gulf of California	indo-pacific	1615	0	0	1615	0
+Gulf of Finland	atlantic	89	0	0	89	0
+Gulf of Guinea	atlantic	747	0	0	747	0
+Gulf of Oman	indo-pacific	535	0	0	535	0
+Gulf of Riga	atlantic	50	0	0	50	0
+Gulf of St. Lawrence	atlantic	597	0	0	597	0
+Gulf of Suez	indo-pacific	522	0	0	522	0
+Gulf of Thailand	indo-pacific	1425	0	0	1425	0
+Gulf of Tomini	indo-pacific	788	0	0	788	0
+Guyanese part of the North Atlantic Ocean	atlantic	268	0	0	268	0
+Haitian part of the North Atlantic Ocean	atlantic	71	0	0	71	0
+Halmahera Sea	indo-pacific	1326	0	0	1326	0
+Honduran part of the North Pacific Ocean	indo-pacific	41	0	0	41	0
+Hudson Bay	atlantic	121	0	0	121	0
+Hudson Strait	atlantic	223	0	0	223	0
+Icelandic part of the North Atlantic Ocean	atlantic	311	0	0	311	0
+Indonesian part of the Indian Ocean	indo-pacific	1362	0	0	1362	0
+Indonesian part of the North Pacific Ocean	indo-pacific	402	0	0	402	0
+Indonesian part of the South Pacific Ocean	indo-pacific	1638	0	0	1638	0
+Inner Seas off the West Coast of Scotland	atlantic	847	0	0	847	0
+Ionian Sea	atlantic	746	0	0	746	0
+Irish Sea and St. George's Channel	atlantic	828	0	0	828	0
+Irish part of the North Atlantic Ocean	atlantic	908	0	0	908	0
+Japan Sea	indo-pacific	1730	0	0	1730	0
+Japanese part of the North Pacific Ocean	indo-pacific	1622	0	0	1622	0
+Java Sea	indo-pacific	1116	0	0	1116	0
+Kara Sea	polar	60	0	0	60	0
+Kattegat	atlantic	433	0	0	433	0
+Kenyan part of the Indian Ocean	indo-pacific	926	0	0	926	0
+Kiribati part of the North Pacific Ocean (Gilbert Islands)	indo-pacific	80	0	0	80	0
+Kiribati part of the North Pacific Ocean (Line Group)	indo-pacific	379	0	0	379	0
+Kiribati part of the South Pacific Ocean (Gilbert Islands)	indo-pacific	378	0	0	378	0
+Kiribati part of the South Pacific Ocean (Line Group)	indo-pacific	187	0	0	187	0
+Kiribati part of the South Pacific Ocean (Phoenix Group)	indo-pacific	281	0	0	281	0
+Labrador Sea	atlantic	362	0	0	362	0
+Laccadive Sea	indo-pacific	2171	0	0	2171	0
+Laptev Sea	polar	20	0	0	20	0
+Liberian part of the North Atlantic Ocean	atlantic	459	0	0	459	0
+Ligurian Sea	atlantic	360	0	0	360	0
+Madagascan part of the Indian Ocean	indo-pacific	781	0	0	781	0
+Makassar Strait	indo-pacific	848	0	0	848	0
+Maldivian part of the Indian Ocean	indo-pacific	192	0	0	192	0
+Marshallese part of the North Pacific Ocean	indo-pacific	1870	0	0	1870	0
+Mauritanian part of the North Atlantic Ocean	atlantic	580	0	0	580	0
+Mauritian part of the Indian Ocean	indo-pacific	1269	0	0	1269	0
+Mauritian part of the Indian Ocean (Chagos Archipelago)	indo-pacific	524	0	0	524	0
+Mexican part of the North Pacific Ocean	indo-pacific	2177	0	0	2177	0
+Micronesian part of the North Pacific Ocean	indo-pacific	1350	0	0	1350	0
+Micronesian part of the South Pacific Ocean	indo-pacific	3	0	0	3	0
+Molukka Sea	indo-pacific	2237	0	0	2237	0
+Moroccan part of the North Atlantic Ocean	atlantic	483	0	0	483	0
+Mozambican part of the Indian Ocean	indo-pacific	136	0	0	136	0
+Mozambique Channel	indo-pacific	3194	0	0	3194	0
+Namibian part of the South Atlantic Ocean	atlantic	562	0	0	562	0
+Nauruan part of the South Pacific Ocean	indo-pacific	125	0	0	125	0
+New Zealand part of the South Pacific Ocean	indo-pacific	2108	0	0	2108	0
+New Zealand part of the South Pacific Ocean (Cook Islands)	indo-pacific	738	0	0	738	0
+New Zealand part of the South Pacific Ocean (Niue)	indo-pacific	426	0	0	426	0
+New Zealand part of the South Pacific Ocean (Tokelau)	indo-pacific	41	0	0	41	0
+Nicaraguan part of the North Pacific Ocean	indo-pacific	386	0	0	386	0
+North Sea	atlantic	1169	0	0	1169	0
+Norwegian Sea	polar	906	0	0	906	0
+Norwegian part of the Arctic Ocean (Svalbard)	polar	178	0	0	178	0
+Overlapping claim Falkland / Malvinas Islands: United Kingdom / Argentina part of the South Atlantic Ocean	polar	362	0	0	362	0
+Overlapping claim Glorioso Islands: France / Madagascar part of the Indian Ocean	indo-pacific	325	0	0	325	0
+Overlapping claim Ile Tromelin: France / Madagascar / Republic of Mauritius part of the Indian Ocean	indo-pacific	26	0	0	26	0
+Overlapping claim Kuril Islands: Japan / Russia part of the North Pacific Ocean	indo-pacific	33	0	0	33	0
+Overlapping claim Matthew and Hunter Islands: France / Vanuatu part of the South Pacific Ocean	indo-pacific	103	0	0	103	0
+Overlapping claim South Georgia and the South Sandwich Islands: United Kingdom / Argentina part of the South Atlantic Ocean	polar	342	0	0	342	0
+Overlapping claim South Georgia and the South Sandwich Islands: United Kingdom / Argentina part of the Southern Ocean	polar	2	0	0	2	0
+Overlapping claim Wake Island / Enenkio: United States / Marshall Islands part of the North Pacific Ocean	indo-pacific	309	0	0	309	0
+Overlapping claim Western Sahara: Western Sahara / Morocco part of the North Atlantic Ocean	atlantic	597	0	0	597	0
+Palauan part of the North Pacific Ocean	indo-pacific	1867	0	0	1867	0
+Panamanian part of the North Pacific Ocean	indo-pacific	1359	0	0	1359	0
+Papua New Guinean part of the North Pacific Ocean	indo-pacific	11	0	0	11	0
+Papua New Guinean part of the South Pacific Ocean	indo-pacific	604	0	0	604	0
+Persian Gulf	indo-pacific	471	0	0	471	0
+Peruvian part of the South Pacific Ocean	indo-pacific	561	0	0	561	0
+Philippine Sea	indo-pacific	7009	0	0	7009	0
+Portuguese part of the North Atlantic Ocean	atlantic	898	0	0	898	0
+Portuguese part of the North Atlantic Ocean (Azores)	atlantic	581	0	0	581	0
+Portuguese part of the North Atlantic Ocean (Madeira)	atlantic	531	0	0	531	0
+Red Sea	indo-pacific	1127	0	0	1127	0
+Rio de La Plata	atlantic	116	0	0	116	0
+Russian part of the Arctic Ocean	polar	76	0	0	76	0
+Russian part of the North Pacific Ocean	indo-pacific	201	0	0	201	0
+Salvadoran part of the North Pacific Ocean	indo-pacific	395	0	0	395	0
+Samoan part of the South Pacific Ocean	indo-pacific	571	0	0	571	0
+Savu Sea	indo-pacific	1385	0	0	1385	0
+Sea of Azov	atlantic	85	0	0	85	0
+Sea of Marmara	atlantic	112	0	0	112	0
+Sea of Okhotsk	indo-pacific	403	0	0	403	0
+Senegalese part of the North Atlantic Ocean	atlantic	659	0	0	659	0
+Seto Naikai or Inland Sea	indo-pacific	610	0	0	610	0
+Seychellois part of the Indian Ocean	indo-pacific	1486	0	0	1486	0
+Sierra Leonean part of the North Atlantic Ocean	atlantic	407	0	0	407	0
+Singapore Strait	indo-pacific	1470	0	0	1470	0
+Skagerrak	atlantic	540	0	0	540	0
+Solomon Islands part of the South Pacific Ocean	indo-pacific	800	0	0	800	0
+Solomon Sea	indo-pacific	2470	0	0	2470	0
+Somali part of the Indian Ocean	indo-pacific	268	0	0	268	0
+South African part of the Indian Ocean	indo-pacific	2847	0	0	2847	0
+South African part of the Indian Ocean (Prince Edward Islands)	indo-pacific	53	0	0	53	0
+South African part of the South Atlantic Ocean	atlantic	1156	0	0	1156	0
+Spanish part of the North Atlantic Ocean	atlantic	680	0	0	680	0
+Spanish part of the North Atlantic Ocean (Canary Islands)	atlantic	968	0	0	968	0
+Sri Lankan part of the Indian Ocean	indo-pacific	57	0	0	57	0
+Strait of Gibraltar	atlantic	374	0	0	374	0
+Sulu Sea	indo-pacific	3069	0	0	3069	0
+Surinamese part of the North Atlantic Ocean	atlantic	402	0	0	402	0
+São Toméan part of the South Atlantic Ocean	atlantic	57	0	0	57	0
+Tanzanian part of the Indian Ocean	indo-pacific	1477	0	0	1477	0
+Tasman Sea	indo-pacific	5486	0	0	5486	0
+The Northwestern Passages	polar	193	0	0	193	0
+Timor Sea	indo-pacific	2512	0	0	2512	0
+Tongan part of the South Pacific Ocean	indo-pacific	1051	0	0	1051	0
+Tuvaluan part of the South Pacific Ocean	indo-pacific	452	0	0	452	0
+United States part of the Arctic Ocean (Alaska)	polar	123	0	0	123	0
+United States part of the North Pacific Ocean (Alaska)	indo-pacific	595	0	0	595	0
+United States part of the North Pacific Ocean (Guam)	indo-pacific	749	0	0	749	0
+United States part of the North Pacific Ocean (Hawaii)	indo-pacific	2151	0	0	2151	0
+United States part of the North Pacific Ocean (Howland and Baker Islands)	indo-pacific	333	0	0	333	0
+United States part of the North Pacific Ocean (Jarvis Islands)	indo-pacific	25	0	0	25	0
+United States part of the North Pacific Ocean (Johnston Atoll)	indo-pacific	204	0	0	204	0
+United States part of the North Pacific Ocean (Northern Mariana Islands)	indo-pacific	530	0	0	530	0
+United States part of the North Pacific Ocean (Palmyra Atoll)	indo-pacific	558	0	0	558	0
+United States part of the South Pacific Ocean (American Samoa)	indo-pacific	879	0	0	879	0
+United States part of the South Pacific Ocean (Howland and Baker Islands)	indo-pacific	9	0	0	9	0
+United States part of the South Pacific Ocean (Jarvis Islands)	indo-pacific	289	0	0	289	0
+Uruguayan part of the South Atlantic Ocean	atlantic	349	0	0	349	0
+Vanuatuan part of the South Pacific Ocean	indo-pacific	170	0	0	170	0
+Venezuelan part of the North Atlantic Ocean	atlantic	190	0	0	190	0
+White Sea		115	0	0	115	0
+Yellow Sea	indo-pacific	749	0	0	749	0
 British part of the North Atlantic Ocean (Anguilla)	atlantic	45	0	0	45	0
-British part of the North Atlantic Ocean (Bermuda)	atlantic	584	0	0	584	0
-British part of the North Atlantic Ocean (British Virgin Islands)	atlantic	141	0	0	141	0
-British part of the North Atlantic Ocean (Turks and Caicos Islands)	atlantic	355	0	0	355	0
-British part of the South Atlantic Ocean (Ascension)	atlantic	116	0	0	116	0
-British part of the South Atlantic Ocean (Saint Helena)	atlantic	133	0	0	133	0
-British part of the South Atlantic Ocean (Tristan da Cunha)	atlantic	71	0	0	71	0
-British part of the South Pacific Ocean (Pitcairn)	indo-pacific	42	0	0	42	0
-Canadian part of the Arctic Ocean	polar	5	0	0	5	0
-Canadian part of the North Atlantic Ocean	atlantic	806	0	0	806	0
-Canadian part of the North Pacific Ocean	indo-pacific	414	0	0	414	0
-Cape Verdean part of the North Atlantic Ocean	atlantic	579	0	0	579	0
-Caribbean Sea	atlantic	2073	0	0	2073	0
-Celebes Sea	indo-pacific	1603	0	0	1603	0
-Celtic Sea	atlantic	345	0	0	345	0
-Ceram Sea	indo-pacific	1001	0	0	1001	0
-Chilean part of the South Atlantic Ocean	polar	83	0	0	83	0
-Chilean part of the South Pacific Ocean	indo-pacific	598	0	0	598	0
-Chilean part of the South Pacific Ocean (Easter Island)	indo-pacific	92	0	0	92	0
-Chilean part of the South Pacific Ocean (Islas San Félix and San Ambrosio)	indo-pacific	62	0	0	62	0
-Chukchi Sea	polar	130	0	0	130	0
-Colombian part of the North Pacific Ocean	indo-pacific	784	0	0	784	0
-Comoran part of the Indian Ocean	indo-pacific	69	0	0	69	0
-Congolese part of the South Atlantic Ocean (Democratic Republic of)	atlantic	130	0	0	130	0
-Congolese part of the South Atlantic Ocean (Republic of)	atlantic	440	0	0	440	0
-Coral Sea	indo-pacific	4402	0	0	4402	0
-Costa Rican part of the North Pacific Ocean	indo-pacific	924	0	0	924	0
-Cuban part of the North Atlantic Ocean	atlantic	682	0	0	682	0
-Danish part of the Arctic Ocean (Greenland)	polar	17	0	0	17	0
-Danish part of the North Atlantic Ocean (Faeroe)	atlantic	257	0	0	257	0
-Danish part of the North Atlantic Ocean (Greenland)	atlantic	232	0	0	232	0
-Davis Strait	atlantic	242	0	0	242	0
 Dominican part of the North Atlantic Ocean	atlantic	6	0	0	6	0
-Dominican part of the North Atlantic Ocean (Republic)	atlantic	414	0	0	414	0
-East Siberian Sea	polar	32	0	0	32	0
-Eastern China Sea	indo-pacific	2689	0	0	2689	0
-Ecuadorian part of the North Pacific Ocean	indo-pacific	199	0	0	199	0
-Ecuadorian part of the North Pacific Ocean (Galapagos)	indo-pacific	328	0	0	328	0
-Ecuadorian part of the South Pacific Ocean	indo-pacific	348	0	0	348	0
-Ecuadorian part of the South Pacific Ocean (Galapagos)	indo-pacific	512	0	0	512	0
-English Channel	atlantic	268	0	0	268	0
 Equatorial Guinean part of the North Atlantic Ocean	atlantic	8	0	0	8	0
-Equatorial Guinean part of the South Atlantic Ocean	atlantic	106	0	0	106	0
-Fijian part of the South Pacific Ocean	indo-pacific	1341	0	0	1341	0
-Flores Sea	indo-pacific	902	0	0	902	0
-French part of the Indian Ocean (Amsterdam and Saint Paul Islands)	indo-pacific	59	0	0	59	0
-French part of the Indian Ocean (Crozet Islands)	indo-pacific	47	0	0	47	0
-French part of the Indian Ocean (Kerguélen)	indo-pacific	169	0	0	169	0
-French part of the Indian Ocean (Réunion)	indo-pacific	863	0	0	863	0
-French part of the North Atlantic Ocean	atlantic	88	0	0	88	0
-French part of the North Atlantic Ocean (French Guiana)	atlantic	314	0	0	314	0
-French part of the North Atlantic Ocean (Guadeloupe)	atlantic	51	0	0	51	0
-French part of the North Atlantic Ocean (Martinique)	atlantic	42	0	0	42	0
 French part of the North Atlantic Ocean (Saint-Barthélemy)	atlantic	3	0	0	3	0
-French part of the North Atlantic Ocean (Saint-Pierre and Miquelon)	atlantic	112	0	0	112	0
-French part of the North Pacific Ocean (Clipperton Island)	indo-pacific	119	0	0	119	0
-French part of the South Pacific Ocean (French Polynesia)	indo-pacific	1161	0	0	1161	0
-French part of the South Pacific Ocean (New Caledonia)	indo-pacific	564	0	0	564	0
-French part of the South Pacific Ocean (Wallis and Futuna)	indo-pacific	783	0	0	783	0
-Gabonese part of the South Atlantic Ocean	atlantic	526	0	0	526	0
-Gambian part of the North Atlantic Ocean	atlantic	191	0	0	191	0
-Ghanaian part of the North Atlantic Ocean	atlantic	19	0	0	19	0
-Great Australian Bight	indo-pacific	1124	0	0	1124	0
-Greenland Sea	polar	184	0	0	184	0
-Guatemalan part of the North Pacific Ocean	indo-pacific	248	0	0	248	0
-Guinean part of the North Atlantic Ocean	atlantic	435	0	0	435	0
-Gulf of Aden	indo-pacific	422	0	0	422	0
-Gulf of Alaska	indo-pacific	401	0	0	401	0
-Gulf of Aqaba	indo-pacific	475	0	0	475	0
-Gulf of Boni	indo-pacific	136	0	0	136	0
-Gulf of Bothnia	atlantic	89	0	0	89	0
-Gulf of California	indo-pacific	1061	0	0	1061	0
-Gulf of Finland	atlantic	73	0	0	73	0
-Gulf of Guinea	atlantic	670	0	0	670	0
-Gulf of Mexico	atlantic	1852	0	0	1852	0
-Gulf of Oman	indo-pacific	345	0	0	345	0
-Gulf of Riga	atlantic	36	0	0	36	0
-Gulf of St. Lawrence	atlantic	280	0	0	280	0
-Gulf of Suez	indo-pacific	403	0	0	403	0
-Gulf of Thailand	indo-pacific	1006	0	0	1006	0
-Gulf of Tomini	indo-pacific	464	0	0	464	0
-Guyanese part of the North Atlantic Ocean	atlantic	247	0	0	247	0
-Haitian part of the North Atlantic Ocean	atlantic	60	0	0	60	0
-Halmahera Sea	indo-pacific	950	0	0	950	0
-Honduran part of the North Pacific Ocean	indo-pacific	29	0	0	29	0
-Hudson Bay	atlantic	62	0	0	62	0
-Hudson Strait	atlantic	121	0	0	121	0
-Icelandic part of the North Atlantic Ocean	atlantic	232	0	0	232	0
 Indian part of the Indian Ocean (Andaman and Nicobar Islands)	indo-pacific	54	0	0	54	0
-Indonesian part of the Indian Ocean	indo-pacific	1099	0	0	1099	0
-Indonesian part of the North Pacific Ocean	indo-pacific	285	0	0	285	0
-Indonesian part of the South Pacific Ocean	indo-pacific	814	0	0	814	0
-Inner Seas off the West Coast of Scotland	atlantic	215	0	0	215	0
-Ionian Sea	atlantic	365	0	0	365	0
-Irish Sea and St. George's Channel	atlantic	228	0	0	228	0
-Irish part of the North Atlantic Ocean	atlantic	397	0	0	397	0
 Ivorian part of the North Atlantic Ocean	atlantic	84	0	0	84	0
-Japan Sea	indo-pacific	963	0	0	963	0
-Japanese part of the North Pacific Ocean	indo-pacific	1123	0	0	1123	0
-Java Sea	indo-pacific	775	0	0	775	0
-Kara Sea	polar	25	0	0	25	0
-Kattegat	atlantic	211	0	0	211	0
-Kenyan part of the Indian Ocean	indo-pacific	598	0	0	598	0
-Kiribati part of the North Pacific Ocean (Gilbert Islands)	indo-pacific	78	0	0	78	0
-Kiribati part of the North Pacific Ocean (Line Group)	indo-pacific	295	0	0	295	0
 Kiribati part of the North Pacific Ocean (Phoenix Group)	indo-pacific	1	0	0	1	0
-Kiribati part of the South Pacific Ocean (Gilbert Islands)	indo-pacific	308	0	0	308	0
-Kiribati part of the South Pacific Ocean (Line Group)	indo-pacific	119	0	0	119	0
-Kiribati part of the South Pacific Ocean (Phoenix Group)	indo-pacific	193	0	0	193	0
-Labrador Sea	atlantic	230	0	0	230	0
-Laccadive Sea	indo-pacific	1127	0	0	1127	0
-Laptev Sea	polar	12	0	0	12	0
-Liberian part of the North Atlantic Ocean	atlantic	454	0	0	454	0
-Ligurian Sea	atlantic	213	0	0	213	0
 Lincoln Sea	polar	3	0	0	3	0
-Madagascan part of the Indian Ocean	indo-pacific	647	0	0	647	0
-Makassar Strait	indo-pacific	442	0	0	442	0
-Malacca Strait	indo-pacific	1151	0	0	1151	0
-Maldivian part of the Indian Ocean	indo-pacific	155	0	0	155	0
-Marshallese part of the North Pacific Ocean	indo-pacific	800	0	0	800	0
-Mauritanian part of the North Atlantic Ocean	atlantic	534	0	0	534	0
-Mauritian part of the Indian Ocean	indo-pacific	936	0	0	936	0
-Mauritian part of the Indian Ocean (Chagos Archipelago)	indo-pacific	388	0	0	388	0
-Mediterranean Sea - Eastern Basin	atlantic	534	0	0	534	0
-Mediterranean Sea - Western Basin	atlantic	526	0	0	526	0
-Mexican part of the North Pacific Ocean	indo-pacific	1523	0	0	1523	0
-Micronesian part of the North Pacific Ocean	indo-pacific	1125	0	0	1125	0
-Micronesian part of the South Pacific Ocean	indo-pacific	2	0	0	2	0
-Molukka Sea	indo-pacific	1281	0	0	1281	0
-Moroccan part of the North Atlantic Ocean	atlantic	410	0	0	410	0
-Mozambican part of the Indian Ocean	indo-pacific	134	0	0	134	0
-Mozambique Channel	indo-pacific	2186	0	0	2186	0
-Namibian part of the South Atlantic Ocean	atlantic	467	0	0	467	0
 Nauruan part of the North Pacific Ocean	indo-pacific	1	0	0	1	0
-Nauruan part of the South Pacific Ocean	indo-pacific	108	0	0	108	0
-New Zealand part of the South Pacific Ocean	indo-pacific	1062	0	0	1062	0
-New Zealand part of the South Pacific Ocean (Cook Islands)	indo-pacific	531	0	0	531	0
-New Zealand part of the South Pacific Ocean (Niue)	indo-pacific	316	0	0	316	0
-New Zealand part of the South Pacific Ocean (Tokelau)	indo-pacific	35	0	0	35	0
-Nicaraguan part of the North Pacific Ocean	indo-pacific	331	0	0	331	0
-North Sea	atlantic	381	0	0	381	0
-Norwegian Sea	polar	333	0	0	333	0
-Norwegian part of the Arctic Ocean (Svalbard)	polar	131	0	0	131	0
-Overlapping claim Falkland / Malvinas Islands: United Kingdom / Argentina part of the South Atlantic Ocean	polar	161	0	0	161	0
-Overlapping claim Glorioso Islands: France / Madagascar part of the Indian Ocean	indo-pacific	310	0	0	310	0
-Overlapping claim Ile Tromelin: France / Madagascar / Republic of Mauritius part of the Indian Ocean	indo-pacific	19	0	0	19	0
-Overlapping claim Kuril Islands: Japan / Russia part of the North Pacific Ocean	indo-pacific	30	0	0	30	0
-Overlapping claim Matthew and Hunter Islands: France / Vanuatu part of the South Pacific Ocean	indo-pacific	98	0	0	98	0
 Overlapping claim Mayotte: France / Comores part of the Indian Ocean	indo-pacific	1	0	0	1	0
-Overlapping claim South Georgia and the South Sandwich Islands: United Kingdom / Argentina part of the South Atlantic Ocean	polar	117	0	0	117	0
-Overlapping claim Wake Island / Enenkio: United States / Marshall Islands part of the North Pacific Ocean	indo-pacific	218	0	0	218	0
-Overlapping claim Western Sahara: Western Sahara / Morocco part of the North Atlantic Ocean	atlantic	502	0	0	502	0
 Overlapping claim: Guyana / Trinidad and Tobago / Venezuela part of the North Atlantic Ocean	atlantic	4	0	0	4	0
 Overlapping claim: United States (Puerto Rico) / Dominican Republic part of the North Atlantic Ocean	atlantic	16	0	0	16	0
-Palauan part of the North Pacific Ocean	indo-pacific	1474	0	0	1474	0
-Panamanian part of the North Pacific Ocean	indo-pacific	966	0	0	966	0
-Papua New Guinean part of the North Pacific Ocean	indo-pacific	10	0	0	10	0
-Papua New Guinean part of the South Pacific Ocean	indo-pacific	517	0	0	517	0
-Persian Gulf	indo-pacific	282	0	0	282	0
-Peruvian part of the South Pacific Ocean	indo-pacific	457	0	0	457	0
-Philippine Sea	indo-pacific	4171	0	0	4171	0
-Portuguese part of the North Atlantic Ocean	atlantic	397	0	0	397	0
-Portuguese part of the North Atlantic Ocean (Azores)	atlantic	345	0	0	345	0
-Portuguese part of the North Atlantic Ocean (Madeira)	atlantic	403	0	0	403	0
-Red Sea	indo-pacific	713	0	0	713	0
-Rio de La Plata	atlantic	57	0	0	57	0
-Russian part of the Arctic Ocean	polar	59	0	0	59	0
-Russian part of the North Pacific Ocean	indo-pacific	169	0	0	169	0
-Salvadoran part of the North Pacific Ocean	indo-pacific	368	0	0	368	0
-Samoan part of the South Pacific Ocean	indo-pacific	439	0	0	439	0
-Savu Sea	indo-pacific	820	0	0	820	0
-Sea of Azov	atlantic	70	0	0	70	0
-Sea of Marmara	atlantic	83	0	0	83	0
-Sea of Okhotsk	indo-pacific	330	0	0	330	0
-Senegalese part of the North Atlantic Ocean	atlantic	620	0	0	620	0
-Seto Naikai or Inland Sea	indo-pacific	283	0	0	283	0
-Seychellois part of the Indian Ocean	indo-pacific	1003	0	0	1003	0
-Sierra Leonean part of the North Atlantic Ocean	atlantic	403	0	0	403	0
-Singapore Strait	indo-pacific	778	0	0	778	0
-Skagerrak	atlantic	236	0	0	236	0
-Solomon Islands part of the South Pacific Ocean	indo-pacific	712	0	0	712	0
-Solomon Sea	indo-pacific	1834	0	0	1834	0
-Somali part of the Indian Ocean	indo-pacific	246	0	0	246	0
-South African part of the Indian Ocean	indo-pacific	1845	0	0	1845	0
-South African part of the Indian Ocean (Prince Edward Islands)	indo-pacific	14	0	0	14	0
-South African part of the South Atlantic Ocean	atlantic	758	0	0	758	0
-South China Sea	indo-pacific	3594	0	0	3594	0
-Spanish part of the North Atlantic Ocean	atlantic	368	0	0	368	0
-Spanish part of the North Atlantic Ocean (Canary Islands)	atlantic	540	0	0	540	0
-Sri Lankan part of the Indian Ocean	indo-pacific	54	0	0	54	0
-Strait of Gibraltar	atlantic	135	0	0	135	0
-Sulu Sea	indo-pacific	2276	0	0	2276	0
-Surinamese part of the North Atlantic Ocean	atlantic	344	0	0	344	0
 São Toméan part of the North Atlantic Ocean	atlantic	161	0	0	161	0
-São Toméan part of the South Atlantic Ocean	atlantic	55	0	0	55	0
-Tanzanian part of the Indian Ocean	indo-pacific	934	0	0	934	0
-Tasman Sea	indo-pacific	2687	0	0	2687	0
-The Coastal Waters of Southeast Alaska and British Columbia	indo-pacific	428	0	0	428	0
-The Northwestern Passages	polar	86	0	0	86	0
-Timor Sea	indo-pacific	1583	0	0	1583	0
-Tongan part of the South Pacific Ocean	indo-pacific	915	0	0	915	0
-Tuvaluan part of the South Pacific Ocean	indo-pacific	366	0	0	366	0
-Tyrrhenian Sea	atlantic	401	0	0	401	0
-United States part of the Arctic Ocean (Alaska)	polar	65	0	0	65	0
-United States part of the North Atlantic Ocean	atlantic	1935	0	0	1935	0
-United States part of the North Atlantic Ocean (Puerto Rico)	atlantic	549	0	0	549	0
 United States part of the North Atlantic Ocean (United States Virgin Islands)	atlantic	10	0	0	10	0
-United States part of the North Pacific Ocean	indo-pacific	1043	0	0	1043	0
-United States part of the North Pacific Ocean (Alaska)	indo-pacific	372	0	0	372	0
-United States part of the North Pacific Ocean (Guam)	indo-pacific	548	0	0	548	0
-United States part of the North Pacific Ocean (Hawaii)	indo-pacific	1097	0	0	1097	0
-United States part of the North Pacific Ocean (Howland and Baker Islands)	indo-pacific	256	0	0	256	0
-United States part of the North Pacific Ocean (Jarvis Islands)	indo-pacific	14	0	0	14	0
-United States part of the North Pacific Ocean (Johnston Atoll)	indo-pacific	127	0	0	127	0
-United States part of the North Pacific Ocean (Northern Mariana Islands)	indo-pacific	421	0	0	421	0
-United States part of the North Pacific Ocean (Palmyra Atoll)	indo-pacific	341	0	0	341	0
-United States part of the South Pacific Ocean (American Samoa)	indo-pacific	622	0	0	622	0
-United States part of the South Pacific Ocean (Howland and Baker Islands)	indo-pacific	8	0	0	8	0
-United States part of the South Pacific Ocean (Jarvis Islands)	indo-pacific	244	0	0	244	0
-Uruguayan part of the South Atlantic Ocean	atlantic	297	0	0	297	0
-Vanuatuan part of the South Pacific Ocean	indo-pacific	145	0	0	145	0
-Venezuelan part of the North Atlantic Ocean	atlantic	169	0	0	169	0
-White Sea		34	0	0	34	0
-Yellow Sea	indo-pacific	400	0	0	400	0

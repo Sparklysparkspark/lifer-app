@@ -9,11 +9,146 @@
       "from": "Gallinula sanvicensis",
       "to": "Gallinula galeata",
       "reason": "This row is Common Gallinule (eBird comgal1, listed across the Americas) stored under a misspelling of the Hawaiian subspecies' name (sandvicensis)."
+    },
+    {
+      "from": "Pipra europaea",
+      "to": "Aegithalos caudatus",
+      "reason": "This row is Long-tailed Tit (eBird lottit1, listed in Europe and Asia) under an old name that GBIF's backbone kept; Aegithalos caudatus is eBird's name."
+    },
+    {
+      "from": "Agriornis andicola",
+      "to": "Agriornis albicauda",
+      "reason": "This row is White-tailed Shrike-Tyrant (eBird wtstyr1, listed in the Andes) under an old name that GBIF's backbone kept; Agriornis albicauda is eBird's name."
+    },
+    {
+      "from": "Psittacus moluccanus",
+      "to": "Trichoglossus moluccanus",
+      "reason": "This row is Rainbow Lorikeet (eBird railor5, listed in Australia, with introduced birds in New Zealand and Taiwan) under an old name that GBIF's backbone kept; Trichoglossus moluccanus is eBird's name."
+    },
+    {
+      "from": "Lophorina feminina",
+      "to": "Lophorina latipennis",
+      "reason": "This row is Greater Lophorina (eBird grsbop1, listed in New Guinea) under an old name that GBIF's backbone kept; Lophorina latipennis is eBird's name."
+    },
+    {
+      "from": "Procellaria munda",
+      "to": "Puffinus elegans",
+      "reason": "This row is Subantarctic Shearwater (eBird litshe4, listed in the southern oceans) under an old name that GBIF's backbone kept; Puffinus elegans is eBird's name."
+    },
+    {
+      "from": "Strix maugei",
+      "to": "Ninox fusca",
+      "reason": "This row is Timor Boobook (eBird souboo5, listed in Timor) under an old name that GBIF's backbone kept; Ninox fusca is eBird's name."
+    },
+    {
+      "from": "Icterus rufusater",
+      "to": "Philesturnus rufusater",
+      "reason": "This row is North Island Saddleback (eBird saddle2, listed in New Zealand) under an old name that GBIF's backbone kept; Philesturnus rufusater is eBird's name."
+    },
+    {
+      "from": "Coracias aurea",
+      "to": "Sericulus aureus",
+      "reason": "This row is Masked Bowerbird (eBird flabow3, listed in New Guinea) under an old name that GBIF's backbone kept; Sericulus aureus is eBird's name."
     }
   ],
   "merges": [
     "Urobatis sloani",
-    "Dasyatis hastata"
+    "Dasyatis hastata",
+    "Branta leucopis",
+    "Falco ichthyaetus",
+    "Aramides avicenniae",
+    "Babax woodi",
+    "Cossypha caffra",
+    "Babax lanceolatus",
+    "Ochotona pallasi",
+    "Pentholaea albifrons",
+    "Macronus bornensis",
+    "Erythropygia coryphoeus",
+    "Oenanthe heuglini",
+    "Microptilotis albonotatus",
+    "Macronus flavicollis",
+    "Meriones shawi",
+    "Hypoatherina harringtonensis",
+    "Spirontocaris lilljeborgii",
+    "Lonchura tristissima",
+    "Sugomel lombokius",
+    "Clytoceyx rex",
+    "Psitteuteles iris",
+    "Gerbilliscus afra",
+    "Knipowitschia croatica",
+    "Lorentzimys nouhuysi",
+    "Notropis albizonatus",
+    "Zaglossus bruijni",
+    "Eos semilarvata",
+    "Trochalopteron cachinnans",
+    "Trochalopteron fairbanki",
+    "Macronus kelleyi",
+    "Charmosyna margarethae",
+    "Acanthascus dawsoni",
+    "Coracina insperata",
+    "Tamias merriami",
+    "Notropis cahabae",
+    "Guyu wujalwujalensis",
+    "Galeopterus variegates",
+    "Scyliorhinus duhameli",
+    "Garrulax lugubris",
+    "Octodon bridgesi",
+    "Limia yaguajali",
+    "Anas platyrhyncha",
+    "Anthus spipoletta",
+    "Corvus macrorhynchus",
+    "Larus glaucodes",
+    "Pytelia melba",
+    "Curruca iberia",
+    "Buteogallus meriodionalis",
+    "Steno bredanensus",
+    "Trichoglossus haematopus",
+    "Xiphiorhynchus elegans",
+    "Chrysophlegma mentalis",
+    "Dentex macropthalmus",
+    "Coracopsis niger",
+    "Botaurus poeciloptilus",
+    "Candidiopotamon rathbunae",
+    "Ailuroedus melanotus",
+    "Glauconycteris poensts",
+    "Draco timorensis",
+    "Coluber schotti",
+    "Erythrura cyanovirens",
+    "Neophascogale lorentzi",
+    "Avahi cleeser",
+    "Sorex satunin",
+    "Idiurus zenker",
+    "Sciades sona",
+    "Thylogale browni",
+    "Hylobates albibarbs",
+    "Liopeltis rappi",
+    "Brycinus derhami",
+    "Engyprosopon natalensis",
+    "Hemimacronyx sharpei",
+    "Mesembriomys gould",
+    "Sarcophilus harris",
+    "Contia longicaudae",
+    "Eos histrio",
+    "Neoarius coatesi",
+    "Barilius canarensis",
+    "Neoarius velutinus",
+    "Somatogyrus rheophilus",
+    "Pholidoscelis maynardi",
+    "Steatomys bocage",
+    "Micrurus margaritifer",
+    "Sminthopsis gilbert",
+    "Myosorex jejer",
+    "Ptilonopus hernsheimi",
+    "Coracina nesiotis",
+    "Megophrys shimentaina",
+    "Analisoma analis",
+    "Eptesicus anatolicus",
+    "Crocidura phanluong",
+    "Cyrtopodion aravallense",
+    "Cryptotis aroensus",
+    "Balantiopteryx infosca",
+    "Nanorana arunachalensis",
+    "Columba norfolciensis"
   ],
   "wrongCommonNames": [
     {
@@ -32,6 +167,81 @@
       "scientificName": "Formicarius analis",
       "replacedBy": "Formicarius moniliger",
       "reason": "Black-faced Antthrush was split; the birds from south-east Mexico to Honduras are Mayan Antthrush. The old name stays where it has its own records."
+    },
+    {
+      "scientificName": "Trichoglossus haematodus",
+      "replacedBy": "Trichoglossus moluccanus",
+      "reason": "eBird split the old Rainbow Lorikeet and kept Trichoglossus haematodus for one part; the old name's records without research-grade photos, where Trichoglossus moluccanus (now Rainbow Lorikeet) is listed, are the broad old concept."
+    },
+    {
+      "scientificName": "Cistothorus platensis",
+      "replacedBy": "Cistothorus stellaris",
+      "reason": "eBird split the old Sedge Wren and kept Cistothorus platensis for one part; the old name's records without research-grade photos, where Cistothorus stellaris (now Sedge Wren) is listed, are the broad old concept."
+    },
+    {
+      "scientificName": "Mionectes olivaceus",
+      "replacedBy": "Mionectes galbinus",
+      "reason": "eBird split the old Olive-striped Flycatcher and kept Mionectes olivaceus for one part; the old name's records without research-grade photos, where Mionectes galbinus (now Olive-striped Flycatcher) is listed, are the broad old concept."
+    },
+    {
+      "scientificName": "Cisticola galactotes",
+      "replacedBy": "Cisticola marginatus",
+      "reason": "eBird split the old Winding Cisticola and kept Cisticola galactotes for one part; the old name's records without research-grade photos, where Cisticola marginatus (now Winding Cisticola) is listed, are the broad old concept."
+    },
+    {
+      "scientificName": "Meiglyptes tristis",
+      "replacedBy": "Meiglyptes grammithorax",
+      "reason": "eBird split the old Buff-rumped Woodpecker and kept Meiglyptes tristis for one part; the old name's records without research-grade photos, where Meiglyptes grammithorax (now Buff-rumped Woodpecker) is listed, are the broad old concept."
+    },
+    {
+      "scientificName": "Petroica multicolor",
+      "replacedBy": "Petroica pusilla",
+      "reason": "eBird split the old Pacific Robin and kept Petroica multicolor for one part; the old name's records without research-grade photos, where Petroica pusilla (now Pacific Robin) is listed, are the broad old concept."
+    },
+    {
+      "scientificName": "Petroica multicolor",
+      "replacedBy": "Petroica boodang",
+      "reason": "eBird split the old Scarlet Robin and kept Petroica multicolor for one part; the old name's records without research-grade photos, where Petroica boodang (now Scarlet Robin) is listed, are the broad old concept."
+    },
+    {
+      "scientificName": "Psilopogon duvaucelii",
+      "replacedBy": "Psilopogon cyanotis",
+      "reason": "eBird split the old Blue-eared Barbet and kept Psilopogon duvaucelii for one part; the old name's records without research-grade photos, where Psilopogon cyanotis (now Blue-eared Barbet) is listed, are the broad old concept."
+    },
+    {
+      "scientificName": "Alophoixus bres",
+      "replacedBy": "Alophoixus tephrogenys",
+      "reason": "eBird split the old Gray-cheeked Bulbul and kept Alophoixus bres for one part; the old name's records without research-grade photos, where Alophoixus tephrogenys (now Gray-cheeked Bulbul) is listed, are the broad old concept."
+    },
+    {
+      "scientificName": "Phylloscopus maforensis",
+      "replacedBy": "Phylloscopus poliocephalus",
+      "reason": "eBird split the old Island Leaf Warbler and kept Phylloscopus maforensis for one part; the old name's records without research-grade photos, where Phylloscopus poliocephalus (now Island Leaf Warbler) is listed, are the broad old concept."
+    },
+    {
+      "scientificName": "Oriolus cruentus",
+      "replacedBy": "Oriolus consanguineus",
+      "reason": "eBird split the old Black-and-crimson Oriole and kept Oriolus cruentus for one part; the old name's records without research-grade photos, where Oriolus consanguineus (now Black-and-crimson Oriole) is listed, are the broad old concept."
+    },
+    {
+      "scientificName": "Cyornis banyumas",
+      "replacedBy": "Cyornis whitei",
+      "reason": "eBird split the old Hill Blue Flycatcher and kept Cyornis banyumas for one part; the old name's records without research-grade photos, where Cyornis whitei (now Hill Blue Flycatcher) is listed, are the broad old concept."
+    },
+    {
+      "scientificName": "Chloropsis cochinchinensis",
+      "replacedBy": "Chloropsis moluccensis",
+      "reason": "eBird split the old Blue-winged Leafbird and kept Chloropsis cochinchinensis for one part; the old name's records without research-grade photos, where Chloropsis moluccensis (now Blue-winged Leafbird) is listed, are the broad old concept."
+    },
+    {
+      "scientificName": "Alethe diademata",
+      "replacedBy": "Alethe castanea",
+      "reason": "eBird split the old Fire-crested Alethe and kept Alethe diademata for one part; the old name's records without research-grade photos, where Alethe castanea (now Fire-crested Alethe) is listed, are the broad old concept."
+    },
+    {
+      "scientificName": "Dicaeum anthonyi",
+      "replacedBy": "Dicaeum kampalili",
+      "reason": "eBird split the old Flame-crowned Flowerpecker and kept Dicaeum anthonyi for one part; the old name's records without research-grade photos, where Dicaeum kampalili (now Flame-crowned Flowerpecker) is listed, are the broad old concept."
     }
   ],
   "rangeExclusions": [
@@ -42,40 +252,24 @@
         "Argentinian part of the South Atlantic Ocean",
         "Uruguayan part of the South Atlantic Ocean"
       ],
-      "keepCountries": [
-        "BRA",
-        "URY",
-        "ARG"
-      ],
+      "keepCountries": ["BRA", "URY", "ARG"],
       "reason": "Brazilian Electric Ray lives from Espirito Santo (Brazil) to Argentina. Records further north are Lesser Electric Ray (Narcine bancroftii), identified before the 1999 split."
     },
     {
       "scientificName": "Dasyatis pastinaca",
-      "dropZones": [
-        "Caribbean Sea",
-        "Gulf of Mexico"
-      ],
-      "dropCountries": [
-        "USA"
-      ],
+      "dropZones": ["Caribbean Sea", "Gulf of Mexico"],
+      "dropCountries": ["USA"],
       "reason": "Common Stingray is an eastern Atlantic and Mediterranean species; western Atlantic records are misapplied names."
     },
     {
       "scientificName": "Myliobatis aquila",
-      "dropZones": [
-        "Caribbean Sea"
-      ],
-      "dropCountries": [
-        "USA",
-        "CYM"
-      ],
+      "dropZones": ["Caribbean Sea"],
+      "dropCountries": ["USA", "CYM"],
       "reason": "Common Eagle Ray is an eastern Atlantic, Mediterranean and western Indian Ocean species; western Atlantic records are misapplied names."
     },
     {
       "scientificName": "Rhynchobatus pristinus",
-      "dropZones": [
-        "Caribbean Sea"
-      ],
+      "dropZones": ["Caribbean Sea"],
       "reason": "An eastern Atlantic wedgefish; no Rhynchobatus lives in the western Atlantic."
     },
     {
@@ -86,100 +280,72 @@
     },
     {
       "scientificName": "Kyphosus lutescens",
-      "keepBasins": [
-        "indo-pacific"
-      ],
+      "keepBasins": ["indo-pacific"],
       "reason": "An eastern Pacific sea chub; its Atlantic listings come from records iNaturalist files under Bermuda Chub."
     },
     {
       "scientificName": "Kyphosus pacificus",
-      "keepBasins": [
-        "indo-pacific"
-      ],
+      "keepBasins": ["indo-pacific"],
       "reason": "A Pacific sea chub; its Atlantic listings come from records iNaturalist files under Bermuda Chub."
     },
     {
       "scientificName": "Carcharhinus melanopterus",
-      "keepBasins": [
-        "indo-pacific"
-      ],
+      "keepBasins": ["indo-pacific"],
       "reason": "Blacktip Reef Shark is an Indo-Pacific reef shark; Atlantic records (Faroes, Caribbean) are aquarium animals or data errors."
     },
     {
       "scientificName": "Carcharhinus amblyrhynchos",
-      "keepBasins": [
-        "indo-pacific"
-      ],
+      "keepBasins": ["indo-pacific"],
       "reason": "Grey Reef Shark is an Indo-Pacific reef shark; Atlantic records (Faroes) are aquarium animals or data errors."
     },
     {
       "scientificName": "Gonichthys tenuiculus",
-      "keepBasins": [
-        "indo-pacific"
-      ],
+      "keepBasins": ["indo-pacific"],
       "reason": "Slendertail Lanternfish is an eastern Pacific species (California to Chile); the Atlantic lanternfish of this genus is Cocco's Lanternfish."
     },
     {
       "scientificName": "Hygophum atratum",
-      "keepBasins": [
-        "indo-pacific"
-      ],
+      "keepBasins": ["indo-pacific"],
       "reason": "Thickhead Lanternfish lives in the eastern Pacific; nearly all its records are off Mexico and in the Gulf of California."
     },
     {
       "scientificName": "Bathophilus filifer",
-      "keepBasins": [
-        "indo-pacific"
-      ],
+      "keepBasins": ["indo-pacific"],
       "reason": "An eastern Pacific dragonfish (Mexico to Peru); the Atlantic has its own Bathophilus species."
     },
     {
       "scientificName": "Myctophum aurolaternatum",
-      "keepBasins": [
-        "indo-pacific"
-      ],
+      "keepBasins": ["indo-pacific"],
       "reason": "Golden Lanternfish is an Indo-Pacific species; its records run from the eastern Pacific to the western Indian Ocean."
     },
     {
       "scientificName": "Nezumia stelgidolepis",
-      "keepBasins": [
-        "indo-pacific"
-      ],
+      "keepBasins": ["indo-pacific"],
       "reason": "California Grenadier lives along the Pacific coast of the Americas."
     },
     {
       "scientificName": "Talismania bifurcata",
-      "keepBasins": [
-        "indo-pacific"
-      ],
+      "keepBasins": ["indo-pacific"],
       "reason": "Threadfin Slickhead is a north-east Pacific species (Gulf of Alaska to the Gulf of California)."
     },
     {
       "scientificName": "Galeus piperatus",
-      "keepBasins": [
-        "indo-pacific"
-      ],
+      "keepBasins": ["indo-pacific"],
       "reason": "Peppered Catshark is endemic to the Gulf of California and nearby Pacific waters."
     },
     {
       "scientificName": "Gigantactis paxtoni",
-      "keepBasins": [
-        "indo-pacific"
-      ],
+      "keepBasins": ["indo-pacific"],
       "reason": "Paxton's Whipnose is known from the south-west Pacific (Australia and New Zealand)."
     },
     {
       "scientificName": "Chascanopsetta crumenalis",
-      "keepBasins": [
-        "indo-pacific"
-      ],
+      "keepBasins": ["indo-pacific"],
       "reason": "A Pacific flounder known mostly from Hawaii; the Atlantic species of the genus is Pelican Flounder."
     },
     {
       "scientificName": "Etmopterus schultzi",
-      "keepBasins": [
-        "atlantic"
-      ],
+      "keepBasins": ["atlantic"],
       "reason": "Fringefin Lanternshark lives in the Gulf of Mexico and the Caribbean; its one Pacific record is across the Panama isthmus."
     }
   ],
@@ -285,10 +451,7 @@
   ],
   "seaLinks": [
     {
-      "zones": [
-        "Gulf of Suez",
-        "Mediterranean Sea - Eastern Basin"
-      ],
+      "zones": ["Gulf of Suez", "Mediterranean Sea - Eastern Basin"],
       "reason": "The Suez Canal joins them: Red Sea fish are established in the eastern Mediterranean (Lessepsian migrants)."
     }
   ],

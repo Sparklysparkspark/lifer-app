@@ -37,8 +37,26 @@ describe.skipIf(!url)("places and aliases stored on regions", () => {
     const nl = await insert("Netherlands", europe, "NLD");
     const utrecht = await insert("Utrecht", nl);
     const places: Place[] = [
-      { name: "Amsterdam", capital: true, population: 900, iso3: "NLD", iso2: "NL", adm1Name: null, point: [0, 0] },
-      { name: "Utrecht", capital: false, population: 350, iso3: "NLD", iso2: "NL", adm1Name: "Utrecht", point: [0, 0] },
+      {
+        name: "Amsterdam",
+        capital: true,
+        national: true,
+        population: 900,
+        iso3: "NLD",
+        iso2: "NL",
+        adm1Name: null,
+        point: [0, 0],
+      },
+      {
+        name: "Utrecht",
+        capital: false,
+        national: false,
+        population: 350,
+        iso3: "NLD",
+        iso2: "NL",
+        adm1Name: "Utrecht",
+        point: [0, 0],
+      },
     ];
     const first = await applyPlaces(client, places);
     expect(first.changed).toBeGreaterThan(0);

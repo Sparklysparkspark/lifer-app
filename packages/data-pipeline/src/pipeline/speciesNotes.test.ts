@@ -60,6 +60,22 @@ describe("toStoredNotes", () => {
   it("returns null when nothing usable is left", () => {
     expect(toStoredNotes({ sections: [], title: "Human", revid: 1 })).toBeNull();
   });
+
+  it("keeps another source's own credit and licence, and refuses a partial one", () => {
+    const own = {
+      credit: "FishBase",
+      source_url: "https://www.fishbase.se/summary/Gadus-morhua.html",
+      licence: "CC BY-NC 4.0",
+      licence_url: "https://creativecommons.org/licenses/by-nc/4.0/",
+    };
+    const sections = [{ heading: "Summary", bullets: [{ text: "Large cod." }] }];
+    expect(toStoredNotes({ sections, title: null, revid: null, ...own })).toEqual({
+      sections: [{ heading: "Summary", bullets: ["Large cod."] }],
+      revision_id: null,
+      ...own,
+    });
+    expect(() => toStoredNotes({ sections, title: null, revid: null, credit: "FishBase" })).toThrow(/licence/);
+  });
 });
 
 describe("articleUrlFromTitle", () => {

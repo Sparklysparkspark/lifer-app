@@ -99,6 +99,23 @@ describe.skipIf(!url)("compute-local-tiers with regional groups", () => {
     // Every row of the country, the group and the provinces is rated exactly once.
     expect(tiers).toHaveLength(6 + 6 + 6 + 2 + 5);
   });
+
+  it("sums a rebuilt group's and country's record inputs again from the provinces", async () => {
+    const { loadCountries, sumAreaRecordInputs } = await import("./compute-local-tiers.js");
+    await db.query(
+      `UPDATE region_species SET live_recent_records = NULL, recent_distinct_years = NULL WHERE region_id = ANY($1)`,
+      [[GROUP, COUNTRY]],
+    );
+    const [country] = await loadCountries([COUNTRY_NAME]);
+    await sumAreaRecordInputs(country);
+    const rows = await db.query<{ region_id: string; live_recent_records: number; recent_distinct_years: number }>(
+      `SELECT region_id, live_recent_records, recent_distinct_years FROM region_species WHERE region_id = ANY($1) AND species_id = $2`,
+      [[GROUP, COUNTRY], BIRDS[0]],
+    );
+    const byRegion = new Map(rows.rows.map((r) => [r.region_id, r]));
+    expect(byRegion.get(GROUP)).toMatchObject({ live_recent_records: 5002, recent_distinct_years: 10 });
+    expect(byRegion.get(COUNTRY)).toMatchObject({ live_recent_records: 9002, recent_distinct_years: 10 });
+  });
 });
 
 // A second country: a group of thinly birded provinces, and photo-rated mammals in provinces with

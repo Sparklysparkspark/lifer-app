@@ -5,8 +5,8 @@
 // A listing is judged only when ALL of these hold:
 //   - its evidence is eBird only (region_species.evidence_source = 'ebird');
 //   - GBIF records and iNaturalist research-grade photos there together are under EBIRD_ONLY_MAX_RECORDS;
-//   - no open list (data/reference/open-region-lists.json: {species, region, country, source}) names
-//     the species there;
+//   - an open list (data/reference/open-region-lists.json: {species, region, country, source})
+//     covers the region and doesn't name the species there;
 //   - it isn't a taxonomy mismatch whose accepted species the province lists on other evidence
 //     (data/reference/ebird-taxon-map.json): those are the same bird under eBird's finer split, so
 //     the listing is dropped as a duplicate rather than as unsupported.
@@ -88,6 +88,8 @@ export async function checkEbirdOnly(apply: boolean): Promise<Array<EbirdOnlyLis
        WHERE rs.evidence_source = 'ebird' AND s.taxon_class = 'aves'`,
       [taxonMap.map((m) => m.ebird), taxonMap.map((m) => m.accepted)],
     );
+    // A list only speaks for the regions it covers; elsewhere its silence says nothing.
+    const covered = new Set([...open].map((k) => k.split("|")[0]));
     const keep = await knownFeral(client);
     const judged = rows.rows
       .map((r) => {
@@ -99,7 +101,8 @@ export async function checkEbirdOnly(apply: boolean): Promise<Array<EbirdOnlyLis
           country: r.country,
           records: Number(r.records),
         };
-        return { ...l, verdict: judgeEbirdOnly(l, open.has(`${r.region_id}|${r.species_id}`), r.accepted_listed) };
+        const openListed = !covered.has(r.region_id) || open.has(`${r.region_id}|${r.species_id}`);
+        return { ...l, verdict: judgeEbirdOnly(l, openListed, r.accepted_listed) };
       })
       .filter((l) => l.verdict !== "keep" && !keep.has(`${l.regionId}|${l.speciesId}`));
     await deleteListings(

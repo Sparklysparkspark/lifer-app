@@ -4,9 +4,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PoolClient } from "pg";
 import { pool } from "../db.js";
+import type { EbirdRow } from "./add-missing-species.js";
 import {
   additionsPass,
+  birdNamesPass,
   classesPass,
+  extinctPass,
   flagsPass,
   namesPass,
   rangesPass,
@@ -252,5 +255,55 @@ describe("fix-catalog-audit list passes", () => {
     const again: Decision[] = [];
     await residentMammalsPass(client, again);
     expect(again.filter((d) => d.speciesId === ids["Testfixus batus"])).toEqual([]);
+  });
+});
+
+describe("bird-names and extinct passes", () => {
+  it("names a bird from its eBird code and hides only unlisted dead taxa, once", async () => {
+    await addSpecies("Testavis vivus", { taxon_class: "aves", ebird_code: "tstviv1" });
+    await addSpecies("Testavis fossilis", { taxon_class: "aves" });
+    await addSpecies("Testavis listedus", { taxon_class: "aves" });
+    await addSpecies("Testavis extinctus", { taxon_class: "aves", common_name: "Lost Testbird" });
+    const names = ["Testavis vivus", "Testavis fossilis", "Testavis listedus", "Testavis extinctus"];
+    for (const n of names)
+      await client.query(`INSERT INTO species_traits (species_id, source_attribution) VALUES ($1, 'test')`, [ids[n]]);
+    await list("a", "Testavis listedus");
+    const row = (sci: string, common: string, code: string, extinct: boolean): EbirdRow => ({
+      sci,
+      common,
+      code,
+      category: "species",
+      family: "",
+      order: "",
+      extinct,
+      reportAs: "",
+    });
+    const ebird = [
+      row("Testavis vivus", "Gray-headed Testbird", "tstviv1", false),
+      row("Testavis extinctus", "Lost Testbird", "tstext1", true),
+    ];
+    const ev = {
+      ebirdByName: new Map(ebird.map((r) => [r.sci, r])),
+      ebirdByCode: new Map(ebird.map((r) => [r.code, r])),
+      profile: () => null,
+      recent: () => null,
+    };
+
+    const out: Decision[] = [];
+    await birdNamesPass(client, out, ebird);
+    await extinctPass(client, out, ev);
+    const named = await client.query(`SELECT common_name FROM species WHERE id = $1`, [ids["Testavis vivus"]]);
+    expect(named.rows[0].common_name).toBe("Gray-Headed Testbird");
+    const flagged = await client.query<{ scientific_name: string }>(
+      `SELECT s.scientific_name FROM species s JOIN species_traits t ON t.species_id = s.id
+       WHERE t.fully_extinct AND s.id = ANY($1) ORDER BY 1`,
+      [names.map((n) => ids[n])],
+    );
+    expect(flagged.rows.map((r) => r.scientific_name)).toEqual(["Testavis extinctus", "Testavis fossilis"]);
+
+    const again: Decision[] = [];
+    await birdNamesPass(client, again, ebird);
+    await extinctPass(client, again, ev);
+    expect(again.filter((d) => names.includes(d.name))).toEqual([]);
   });
 });

@@ -9,11 +9,17 @@
 //                    transaction, Postgres takes minutes over this bulk update instead of a second)
 //   names            merges the fixes file names (rows of species-merges.tsv), renames, wrong
 //                    common names, then species-corrections.json
-//   ranges           range exclusions, and old names a split replaced where the new one is listed
+//   bird-names       birds with no English name get eBird's for their eBird code
+//   extinct          species on no list and in no one's photos that eBird calls extinct, that the
+//                    cached GBIF profiles call fossil (check-fossil-status.ts's rule, offline), or
+//                    birds eBird's taxonomy doesn't know that have no English name (fossils and
+//                    retired names) are flagged fully_extinct: kept, but off lists, Collection and
+//                    search
+//   ranges          range exclusions, and old names a split replaced where the new one is listed
 //   additions        species an open regional list names that no built list has (evidence "list")
 //   unlisted-birds   bird listings with a handful of records that the region's cached eBird list
 //                    (every species ever reported there, vagrants and escapes included) lacks,
-//                    where that list is near complete
+//                    where that list is near complete, unless iNaturalist confirms it there
 //   flags            vagrant and introduced overrides (region_species_manual_overrides)
 //   resident-mammals native bats and rodents flagged vagrant from record counts alone, where the
 //                    species lives within NEIGHBOUR_KM
@@ -39,6 +45,10 @@ import { applySpeciesCorrections, loadSpeciesCorrections } from "../pipeline/spe
 import { DEFAULT_LIST as MERGES_TSV, mergeListedSpecies, readList } from "./merge-duplicate-species.js";
 import { NEIGHBOUR_KM, referenceListings } from "./remove-escapes.js";
 import { requirePostgis } from "../pipeline/requirePostgis.js";
+import { inatConfirmedListings } from "./apply-inat-membership.js";
+import { toTitleCase } from "../fetch/fetch-gbif-vernacular.js";
+import { loadEbird, type EbirdRow } from "./add-missing-species.js";
+import { CACHE_DIR as GBIF_PROFILES_DIR, RECENT_OBS_CACHE_DIR, TAXONOMIC_SOURCES } from "./check-fossil-status.js";
 
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "data");
 export const FIXES_FILE = path.join(DATA_DIR, "reference", "catalog-audit-fixes.json");
@@ -64,6 +74,8 @@ const RESIDENT_ORDERS = ["Chiroptera", "Rodentia"];
 export const PASSES = [
   "inat-ids",
   "names",
+  "bird-names",
+  "extinct",
   "ranges",
   "additions",
   "unlisted-birds",
@@ -266,6 +278,125 @@ export async function namesPass(client: PoolClient, fixes: Fixes, out: Decision[
         reason: c.reason,
       });
   }
+}
+
+export async function birdNamesPass(client: PoolClient, out: Decision[], ebird: EbirdRow[]) {
+  const named = new Map(ebird.filter((r) => r.category === "species" && r.common).map((r) => [r.code, r.common]));
+  const res = await client.query<{ id: string; scientific_name: string; ebird_code: string }>(
+    `SELECT id, scientific_name, ebird_code FROM species
+     WHERE taxon_class = 'aves' AND COALESCE(common_name, '') = '' AND ebird_code IS NOT NULL AND NOT is_other_taxa`,
+  );
+  const picked = res.rows.filter((r) => named.has(r.ebird_code));
+  const names = picked.map((r) => toTitleCase(named.get(r.ebird_code)!));
+  await client.query(
+    `UPDATE species s SET common_name = v.name FROM unnest($1::uuid[], $2::text[]) AS v(id, name) WHERE s.id = v.id`,
+    [picked.map((r) => r.id), names],
+  );
+  picked.forEach((r, i) =>
+    out.push({
+      pass: "bird-names",
+      action: "common-name",
+      speciesId: r.id,
+      name: r.scientific_name,
+      where: "",
+      detail: `(none) to ${names[i]}`,
+      reason: `eBird's name for ${r.ebird_code}`,
+    }),
+  );
+}
+
+export interface ExtinctEvidence {
+  ebirdByName: Map<string, EbirdRow>;
+  /** Also by code: an old name eBird has moved (Porzana palmeri) still carries the code. */
+  ebirdByCode: Map<string, EbirdRow>;
+  /** Cached GBIF species profile votes, null when not cached. */
+  profile: (gbifKey: string) => { extinct: string[]; extant: string[] } | null;
+  /** Cached GBIF observations since 1990, null when not cached. */
+  recent: (gbifKey: string) => number | null;
+}
+
+/** Why a species on no list and in no one's photos is not a living species, or null. */
+export function extinctReason(
+  s: {
+    scientific_name: string;
+    taxon_class: string;
+    common_name: string | null;
+    ebird_code: string | null;
+    gbif_key: string;
+  },
+  ev: ExtinctEvidence,
+): string | null {
+  const eb = ev.ebirdByName.get(s.scientific_name) ?? (s.ebird_code ? ev.ebirdByCode.get(s.ebird_code) : undefined);
+  if (eb?.extinct) return "eBird's taxonomy marks it extinct";
+  const votes = ev.profile(s.gbif_key);
+  if (
+    votes &&
+    votes.extant.length === 0 &&
+    votes.extinct.some((src) => TAXONOMIC_SOURCES.has(src)) &&
+    ev.recent(s.gbif_key) === 0
+  )
+    return `extinct per ${votes.extinct.join(", ")}, no observation since 1990 (cached GBIF profile)`;
+  // eBird lists every living bird species, so a nameless bird it doesn't know is a fossil or a retired name.
+  if (s.taxon_class === "aves" && !s.common_name && !s.ebird_code && !eb)
+    return "a bird eBird's taxonomy doesn't know, with no English name: a fossil or a retired name";
+  return null;
+}
+
+/** check-fossil-status.ts's cached GBIF answers, read without fetching. */
+export function cachedGbifEvidence(): Pick<ExtinctEvidence, "profile" | "recent"> {
+  const read = (dir: string, key: string) => {
+    const file = path.join(dir, `${key}.json`);
+    return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
+  };
+  return {
+    profile: (key) => {
+      const data = read(GBIF_PROFILES_DIR, key) as { results?: Array<{ extinct?: boolean; source?: string }> } | null;
+      if (!data) return null;
+      const flagged = (data.results ?? []).filter((r) => typeof r.extinct === "boolean");
+      return {
+        extinct: [...new Set(flagged.filter((r) => r.extinct).map((r) => r.source ?? "unknown source"))],
+        extant: [...new Set(flagged.filter((r) => !r.extinct).map((r) => r.source ?? "unknown source"))],
+      };
+    },
+    recent: (key) => (read(RECENT_OBS_CACHE_DIR, key) as { count?: number } | null)?.count ?? null,
+  };
+}
+
+export async function extinctPass(client: PoolClient, out: Decision[], ev: ExtinctEvidence) {
+  // Never a species someone has listed, photographed or marked: those need a person to look.
+  const res = await client.query<{
+    id: string;
+    scientific_name: string;
+    taxon_class: string;
+    common_name: string | null;
+    ebird_code: string | null;
+    gbif_key: string;
+  }>(
+    `SELECT s.id, s.scientific_name, s.taxon_class, NULLIF(s.common_name, '') AS common_name, s.ebird_code, s.gbif_key::text
+     FROM species s JOIN species_traits t ON t.species_id = s.id
+     WHERE NOT t.fully_extinct AND NOT s.is_other_taxa
+       AND NOT EXISTS (SELECT 1 FROM region_species rs WHERE rs.species_id = s.id)
+       AND NOT EXISTS (SELECT 1 FROM sea_zone_species x WHERE x.species_id = s.id)
+       AND NOT EXISTS (SELECT 1 FROM captures_all c WHERE c.species_id = s.id)
+       AND NOT EXISTS (SELECT 1 FROM user_species u WHERE u.species_id = s.id)`,
+  );
+  const flagged = res.rows.flatMap((s) => {
+    const reason = extinctReason(s, ev);
+    return reason ? [{ s, reason }] : [];
+  });
+  await client.query(`UPDATE species_traits SET fully_extinct = true WHERE species_id = ANY($1)`, [
+    flagged.map((f) => f.s.id),
+  ]);
+  for (const { s, reason } of flagged)
+    out.push({
+      pass: "extinct",
+      action: "fully-extinct",
+      speciesId: s.id,
+      name: s.scientific_name,
+      where: "",
+      detail: s.common_name ?? "(no name)",
+      reason,
+    });
 }
 
 async function deleteRegionRows(
@@ -709,7 +840,7 @@ export async function classesPass(client: PoolClient, out: Decision[]) {
   }
 }
 
-interface ZoneBasins {
+export interface ZoneBasins {
   zones: Array<{ id: string; name: string }>;
   basins: Array<Basin | undefined>;
   neighbours: Map<number, Set<number>>;
@@ -718,7 +849,7 @@ interface ZoneBasins {
 
 /** Each zone's basin and neighbours from the cached zone outlines, as the sea zone builder reads
  *  them; also kept in a temp table for the SQL that needs them. */
-async function loadZoneBasins(client: PoolClient, fixes: Fixes): Promise<ZoneBasins> {
+export async function loadZoneBasins(client: PoolClient, fixes: Fixes): Promise<ZoneBasins> {
   const res = await client.query<{ id: string; name: string; minLat: number; maxLat: number }>(
     `SELECT id, name, bbox_min_lat AS "minLat", bbox_max_lat AS "maxLat" FROM sea_zones ORDER BY name`,
   );
@@ -891,6 +1022,7 @@ async function main() {
   // Files are read before the transaction, so it stays short.
   const ebird = passes.includes("unlisted-birds") ? loadEbirdLists() : null;
   const inatIds = passes.includes("inat-ids") ? await loadInatSpeciesIds() : null;
+  const ebirdTaxonomy = passes.includes("bird-names") || passes.includes("extinct") ? loadEbird() : [];
   // Listings known feral or reintroduced populations keep, "region_id|species_id".
   const keepListed = new Set(
     ebird
@@ -913,10 +1045,26 @@ async function main() {
     for (const pass of passes) {
       const n = out.length;
       if (pass === "names") await namesPass(client, fixes, out);
+      if (pass === "bird-names") await birdNamesPass(client, out, ebirdTaxonomy);
+      if (pass === "extinct") {
+        const species = ebirdTaxonomy.filter((r) => r.category === "species");
+        await extinctPass(client, out, {
+          ebirdByName: new Map(species.map((r) => [r.sci, r])),
+          ebirdByCode: new Map(species.map((r) => [r.code, r])),
+          ...cachedGbifEvidence(),
+        });
+      }
       if (pass === "ranges") await rangesPass(client, fixes, out, ensureBasins);
       if (pass === "additions") await additionsPass(client, fixes, out);
       if (pass === "unlisted-birds") {
-        if (ebird) await unlistedBirdsPass(client, out, ebird, keepListed);
+        // iNaturalist decides membership: eBird's absence never removes a bird it confirms there.
+        if (ebird)
+          await unlistedBirdsPass(
+            client,
+            out,
+            ebird,
+            new Set([...keepListed, ...(await inatConfirmedListings(client))]),
+          );
         else console.warn(`[fix-catalog-audit] unlisted-birds: no eBird list cache, skipped`);
       }
       if (pass === "flags") await flagsPass(client, fixes, out);

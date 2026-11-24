@@ -15,6 +15,8 @@ export interface Place {
   name: string;
   /** An Admin-0 or Admin-1 capital. */
   capital: boolean;
+  /** An Admin-0 capital (a territory's own capital included). */
+  national: boolean;
   population: number;
   iso3: string | null;
   iso2: string | null;
@@ -53,6 +55,12 @@ export function isCountryRow(
   return !r.homeCountryId && !!world && world.parentId === null;
 }
 
+/** Countries whose example city is chosen by hand (data/reference/example-city-overrides.json). */
+export function loadCityOverrides(): Record<string, string> {
+  const file = new URL("../../data/reference/example-city-overrides.json", import.meta.url);
+  return JSON.parse(readFileSync(file, "utf-8")) as Record<string, string>;
+}
+
 export async function loadPopulatedPlaces(): Promise<Place[]> {
   const file = await fetchCached("natural-earth", "ne_10m_populated_places_simple.geojson", PLACES_URL);
   const data = JSON.parse(readFileSync(file, "utf-8")) as {
@@ -61,12 +69,14 @@ export async function loadPopulatedPlaces(): Promise<Place[]> {
   const text = (v: unknown) => (typeof v === "string" && v && v !== "-99" ? v : null);
   return data.features.flatMap((f) => {
     const p = f.properties;
-    const name = text(p.name);
+    // Natural Earth has a few doubled spaces ("Washington,  D.C.").
+    const name = text(p.name)?.replace(/\s+/g, " ");
     if (!name) return [];
     return [
       {
         name,
         capital: /capital/i.test(String(p.featurecla ?? "")),
+        national: /^admin-0.*capital/i.test(String(p.featurecla ?? "")),
         population: Number(p.pop_max) || 0,
         iso3: text(p.adm0_a3),
         iso2: text(p.iso_a2),
@@ -76,6 +86,21 @@ export async function loadPopulatedPlaces(): Promise<Place[]> {
     ];
   });
 }
+
+// Natural Earth codes where the catalog's country code differs (first) or also holds the land
+// Natural Earth lists apart (Somaliland, Northern Cyprus, Svalbard, Tokelau).
+const NE_CODES: Record<string, string[]> = {
+  SDS: ["SSD"],
+  "AQ-X01~": ["ATA"],
+  SOM: ["SOM", "SOL"],
+  CYP: ["CYP", "CYN"],
+  NOR: ["NOR", "SJM"],
+  NZL: ["NZL", "TKL"],
+};
+const neCodes = (code: string | null | undefined) => {
+  const c = code?.toUpperCase();
+  return c ? (NE_CODES[c] ?? [c]) : [];
+};
 
 const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
@@ -87,15 +112,20 @@ const better = (a: Pick1 | null, b: Place): Pick1 =>
 
 /** Each region's example city and each region's most populous direct child. A region with a
  *  boundary takes the places inside it, else the places whose province name matches; a group of
- *  provinces takes its members' best city. */
-export function assignPlaces(regions: RegionRow[], places: Place[]): Map<string, PlaceAssignment> {
+ *  provinces takes its members' best city; a region with none takes its country's city. */
+export function assignPlaces(
+  regions: RegionRow[],
+  places: Place[],
+  /** ISO3 code to the city a country shows when Natural Earth's capital choice reads wrong. */
+  overrides: Record<string, string> = {},
+): Map<string, PlaceAssignment> {
   const byId = new Map(regions.map((r) => [r.id, r]));
   const kids = new Map<string, RegionRow[]>();
   for (const r of regions) if (r.parentId) kids.set(r.parentId, [...(kids.get(r.parentId) ?? []), r]);
   const isCountry = (r: RegionRow) => isCountryRow(byId, r);
   const placesOf = (country: RegionRow) => {
-    const code = country.code?.toUpperCase();
-    return code ? places.filter((p) => p.iso3 === code || p.iso2 === code) : [];
+    const codes = neCodes(country.code);
+    return places.filter((p) => codes.includes(p.iso3 ?? "") || codes.includes(p.iso2 ?? ""));
   };
 
   const best = new Map<string, Pick1 | null>();
@@ -137,16 +167,18 @@ export function assignPlaces(regions: RegionRow[], places: Place[]): Map<string,
     const members = regions.filter((r) => r.homeCountryId === country.id);
     const own = kids.get(country.id) ?? [];
     for (const k of [...own, ...members]) visit(k, pool);
-    const countryCapital = pool.filter((p) => p.capital && p.iso3 === country.code?.toUpperCase());
+    const home = pool.filter((p) => p.iso3 === neCodes(country.code)[0]);
+    const capitals = home.filter((p) => p.national);
     let city: Pick1 | null = null;
-    for (const p of countryCapital.length ? countryCapital : pool) city = better(city, p);
-    out.set(country.id, { exampleCity: city?.city ?? null, populousChildId: populousOf(own, pop) });
-    for (const r of [...own, ...members]) collect(r);
+    for (const p of capitals.length ? capitals : home.length ? home : pool) city = better(city, p);
+    const fallback = overrides[neCodes(country.code)[0] ?? ""] ?? city?.city ?? null;
+    out.set(country.id, { exampleCity: fallback, populousChildId: populousOf(own, pop) });
+    for (const r of [...own, ...members]) collect(r, fallback);
   }
-  function collect(r: RegionRow): void {
+  function collect(r: RegionRow, fallback: string | null): void {
     const own = kids.get(r.id) ?? [];
-    out.set(r.id, { exampleCity: best.get(r.id)?.city ?? null, populousChildId: populousOf(own, pop) });
-    own.forEach(collect);
+    out.set(r.id, { exampleCity: best.get(r.id)?.city ?? fallback, populousChildId: populousOf(own, pop) });
+    for (const k of own) collect(k, fallback);
   }
   return out;
 }
@@ -179,7 +211,8 @@ export async function applyPlaces(db: Db, places: Place[]): Promise<PlacesResult
       populous_child_id: string | null;
     }>(
       `SELECT id, name, parent_id, home_country_id, external_codes[1] AS code, boundary_geojson, example_city, populous_child_id
-       FROM regions WHERE external_codes[1] IS DISTINCT FROM 'USG'`,
+       FROM regions WHERE external_codes[1] IS DISTINCT FROM 'USG'
+       ORDER BY id`, // a stable order settles ties between equally populous children
     )
   ).rows;
   const assigned = assignPlaces(
@@ -192,6 +225,7 @@ export async function applyPlaces(db: Db, places: Place[]): Promise<PlacesResult
       boundary: r.boundary_geojson,
     })),
     places,
+    loadCityOverrides(),
   );
   const byId = new Map(rows.map((r) => [r.id, r]));
   const lookup = new Map(rows.map((r) => [r.id, { parentId: r.parent_id, homeCountryId: r.home_country_id }]));

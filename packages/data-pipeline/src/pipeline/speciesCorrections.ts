@@ -30,6 +30,8 @@ export interface SpeciesCorrection {
   iucnStatus?: IucnCode | null;
   iucnNote?: string | null;
   extinct?: boolean;
+  /** null unlinks an eBird code that names another taxon (a split's extinct half). */
+  ebirdCode?: string | null;
   /** The country (Natural Earth iso3) the species is endemic to, or null for none. Applied by the
    *  endemic stage, for a species its records can't settle (a long-established introduced
    *  population no register lists). */
@@ -51,6 +53,8 @@ export function parseSpeciesCorrections(json: unknown): SpeciesCorrection[] {
     if ("iucnNote" in e && e.iucnNote !== null && typeof e.iucnNote !== "string")
       throw new Error(`${at}: iucnNote must be a string or null`);
     if ("extinct" in e && typeof e.extinct !== "boolean") throw new Error(`${at}: extinct must be true or false`);
+    if ("ebirdCode" in e && e.ebirdCode !== null && (typeof e.ebirdCode !== "string" || !e.ebirdCode))
+      throw new Error(`${at}: ebirdCode must be a non-empty string or null`);
     if ("endemicCountry" in e && e.endemicCountry !== null && !/^[A-Z]{3}$/.test(String(e.endemicCountry)))
       throw new Error(`${at}: endemicCountry must be a three-letter country code or null`);
     return e as unknown as SpeciesCorrection;
@@ -87,6 +91,8 @@ export async function applySpeciesCorrections(db: Db, corrections: SpeciesCorrec
         [id, c.commonName],
       );
     }
+    if (c.ebirdCode !== undefined)
+      await db.query(`UPDATE species SET ebird_code = $2 WHERE id = $1`, [id, c.ebirdCode]);
     if (c.iucnStatus !== undefined || c.iucnNote !== undefined || c.extinct !== undefined) {
       await db.query(
         `UPDATE species_traits SET

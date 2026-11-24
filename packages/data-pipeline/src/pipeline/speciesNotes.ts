@@ -8,6 +8,8 @@
 // Input: a JSON file of {species id: {"sections": [{"heading", "bullets": [{"text", "sources"}]}],
 // "title": article title, "revid": article revision}}. The citations stay with the offline run;
 // the app stores the headings and bullet text, the article URL for the credit link, and the revision.
+// A row written from another source (the filler pass: FishBase, the Reptile Database) carries its own
+// credit, source_url, licence and licence_url instead of a Wikipedia title.
 import type { Pool, PoolClient } from "pg";
 
 export type NotesColumn = "habitat_notes" | "identification_notes" | "summary_notes";
@@ -16,6 +18,10 @@ export interface NotesInput {
   sections: { heading: string; bullets: { text: string; sources?: number[] }[] }[];
   title: string | null;
   revid: number | null;
+  credit?: string;
+  source_url?: string;
+  licence?: string;
+  licence_url?: string;
 }
 
 /** Notes are adaptations of Wikipedia text, shared under CC BY-SA 4.0, so each carries this credit. */
@@ -26,6 +32,8 @@ export interface StoredNotes {
   credit: string;
   source_url: string | null;
   revision_id: number | null;
+  licence?: string;
+  licence_url?: string;
 }
 
 /** At most this many bullets a species; the offline build trims to it, this only guards the load. */
@@ -55,6 +63,15 @@ export function toStoredNotes(input: NotesInput, maxBullets = MAX_BULLETS): Stor
     if (bullets.length) sections.push({ heading, bullets });
   }
   if (!sections.length) return null;
+  // Another source must name itself, its page and its licence; otherwise it is Wikipedia's text.
+  if (input.credit || input.source_url) {
+    if (!input.credit || !input.source_url || !input.licence || !input.licence_url)
+      throw new Error(
+        `notes from "${input.credit ?? input.source_url}" need credit, source_url, licence and licence_url`,
+      );
+    const { credit, source_url, licence, licence_url } = input;
+    return { sections, credit, source_url, revision_id: null, licence, licence_url };
+  }
   return {
     sections,
     credit: NOTES_CREDIT,

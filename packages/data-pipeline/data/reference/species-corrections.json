@@ -87,5 +87,141 @@
     "scientificName": "Gallinula galeata",
     "reason": "The row had no common name while stored under its misspelt subspecies name.",
     "commonName": "Common Gallinule"
+  },
+  {
+    "scientificName": "Mionectes olivaceus",
+    "reason": "Olive-Striped Flycatcher is also another species' name; eBird's name for Mionectes olivaceus (olsfly2).",
+    "commonName": "Olive-Streaked Flycatcher"
+  },
+  {
+    "scientificName": "Cisticola galactotes",
+    "reason": "Winding Cisticola is also another species' name; eBird's name for Cisticola galactotes (wincis2).",
+    "commonName": "Rufous-Winged Cisticola"
+  },
+  {
+    "scientificName": "Cistothorus platensis",
+    "reason": "Sedge Wren is also another species' name; eBird's name for Cistothorus platensis (sedwre).",
+    "commonName": "Grass Wren"
+  },
+  {
+    "scientificName": "Cincloramphus whitneyi",
+    "reason": "Guadalcanal Thicketbird is also another species' name; eBird's name for Cincloramphus whitneyi (guathi2).",
+    "commonName": "Santo Thicketbird"
+  },
+  {
+    "scientificName": "Meiglyptes tristis",
+    "reason": "Buff-Rumped Woodpecker is also another species' name; eBird's name for Meiglyptes tristis (burwoo3).",
+    "commonName": "Zebra Woodpecker"
+  },
+  {
+    "scientificName": "Arizelocichla chlorigula",
+    "reason": "Yellow-Throated Greenbul is also another species' name; eBird's name for Arizelocichla chlorigula (easmog3).",
+    "commonName": "Yellow-Throated Mountain Greenbul"
+  },
+  {
+    "scientificName": "Atimastillas flavicollis",
+    "reason": "Yellow-Throated Greenbul is also another species' name; eBird's name for Atimastillas flavicollis (yetgre2).",
+    "commonName": "Yellow-Gorgeted Greenbul"
+  },
+  {
+    "scientificName": "Petroica multicolor",
+    "reason": "Pacific Robin is also another species' name; eBird's name for Petroica multicolor (pacrob2).",
+    "commonName": "Norfolk Robin"
+  },
+  {
+    "scientificName": "Psilopogon duvaucelii",
+    "reason": "Blue-Eared Barbet is also another species' name; eBird's name for Psilopogon duvaucelii (buebar2).",
+    "commonName": "Black-Eared Barbet"
+  },
+  {
+    "scientificName": "Alophoixus bres",
+    "reason": "Gray-Cheeked Bulbul is also another species' name; eBird's name for Alophoixus bres (gycbul3).",
+    "commonName": "Brown-Cheeked Bulbul"
+  },
+  {
+    "scientificName": "Trichoglossus haematodus",
+    "reason": "Rainbow Lorikeet is also another species' name; eBird's name for Trichoglossus haematodus (railor4).",
+    "commonName": "Coconut Lorikeet"
+  },
+  {
+    "scientificName": "Xenops genibarbis",
+    "reason": "Plain Xenops is also another species' name; eBird's name for Xenops genibarbis (plaxen3).",
+    "commonName": "Amazonian Plain-Xenops"
+  },
+  {
+    "scientificName": "Xenops minutus",
+    "reason": "Plain Xenops is also another species' name; eBird's name for Xenops minutus (plaxen4).",
+    "commonName": "Atlantic Plain-Xenops"
+  },
+  {
+    "scientificName": "Phylloscopus maforensis",
+    "reason": "Island Leaf Warbler is also another species' name; eBird's name for Phylloscopus maforensis (isllew9).",
+    "commonName": "Numfor Leaf Warbler"
+  },
+  {
+    "scientificName": "Pachycephala utupuae",
+    "reason": "Temotu Whistler is also another species' name; eBird's name for Pachycephala utupuae (temwhi3).",
+    "commonName": "Utupua Whistler"
+  },
+  {
+    "scientificName": "Pachycephala vanikorensis",
+    "reason": "Temotu Whistler is also another species' name; eBird's name for Pachycephala vanikorensis (temwhi4).",
+    "commonName": "Vanikoro Whistler"
+  },
+  {
+    "scientificName": "Oriolus cruentus",
+    "reason": "Black-And-Crimson Oriole is also another species' name; eBird's name for Oriolus cruentus (bacori3).",
+    "commonName": "Javan Oriole"
+  },
+  {
+    "scientificName": "Cyornis banyumas",
+    "reason": "Hill Blue Flycatcher is also another species' name; eBird's name for Cyornis banyumas (hibfly3).",
+    "commonName": "Javan Blue Flycatcher"
+  },
+  {
+    "scientificName": "Pampusana norfolkensis",
+    "reason": "Norfolk Ground-Dove is also another species' name; eBird's name for Pampusana norfolkensis (norgrd1).",
+    "commonName": "Norfolk Ground Dove"
+  },
+  {
+    "scientificName": "Chloropsis cochinchinensis",
+    "reason": "Blue-Winged Leafbird is also another species' name; eBird's name for Chloropsis cochinchinensis (buwlea2).",
+    "commonName": "Javan Leafbird"
+  },
+  {
+    "scientificName": "Alethe diademata",
+    "reason": "Fire-Crested Alethe is also another species' name; eBird's name for Alethe diademata (ficale3).",
+    "commonName": "White-Tailed Alethe"
+  },
+  {
+    "scientificName": "Dicaeum anthonyi",
+    "reason": "Flame-Crowned Flowerpecker is also another species' name; eBird's name for Dicaeum anthonyi (flcflo2).",
+    "commonName": "Yellow-Crowned Flowerpecker"
+  },
+  {
+    "scientificName": "Ninox boobook",
+    "reason": "Southern Boobook is also another species' name; eBird's name for Ninox boobook (souboo8).",
+    "commonName": "Australian Boobook"
+  },
+  {
+    "scientificName": "Ninox novaeseelandiae",
+    "reason": "Southern Boobook is also another species' name; eBird's name for Ninox novaeseelandiae (morepo2).",
+    "commonName": "Morepork"
+  },
+  {
+    "scientificName": "Oenanthe xanthoprymna",
+    "reason": "Red-Tailed Wheatear is also another species' name; eBird's name for Oenanthe xanthoprymna (retwhe3).",
+    "commonName": "Kurdish Wheatear"
+  },
+  {
+    "scientificName": "Oenanthe chrysopygia",
+    "reason": "Red-Tailed Wheatear is also another species' name; eBird's name for Oenanthe chrysopygia (retwhe2).",
+    "commonName": "Persian Wheatear"
+  },
+  {
+    "scientificName": "Turdus poliocephalus",
+    "reason": "The catalog keeps GBIF's broad Island Thrush, alive across 103 region lists from Taiwan to Samoa. eBird and iNaturalist now use the name for the Tasman Sea Island-Thrush alone (eBird norist1, extinct), so the eBird code and its Extinct flag describe the wrong bird. Splitting the lists into eBird's island thrushes is left to the name-drift work.",
+    "ebirdCode": null,
+    "extinct": false
   }
 ]
