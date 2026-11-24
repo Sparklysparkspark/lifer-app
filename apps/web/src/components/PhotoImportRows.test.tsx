@@ -88,6 +88,24 @@ beforeEach(() => {
 });
 
 describe("PhotoImportRows", () => {
+  it("removing a photo says so, with Undo putting it back", async () => {
+    const { container } = render(
+      <MemoryRouter>
+        <ToastContext.Provider value={toast}>
+          <PhotoImportRows />
+        </ToastContext.Provider>
+      </MemoryRouter>,
+    );
+    const input = container.querySelector<HTMLInputElement>('input[type="file"][accept]')!;
+    fireEvent.change(input, { target: { files: [new File(["jpeg"], "heron.jpg", { type: "image/jpeg" })] } });
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+    expect(screen.queryByText("heron.jpg")).toBeNull();
+    const [message, options] = vi.mocked(toast.show).mock.calls.at(-1)!;
+    expect(message).toBe("Removed 1 file from this import. Lifer won't offer it again from this folder.");
+    options!.actions![0].onClick();
+    expect(await screen.findByText("heron.jpg")).toBeTruthy();
+  });
+
   it("says matching is still downloading, then checks a waiting photo again once it's done", async () => {
     localStorage.setItem("lifer:lastRegionId", "bc");
     matchingJob.status = { running: true };
@@ -153,7 +171,11 @@ describe("PhotoImportRows", () => {
     const importButton = screen.getByRole("button", { name: "Import 1 photo" });
     fireEvent.click(importButton);
 
-    expect(await screen.findByText("✓ Imported")).toBeTruthy();
+    expect(await screen.findByText("Imported")).toBeTruthy();
+    // Its species went with it: nothing left to change, compare or tick.
+    expect(screen.queryByRole("button", { name: "Compare" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "heron.jpg" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Great Blue Heron" })).toBeNull();
     const commit = post.mock.calls.find((c) => c[0] === "/uploads")!;
     expect(formFields(commit[1])).toMatchObject({
       speciesId: "sp-heron",
@@ -204,13 +226,13 @@ describe("PhotoImportRows", () => {
     const input = container.querySelector<HTMLInputElement>('input[type="file"][accept]')!;
     fireEvent.change(input, { target: { files: [new File(["jpeg"], "6F9A6672.jpg", { type: "image/jpeg" })] } });
 
-    expect(await screen.findByText("· Edited version of the photo you already have")).toBeTruthy();
+    expect(await screen.findByText("Edited version of the photo you already have")).toBeTruthy();
     expect(screen.getByText("American Pygmy Kingfisher")).toBeTruthy();
     expect(screen.queryByText(/already imported/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Import anyway" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Import 1 photo" }));
-    expect(await screen.findByText("✓ Imported")).toBeTruthy();
+    expect(await screen.findByText("Imported")).toBeTruthy();
     const commit = post.mock.calls.find((c) => c[0] === "/uploads")!;
     expect(formFields(commit[1]).speciesId).toBe("sp-kingfisher");
   });
@@ -244,7 +266,7 @@ describe("PhotoImportRows", () => {
     });
 
     // The JPG follows the RAW: no suggestions or Compare of its own.
-    expect(await screen.findByText("· Same photo as 6F9A8074.CR3")).toBeTruthy();
+    expect(await screen.findByText("Same photo as 6F9A8074.CR3")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /Great Blue Heron.*match/ })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Compare" })).toHaveLength(1);
 
@@ -254,7 +276,7 @@ describe("PhotoImportRows", () => {
     expect(screen.getByText(/1 ready to import/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Import 1 photo" }));
-    await waitFor(() => expect(screen.getAllByText("✓ Imported")).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByText("Imported")).toHaveLength(2));
     const commits = post.mock.calls.filter((c) => c[0] === "/uploads");
     expect(commits).toHaveLength(1);
     expect(formFields(commits[0][1])).toMatchObject({

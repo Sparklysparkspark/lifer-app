@@ -4,13 +4,15 @@ import { api, apiPath, type ApiResponse } from "../api/client";
 import { movedPhotosChanged, useUndoRelinks } from "../hooks/useMovedPhotos";
 import { useToast } from "../hooks/useToast";
 import { errorMessage } from "../lib/errorMessage";
-import { formatNumber } from "../lib/format";
+import { formatNumber, metaLine } from "../lib/format";
 import { ignore } from "../lib/ignore";
+import { photoSlide } from "../lib/photoSlide";
 import { useSpeciesName } from "../lib/speciesName";
 import Button from "./Button";
 import FolderPath from "./FolderPath";
 import { ManageList, RowThumb } from "./ManageListPage";
 import Modal from "./Modal";
+import { useLightbox } from "./Lightbox";
 
 type Reviews = ApiResponse<"/moved-photos/reviews">;
 
@@ -21,6 +23,7 @@ export default function MovedPhotosReview({ open, onClose }: { open: boolean; on
   const undo = useUndoRelinks();
   const speciesName = useSpeciesName();
   const [data, setData] = useState<Reviews | null>(null);
+  const viewer = useLightbox();
 
   const load = useCallback(() => {
     api.get("/moved-photos/reviews").then(setData).catch(ignore("Couldn't load moved photos to review"));
@@ -44,9 +47,12 @@ export default function MovedPhotosReview({ open, onClose }: { open: boolean; on
   }
 
   async function skip(originalId: string) {
-    await api
-      .post(apiPath("/moved-photos/reviews/{id}/dismiss", { id: originalId }))
-      .catch(ignore("Couldn't skip a moved photo"));
+    try {
+      await api.post(apiPath("/moved-photos/reviews/{id}/dismiss", { id: originalId }));
+    } catch (err) {
+      toast.error(errorMessage(err, t("movedPhotos.reviewDialog.skipFailed")));
+      return;
+    }
     movedPhotosChanged();
     load();
   }
@@ -62,6 +68,7 @@ export default function MovedPhotosReview({ open, onClose }: { open: boolean; on
       description={t("movedPhotos.reviewDialog.description")}
       footer={<Button onClick={onClose}>{t("common.done")}</Button>}
     >
+      {viewer.node}
       {data && items.length === 0 ? (
         <p className="text-callout text-muted">{t("movedPhotos.reviewDialog.empty")}</p>
       ) : (
@@ -84,9 +91,21 @@ export default function MovedPhotosReview({ open, onClose }: { open: boolean; on
                 key: `${item.originalId}:${c.path}`,
                 // Grouped under where the photo was.
                 section: item.path,
-                thumb: <RowThumb src={item.photoId ? `/api/photos/${item.photoId}/thumb` : null} alt="" />,
+                thumb: item.photoId ? (
+                  // raw-control: the photo as Lifer has it, opening full size to compare by eye.
+                  <button
+                    type="button"
+                    aria-label={item.path}
+                    onClick={() => viewer.open([photoSlide({ photoId: item.photoId! })])}
+                    className="rounded-badge focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    <RowThumb src={`/api/photos/${item.photoId}/thumb`} alt="" />
+                  </button>
+                ) : (
+                  <RowThumb src={null} alt="" />
+                ),
                 primary: <FolderPath path={c.path} />,
-                secondary: [
+                secondary: metaLine([
                   t(
                     item.reason === "probably"
                       ? "movedPhotos.reviewDialog.probably"
@@ -94,9 +113,7 @@ export default function MovedPhotosReview({ open, onClose }: { open: boolean; on
                   ),
                   item.scientificName &&
                     speciesName({ commonName: item.commonName, scientificName: item.scientificName }),
-                ]
-                  .filter(Boolean)
-                  .join(" · "),
+                ]),
                 trailing: (
                   <Button size="sm" variant="secondary" onClick={() => void pick(item.originalId, c.path)}>
                     {t("movedPhotos.reviewDialog.use")}

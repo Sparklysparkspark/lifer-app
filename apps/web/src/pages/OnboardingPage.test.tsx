@@ -182,6 +182,8 @@ describe("OnboardingPage", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: i18n.t("onboarding.done.collection") })).toBeTruthy();
     expect(screen.getByText(i18n.t("packProgress.settingUp"))).toBeTruthy();
+    // A server can't read a Lightroom catalogue on this computer, so it isn't offered.
+    expect(screen.queryByRole("button", { name: i18n.t("onboarding.done.lightroom") })).toBeNull();
   });
 
   it("offers an earlier library's countries back, already chosen", async () => {

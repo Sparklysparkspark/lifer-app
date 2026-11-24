@@ -34,7 +34,10 @@ describe("RecentImportFolders", () => {
     render(<RecentImportFolders onImport={onImport} busyPath={null} />);
     const tofino = await screen.findByRole("button", { name: "Import new photos from Tofino 2026" });
     await waitFor(() => expect(tofino.textContent).toContain("200 new photos"));
-    expect(screen.getByRole("button", { name: "Import new photos from Old" }).textContent).toContain("Nothing new");
+    const old = screen.getByRole("button", { name: "Import new photos from Old" }) as HTMLButtonElement;
+    await waitFor(() => expect(old.textContent).toContain("Nothing new"));
+    // Nothing to add, so nothing to click.
+    expect(old.disabled).toBe(true);
     // A folder on an unplugged drive is left out.
     expect(screen.queryByRole("button", { name: /DCIM/ })).toBeNull();
     expect(onImport).not.toHaveBeenCalled();
@@ -48,5 +51,23 @@ describe("RecentImportFolders", () => {
     const { container } = render(<RecentImportFolders onImport={() => {}} busyPath={null} />);
     expect(container.textContent).toBe("");
     expect(get).not.toHaveBeenCalled();
+  });
+
+  it("names same-named folders by their parent too, and keeps a long list short", async () => {
+    get.mockResolvedValue({
+      folders: [
+        { path: "/Volumes/A/DCIM", lastImportedAt: null, photoCount: 1 },
+        { path: "/Volumes/B/DCIM", lastImportedAt: null, photoCount: 1 },
+        ...Array.from({ length: 6 }, (_, i) => ({ path: `/Users/me/Trip ${i}`, lastImportedAt: null, photoCount: 1 })),
+      ],
+    });
+    post.mockResolvedValue({ available: true, newCount: 1 });
+    render(<RecentImportFolders onImport={() => {}} busyPath={null} />);
+    expect(await screen.findByRole("button", { name: "Import new photos from A/DCIM" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Import new photos from B/DCIM" })).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Show 2 more" })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Import new photos from Trip 5" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show 2 more" }));
+    expect(screen.getByRole("button", { name: "Import new photos from Trip 5" })).toBeTruthy();
   });
 });

@@ -7,7 +7,7 @@ import { api, apiPath } from "../../api/client";
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { useRegions } from "../../hooks/useRegions";
 import type { ChosenPlace } from "../../hooks/usePlaceFiling";
-import { formatNumber, formatWallClock } from "../../lib/format";
+import { formatNumber, formatWallClock, metaLine } from "../../lib/format";
 import { ignore } from "../../lib/ignore";
 import Button from "../Button";
 import { Chevron } from "../GroupedSpeciesGrid";
@@ -16,7 +16,15 @@ import Modal from "../Modal";
 import Panel from "../Panel";
 import PlaceNameInput from "../PlaceNameInput";
 import { PlaceChooser } from "../PlaceStep";
-import { groupPlace, rowTime, samePlace, type PlaceableRow, type StagedPlace } from "./importGroups";
+import {
+  groupPlace,
+  needingPlace,
+  photoCount,
+  rowTime,
+  samePlace,
+  type PlaceableRow,
+  type StagedPlace,
+} from "./importGroups";
 
 /** Groups past this many start collapsed, so a 60-outing card still opens on something readable. */
 const OPEN_GROUPS = 5;
@@ -27,6 +35,8 @@ type LooksLike = ChosenPlace & { geoprivacy: NonNullable<ChosenPlace["geoprivacy
 type Dialog = {
   kind: "place" | "label";
   keys: string[];
+  /** Photos, with a RAW and its JPG as one. */
+  count: number;
   near: { lat: number; lon: number } | null;
   looksLike: LooksLike | null;
   label: string;
@@ -111,11 +121,16 @@ export default function ImportPlaceGroups<R extends Row>({
   const time = (r: R) => formatWallClock(rowTime(r), "time");
   const all = groups.flat();
   const keysOf = (rows: R[]) => rows.map((r) => r.key);
-  const openDialog = (kind: Dialog["kind"], rows: R[]) => {
-    const gps = rows.find((r) => r.gps)?.gps ?? null;
+  // Places and labels apply when the import commits, so imported photos are past changing.
+  const waiting = (rows: R[]) => rows.filter((r) => !r.captureId);
+  const placeKeys = (rows: R[]) => keysOf(needingPlace(rows));
+  const openDialog = (kind: Dialog["kind"], all: R[]) => {
+    const rows = kind === "place" ? needingPlace(all) : waiting(all);
+    const gps = all.find((r) => r.gps)?.gps ?? null;
     setDialog({
       kind,
       keys: keysOf(rows),
+      count: photoCount(rows),
       near: gps && { lat: gps.lat, lon: gps.lon },
       looksLike: (gps && looksLike[pointKey(gps)]) ?? null,
       label: rows.find((r) => r.label)?.label ?? "",
@@ -124,13 +139,13 @@ export default function ImportPlaceGroups<R extends Row>({
 
   return (
     <div className="space-y-item">
-      {groups.length > 1 && (
+      {groups.length > 1 && waiting(all).length > 0 && (
         <div className="flex justify-end">
           <PlaceMenu
             trigger={t("import.places.allPhotos")}
             onChoose={() => openDialog("place", all)}
             onLabel={() => openDialog("label", all)}
-            onRemove={all.some((r) => r.place) ? () => onPlace(keysOf(all), null) : undefined}
+            onRemove={waiting(all).some((r) => r.place) ? () => onPlace(keysOf(waiting(all)), null) : undefined}
           />
         </div>
       )}
@@ -154,6 +169,9 @@ export default function ImportPlaceGroups<R extends Row>({
         const open = i < OPEN_GROUPS || expanded.has(key) || g.some((r) => r.key === activeKey);
         const first = g[0];
         const last = g[g.length - 1];
+        const imported = waiting(g).length === 0;
+        const photos = photoCount(g);
+        const hiddenThumbs = g.length - THUMBS;
         const chip = given
           ? given.name
           : camera
@@ -189,10 +207,15 @@ export default function ImportPlaceGroups<R extends Row>({
                       <img key={r.key} src={src} alt="" className="h-8 w-8 shrink-0 rounded-badge object-cover" />
                     ) : null;
                   })}
+                {!open && hiddenThumbs > 0 && (
+                  <span aria-hidden="true" className="shrink-0 text-footnote text-muted">
+                    {t("import.places.moreThumbs", { formatted: formatNumber(hiddenThumbs) })}
+                  </span>
+                )}
                 <span className="min-w-0 break-words">
                   {t("import.places.groupTitle", {
-                    count: g.length,
-                    formatted: formatNumber(g.length),
+                    count: photos,
+                    formatted: formatNumber(photos),
                     date: formatWallClock(rowTime(first), "monthDay"),
                     span:
                       time(first) === time(last)
@@ -201,25 +224,31 @@ export default function ImportPlaceGroups<R extends Row>({
                   })}
                 </span>
               </button>
-              <PlaceMenu
-                trigger={label ? `${chip} · ${label}` : chip}
-                onChoose={() => openDialog("place", g)}
-                onSame={
-                  prev && prevPlace ? { time: time(prev[0]), pick: () => onPlace(keysOf(g), prevPlace) } : undefined
-                }
-                onLabel={() => openDialog("label", g)}
-                onRemove={g.some((r) => r.place) ? () => onPlace(keysOf(g), null) : undefined}
-              />
-              {offer && (
+              {imported ? (
+                <span className="min-w-0 text-callout text-muted wrap-anywhere">{metaLine([chip, label])}</span>
+              ) : (
+                <PlaceMenu
+                  trigger={metaLine([chip, label])}
+                  onChoose={() => openDialog("place", g)}
+                  onSame={
+                    prev && prevPlace
+                      ? { time: time(prev[0]), pick: () => onPlace(placeKeys(g), prevPlace) }
+                      : undefined
+                  }
+                  onLabel={() => openDialog("label", g)}
+                  onRemove={waiting(g).some((r) => r.place) ? () => onPlace(keysOf(waiting(g)), null) : undefined}
+                />
+              )}
+              {offer && !imported && (
                 <span className="flex min-w-0 flex-wrap items-center gap-x-2 text-callout">
                   <span className="min-w-0 break-words text-ink">{t("sendPlace.looksLike", { name: offer.name })}</span>
-                  <Button variant="secondary" size="sm" onClick={() => onPlace(keysOf(g), spot(offer))}>
+                  <Button variant="secondary" size="sm" onClick={() => onPlace(keysOf(waiting(g)), spot(offer))}>
                     {t("sendPlace.useIt")}
                   </Button>
                 </span>
               )}
-              {sameDay && (
-                <Button variant="secondary" size="sm" onClick={() => onPlace(keysOf(g), prevPlace)}>
+              {sameDay && !imported && (
+                <Button variant="secondary" size="sm" onClick={() => onPlace(placeKeys(g), prevPlace)}>
                   {t("import.places.sameAs", { time: time(prev[0]) })}
                 </Button>
               )}
@@ -230,7 +259,7 @@ export default function ImportPlaceGroups<R extends Row>({
                 {g.map((r) =>
                   renderRow(
                     r,
-                    !samePlace(r.place, given) || r.key === activeKey ? (
+                    !r.captureId && (!samePlace(r.place, given) || r.key === activeKey) ? (
                       <Button variant="link" size="sm" onClick={() => openDialog("place", [r])}>
                         {r.place && !samePlace(r.place, given) ? r.place.name : t("import.places.photoPlace")}
                       </Button>
@@ -248,8 +277,8 @@ export default function ImportPlaceGroups<R extends Row>({
           open
           onClose={() => setDialog(null)}
           title={t("import.places.dialogTitle", {
-            count: dialog.keys.length,
-            formatted: formatNumber(dialog.keys.length),
+            count: dialog.count,
+            formatted: formatNumber(dialog.count),
           })}
           footer={
             <Button variant="secondary" onClick={() => setDialog(null)}>
@@ -277,8 +306,8 @@ export default function ImportPlaceGroups<R extends Row>({
           open
           onClose={() => setDialog(null)}
           title={t("import.places.labelTitle", {
-            count: dialog.keys.length,
-            formatted: formatNumber(dialog.keys.length),
+            count: dialog.count,
+            formatted: formatNumber(dialog.count),
           })}
           onSubmit={() => {
             onLabel(dialog.keys, dialog.label.trim());

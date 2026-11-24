@@ -22,7 +22,7 @@ import { useLatest } from "../../hooks/useLatest";
 import { isTypingTarget } from "../../hooks/useKeyboardShortcuts";
 import { matches, shortcutLabel } from "../../lib/keymap";
 import { FIT, frameView, zoomView, type View } from "../../lib/compareZoom";
-import { formatPercent } from "../../lib/format";
+import { formatPercent, metaLine } from "../../lib/format";
 import { OVERLAY_REVEAL } from "../../lib/buttonClasses";
 import { markDragBlocked } from "../../lib/modalDragBlock";
 import { useSpeciesName } from "../../lib/speciesName";
@@ -259,7 +259,7 @@ export default function ImportCompareView<R extends ReviewRowBase>({
   const percent = active ? percentOf(active) : null;
   const openLeft = () => setViewer("left");
   const openRight = () => setViewer("right");
-  const meta = [
+  const meta = metaLine([
     percent != null ? t("species.suggestion.match", { percent: formatPercent(percent / 100) }) : null,
     photos && photos.length > 1
       ? t("import.compare.referencePosition", {
@@ -268,9 +268,7 @@ export default function ImportCompareView<R extends ReviewRowBase>({
         })
       : null,
     photo?.credit,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  ]);
   return createPortal(
     <div
       ref={dialogRef}

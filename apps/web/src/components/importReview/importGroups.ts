@@ -18,6 +18,26 @@ export interface PlaceableRow {
   cameraTime?: string | null;
   gps?: { lat: number; lon: number; regionId: string | null; town?: string | null } | null;
   place?: StagedPlace | null;
+  /** Set once imported: its place was applied with the import, so it's no longer offered. */
+  captureId?: string;
+  /** A RAW and its JPG in this import (batchPairs.ts): the follower names the lead. */
+  partnerKey?: string;
+  samePhotoAs?: string;
+}
+
+/** Photos, not files: a RAW and its JPG in the same rows count once. */
+export function photoCount(rows: ReadonlyArray<Pick<PlaceableRow, "key" | "partnerKey" | "samePhotoAs">>): number {
+  const keys = new Set(rows.map((r) => r.key));
+  return rows.filter((r) => !(r.samePhotoAs && r.partnerKey && keys.has(r.partnerKey))).length;
+}
+
+/** The photos a bulk place applies to: the ones not imported yet, and of those only the ones
+ *  without a camera point when any lack one (ux-rules A5). All of them when every one has GPS:
+ *  choosing a place then is naming it on purpose. */
+export function needingPlace<R extends PlaceableRow>(rows: readonly R[]): R[] {
+  const open = rows.filter((r) => !r.captureId);
+  const without = open.filter((r) => !r.gps);
+  return without.length > 0 ? without : open;
 }
 
 /** A row's time as its wall clock read as UTC: the camera's clock, so GPS and non-GPS photos from one

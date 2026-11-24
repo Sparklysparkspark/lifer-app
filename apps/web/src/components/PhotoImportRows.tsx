@@ -22,7 +22,7 @@ import RegionBrowser from "./RegionBrowser";
 import Lightbox from "./Lightbox";
 import ImportReviewRow from "./importReview/ImportReviewRow";
 import ImportPlaceGroups from "./importReview/ImportPlaceGroups";
-import { groupImportRows, groupPlace, type StagedPlace } from "./importReview/importGroups";
+import { groupImportRows, groupPlace, photoCount, type StagedPlace } from "./importReview/importGroups";
 import { batchPairs, joinPairs, type PairFacts } from "./importReview/batchPairs";
 import Tip from "./Tip";
 import { useImportReview, type ReviewRowBase } from "./importReview/useImportReview";
@@ -60,7 +60,7 @@ import {
   undoImports,
   type CommittedImport,
 } from "../lib/importCommit";
-import { formatNumber } from "../lib/format";
+import { formatNumber, metaLine } from "../lib/format";
 import { useUndoLocation } from "../hooks/useSavedSpots";
 import type { CullMarksOption, JobStatus } from "@lifer/shared";
 import CullMarksChoice from "./importReview/CullMarksChoice";
@@ -189,7 +189,15 @@ export default function PhotoImportRows({
   const [rawRows, setRows] = useState<ImportRow[]>([]);
   // A RAW and its edit in this import are one photo: they show and act as one (batchPairs.ts).
   const pairs = useMemo(() => batchPairs(rawRows.flatMap(pairFacts)), [rawRows]);
-  const rows = useMemo(() => joinPairs(rawRows, pairs, (r) => r.file.name), [rawRows, pairs]);
+  const rows = useMemo(
+    () =>
+      joinPairs(rawRows, pairs, (r) => r.file.name).map((r): ImportRow => ({
+        ...r,
+        // Its species went with the upload, so the review leaves it be (useImportReview).
+        locked: r.status === "uploading" || r.status === "done",
+      })),
+    [rawRows, pairs],
+  );
   const [importing, setImporting] = useState(false);
   const [lastBatch, setLastBatch] = useState<CommittedImport[]>([]);
   // Free space on the drives an import writes to (lib/importSpace.ts): tight checks and imports
@@ -251,7 +259,7 @@ export default function PhotoImportRows({
       .catch((err: unknown) => {
         uploadsRef.current.delete(key);
         if (!controller.signal.aborted) {
-          const uploadError = err instanceof Error ? err.message : t("import.rows.uploadFailed");
+          const uploadError = errorMessage(err, t("import.rows.uploadFailed"));
           setRows((prev) => prev.map((r) => (r.key === key ? { ...r, uploadProgress: null, uploadError } : r)));
         }
         throw err;
@@ -647,11 +655,37 @@ export default function PhotoImportRows({
       setRows((prev) =>
         prev.map((r) =>
           r.key === key
-            ? { ...r, suggestError: errorMessage(err, "Couldn't analyze this video"), isInspecting: false }
+            ? { ...r, suggestError: errorMessage(err, t("import.review.suggestError")), isInspecting: false }
             : r,
         ),
       );
     }
+  }
+
+  // One toast for the lot, with Undo: what's removed is remembered as skipped at the next import.
+  function removeRows(keys: string[]) {
+    const gone = keys.flatMap((k) => rows.find((r) => r.key === k) ?? []);
+    keys.forEach(removeRow);
+    const files = gone.filter((r) => !r.captureId).map((r) => r.file);
+    if (files.length === 0) return;
+    const remembered = gone.some((r) => !r.captureId && !r.possibleDuplicate && fingerprintsRef.current.has(r.file));
+    toast.show(
+      t(remembered ? "import.rows.removedRemembered" : "import.rows.removed", {
+        count: files.length,
+        formatted: formatNumber(files.length),
+      }),
+      {
+        actions: [
+          {
+            label: t("common.undo"),
+            onClick: () => {
+              removedFilesRef.current = removedFilesRef.current.filter((f) => !files.includes(f));
+              addRows(files);
+            },
+          },
+        ],
+      },
+    );
   }
 
   function removeRow(key: string) {
@@ -680,9 +714,7 @@ export default function PhotoImportRows({
   }
 
   const readyRows = rows.filter((r) => r.speciesId && r.status === "ready" && !skipsRow(r) && !skipKind(r));
-  // A pair imports as one photo, so it counts once.
-  const readyKeys = new Set(readyRows.map((r) => r.key));
-  const readyCount = readyRows.filter((r) => !(r.samePhotoAs && readyKeys.has(r.partnerKey!))).length;
+  const readyCount = photoCount(readyRows);
 
   // Photos this import leaves out (not wildlife, marked "No animal", already in the library) wait in
   // one section at the end, out of the groups, their counts and the keys.
@@ -872,6 +904,8 @@ export default function PhotoImportRows({
 
     const committed: CommittedImport[] = [];
     let movedCount = 0;
+    // Originals the server chose to leave (STAYED_WHY): not videos, failures or ones held back.
+    let stayedCount = 0;
     let sidecarCount = 0;
     // Set when the drive fills: rows not started stay ready for Continue.
     let stop = false;
@@ -945,6 +979,7 @@ export default function PhotoImportRows({
         const captureId = outcome.captureId;
         for (const key of keys) committed.push({ key, captureId });
         if (outcome.sourceMove?.moved) movedCount++;
+        else if (outcome.sourceMove) stayedCount++;
         sidecarCount += outcome.sourceMove?.sidecars ?? 0;
         const stayedWhy = outcome.sourceMove && !outcome.sourceMove.moved ? outcome.sourceMove.reason : null;
         const moveNote = stayedWhy
@@ -958,7 +993,7 @@ export default function PhotoImportRows({
           stop = true;
           return holdBack(keys, jobId);
         }
-        const message = err instanceof Error ? err.message : t("import.rows.uploadFailed");
+        const message = errorMessage(err, t("import.rows.uploadFailed"));
         setRows((prev) =>
           prev.map((r) => (keys.includes(r.key) ? { ...r, status: "error", error: message, uploadProgress: null } : r)),
         );
@@ -1005,7 +1040,7 @@ export default function PhotoImportRows({
     const species = new Set(toImport.filter((r) => committed.some((c) => c.key === r.key)).map((r) => r.speciesId));
     const onlySpecies = species.size === 1 ? [...species][0] : null;
     reportResultShownElsewhere();
-    const stayed = requests.length - movedCount;
+    const stayed = stayedCount;
     const moveSummary = moving
       ? [
           t("import.move.moved", {
@@ -1095,8 +1130,9 @@ export default function PhotoImportRows({
     }
   }
   const doneCount = rows.filter((r) => r.status === "done").length;
-  // "339 files · 312 ready to import · 14 not wildlife · 3 already imported", leaving out the zeros.
+  // "339 files, 312 ready to import, 14 not wildlife, 3 already in Lifer", leaving out the zeros.
   const kindCount = (kind: SkipKind) => skippedRows.filter((r) => skipKind(r) === kind).length;
+  const similarCount = skippedRows.filter((r) => r.possibleDuplicate && !r.possibleDuplicate.exact).length;
   const summaryParts = [
     t("import.rows.filesCount", { count: rows.length, formatted: formatNumber(rows.length) }),
     ...(
@@ -1105,7 +1141,8 @@ export default function PhotoImportRows({
         ["import.rows.doneCount", doneCount],
         ["import.rows.notWildlifeCount", kindCount("notWildlife")],
         ["import.rows.markedCount", kindCount("marked")],
-        ["import.rows.duplicateCount", kindCount("duplicate")],
+        ["import.rows.duplicateCount", kindCount("duplicate") - similarCount],
+        ["import.rows.similarCount", similarCount],
       ] as const
     ).flatMap(([key, n]) => (n > 0 ? [t(key, { count: n, formatted: formatNumber(n) })] : [])),
   ];
@@ -1191,14 +1228,14 @@ export default function PhotoImportRows({
       {rows.length > 0 && (
         <>
           <CullMarksChoice
-            total={rows.length}
-            rejected={rows.filter((r) => isRejected(r) && r.status !== "done").length}
+            total={photoCount(rows.filter((r) => r.status !== "done"))}
+            rejected={photoCount(rows.filter((r) => isRejected(r) && r.status !== "done"))}
             value={cullOption}
             onChange={setCullOption}
             disabled={importing}
           />
           <div className="flex items-center gap-3 text-callout text-muted">
-            <span>{summaryParts.join(" · ")}</span>
+            <span>{metaLine(summaryParts)}</span>
             {bulkKeys.length > 0 && (
               <div className="flex items-center gap-2">
                 <span>{t("import.rows.assignSelected", { count: bulkKeys.length })}</span>
@@ -1241,11 +1278,9 @@ export default function PhotoImportRows({
                     const key = g[0].key;
                     if (waiting.length === 0 || (!chosenId && tripDismissed.has(key))) return null;
                     const keys = new Set(waiting.map((r) => r.key));
-                    // A RAW and its JPG are one photo.
-                    const count = waiting.filter((r) => !(r.samePhotoAs && keys.has(r.partnerKey!))).length;
                     return (
                       <ImportTripNote
-                        count={count}
+                        count={photoCount(waiting)}
                         trips={tripOffers[key] ?? []}
                         chosen={chosenId ? (offeredTrips[chosenId] ?? null) : null}
                         onAdd={(id) => stage([...keys], { tripId: id })}
@@ -1256,48 +1291,44 @@ export default function PhotoImportRows({
                   }
             }
             renderRow={(row, place) => {
-              const open = () => setPreviewKey(row.key);
               return (
                 <ImportReviewRow
                   key={row.key}
                   row={row}
                   name={row.file.name}
                   preview={
-                    row.previewFromServer && !row.rawPreviewUrl ? (
-                      // Until inspect returns the server's preview, or for good if the file has none.
-                      <div
-                        onClick={open}
-                        className="flex h-14 w-14 cursor-pointer items-center justify-center rounded-badge bg-surface-muted text-footnote font-medium uppercase text-muted"
-                      >
-                        {row.isRaw ? "RAW" : (photoFormatOf(row.file) ?? t("import.rows.photoFormatUnknown"))}
-                      </div>
-                    ) : row.previewFromServer ? (
-                      <img
-                        src={row.rawPreviewUrl!}
-                        alt=""
-                        onClick={open}
-                        className="h-14 w-14 cursor-pointer rounded-badge object-cover"
-                      />
-                    ) : row.isVideo ? (
-                      // Seeking past 0 once metadata loads forces a first frame to paint.
-                      <video
-                        src={row.previewUrl}
-                        muted
-                        preload="auto"
-                        onLoadedMetadata={(e) => {
-                          e.currentTarget.currentTime = 0.1;
-                        }}
-                        onClick={open}
-                        className="h-14 w-14 cursor-pointer rounded-badge object-cover"
-                      />
-                    ) : (
-                      <img
-                        src={row.previewUrl}
-                        alt=""
-                        onClick={open}
-                        className="h-14 w-14 cursor-pointer rounded-badge object-cover"
-                      />
-                    )
+                    // raw-control: the row's preview opens it full size, from the keyboard too.
+                    <button
+                      type="button"
+                      aria-label={row.file.name}
+                      onClick={() => setPreviewKey(row.key)}
+                      className="shrink-0 rounded-badge focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    >
+                      {row.previewFromServer && !row.rawPreviewUrl ? (
+                        // Until inspect returns the server's preview, or for good if the file has none.
+                        <span className="flex h-14 w-14 items-center justify-center rounded-badge bg-surface-muted text-footnote font-medium uppercase text-muted">
+                          {row.isRaw ? "RAW" : (photoFormatOf(row.file) ?? t("import.rows.photoFormatUnknown"))}
+                        </span>
+                      ) : row.isVideo && !row.previewFromServer ? (
+                        // Metadata only, so a folder of clips doesn't load them all; seeking past 0
+                        // once it's in forces a first frame to paint.
+                        <video
+                          src={row.previewUrl}
+                          muted
+                          preload="metadata"
+                          onLoadedMetadata={(e) => {
+                            e.currentTarget.currentTime = 0.1;
+                          }}
+                          className="block h-14 w-14 rounded-badge object-cover"
+                        />
+                      ) : (
+                        <img
+                          src={row.previewFromServer ? row.rawPreviewUrl! : row.previewUrl}
+                          alt=""
+                          className="block h-14 w-14 rounded-badge object-cover"
+                        />
+                      )}
+                    </button>
                   }
                   status={
                     <>
@@ -1324,12 +1355,13 @@ export default function PhotoImportRows({
                     </>
                   }
                   removable={row.status !== "uploading" && row.status !== "done"}
-                  onRemove={() => removeRow(row.key)}
+                  onRemove={() => removeRows([row.key])}
                   removeLabel={row.isVideo ? t("import.rows.removeVideo") : t("import.rows.removePhoto")}
                   selected={selected.has(row.key)}
                   onToggleSelected={() => toggleSelected(row.key)}
                   focused={focusedRowKey === row.key}
                   onFocus={() => setFocusedRowKey(row.key)}
+                  onCancelPick={() => setFocusedRowKey(null)}
                   regionId={regionId}
                   onPick={(r) => assignAndAdvance(row.key, r)}
                   isActive={row.key === activeRow?.key}
@@ -1345,8 +1377,9 @@ export default function PhotoImportRows({
             rows={skippedRows}
             nameOf={(r) => r.file.name}
             thumb={(r) => (r.previewFromServer ? (r.rawPreviewUrl ?? null) : r.isVideo ? null : r.previewUrl)}
-            onRemove={(keys) => keys.forEach(removeRow)}
+            onRemove={removeRows}
             onImportAnyway={importSkippedAnyway}
+            onOpen={(r) => setPreviewKey(r.key)}
           />
         </>
       )}

@@ -4,6 +4,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { KnownFile } from "../../lib/knownFiles";
 import KnownFiles from "./KnownFiles";
 
+const openViewer = vi.fn();
+vi.mock("../Lightbox", () => ({ useLightbox: () => ({ open: openViewer, node: null }) }));
+
 const known = (n: number): KnownFile[] =>
   Array.from({ length: n }, (_, i) => ({
     name: `IMG_${i}.jpg`,
@@ -76,5 +79,14 @@ describe("KnownFiles", () => {
     expect(screen.getByRole("heading", { name: "Skipped before (1)" })).toBeTruthy();
     expect(screen.getByText("Already in Lifer as Great Blue Heron")).toBeTruthy();
     expect(container.querySelector('img[src="/api/photos/ph-1/thumb"]')).toBeTruthy();
+  });
+
+  it("opens the library photo a file became from its thumbnail", () => {
+    const match = { photoId: "p1", commonName: "Osprey", scientificName: "Pandion haliaetus" };
+    const file = { ...known(1)[0], match } as KnownFile;
+    render(<KnownFiles known={[file]} fresh={0} edited={0} checking={null} onImportAnyway={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Show them" }));
+    fireEvent.click(screen.getByRole("button", { name: "Already in Lifer as Osprey" }));
+    expect(openViewer).toHaveBeenCalledWith([expect.objectContaining({ url: "/api/photos/p1/display" })]);
   });
 });

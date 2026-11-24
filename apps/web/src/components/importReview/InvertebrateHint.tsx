@@ -5,6 +5,12 @@ import type { SpeciesResult } from "../SpeciesPicker";
 import { useServerSetting } from "../../pages/settings/useServerSetting";
 import Button from "../Button";
 
+// "a bee" searches as "bee"; a phrase longer than a taxon name or two starts empty instead.
+const searchWord = (looksLike: string) => {
+  const word = looksLike.replace(/^(an?|the)\s+/i, "").trim();
+  return word.split(/\s+/).length <= 2 ? word : "";
+};
+
 // An insect or spider: the built-in checklists cover vertebrates, so suggestions would only be the
 // nearest bird. Points to adding the species from iNaturalist instead, assigned to this photo.
 export default function InvertebrateHint({
@@ -41,7 +47,12 @@ export default function InvertebrateHint({
       </Button>
       {search.error && <span className="w-full text-rose-700 dark:text-rose-300">{search.error}</span>}
       {open && (
-        <AddOtherTaxaModal initialQuery="" initialRegionId={regionId} onAdded={onPick} onClose={() => setOpen(false)} />
+        <AddOtherTaxaModal
+          initialQuery={searchWord(looksLike)}
+          initialRegionId={regionId}
+          onAdded={onPick}
+          onClose={() => setOpen(false)}
+        />
       )}
     </div>
   );

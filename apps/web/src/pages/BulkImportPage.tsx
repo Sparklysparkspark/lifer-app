@@ -10,11 +10,13 @@ import { useTranslation } from "react-i18next";
 import { enqueueRawUploads } from "../lib/uploadQueue";
 import PageHeader from "../components/PageHeader";
 import FilePickArea from "../components/FilePickArea";
+import Chevron from "../components/Chevron";
+import { RawResultList } from "../components/RawUpload";
+import { metaLine } from "../lib/format";
 import PhotoImportRows from "../components/PhotoImportRows";
 import SkippedPhotosManager from "../components/importReview/SkippedPhotosManager";
 import { RAW_EXTENSIONS, extname } from "../lib/rawExtensions";
 import FormMessage from "../components/FormMessage";
-import { useSpeciesName } from "../lib/speciesName";
 import { api } from "../api/client";
 import Select from "../components/Select";
 import { isTripActive, localIsoDate, type TripSummary } from "@lifer/shared";
@@ -40,16 +42,17 @@ export default function BulkImportPage() {
   const mode = useDeploymentMode();
   const { t } = useTranslation();
   const versionNotice = useVersionNotice();
-  const speciesName = useSpeciesName();
   const [rawResults, setRawResults] = useState<RawImportOutcome[] | null>(null);
   const [rawError, setRawError] = useState<string | null>(null);
+  const [rawOpen, setRawOpen] = useState(false);
   // The batch's trip: its photos join it and are filed in its folder. Suggested from the active
-  // trips, always the user's to change; null while several are active and they haven't chosen.
+  // trips, always the user's to change. With several active and no pick to go on it starts on No
+  // trip, so photos can come in at once; each outing's note then offers the trip it fits.
   const [trips, setTrips] = useState<TripSummary[]>([]);
   const [lastPick, setLastPick] = usePersistedState<string | null>("importTripPick", null);
   const [picked, setPicked] = useState<string | null>(null);
   const today = localIsoDate();
-  const choice = picked ?? defaultTripChoice(trips, today, lastPick);
+  const choice = picked ?? defaultTripChoice(trips, today, lastPick) ?? NO_TRIP;
   const tripId = choice && choice !== NO_TRIP ? choice : undefined;
   const chosenTrip = trips.find((trip) => trip.id === tripId);
   const activeTrips = trips.filter((trip) => isTripActive(trip, today));
@@ -134,14 +137,9 @@ export default function BulkImportPage() {
                 variant="form"
                 label={t("import.bulk.trip.label")}
                 labelClassName="block space-y-1 text-callout text-ink"
-                value={choice ?? ""}
+                value={choice}
                 onChange={(e) => pickTrip(e.target.value)}
               >
-                {choice === null && (
-                  <option value="" disabled>
-                    {t("import.bulk.trip.choose")}
-                  </option>
-                )}
                 <option value={NO_TRIP}>{t("import.bulk.trip.none")}</option>
                 {[
                   { label: t("import.bulk.trip.active"), group: activeTrips },
@@ -159,22 +157,18 @@ export default function BulkImportPage() {
                     ),
                 )}
               </Select>
-              {choice === null && <p className="text-footnote text-muted">{t("import.bulk.trip.chooseHint")}</p>}
             </div>
           )}
           {/* Back to the collection, on the batch's region, once everything is uploading (uploads
               continue in the background). Stays put when some rows weren't included, since leaving
               would drop them. */}
-          {/* Several trips are active: the user says which (or none) before any photos are added. */}
-          {choice !== null && (
-            <PhotoImportRows
-              tripId={tripId}
-              suggestedRegionId={chosenTrip?.regionId}
-              onImportStarted={(everyRowIncluded, regionId) =>
-                everyRowIncluded && navigate(regionId ? `/?region=${regionId}` : "/")
-              }
-            />
-          )}
+          <PhotoImportRows
+            tripId={tripId}
+            suggestedRegionId={chosenTrip?.regionId}
+            onImportStarted={(everyRowIncluded, regionId) =>
+              everyRowIncluded && navigate(regionId ? `/?region=${regionId}` : "/")
+            }
+          />
           <p className="mt-2 text-footnote text-muted">
             {t("versions.importHint")}{" "}
             <Button variant="link" size="sm" onClick={() => openExternal(docsUrl("/guides/photo-versions"))}>
@@ -199,11 +193,9 @@ export default function BulkImportPage() {
         )}
 
         {/* Closed by default: the drop area above takes RAWs too. This is only for RAWs of photos already imported. */}
-        <details className="group space-y-item">
-          <summary className="cursor-pointer list-none text-callout font-semibold text-ink marker:content-none">
-            <span className="mr-2 inline-block transition-transform group-open:rotate-90" aria-hidden="true">
-              ›
-            </span>
+        <details className="space-y-item" open={rawOpen} onToggle={(e) => setRawOpen(e.currentTarget.open)}>
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-callout font-semibold text-ink marker:content-none">
+            <Chevron open={rawOpen} />
             {t("import.bulk.raw.title")}
           </summary>
           <FilePickArea
@@ -216,36 +208,13 @@ export default function BulkImportPage() {
           {rawResults && (
             <div className="space-y-1">
               <p className="text-footnote font-medium text-muted">
-                {[
+                {metaLine([
                   rawSuccessCount > 0 && t("import.bulk.raw.linkedCount", { count: rawSuccessCount }),
                   rawUnmatchedCount > 0 && t("import.bulk.raw.unmatchedCount", { count: rawUnmatchedCount }),
                   rawPendingCount > 0 && t("import.bulk.raw.pendingCount", { count: rawPendingCount }),
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
+                ])}
               </p>
-              {rawResults
-                .filter((r) => r.linked || r.error || r.collision)
-                .map((r, i) => (
-                  <p key={i} className="text-footnote text-muted">
-                    <span className="text-ink">{r.filename}</span>
-                    {": "}
-                    {r.error ? (
-                      <span className="text-red-600 dark:text-red-400">{r.error}</span>
-                    ) : r.collision ? (
-                      <span className="text-amber-600 dark:text-amber-400">{t("upload.raw.collision")}</span>
-                    ) : (
-                      <span className="text-emerald-700 dark:text-emerald-400">
-                        {t("upload.raw.filedUnder", {
-                          name: speciesName({
-                            commonName: r.speciesCommonName,
-                            scientificName: r.speciesScientificName ?? "",
-                          }),
-                        })}
-                      </span>
-                    )}
-                  </p>
-                ))}
+              <RawResultList results={rawResults} />
             </div>
           )}
         </details>

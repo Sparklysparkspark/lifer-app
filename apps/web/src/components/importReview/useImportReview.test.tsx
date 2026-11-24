@@ -172,4 +172,20 @@ describe("useImportReview", () => {
     act(() => result.current.openCompare("p2"));
     expect(result.current.compare?.group).toBeNull();
   });
+
+  it("passes imported photos by: no keys, ticks, bulk picks or clearing reach them", () => {
+    const done = { ...row("p1"), speciesId: "p1-a", speciesLabel: "p1-a", locked: true };
+    const { result } = setup([done, row("p2")]);
+    expect(result.current.activeRow?.key).toBe("p2");
+    press("ArrowUp");
+    expect(result.current.activeRow?.key).toBe("p2");
+    act(() => result.current.toggleSelected("p1"));
+    expect(result.current.rows[0].speciesId).toBe("p1-a");
+    act(() => result.current.toggleSelected("p2"));
+    act(() => result.current.assignSpecies(["p1", "p2"], sp("x") as never));
+    expect(result.current.rows[0].speciesId).toBe("p1-a");
+    expect(result.current.rows[1].speciesId).toBe("x");
+    act(() => result.current.markNoAnimal(["p1"]));
+    expect(result.current.rows[0].notWildlife).toBeUndefined();
+  });
 });

@@ -6,6 +6,8 @@ import ProgressBar from "../ProgressBar";
 import { formatNumber } from "../../lib/format";
 import { useSpeciesName } from "../../lib/speciesName";
 import type { KnownFile } from "../../lib/knownFiles";
+import { useLightbox } from "../Lightbox";
+import { photoSlide } from "../../lib/photoSlide";
 
 // Long lists stay quick: the rest are still covered by "Import all anyway".
 const SHOWN = 300;
@@ -35,6 +37,7 @@ export default function KnownFiles({
   const { t } = useTranslation();
   const speciesName = useSpeciesName();
   const [open, setOpen] = useState(false);
+  const viewer = useLightbox();
   if (known.length === 0 && edited === 0 && !checking) return null;
   const n = (count: number) => ({ count, formatted: formatNumber(count) });
   const inLifer = known.filter((k) => k.status === "imported");
@@ -55,11 +58,19 @@ export default function KnownFiles({
           {files.slice(0, shown).map((k, i) => (
             <div key={k.path ?? `${i}-${k.name}`} className="flex flex-wrap items-center gap-3 p-3" data-known-row>
               {k.match?.photoId && (
-                <img
-                  src={`/api/photos/${k.match.photoId}/thumb`}
-                  alt=""
-                  className="h-10 w-10 shrink-0 rounded-badge object-cover"
-                />
+                // raw-control: the library photo this file became, opening full size.
+                <button
+                  type="button"
+                  aria-label={t("import.known.inLiferAs", { species: speciesName(k.match) })}
+                  onClick={() => viewer.open([photoSlide({ photoId: k.match!.photoId! })])}
+                  className="shrink-0 rounded-badge focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                >
+                  <img
+                    src={`/api/photos/${k.match.photoId}/thumb`}
+                    alt=""
+                    className="block h-10 w-10 rounded-badge object-cover"
+                  />
+                </button>
               )}
               <div className="min-w-0 flex-1 basis-48">
                 <p className="text-callout text-ink wrap-anywhere">{k.name}</p>
@@ -82,6 +93,7 @@ export default function KnownFiles({
 
   return (
     <section className="space-y-2" data-known-files>
+      {viewer.node}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-callout">
         {known.length > 0 && <span className="font-medium text-ink">{summary.join(", ")}</span>}
         {edited > 0 && <span className="text-muted">{t("import.known.edited", n(edited))}</span>}

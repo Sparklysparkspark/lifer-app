@@ -231,6 +231,25 @@ describe("PhotoImportRows, picking a folder again", () => {
     );
   });
 
+  it("counts as stayed only the originals the server chose to leave, not ones it never tried to move", async () => {
+    localStorage.setItem("lifer:import.moveOriginals", "1");
+    desktopFolder((path) =>
+      path === "/uploads"
+        ? Promise.resolve({ captureId: "cap-1" })
+        : path === "/uploads/source-folders/clear"
+          ? Promise.resolve({ cleared: 0, sidecars: 0, trashed: [], kept: [] })
+          : undefined,
+    );
+    renderRows();
+    fireEvent.click(await screen.findByRole("button", { name: "Import new photos from Tofino" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Great Blue Heron.*match/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 photo" }));
+    await waitFor(() => expect(toast.show).toHaveBeenCalled());
+    expect(vi.mocked(toast.show).mock.calls[0][0]).toBe(
+      "1 photo filed under 1 species. Moved 0 photos into your library.",
+    );
+  });
+
   it("says in plain words why an original stayed, and counts it", async () => {
     localStorage.setItem("lifer:import.moveOriginals", "1");
     desktopFolder((path) =>
@@ -246,7 +265,7 @@ describe("PhotoImportRows, picking a folder again", () => {
     fireEvent.click(screen.getByRole("button", { name: "Import 1 photo" }));
     expect(
       await screen.findByText(
-        "✓ Imported The original stays where it is: Lifer couldn't confirm its copy in your library.",
+        "Imported The original stays where it is: Lifer couldn't confirm its copy in your library.",
       ),
     ).toBeTruthy();
     expect(vi.mocked(toast.show).mock.calls[0][0]).toBe(
@@ -254,22 +273,16 @@ describe("PhotoImportRows, picking a folder again", () => {
     );
   });
 
-  it("clears out the files already in Lifer after saying how many", async () => {
-    const { folder } = desktopFolder((path, body) =>
+  it("clears out the files already in Lifer at once, the toast saying how many", async () => {
+    const { folder } = desktopFolder((path) =>
       path === "/uploads/source-folders/clear"
-        ? Promise.resolve(
-            (body as { dryRun: boolean }).dryRun
-              ? { cleared: 1, sidecars: 1, trashed: [], kept: [] }
-              : { cleared: 1, sidecars: 1, trashed: [`${folder}/old.jpg`, `${folder}/old.xmp`], kept: [] },
-          )
+        ? Promise.resolve({ cleared: 1, sidecars: 1, trashed: [`${folder}/old.jpg`, `${folder}/old.xmp`], kept: [] })
         : undefined,
     );
     renderRows();
     fireEvent.click(await screen.findByRole("button", { name: "Import new photos from Tofino" }));
     fireEvent.click(await screen.findByRole("button", { name: "Move the ones already in Lifer to the Trash" }));
-    await waitFor(() =>
-      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ title: "Move 1 file to the Trash?" })),
-    );
+    // The Trash keeps them, so there's no question first (ux-rules F7).
     await waitFor(() =>
       expect(toast.show).toHaveBeenCalledWith(
         "Moved 1 file and 1 sidecar file to the Trash. It's still there if you need it.",

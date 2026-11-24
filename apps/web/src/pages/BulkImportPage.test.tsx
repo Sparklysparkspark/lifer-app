@@ -95,13 +95,13 @@ describe("BulkImportPage", () => {
     expect(screen.queryByText(/Adding to/)).toBeNull();
   });
 
-  it("with several active trips, asks which before any photos can be added, and remembers the pick", async () => {
+  it("with several active trips, starts on no trip with photos addable at once, and remembers a pick", async () => {
     const both = [trip("t1", "Costa Rica 2026", day(-2)), trip("t2", "Osa", day(-1), day(3))];
     withTrips(both);
     const first = renderPage();
     const select = (await screen.findByRole("combobox", { name: "Trip" })) as HTMLSelectElement;
-    expect(select.value).toBe("");
-    expect(pickArea()).toBeNull();
+    expect(select.value).toBe("none");
+    expect(pickArea()).toBeTruthy();
     fireEvent.change(select, { target: { value: "t2" } });
     expect(screen.getByText("Adding to Osa")).toBeTruthy();
     expect(pickArea()).toBeTruthy();

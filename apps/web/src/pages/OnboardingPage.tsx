@@ -11,6 +11,7 @@ import RegionPicker from "../components/RegionPicker";
 import PacksMap from "../components/PacksMap";
 import { Spinner } from "../components/LoadingScreen";
 import Pill from "../components/Pill";
+import Chevron from "../components/Chevron";
 import FormMessage from "../components/FormMessage";
 import JobProgress from "../components/JobProgress";
 import { usePackDownloadJob } from "../hooks/usePackDownloadStatus";
@@ -103,6 +104,7 @@ export default function OnboardingPage() {
   const desktop = useDeploymentMode() === "desktop";
   const [step, setStep] = useState<Step>("regions");
   const [backError, setBackError] = useState<string | null>(null);
+  const [browseOpen, setBrowseOpen] = useState(false);
   // An earlier Lifer install's library in this folder: its countries and groups, offered back.
   const [existing, setExisting] = useState<{
     found: boolean;
@@ -278,7 +280,8 @@ export default function OnboardingPage() {
     if (!invoke) return;
     try {
       const result = (await invoke("return_to_setup")) as { error?: string } | null;
-      if (result?.error) setBackError(result.error);
+      // The desktop shell's own wording can be a raw file error, so the plain line stands in.
+      if (result?.error) setBackError(t("onboarding.backFailed"));
     } catch (err) {
       setBackError(errorMessage(err, t("onboarding.backFailed")));
     }
@@ -397,11 +400,13 @@ export default function OnboardingPage() {
                   </div>
                 )}
 
-                <details className="group rounded-panel border border-line bg-surface">
-                  <summary className="cursor-pointer list-none px-panel py-3 text-headline font-medium text-ink">
-                    <span className="mr-2 inline-block transition-transform group-open:rotate-90" aria-hidden="true">
-                      ›
-                    </span>
+                <details
+                  className="rounded-panel border border-line bg-surface"
+                  open={browseOpen}
+                  onToggle={(e) => setBrowseOpen(e.currentTarget.open)}
+                >
+                  <summary className="flex cursor-pointer list-none items-center gap-2 px-panel py-3 text-headline font-medium text-ink">
+                    <Chevron open={browseOpen} />
                     {t("onboarding.regions.browse")}
                   </summary>
                   <div className="space-y-3 px-panel pb-panel">
@@ -526,12 +531,7 @@ export default function OnboardingPage() {
                               onClick={() => setOpenTaxonGroups((prev) => toggled(prev, group.key))}
                               className="flex flex-1 items-center gap-2 text-left text-headline font-medium text-ink"
                             >
-                              <span
-                                aria-hidden="true"
-                                className={`inline-block transition-transform ${isOpen ? "rotate-90" : ""}`}
-                              >
-                                ›
-                              </span>
+                              <Chevron open={isOpen} />
                               {group.label}
                               <span className="text-callout font-normal text-muted">
                                 {t("onboarding.groups.chosenOf", { chosen, total: inGroup.length })}
@@ -567,9 +567,8 @@ export default function OnboardingPage() {
                 )}
                 <p className="text-callout text-muted">{t("onboarding.groups.later")}</p>
                 <FormMessage error={job.actionError} />
-                {setup === "failed" && status?.error && (
-                  <FormMessage error={t("onboarding.groups.downloadFailed", { error: status.error })} />
-                )}
+                {/* The job's own error is for the logs; the fix is the same whatever it says. */}
+                {setup === "failed" && status?.error && <FormMessage error={t("onboarding.groups.downloadFailed")} />}
                 <div className="flex items-center justify-end gap-3">
                   {taxa.size === 0 && availableTaxa.length > 0 && (
                     <p className="text-callout text-muted">{t("onboarding.groups.chooseOne")}</p>
@@ -609,15 +608,23 @@ export default function OnboardingPage() {
                 />
               </Panel>
             ) : (
-              startedHere &&
-              status?.error && <FormMessage error={t("onboarding.groups.downloadFailed", { error: status.error })} />
+              startedHere && status?.error && <FormMessage error={t("onboarding.groups.downloadFailed")} />
             )}
             {existing?.found && !reimport.actionError && (
               <Panel>
                 {reimport.status?.running || !reimport.status?.finishedAt ? (
                   <JobProgress status={reimport.status} phases={{}} fallbackLabel={t("onboarding.done.bringingBack")} />
                 ) : reimport.status.error ? (
-                  <FormMessage error={reimport.status.error} />
+                  <div className="space-y-2">
+                    <FormMessage error={t("onboarding.done.bringBackFailed")} />
+                    <Button
+                      variant="secondary"
+                      loading={reimport.starting}
+                      onClick={() => void startReimport(REIMPORT_URL, {})}
+                    >
+                      {t("common.retry")}
+                    </Button>
+                  </div>
                 ) : (
                   <FormMessage success={t("onboarding.done.broughtBack")} />
                 )}
@@ -644,10 +651,12 @@ export default function OnboardingPage() {
               </Button>
             </div>
             <div className="-ml-3 flex flex-wrap gap-1">
-              {/* I-04: a Lightroom Classic catalogue as the first source. */}
-              <Button variant="ghost" onClick={() => navigate("/import/lightroom", { replace: true })}>
-                {t("onboarding.done.lightroom")}
-              </Button>
+              {/* I-04: a Lightroom Classic catalogue as the first source; it reads a file on this computer. */}
+              {desktop && (
+                <Button variant="ghost" onClick={() => navigate("/import/lightroom", { replace: true })}>
+                  {t("onboarding.done.lightroom")}
+                </Button>
+              )}
               <Button variant="ghost" onClick={() => navigate(firstCountry, { replace: true, state: TOUR_STATE })}>
                 {t("tour.start")}
               </Button>

@@ -80,4 +80,39 @@ describe("ImportPlaceGroups", () => {
     expect(screen.queryByText("r5")).toBeNull();
     expect(screen.getByRole("button", { name: "Place for all photos" })).toBeTruthy();
   });
+
+  it("places only the photos without GPS in a mixed group, and the dialog counts those (A5)", () => {
+    const gps = { lat: 53.9, lon: -122.7, regionId: "bc", town: "Prince George" };
+    const { sections } = setup([[row("a", "07:00", gps), row("b", "07:05"), row("c", "07:06")]]);
+    fireEvent.click(within(sections[0]).getByRole("button", { name: "1 from the camera, 2 without" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Choose a place" }));
+    expect(screen.getByRole("dialog", { name: "Place for 2 photos" })).toBeTruthy();
+  });
+
+  it("an imported group offers no place changes, and a RAW with its JPG counts as one photo", () => {
+    const done = (key: string, time: string) => ({ ...row(key, time), captureId: `c-${key}` });
+    const jpg = { ...done("jpg", "07:00"), partnerKey: "raw", samePhotoAs: "raw.CR3" };
+    const { sections } = setup([[done("raw", "07:00"), jpg]]);
+    expect(within(sections[0]).getByText(/^1 photo,/)).toBeTruthy();
+    expect(within(sections[0]).queryByRole("button", { name: "Set place" })).toBeNull();
+    expect(within(sections[0]).getByText("Set place")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Place for all photos" })).toBeNull();
+  });
+
+  it("a collapsed group says how many photos its thumbnails leave out", () => {
+    const groups = Array.from({ length: 6 }, (_, i) => [row(`r${i}`, `${String(i * 2).padStart(2, "0")}:00`)]);
+    groups[5] = Array.from({ length: 7 }, (_, i) => row(`x${i}`, `12:0${i}`));
+    render(
+      <ImportPlaceGroups
+        groups={groups}
+        activeKey={null}
+        regionId={null}
+        onPlace={vi.fn()}
+        onLabel={vi.fn()}
+        thumb={() => "blob:x"}
+        renderRow={(r) => <div key={r.key}>{r.key}</div>}
+      />,
+    );
+    expect(screen.getByText("+3")).toBeTruthy();
+  });
 });

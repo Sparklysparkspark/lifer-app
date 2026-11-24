@@ -4,6 +4,7 @@ import type { TFunction } from "i18next";
 import type { ApiResponse } from "../api/client";
 import { useJobPoll } from "../hooks/useJobPoll";
 import { useToast } from "../hooks/useToast";
+import { errorMessage } from "../lib/errorMessage";
 import JobProgress from "./JobProgress";
 import Modal from "./Modal";
 import Button from "./Button";
@@ -67,7 +68,8 @@ export default function TripFileMoveTray() {
     onFinish: (status) => {
       if (status.tripId) window.dispatchEvent(new CustomEvent(TRIP_FILES_MOVED, { detail: status.tripId }));
       if (status.cancelled) toast.info(t("trips.files.cancelled", { count: status.moved }));
-      else if (status.error) toast.show(status.error, { tone: "error", durationMs: null });
+      else if (status.error)
+        toast.show(errorMessage(status.error, t("trips.files.notFinished")), { tone: "error", durationMs: null });
       else if (status.result) {
         const result = status.result;
         const clean = result.folderUpdated && result.details.length === 0;

@@ -39,6 +39,8 @@ export interface ReviewRowBase {
   partnerKey?: string;
   /** On the partner that follows the other: that file's name. */
   samePhotoAs?: string;
+  /** Imported or importing: its species is settled, so the review's keys and ticks pass it by. */
+  locked?: boolean;
 }
 
 /** Compare mode's opening state: the photo, the ticked photos it confirms with, a species to show first. */
@@ -89,8 +91,9 @@ export function useImportReview<R extends ReviewRowBase>(
   // Set when a row was just assigned (or reopened with Up), so the next row to do is scrolled into view.
   const scrollToActiveRow = useRef(false);
 
+  const lockedKeys = new Set(rows.filter((r) => r.locked).map((r) => r.key));
   function assignSpecies(picked: string[], result: SpeciesResult) {
-    const keys = withPartners(picked);
+    const keys = withPartners(picked).filter((k) => !lockedKeys.has(k));
     setRows((prev) =>
       prev.map((r) =>
         // Picking a species by hand overrides a "doesn't look like wildlife" flag.
@@ -167,7 +170,8 @@ export function useImportReview<R extends ReviewRowBase>(
   /** "No animal": the photos are left out like ones that don't look like wildlife (the row's
    *  "Import anyway" brings one back, Mod+Z the whole step), and the keys move on. */
   function markNoAnimal(picked: string[]) {
-    const keys = withPartners(picked);
+    const keys = withPartners(picked).filter((k) => !lockedKeys.has(k));
+    if (keys.length === 0) return;
     remember(keys);
     setRows((prev) =>
       prev.map((r) =>
@@ -190,7 +194,7 @@ export function useImportReview<R extends ReviewRowBase>(
 
   // Backspace: the photo goes back to its suggestions, its pick highlighted, undoably.
   function clearSpecies(row: R) {
-    if (!row.speciesId || row.rawMatch || row.editedVersionOf) return;
+    if (!row.speciesId || row.rawMatch || row.editedVersionOf || row.locked) return;
     remember([row.key]);
     reopen(row);
   }
@@ -208,6 +212,7 @@ export function useImportReview<R extends ReviewRowBase>(
   function toggleSelected(key: string) {
     // A tick means confirmed, so unticking a confirmed photo reopens its suggestions.
     const row = rows.find((r) => r.key === key);
+    if (row?.locked) return;
     if (row?.speciesId && !row.rawMatch && !row.editedVersionOf && selected.has(key)) {
       reopen(row);
       setCursorKey(key);
@@ -253,7 +258,8 @@ export function useImportReview<R extends ReviewRowBase>(
   // Keyboard actions target the cursor row, else the first unassigned row; not-wildlife rows are skipped.
   // A partner follows its pair's other file, so it's never the next one to do.
   const activeRow =
-    rows.find((r) => r.key === cursorKey) ?? rows.find((r) => !r.speciesId && !r.notWildlife && !r.samePhotoAs);
+    rows.find((r) => r.key === cursorKey && !r.locked) ??
+    rows.find((r) => !r.speciesId && !r.notWildlife && !r.samePhotoAs && !r.locked);
   const activeKey = activeRow?.key;
   // A new active row starts at its first suggestion.
   const [highlightIndex, setHighlightIndex] = useState(0);
@@ -271,15 +277,18 @@ export function useImportReview<R extends ReviewRowBase>(
   }, [activeKey]);
 
   function moveCursor(step: 1 | -1) {
-    const from = activeRow ? rows.indexOf(activeRow) : step > 0 ? -1 : rows.length;
-    const next = rows[Math.min(Math.max(from + step, 0), rows.length - 1)];
+    const open = rows.filter((r) => !r.locked);
+    const from = activeRow ? open.indexOf(activeRow) : step > 0 ? -1 : open.length;
+    const next = open[Math.min(Math.max(from + step, 0), open.length - 1)];
     if (!next) return;
     setCursorKey(next.key);
     scrollToActiveRow.current = true;
   }
 
   // Ticks on confirmed rows mean "confirmed", so bulk assign acts only on the ones still to do.
-  const bulkKeys = rows.filter((r) => selected.has(r.key) && !r.speciesId && !r.samePhotoAs).map((r) => r.key);
+  const bulkKeys = rows
+    .filter((r) => selected.has(r.key) && !r.speciesId && !r.samePhotoAs && !r.locked)
+    .map((r) => r.key);
 
   // A ticked photo compares with the rest of the ticked ones still to confirm, as one set.
   function openCompare(key: string, speciesId?: string) {

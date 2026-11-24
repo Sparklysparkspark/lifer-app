@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { groupImportRows, groupPlace, rowTime, type PlaceableRow, type StagedPlace } from "./importGroups";
+import {
+  groupImportRows,
+  groupPlace,
+  needingPlace,
+  photoCount,
+  rowTime,
+  type PlaceableRow,
+  type StagedPlace,
+} from "./importGroups";
 
 // `time` is the camera's own clock, as /uploads/inspect returns it (no zone).
 const row = (key: string, time: string, regionId?: string, extra: Partial<PlaceableRow> = {}): PlaceableRow => ({
@@ -95,5 +103,28 @@ describe("groupPlace", () => {
     g[0].place = { ...pond };
     g[1].place = { ...pond };
     expect(groupPlace(g)).toEqual(pond);
+  });
+});
+
+describe("photoCount", () => {
+  it("counts a RAW and its JPG once, but each on its own when only one is in the rows", () => {
+    const raw = row("raw", "2026-09-14T07:00:00");
+    const jpg = row("jpg", "2026-09-14T07:00:00", undefined, { partnerKey: "raw", samePhotoAs: "IMG_1.CR3" });
+    expect(photoCount([raw, jpg, row("x", "2026-09-14T08:00:00")])).toBe(2);
+    expect(photoCount([jpg])).toBe(1);
+  });
+});
+
+describe("needingPlace", () => {
+  it("leaves out imported photos, and photos with GPS when some lack it", () => {
+    const mixed = [
+      row("gps", "2026-09-14T07:00:00", "bc"),
+      row("none", "2026-09-14T07:01:00"),
+      row("done", "2026-09-14T07:02:00", undefined, { captureId: "c1" }),
+    ];
+    expect(needingPlace(mixed).map((r) => r.key)).toEqual(["none"]);
+    // Every one has GPS: choosing a place is naming it on purpose.
+    const located = [row("a", "2026-09-14T07:00:00", "bc"), row("b", "2026-09-14T07:01:00", "bc")];
+    expect(needingPlace(located).map((r) => r.key)).toEqual(["a", "b"]);
   });
 });

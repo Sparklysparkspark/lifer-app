@@ -1,7 +1,7 @@
 // The review queue: photos Lifer filed by itself (captures/identification.ts) wait here, grouped
 // by encounter, until the user confirms them or picks another species. Confirmed photos never
 // appear. Fully keyboard driven through the registry's "review" scope.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { api, apiPath, type ApiResponse } from "../api/client";
@@ -10,6 +10,9 @@ import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
 import ProbableGroupText from "../components/ProbableGroupText";
 import ProgressBar from "../components/ProgressBar";
+import SpeciesPicker from "../components/SpeciesPicker";
+import { useLightbox } from "../components/Lightbox";
+import { photoSlide } from "../lib/photoSlide";
 import { isTypingTarget } from "../hooks/useKeyboardShortcuts";
 import { useToast } from "../hooks/useToast";
 import { refreshReviewCount } from "../hooks/useReviewCount";
@@ -27,6 +30,8 @@ const MAX_ALTERNATIVES = 4;
 const REVIEW_KEYS = ["reviewConfirm", "reviewPick", "reviewNotSure", "reviewNext", "reviewPrevious"] as const;
 
 const encounterKey = (e: Encounter) => e.captureIds[0] ?? e.speciesId;
+// A confirm or "file as" waits this long for Undo before it's sent: as long as its toast stays.
+const UNDO_MS = 8000;
 
 function section(e: Encounter): "lifers" | "leastSure" | "rest" {
   if (e.possibleLifer) return "lifers";
@@ -99,42 +104,88 @@ export default function ReviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the encounter, not its object
   }, [currentKey]);
 
-  const settle = useCallback((e: Encounter) => {
-    setDoneKeys((d) => new Set(d).add(encounterKey(e)));
-    setConfirmedExtra((n) => n + e.captureIds.length);
+  const settle = useCallback((e: Encounter, done: boolean) => {
+    setDoneKeys((d) => {
+      const next = new Set(d);
+      if (done) next.add(encounterKey(e));
+      else next.delete(encounterKey(e));
+      return next;
+    });
+    setConfirmedExtra((n) => n + (done ? e.captureIds.length : -e.captureIds.length));
   }, []);
 
-  const confirm = useCallback(
-    (e: Encounter) => {
-      settle(e);
-      api
-        .post("/identifications/confirm", { captureIds: e.captureIds })
-        .catch(() => {
-          toast.error(t("review.confirmFailed"));
-          load();
-        })
-        .finally(refreshReviewCount);
+  // Each decision moves on at once and is sent once its Undo has passed (or the page is left).
+  const pending = useRef(new Map<string, () => Promise<unknown>>());
+  useEffect(() => {
+    const all = pending.current;
+    return () => all.forEach((send) => void send());
+  }, []);
+  const decide = useCallback(
+    (e: Encounter, message: string, run: () => Promise<unknown>) => {
+      settle(e, true);
+      const key = encounterKey(e);
+      const send = () => {
+        clearTimeout(timer);
+        pending.current.delete(key);
+        return run().finally(refreshReviewCount);
+      };
+      const timer = setTimeout(() => void send(), UNDO_MS);
+      pending.current.set(key, send);
+      const undo = () => {
+        if (!pending.current.has(key)) return;
+        clearTimeout(timer);
+        pending.current.delete(key);
+        settle(e, false);
+      };
+      toast.show(message, { tone: "success", actions: [{ label: t("common.undo"), onClick: undo }] });
     },
-    [settle, toast, t, load],
+    [settle, toast, t],
   );
 
-  // Another species for the whole encounter; files move, so it runs on without holding the queue.
+  const confirm = useCallback(
+    (e: Encounter) =>
+      decide(
+        e,
+        t("review.confirmed", {
+          count: e.captureIds.length,
+          formatted: formatNumber(e.captureIds.length),
+          name: name({ commonName: e.commonName, scientificName: e.scientificName }),
+        }),
+        () =>
+          api.post("/identifications/confirm", { captureIds: e.captureIds }).catch(() => {
+            toast.error(t("review.confirmFailed"));
+            load();
+          }),
+      ),
+    [decide, name, toast, t, load],
+  );
+
+  // Another species for the whole encounter: a suggestion, or any species picked by hand.
   const fileAs = useCallback(
-    (e: Encounter, s: Suggestion) => {
-      settle(e);
-      const label = name({ commonName: s.common_name, scientificName: s.scientific_name });
-      mapWithConcurrency(e.captureIds, 4, (id) =>
-        api.patch(apiPath("/captures/{id}/reassign", { id }), { speciesId: s.id }),
-      )
-        .then(() => toast.show(t("review.filedAs", { count: e.captureIds.length, name: label })))
-        .catch(() => {
+    (e: Encounter, speciesId: string, label: string) =>
+      decide(e, t("review.filedAs", { count: e.captureIds.length, name: label }), () =>
+        mapWithConcurrency(e.captureIds, 4, (id) =>
+          api.patch(apiPath("/captures/{id}/reassign", { id }), { speciesId }),
+        ).catch(() => {
           toast.error(t("review.fileFailed", { name: label }));
           load();
-        })
-        .finally(refreshReviewCount);
-    },
-    [settle, name, toast, t, load],
+        }),
+      ),
+    [decide, toast, t, load],
   );
+  const fileAsSuggestion = useCallback(
+    (e: Encounter, s: Suggestion) =>
+      fileAs(e, s.id, name({ commonName: s.common_name, scientificName: s.scientific_name })),
+    [fileAs, name],
+  );
+
+  // The loaded sightings are done but more wait on the server: send what's pending, then fetch them.
+  const more = !!queue && queue.encounterCount > queue.encounters.length;
+  useEffect(() => {
+    if (!more || waiting.length > 0) return;
+    void Promise.all([...pending.current.values()].map((send) => send())).then(load);
+  }, [more, waiting.length, load]);
+  const viewer = useLightbox();
 
   const notSure = useCallback(() => {
     setIndex((i) => (waiting.length === 0 ? 0 : (i + 1) % waiting.length));
@@ -153,12 +204,12 @@ export default function ReviewPage() {
       else {
         const n = KEYMAP.reviewPick.chords.findIndex((c) => matchesChord(ev, c));
         if (n === 0) confirm(current);
-        else if (alternatives[n - 1]) fileAs(current, alternatives[n - 1]!);
+        else if (alternatives[n - 1]) fileAsSuggestion(current, alternatives[n - 1]!);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [current, confirm, fileAs, notSure, alternatives, waiting.length]);
+  }, [current, confirm, fileAsSuggestion, notSure, alternatives, waiting.length]);
 
   if (failed)
     return (
@@ -257,17 +308,32 @@ export default function ReviewPage() {
         </nav>
 
         <section aria-label={label} className="flex min-w-0 flex-1 flex-col gap-4">
-          {/* Fixed frame, letterboxed, so the layout holds still between photos. */}
-          <div className="flex h-[55vh] min-h-64 items-center justify-center overflow-hidden rounded-panel bg-surround">
+          {/* Fixed frame, letterboxed, so the layout holds still between photos. Opens full size. */}
+          {/* raw-control: the whole frame is the button that opens the viewer. */}
+          <button
+            type="button"
+            aria-label={label}
+            disabled={!shownPhoto}
+            onClick={() => {
+              const ids = photoIds.flatMap((id) => (id ? [id] : []));
+              const all = ids.length > 0 ? ids : [shownPhoto!];
+              viewer.open(
+                all.map((photoId) => photoSlide({ photoId })),
+                all.indexOf(shownPhoto!),
+              );
+            }}
+            className="flex h-[55vh] min-h-64 cursor-zoom-in items-center justify-center overflow-hidden rounded-panel bg-surround focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
             {shownPhoto && (
               <img
                 key={shownPhoto}
                 src={`/api/photos/${shownPhoto}/display`}
-                alt={label}
+                alt=""
                 className="max-h-full max-w-full object-contain"
               />
             )}
-          </div>
+          </button>
+          {viewer.node}
           {photoIds.length > 1 && (
             <div
               className="flex gap-1.5 overflow-x-auto pb-1"
@@ -315,7 +381,7 @@ export default function ReviewPage() {
                 })}
               </Button>
               {alternatives.map((s, i) => (
-                <Button key={s.id} variant="secondary" onClick={() => fileAs(current, s)}>
+                <Button key={s.id} variant="secondary" onClick={() => fileAsSuggestion(current, s)}>
                   {t("review.alternative", {
                     n: i + 2,
                     name: name({ commonName: s.common_name, scientificName: s.scientific_name }),
@@ -327,12 +393,22 @@ export default function ReviewPage() {
                 {t("review.notSure")}
               </Button>
             </div>
+            {/* None of the suggestions: any species, filed the same way. */}
+            <div className="w-72 max-w-full">
+              <SpeciesPicker
+                key={currentKey}
+                ariaLabel={t("review.otherSpecies")}
+                placeholder={t("import.rows.typeSpecies")}
+                regionId={current.regionId}
+                onSelect={(r) => fileAs(current, r.id, name(r))}
+              />
+            </div>
             <p className="text-footnote text-muted">
               {t("review.keys", {
                 confirm: shortcutLabel("reviewConfirm"),
                 notSure: shortcutLabel("reviewNotSure"),
                 position: currentIndex + 1,
-                total: waiting.length,
+                total: formatNumber(queue.encounterCount - doneKeys.size),
               })}
             </p>
           </div>

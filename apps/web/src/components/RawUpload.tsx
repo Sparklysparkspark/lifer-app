@@ -6,7 +6,7 @@ import Button from "./Button";
 import FormMessage from "./FormMessage";
 import { RAW_EXTENSIONS, extname } from "../lib/rawExtensions";
 
-interface RawUploadOutcome {
+export interface RawUploadOutcome {
   filename: string;
   linked: boolean;
   collision: boolean;
@@ -38,7 +38,6 @@ export default function RawUpload({
   onFiled?: () => void;
 }) {
   const { t } = useTranslation();
-  const speciesName = useSpeciesName();
   const [results, setResults] = useState<RawUploadOutcome[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const filesInputRef = useRef<HTMLInputElement>(null);
@@ -106,9 +105,6 @@ export default function RawUpload({
     if (folderInputRef.current) folderInputRef.current.value = "";
   }
 
-  const rowSpeciesName = (r: RawUploadOutcome) =>
-    speciesName({ commonName: r.speciesCommonName, scientificName: r.speciesScientificName ?? "" });
-
   const successCount = results?.filter((r) => r.linked || r.filed).length ?? 0;
 
   return (
@@ -158,28 +154,41 @@ export default function RawUpload({
           <p className="text-footnote font-medium text-muted">
             {t("upload.raw.addedCount", { added: successCount, total: results.length })}
           </p>
-          {/* A folder run can be hundreds of files, so plain "no match" rows are left out. */}
-          {results
-            .filter((r) => r.linked || r.filed || r.duplicate || r.error || r.collision)
-            .map((r, i) => (
-              <p key={i} className="text-footnote text-muted">
-                <span className="text-ink">{r.filename}</span>
-                {": "}
-                {r.error ? (
-                  <span className="text-rose-700 dark:text-rose-400">{r.error}</span>
-                ) : r.collision ? (
-                  <span className="text-amber-600">{t("upload.raw.collision")}</span>
-                ) : r.duplicate ? (
-                  <span className="text-muted">{t("upload.raw.duplicate")}</span>
-                ) : r.filed ? (
-                  <span className="text-emerald-700">{t("upload.raw.addedToFolder", { name: rowSpeciesName(r) })}</span>
-                ) : (
-                  <span className="text-emerald-700">{t("upload.raw.filedUnder", { name: rowSpeciesName(r) })}</span>
-                )}
-              </p>
-            ))}
+          <RawResultList results={results} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** What happened to each RAW, in a list that scrolls. A folder run can be hundreds of files, so
+ *  plain "no match" rows are left out (the count above covers them). */
+export function RawResultList({ results }: { results: RawUploadOutcome[] }) {
+  const { t } = useTranslation();
+  const speciesName = useSpeciesName();
+  const rowSpeciesName = (r: RawUploadOutcome) =>
+    speciesName({ commonName: r.speciesCommonName, scientificName: r.speciesScientificName ?? "" });
+  const shown = results.filter((r) => r.linked || r.filed || r.duplicate || r.error || r.collision);
+  if (shown.length === 0) return null;
+  return (
+    <div className="max-h-80 space-y-1 overflow-y-auto">
+      {shown.map((r, i) => (
+        <p key={r._key ?? `${i}-${r.filename}`} className="text-footnote text-muted wrap-anywhere">
+          <span className="text-ink">{r.filename}</span>
+          {": "}
+          {r.error ? (
+            <span className="text-rose-700 dark:text-rose-400">{r.error}</span>
+          ) : r.collision ? (
+            <span className="text-amber-600">{t("upload.raw.collision")}</span>
+          ) : r.duplicate ? (
+            <span className="text-muted">{t("upload.raw.duplicate")}</span>
+          ) : r.filed ? (
+            <span className="text-emerald-700">{t("upload.raw.addedToFolder", { name: rowSpeciesName(r) })}</span>
+          ) : (
+            <span className="text-emerald-700">{t("upload.raw.filedUnder", { name: rowSpeciesName(r) })}</span>
+          )}
+        </p>
+      ))}
     </div>
   );
 }

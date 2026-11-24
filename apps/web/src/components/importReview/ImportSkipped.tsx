@@ -8,7 +8,13 @@ import { useSpeciesName } from "../../lib/speciesName";
 import type { ReviewRowBase } from "./useImportReview";
 import { skipKind, type SkipKind } from "./compareQueue";
 
-const KINDS: SkipKind[] = ["notWildlife", "marked", "duplicate"];
+// Exact copies and look-alikes are both "duplicate", but only the first are really in Lifer already.
+type Section = SkipKind | "similar";
+const SECTIONS: Section[] = ["notWildlife", "marked", "duplicate", "similar"];
+const sectionOf = (row: ReviewRowBase): Section | null => {
+  const kind = skipKind(row);
+  return kind === "duplicate" && !row.possibleDuplicate?.exact ? "similar" : kind;
+};
 
 // Photos this import leaves out, kept out of the review list in one folded section at its end and
 // split by why, so they never get in the way of the ones to name. A verdict that arrives late moves
@@ -20,6 +26,7 @@ export default function ImportSkipped<R extends ReviewRowBase>({
   thumb,
   onRemove,
   onImportAnyway,
+  onOpen,
 }: {
   /** Rows `skipKind` gives a kind. */
   rows: R[];
@@ -27,6 +34,8 @@ export default function ImportSkipped<R extends ReviewRowBase>({
   thumb: (row: R) => string | null;
   onRemove: (keys: string[]) => void;
   onImportAnyway: (keys: string[]) => void;
+  /** Opens the photo full size. */
+  onOpen?: (row: R) => void;
 }) {
   const { t } = useTranslation();
   const speciesName = useSpeciesName();
@@ -35,10 +44,11 @@ export default function ImportSkipped<R extends ReviewRowBase>({
   const keys = rows.map((r) => r.key);
   const count = (n: number) => ({ count: n, formatted: formatNumber(n) });
   const title = t("import.skipped.title", count(rows.length));
-  const headings: Record<SkipKind, (n: number) => string> = {
+  const headings: Record<Section, (n: number) => string> = {
     notWildlife: (n) => t("import.skipped.notWildlife", count(n)),
     marked: (n) => t("import.skipped.marked", count(n)),
     duplicate: (n) => t("import.skipped.duplicates", count(n)),
+    similar: (n) => t("import.skipped.similar", count(n)),
   };
   const why = (row: R): string => {
     const dup = row.possibleDuplicate;
@@ -76,8 +86,8 @@ export default function ImportSkipped<R extends ReviewRowBase>({
         )}
       </div>
       {open &&
-        KINDS.map((kind) => {
-          const these = rows.filter((r) => skipKind(r) === kind);
+        SECTIONS.map((kind) => {
+          const these = rows.filter((r) => sectionOf(r) === kind);
           if (these.length === 0) return null;
           return (
             <div key={kind} className="mt-3" data-skip-kind={kind}>
@@ -92,11 +102,20 @@ export default function ImportSkipped<R extends ReviewRowBase>({
                       data-skipped-row={row.key}
                       className="flex flex-wrap items-center gap-3 p-3 motion-safe:transition-opacity motion-safe:duration-300 motion-safe:starting:opacity-0"
                     >
-                      {src ? (
-                        <img src={src} alt="" className="h-10 w-10 shrink-0 rounded-badge object-cover" />
-                      ) : (
-                        <div className="h-10 w-10 shrink-0 rounded-badge bg-surface-muted" />
-                      )}
+                      {/* raw-control: the thumbnail opens the photo full size, as the review rows do. */}
+                      <button
+                        type="button"
+                        aria-label={nameOf(row)}
+                        disabled={!onOpen}
+                        onClick={() => onOpen?.(row)}
+                        className="shrink-0 rounded-badge focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      >
+                        {src ? (
+                          <img src={src} alt="" className="block h-10 w-10 rounded-badge object-cover" />
+                        ) : (
+                          <span className="block h-10 w-10 rounded-badge bg-surface-muted" />
+                        )}
+                      </button>
                       <div className="min-w-0 flex-1 basis-48">
                         <p className="text-callout text-ink wrap-anywhere">{nameOf(row)}</p>
                         <p className="text-footnote text-muted wrap-anywhere">{why(row)}</p>

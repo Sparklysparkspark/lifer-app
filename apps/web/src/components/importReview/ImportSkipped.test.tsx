@@ -75,4 +75,26 @@ describe("ImportSkipped", () => {
     fireEvent.click(screen.getByRole("button", { name: "Import all anyway" }));
     expect(onImportAnyway).toHaveBeenLastCalledWith(["dup", "land", "mark"]);
   });
+
+  it("keeps look-alikes apart from exact copies, and opens a photo from its thumbnail", () => {
+    const similar = base("sim", {
+      possibleDuplicate: { ...(dup.possibleDuplicate as object), exact: false } as never,
+    });
+    const onOpen = vi.fn();
+    render(
+      <ImportSkipped
+        rows={[dup, similar]}
+        nameOf={(r) => `${r.key}.CR3`}
+        thumb={() => null}
+        onRemove={vi.fn()}
+        onImportAnyway={vi.fn()}
+        onOpen={onOpen}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Skipped/ }));
+    const kinds = [...document.querySelectorAll("[data-skip-kind] h3")].map((h) => h.textContent);
+    expect(kinds).toEqual(["Already in Lifer (1)", "Look like photos you have (1)"]);
+    fireEvent.click(screen.getByRole("button", { name: "sim.CR3" }));
+    expect(onOpen).toHaveBeenCalledWith(similar);
+  });
 });
