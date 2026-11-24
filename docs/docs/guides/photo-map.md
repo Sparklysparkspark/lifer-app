@@ -78,7 +78,7 @@ Placing more than 5,000 photos at once runs in the background, with progress and
 
 ## Countries and provinces {#regions}
 
-Click a country and the map flies to a fixed view of it: the country fills the map, the rest of the world is dimmed, and panning stays near it. Its provinces or states then become clickable too; click one to go into it the same way. The path above the map, such as **World / Canada / British Columbia**, goes back up a level, as does a click on the dimmed world, and **Reset view** (Cmd+0 on a Mac, Ctrl+0 elsewhere) brings the view back after you zoom or pan.
+Click any country, with photos or without, and the map flies to a fixed view of it, the same fit as the country picker on the packs page: the whole country fills the map with a small margin, the rest of the world is dimmed, and panning stays near it. Its provinces or states then become clickable too; click one to go into it the same way. The path above the map, such as **World / Canada / British Columbia**, goes back up a level, as does a click on the dimmed world, and **Reset view** (Cmd+0 on a Mac, Ctrl+0 elsewhere) brings the view back after you zoom or pan.
 
 Once you've zoomed in past a region's view, clicking land no longer changes the region, so the end of a drag or a look around never takes you elsewhere; dots, circles, rings and spots still open their photos. The end of a drag, a pinch or a scroll never counts as a click.
 

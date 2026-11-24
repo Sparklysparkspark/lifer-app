@@ -44,6 +44,8 @@ type Ring = number[][];
 type Geometry = { type: string; coordinates: unknown };
 
 export const FLY_MS = 900;
+/** Breathing room around a fitted country, the same on the Map page and the packs map. */
+export const FIT_PADDING = 32;
 /** The one 3D look: a fixed pitch once zoomed in far enough for relief to read (the elevation
  *  archive is detailed to zoom 5), flat again below a lower zoom so it doesn't flap at the edge.
  *  No free tilt or rotation anywhere. */

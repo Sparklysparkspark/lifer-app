@@ -3,6 +3,7 @@ import type { Map as MapLibreMap, PaddingOptions } from "maplibre-gl";
 import { matches } from "../lib/keymap";
 import {
   easeOut,
+  FIT_PADDING,
   panLimits,
   partFraming,
   regionCamera,
@@ -38,7 +39,7 @@ export function useRegionCamera(
   map: MapLibreMap | null,
   {
     tiltAt,
-    padding = 48,
+    padding = FIT_PADDING,
     onRelease,
   }: { tiltAt: (zoom: number) => boolean; padding?: number | PaddingOptions; onRelease?: () => void },
 ) {

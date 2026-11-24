@@ -6,6 +6,7 @@ import { useTheme } from "../hooks/useTheme";
 import { useMapAvailable } from "../hooks/useMapAvailable";
 import { ensurePmtilesProtocol, pmtilesStyle } from "../lib/pmtiles";
 import { token } from "../lib/mapStyle";
+import { FIT_PADDING } from "../lib/mapCamera";
 import { useLatest } from "../hooks/useLatest";
 
 export interface CountryBoundary {
@@ -230,7 +231,7 @@ export default function PacksMap({
       const maxLng = /^Russia/.test(country.name) ? RUSSIA_EUROPE_MAX_LNG : undefined;
       extendBoundsFromCoordinates(bounds, country.boundaryGeoJson.geometry.coordinates, maxLng);
     }
-    if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 32, maxZoom: 5 });
+    if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: FIT_PADDING, maxZoom: 5 });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- focusCountryIds is only a fly-to trigger
   }, [focusCountryIds, focusBounds, loaded]);
 

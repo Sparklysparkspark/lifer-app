@@ -29,7 +29,7 @@ import { MAP_FONT, token } from "../lib/mapStyle";
 import { REGION_MASK_LAYER } from "../lib/mapRegionLayers";
 import { useRegionCamera } from "../hooks/useRegionCamera";
 import { useCuratedTilt } from "../hooks/useCuratedTilt";
-import { curatedPitch, markMove, openingBounds, regionFraming, TILT, type TiltMode } from "../lib/mapCamera";
+import { curatedPitch, FIT_PADDING, markMove, openingBounds, regionFraming, TILT, type TiltMode } from "../lib/mapCamera";
 import { zoomOnto } from "../lib/zoomOnto";
 import {
   clusterRadius,
@@ -617,7 +617,7 @@ export default function PhotoMap({
   // The side column sits beside the map, so the map's own size already leaves it out.
   const region = useRegionCamera(mapObj, {
     tiltAt: (zoom) => curatedPitch(zoom, false, tiltMode, hasRelief) > 0,
-    padding: 48,
+    padding: FIT_PADDING,
     onRelease: () => releaseRef.current(),
   });
   // Set when a region is left by zooming out past it, so the next level comes without a flight.

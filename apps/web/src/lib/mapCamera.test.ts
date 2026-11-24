@@ -9,6 +9,7 @@ import {
   markMove,
   anchoredPosition,
   easeOut,
+  FIT_PADDING,
   zoomAnchor,
   framingBounds,
   lonSpan,
@@ -342,5 +343,17 @@ describe("viewAround", () => {
     expect([w, e]).toEqual([-90, 90]);
     expect(s).toBeCloseTo(-66.51, 1);
     expect(n).toBeCloseTo(66.51, 1);
+  });
+});
+
+describe("FIT_PADDING", () => {
+  // The Map page and the packs map fit a country with the same margin.
+  it("is the margin both maps use", () => {
+    expect(FIT_PADDING).toBe(32);
+  });
+
+  it("frames a country with no photos like any other: its whole outline, the antimeridian kept in one box", () => {
+    const fiji = multi(box(177, -19, 180, -16), box(-180, -17, -178.5, -16));
+    expect(regionFraming(fiji, null)?.bounds).toEqual([177, -19, 181.5, -16]);
   });
 });
