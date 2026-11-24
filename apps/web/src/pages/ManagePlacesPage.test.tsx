@@ -115,7 +115,7 @@ describe("ManagePlacesPage", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText('Remove "Pigeon Lake" from 42 photos?')).toBeTruthy();
     expect(within(dialog).getByText("Their regions stay.")).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove name" }));
     await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/places/remove", { name: "Pigeon Lake" }));
   });
 });

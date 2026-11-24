@@ -151,7 +151,7 @@ describe("the viewer's version switcher", () => {
   it("uses the chosen version as the photo", async () => {
     openViewer();
     fireEvent.click(await screen.findByRole("radio", { name: "Black and white" }));
-    fireEvent.click(screen.getByRole("button", { name: "Use this as the photo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use as the photo" }));
     await waitFor(() => expect(post).toHaveBeenCalledWith("/captures/g1/versions/show", { captureId: "v2" }));
     expect(toast.show).toHaveBeenCalled();
   });
@@ -286,7 +286,7 @@ describe("the Versions dialog", () => {
     expect(screen.getByText("Original · CR3 · 2560 × 1707 · 1 KB")).toBeTruthy();
     // Its own capture is already the photo, so the RAW isn't offered as one.
     fireEvent.click(screen.getAllByRole("button", { name: "More options" })[1]);
-    expect(screen.queryByRole("menuitem", { name: "Use this as the photo" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Use as the photo" })).toBeNull();
   });
 
   it("lists a few files and shows many as a grid, and remembers the choice", async () => {
@@ -385,7 +385,7 @@ describe("the notice after an import", () => {
 
   it("says what was grouped and stays dismissed until more is", async () => {
     wrap(<Notice />);
-    expect(await screen.findByText("Found 4 versions of 2 photos. Each is grouped as one photo.")).toBeTruthy();
+    expect(await screen.findByText("Found 4 versions of 2 photos. Each counts as one photo.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     await waitFor(() => expect(screen.queryByText(/Found 4 versions/)).toBeNull());
     expect(JSON.parse(localStorage.getItem("lifer:versionNoticeSeen")!)).toBe("2026-11-12T10:00:00.000Z");

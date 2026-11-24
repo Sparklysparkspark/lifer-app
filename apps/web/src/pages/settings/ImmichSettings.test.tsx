@@ -118,7 +118,7 @@ describe("Immich settings", () => {
     expect(screen.getByText("1 album chosen")).toBeTruthy();
     expect(await screen.findByText("Birds 2024")).toBeTruthy();
     expect(screen.getByText("A".repeat(300))).toBeTruthy();
-    expect(screen.getByText(/1,234 photos brought in\. 2 left out: Lifer couldn't tell the species\./)).toBeTruthy();
+    expect(screen.getByText(/1,234 photos brought in\. 2 skipped: Lifer couldn't tell the species\./)).toBeTruthy();
     expect(screen.getByRole("switch", { name: "Add species tags in Immich" }).getAttribute("aria-checked")).toBe(
       "false",
     );

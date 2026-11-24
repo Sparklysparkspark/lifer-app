@@ -42,7 +42,7 @@ describe("SpeciesPicker", () => {
     const field = renderPicker();
     fireEvent.focus(field);
     fireEvent.change(field, { target: { value: "jewel beetle" } });
-    const turnOn = await screen.findByRole("button", { name: /Turn on iNaturalist search/ }, { timeout: 2000 });
+    const turnOn = await screen.findByRole("button", { name: /Search iNaturalist for any species/ }, { timeout: 2000 });
     fireEvent.click(turnOn);
     await waitFor(() => expect(save).toHaveBeenCalledWith(true));
     expect((await screen.findByRole("dialog")).textContent).toContain("jewel beetle");

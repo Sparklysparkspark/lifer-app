@@ -73,14 +73,14 @@ describe("PhonesSettings", () => {
   it("removes a phone after confirming", async () => {
     show([phone(1)]);
     expect(await screen.findByText("Phone 1")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
     await waitFor(() => expect(del).toHaveBeenCalledWith("/companion/v1/devices/p1"));
   });
 
   it("holds 20 phones and a 60-character name without dropping any", async () => {
     show(Array.from({ length: 20 }, (_, i) => phone(i, i === 0 ? "n".repeat(60) : undefined)));
     await screen.findByText("Phone 19");
-    expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(20);
+    expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(20);
     expect(screen.getByTitle("n".repeat(60)).className).toContain("truncate");
   });
 

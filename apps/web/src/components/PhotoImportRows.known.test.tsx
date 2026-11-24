@@ -227,7 +227,7 @@ describe("PhotoImportRows, picking a folder again", () => {
       paths: [`${folder}/old.jpg`],
     });
     expect(vi.mocked(toast.show).mock.calls[0][0]).toBe(
-      "1 photo filed under 1 species. Moved 1 photo and 2 sidecar files into your library. Cleared 1 already in Lifer, with 1 sidecar file.",
+      "1 photo filed under 1 species. Moved 1 photo and 2 sidecar files into your library. Moved 1 already in Lifer to the Trash, with 1 sidecar file.",
     );
   });
 
@@ -250,7 +250,7 @@ describe("PhotoImportRows, picking a folder again", () => {
       ),
     ).toBeTruthy();
     expect(vi.mocked(toast.show).mock.calls[0][0]).toBe(
-      "1 photo filed under 1 species. Moved 0 photos into your library. 1 skipped, still where it was.",
+      "1 photo filed under 1 species. Moved 0 photos into your library. 1 original stayed where it was.",
     );
   });
 
@@ -266,7 +266,7 @@ describe("PhotoImportRows, picking a folder again", () => {
     );
     renderRows();
     fireEvent.click(await screen.findByRole("button", { name: "Import new photos from Tofino" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Clear out the ones already in Lifer" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Move the ones already in Lifer to the Trash" }));
     await waitFor(() =>
       expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ title: "Move 1 file to the Trash?" })),
     );

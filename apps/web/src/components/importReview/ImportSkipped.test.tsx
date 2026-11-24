@@ -52,12 +52,12 @@ describe("skipKind", () => {
 describe("ImportSkipped", () => {
   it("starts folded with the total, and opens into one headed list per reason", () => {
     setup();
-    const heading = screen.getByRole("button", { name: /Left out of this import \(3\)/ });
+    const heading = screen.getByRole("button", { name: /Skipped \(3\)/ });
     expect(heading.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText("land.CR3")).toBeNull();
     fireEvent.click(heading);
     const kinds = [...document.querySelectorAll("[data-skip-kind] h3")].map((h) => h.textContent);
-    expect(kinds).toEqual(["Not wildlife (1)", "Marked not wildlife (1)", "Already in your library (1)"]);
+    expect(kinds).toEqual(["Not wildlife (1)", "Marked not wildlife (1)", "Already in Lifer (1)"]);
     expect(screen.getByText("Doesn't look like wildlife: it looks like a mountain landscape")).toBeTruthy();
     expect(screen.getByText("You marked it as not wildlife")).toBeTruthy();
     expect(screen.getByText(/Imported as Red-lored Parrot/)).toBeTruthy();
@@ -65,7 +65,7 @@ describe("ImportSkipped", () => {
 
   it("removes or imports one photo, or all of them", () => {
     const { onRemove, onImportAnyway } = setup();
-    fireEvent.click(screen.getByRole("button", { name: /Left out of this import/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Skipped/ }));
     fireEvent.click(screen.getAllByRole("button", { name: "Remove from this import" })[0]);
     expect(onRemove).toHaveBeenLastCalledWith(["land"]);
     fireEvent.click(screen.getAllByRole("button", { name: "Import anyway" })[2]);

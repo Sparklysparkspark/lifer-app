@@ -23,7 +23,7 @@ describe("KnownFiles", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Show them" }));
     expect(screen.getByText("IMG_0.jpg")).toBeTruthy();
-    expect(screen.getAllByText("Skipped before, not in your library")).toHaveLength(50);
+    expect(screen.getAllByText("Skipped before, not in Lifer")).toHaveLength(50);
     fireEvent.click(screen.getAllByRole("button", { name: "Import anyway" })[0]);
     expect(onImportAnyway).toHaveBeenCalledWith([list[0]]);
     fireEvent.click(screen.getByRole("button", { name: "Import all anyway" }));
