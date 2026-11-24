@@ -21,7 +21,9 @@ describe("MapLayersControl", () => {
   it("starts on Automatic and says what loading detail sends", () => {
     open();
     expect(screen.getAllByRole("button", { name: "Automatic" })[0].getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByText(/sees the area you view and your IP address. No photos/)).toBeTruthy();
+    expect(
+      screen.getByText(/relief from Mapterhorn, which see the area you view and your IP address. No photos/),
+    ).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: "Off" })[0]);
     expect(localStorage.getItem("lifer:photo-map-detail")).toBe('"off"');
     expect(screen.getByText("The map stays offline.")).toBeTruthy();

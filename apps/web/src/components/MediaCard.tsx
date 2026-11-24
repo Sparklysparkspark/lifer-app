@@ -18,6 +18,12 @@ const MEDIA_ROUND_TOP =
   "rounded-t-[calc(var(--radius-panel)-1px)] [clip-path:inset(0_round_calc(var(--radius-panel)-1px)_calc(var(--radius-panel)-1px)_0_0)]";
 const MEDIA_ROUND_ALL =
   "rounded-[calc(var(--radius-panel)-1px)] [clip-path:inset(0_round_calc(var(--radius-panel)-1px))]";
+// design-token: the scrim under names on a photo-filled card; dark in both themes so white text reads over any photo.
+const SCRIM = "bg-linear-to-t from-black/85 via-black/55 to-transparent text-white";
+// The photo count: the overlay pill's look, but as wide as its number.
+const COUNT_PILL =
+  // design-token: the dark overlay pill over a photo, as OVERLAY_PILL.
+  "pointer-events-none inline-flex h-5 min-w-7 items-center justify-center rounded-full bg-black/40 px-1.5 text-footnote font-medium leading-none tabular-nums text-white";
 
 export default function MediaCard({
   media,
@@ -34,6 +40,8 @@ export default function MediaCard({
   markLabel,
   actions,
   mediaOverlay,
+  layout = "stacked",
+  count,
   renderBody,
   as: Tag = "div",
   className = "",
@@ -63,41 +71,54 @@ export default function MediaCard({
   actions?: ReactNode;
   /** Controls laid over the media box (outside the body, so never nested in it); positioned like the media. */
   mediaOverlay?: ReactNode;
+  /** "overlay": the media fills the card and the text sits on a scrim at its bottom. */
+  layout?: "stacked" | "overlay";
+  /** A number pill at the top right (a photo count), after the actions; its label names what it counts. */
+  count?: { value: string; label: string };
   /** The interactive element (a Link, button or option) given the card's class and content. */
   renderBody: (props: { className: string; children: ReactNode }) => ReactNode;
   as?: "div" | "li";
   className?: string;
 }) {
   const hasText = title != null;
+  const overlay = layout === "overlay";
+  const text = hasText && (
+    <div
+      className={
+        overlay
+          ? `absolute inset-x-0 bottom-0 flex flex-col gap-0.5 px-3 pb-2.5 pt-10 ${SCRIM} ${textClassName}`
+          : `flex flex-1 flex-col ${compact ? "gap-0 px-1.5 py-1" : "gap-0.5 p-3"} ${textClassName}`
+      }
+    >
+      <p
+        className={`break-words leading-tight ${overlay ? "font-semibold" : `font-medium text-ink ${titleLines === 2 ? "min-h-[2lh]" : ""}`} ${titleClassName}`}
+      >
+        {title}
+      </p>
+      {lines.map((line, i) =>
+        !line ? null : typeof line === "string" ? (
+          <p key={i} className={`break-words text-footnote ${overlay ? "opacity-85" : "text-muted"}`}>
+            {line}
+          </p>
+        ) : (
+          <div key={i}>{line}</div>
+        ),
+      )}
+      {badge && <div className={compact ? "mt-0.5" : "mt-1"}>{badge}</div>}
+      {footer != null && footer !== false && <div className="mt-auto pt-1">{footer}</div>}
+    </div>
+  );
   const content = (
     <>
       <div
-        className={`relative w-full shrink-0 overflow-hidden bg-surface-muted ${
-          hasText ? MEDIA_ROUND_TOP : MEDIA_ROUND_ALL
+        className={`relative w-full shrink-0 overflow-hidden ${overlay ? "bg-media" : "bg-surface-muted"} ${
+          hasText && !overlay ? MEDIA_ROUND_TOP : MEDIA_ROUND_ALL
         } ${mediaClassName}`}
       >
         {media}
+        {overlay && text}
       </div>
-      {hasText && (
-        <div className={`flex flex-1 flex-col ${compact ? "gap-0 px-1.5 py-1" : "gap-0.5 p-3"} ${textClassName}`}>
-          <p
-            className={`break-words font-medium leading-tight text-ink ${titleLines === 2 ? "min-h-[2lh]" : ""} ${titleClassName}`}
-          >
-            {title}
-          </p>
-          {lines.map((line, i) =>
-            !line ? null : typeof line === "string" ? (
-              <p key={i} className="break-words text-footnote text-muted">
-                {line}
-              </p>
-            ) : (
-              <div key={i}>{line}</div>
-            ),
-          )}
-          {badge && <div className={compact ? "mt-0.5" : "mt-1"}>{badge}</div>}
-          {footer != null && footer !== false && <div className="mt-auto pt-1">{footer}</div>}
-        </div>
-      )}
+      {!overlay && text}
     </>
   );
   return (
@@ -107,7 +128,16 @@ export default function MediaCard({
         <div className={`pointer-events-none absolute inset-x-px top-px ${mediaClassName}`}>{mediaOverlay}</div>
       )}
       {markLabel !== undefined && <SelectMark checked={selected} label={markLabel} />}
-      {actions && <div className="absolute right-2 top-1.5 flex items-center gap-1">{actions}</div>}
+      {(actions || count) && (
+        <div className="absolute right-2 top-1.5 flex items-center gap-1">
+          {actions}
+          {count && (
+            <span className={COUNT_PILL} role="img" aria-label={count.label}>
+              {count.value}
+            </span>
+          )}
+        </div>
+      )}
     </Tag>
   );
 }

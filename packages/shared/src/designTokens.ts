@@ -32,7 +32,16 @@ export const designTokens = {
     "map-line-province": "#c9bfa6",
     "map-relief": "#4d4a40",
     "map-relief-highlight": "#fffdf7",
-    "map-label": "#4f5652"
+    "map-label": "#4f5652",
+    "map-elevation-low": "#e3d3ae00",
+    "map-elevation-mid": "#e3d3ae",
+    "map-elevation-high": "#c4a982",
+    "map-elevation-peak": "#ffffff",
+    "map-sky": "#c9d9e3",
+    "map-horizon": "#eef0ea",
+    "media": "#141516",
+    "glass": "#fbf7eed9",
+    "glass-line": "#ffffff80"
   },
   "dark": {
     "surround": "#262626",
@@ -65,7 +74,15 @@ export const designTokens = {
     "map-line-province": "#474c48",
     "map-relief": "#050606",
     "map-relief-highlight": "#4b504c",
-    "map-label": "#c8cbc4"
+    "map-label": "#c8cbc4",
+    "map-elevation-low": "#3b382f00",
+    "map-elevation-mid": "#3b382f",
+    "map-elevation-high": "#4d4537",
+    "map-elevation-peak": "#8a8d89",
+    "map-sky": "#0f151b",
+    "map-horizon": "#2b2e2c",
+    "glass": "#1c1e1fd9",
+    "glass-line": "#ffffff1f"
   },
   "spacing": {
     "page": 24,
@@ -79,6 +96,10 @@ export const designTokens = {
     "badge": 4
   },
   "type": {
+    "display": {
+      "size": 40,
+      "lineHeight": 1.05
+    },
     "large-title": {
       "size": 28,
       "lineHeight": 1.2
@@ -118,6 +139,10 @@ export const designTokens = {
     "caption": {
       "size": 11,
       "lineHeight": 1.3
+    },
+    "overline": {
+      "size": 11,
+      "lineHeight": 1.2
     },
     "micro": {
       "size": 9,

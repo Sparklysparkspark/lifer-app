@@ -6,7 +6,13 @@ import {
   customSatelliteUrl,
   DETAIL_SOURCE_ID,
   detailLayers,
+  ELEVATION_TINT_LAYER_ID,
   OFFLINE_DETAIL_ZOOM,
+  ONLINE_RELIEF_FROM,
+  ONLINE_RELIEF_LAYER_ID,
+  ONLINE_RELIEF_SOURCE_ID,
+  onlineReliefSource,
+  RELIEF_LAYER_ID,
   onlineMaxZoom,
   onlineSources,
   SATELLITE_SOURCE_ID,
@@ -149,7 +155,7 @@ export function applyOnlineBasemap(map: MapLibreMap, mode: OnlineMode | null, cu
     .layers.find((l) => l.type !== "background" && !isBasemapSource((l as { source?: string }).source))?.id;
   // Fills go under the relief so hills still show through woods; lines under the bundled borders.
   const before = {
-    fill: ids.includes("relief-hillshade") ? "relief-hillshade" : ids.includes("water") ? "water" : firstOverlay,
+    fill: [ELEVATION_TINT_LAYER_ID, RELIEF_LAYER_ID, "water"].find((id) => ids.includes(id)) ?? firstOverlay,
     line: ids.includes("boundaries_country") ? "boundaries_country" : firstOverlay,
     top: firstOverlay,
   };
@@ -171,6 +177,51 @@ export function applyOnlineBasemap(map: MapLibreMap, mode: OnlineMode | null, cu
   };
 }
 
+// Errors in a row, with no tile between, before online relief gives way to the bundled one.
+const RELIEF_ERRORS = 4;
+
+/** Sharper relief from Mapterhorn past the bundled archive's zoom, shaded like the bundled layer. The
+ *  bundled shading steps back only once an online tile has arrived, and returns for good (silently)
+ *  after a run of errors, so a dead or blocked connection never leaves the map flat. */
+// shortcut: the tilted 3D mesh and the elevation tint stay on the bundled zoom 5 data; move them to
+// this source too if tilted views look soft next to the sharper shading.
+export function applyOnlineRelief(map: MapLibreMap): () => void {
+  const bundled = map.getStyle().layers.find((l) => l.id === RELIEF_LAYER_ID);
+  if (!bundled || bundled.type !== "hillshade") return () => {};
+  const { minzoom = 0, maxzoom = 24 } = bundled;
+  const restore = () => map.setLayerZoomRange(RELIEF_LAYER_ID, minzoom, maxzoom);
+  map.addSource(ONLINE_RELIEF_SOURCE_ID, onlineReliefSource());
+  map.addLayer(
+    { ...bundled, id: ONLINE_RELIEF_LAYER_ID, source: ONLINE_RELIEF_SOURCE_ID, minzoom: ONLINE_RELIEF_FROM },
+    RELIEF_LAYER_ID,
+  );
+  let errors = 0;
+  const onData = (e: MapSourceDataEvent) => {
+    if (e.sourceId !== ONLINE_RELIEF_SOURCE_ID || !e.tile) return;
+    errors = 0;
+    map.setLayerZoomRange(RELIEF_LAYER_ID, minzoom, ONLINE_RELIEF_FROM);
+  };
+  const remove = () => {
+    map.off("sourcedata", onData);
+    map.off("error", onError);
+    try {
+      if (map.getLayer(ONLINE_RELIEF_LAYER_ID)) map.removeLayer(ONLINE_RELIEF_LAYER_ID);
+      if (map.getSource(ONLINE_RELIEF_SOURCE_ID)) map.removeSource(ONLINE_RELIEF_SOURCE_ID);
+      if (map.getLayer(RELIEF_LAYER_ID)) restore();
+    } catch {
+      // The map was already removed (a theme change rebuilds it), taking these with it.
+    }
+  };
+  // Listening also keeps these expected failures out of the console.
+  const onError = (e: object) => {
+    if ((e as { sourceId?: string }).sourceId !== ONLINE_RELIEF_SOURCE_ID) return;
+    if (++errors >= RELIEF_ERRORS) remove();
+  };
+  map.on("sourcedata", onData);
+  map.on("error", onError);
+  return remove;
+}
+
 /** Drives one map from the prefs; returns the mode in use and whether the online tiles failed (or
  *  are wanted while offline). */
 export function useOnlineBasemap(map: MapLibreMap | null, prefs: OnlineMapPrefs) {
@@ -180,6 +231,9 @@ export function useOnlineBasemap(map: MapLibreMap | null, prefs: OnlineMapPrefs)
   const [zoomedInOn, setZoomedInOn] = useState<MapLibreMap | null>(null);
   const zoomedIn = !!map && zoomedInOn === map;
   const [pastDetail, setPastDetail] = useState(false);
+  // Latched like detail: past the bundled relief's zoom, online and on Automatic (not satellite).
+  const [reliefOn, setReliefOn] = useState<MapLibreMap | null>(null);
+  const onlineRelief = !!map && reliefOn === map && online && prefs.detail === "auto" && prefs.base === "map";
   const mode = onlineMode(prefs, { online, zoomedIn });
   const customUrl = customSatelliteUrl(prefs.satelliteUrl);
   // Which setup failed or is slow, so a new mode or URL starts clean without resetting state in
@@ -199,6 +253,7 @@ export function useOnlineBasemap(map: MapLibreMap | null, prefs: OnlineMapPrefs)
       const past = map.getZoom() >= OFFLINE_DETAIL_ZOOM;
       setPastDetail(past);
       if (past) setZoomedInOn(map);
+      if (map.getZoom() >= ONLINE_RELIEF_FROM - 0.5) setReliefOn(map);
     };
     onZoom();
     map.on("zoom", onZoom);
@@ -249,6 +304,10 @@ export function useOnlineBasemap(map: MapLibreMap | null, prefs: OnlineMapPrefs)
       undo();
     };
   }, [map, mode, customUrl, key, attempt]);
+
+  useEffect(() => {
+    if (map && onlineRelief) return applyOnlineRelief(map);
+  }, [map, onlineRelief]);
 
   // Offline but wanting online tiles: the same quiet note as a failed load.
   const wanted = prefs.base === "satellite" || (prefs.detail === "auto" && pastDetail);

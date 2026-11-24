@@ -7,7 +7,7 @@ import type { PoolClient } from "pg";
 import { pool } from "@lifer/core/db.js";
 import { IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth } from "../auth/session.js";
-import { rawOnlySql, toCollectionItem } from "./collectionItem.js";
+import { photoCountJoin, rawOnlySql, toCollectionItem } from "./collectionItem.js";
 import { CollectionCount, CollectionItems, CollectionStats, NotModified } from "./responses.js";
 import { markNameChanged } from "../species/speciesSplits.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
@@ -186,7 +186,8 @@ export function collectionQuerySql(maxDepthM: number): string {
       (us.state = 'collected' AND COALESCE((SELECT bool_and(sc.identification_state = 'suggested') FROM captures sc
          WHERE sc.user_id = $1 AND sc.species_id = s.id), false)) AS suggested,
       ${rawOnlySql("$1")} AS raw_only,
-      y.captured_years
+      y.captured_years,
+      pc.photo_count
     FROM species s
     LEFT JOIN species_rarity r ON r.species_id = s.id
     LEFT JOIN user_tier_overrides uto ON uto.user_id = $1 AND uto.species_id = s.id AND uto.region_id IS NULL
@@ -198,6 +199,7 @@ export function collectionQuerySql(maxDepthM: number): string {
     LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
     LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
     LEFT JOIN years y ON y.species_id = s.id
+    ${photoCountJoin("$1")}
     ${COLLECTION_WHERE(maxDepthM)}
     ORDER BY ${taxonomicOrderBy()}`;
 }

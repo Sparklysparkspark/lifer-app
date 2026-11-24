@@ -25,7 +25,8 @@ interface TreeNode {
   speciesId?: string;
   commonName?: string | null;
   tier?: string | null;
-  /** A species not photographed yet: its catalogue picture, shown faded. */
+  /** Nothing photographed yet: the catalogue picture of the species, or for a group one of its
+   *  common species, shown faded. */
   referenceUrl?: string | null;
   children: TreeNode[];
 }
@@ -42,7 +43,12 @@ const TreeNodeSchema = Open({
   commonName: Type.Optional(Nullable(Type.String())),
   tier: Type.Optional(Nullable(Type.String({ description: "Species leaves: the rarity tier" }))),
   referenceUrl: Type.Optional(
-    Nullable(Type.String({ description: "Species not photographed yet: the catalogue picture's URL" })),
+    Nullable(
+      Type.String({
+        description:
+          "Nothing photographed yet: the species' catalogue picture, or for a group (or one whose photos are missing) a representative species' picture",
+      }),
+    ),
   ),
   children: Type.Array(Type.Unknown()),
 });
@@ -133,7 +139,7 @@ export function buildTree(rows: Row[], includeUncollected = false): TreeNode[] {
             speciesId: row.species_id,
             commonName: row.common_name,
             tier: row.tier,
-            referenceUrl: row.is_collected
+            referenceUrl: row.best_photo_id
               ? null
               : row.has_reference_thumb
                 ? `/api/species/${row.species_id}/reference-photo/thumb?v=${MEDIA_CACHE_BUST}`
@@ -156,10 +162,56 @@ export function buildTree(rows: Row[], includeUncollected = false): TreeNode[] {
       level = node.children;
     });
   }
+  pickGroupPictures(roots, rows);
   if (includeUncollected) return roots;
   const collectedOnly = (nodes: TreeNode[]): TreeNode[] =>
     nodes.filter((n) => n.collected > 0).map((n) => ({ ...n, children: collectedOnly(n.children) }));
   return collectedOnly(roots);
+}
+
+// Most common first, so a group's picture is one you'd recognise it by.
+const COMMONEST_FIRST = ["common", "occasional", "uncommon", "rare", "legendary"];
+const commonness = (tier: string | null | undefined) => {
+  const i = COMMONEST_FIRST.indexOf(tier ?? "");
+  return i < 0 ? COMMONEST_FIRST.length : i;
+};
+const PICKS = 5; // one more than the ranks above a genus, so a level can always differ from its parents
+
+/** Gives every group without a photo of yours the catalogue picture of a common species inside it,
+ *  a different species from the groups above it where one exists, so no row draws blank (S4). */
+function pickGroupPictures(roots: TreeNode[], rows: Row[]): void {
+  const urlOf = new Map<string, string>();
+  for (const r of rows) {
+    const url = r.has_reference_thumb
+      ? `/api/species/${r.species_id}/reference-photo/thumb?v=${MEDIA_CACHE_BUST}`
+      : r.reference_photo;
+    if (url) urlOf.set(r.species_id, url);
+  }
+  // The few best candidates per node, bottom up, so a 15,000-species tree stays linear.
+  const candidates = new Map<TreeNode, TreeNode[]>();
+  const gather = (node: TreeNode): TreeNode[] => {
+    const found =
+      node.rank === "species"
+        ? node.speciesId && urlOf.has(node.speciesId)
+          ? [node]
+          : []
+        : node.children
+            .flatMap(gather)
+            .sort((a, b) => commonness(a.tier) - commonness(b.tier) || a.name.localeCompare(b.name))
+            .slice(0, PICKS);
+    candidates.set(node, found);
+    return found;
+  };
+  roots.forEach(gather);
+  const assign = (node: TreeNode, used: Set<TreeNode>) => {
+    if (node.rank === "species") return;
+    const options = candidates.get(node)!;
+    const pick = options.find((c) => !used.has(c)) ?? options[0];
+    if (!node.photoId && pick) node.referenceUrl = urlOf.get(pick.speciesId!)!;
+    const below = !node.photoId && pick ? new Set(used).add(pick) : used;
+    for (const child of node.children) assign(child, below);
+  };
+  for (const root of roots) assign(root, new Set());
 }
 
 export async function collectionTreeRoutes(fastify: FastifyInstance): Promise<void> {

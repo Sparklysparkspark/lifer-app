@@ -96,7 +96,11 @@ describe("GroupedSpeciesGrid windowing", () => {
     const { container } = renderGrid({ items });
     expect(container.querySelectorAll(".cover-seen")).toHaveLength(1);
     expect(container.querySelectorAll(".cover-uncollected")).toHaveLength(1);
-    expect(container.querySelectorAll(".text-uncollected")).toHaveLength(1);
+    // Photo-filled cards keep white names on the scrim; the smallest, classic cards mute them.
+    expect(container.querySelectorAll(".text-uncollected")).toHaveLength(0);
+    cleanup();
+    const small = renderGrid({ items, cardMinWidth: 120 });
+    expect(small.container.querySelectorAll(".text-uncollected")).toHaveLength(1);
   });
 
   it("lays out rows as CSS auto-fill would", () => {

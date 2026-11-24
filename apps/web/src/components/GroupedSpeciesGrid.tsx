@@ -26,6 +26,8 @@ import {
   type SpeciesGroup,
 } from "./speciesGridLayout";
 import Button from "./Button";
+import ProgressBar from "./ProgressBar";
+import { formatNumber } from "../lib/format";
 import { useLatest } from "../hooks/useLatest";
 import { rankBySearch } from "../pages/collection/filterItems";
 
@@ -50,7 +52,8 @@ export interface GridSelection {
 export type GroupBy = "none" | SpeciesGroupBy;
 export type SortBy = "taxonomic" | "name" | "scientific" | "rarity" | "localRarity";
 
-// At or below this card width the name box uses tighter spacing (see SpeciesCard `compact`).
+// At or below this card width the name box uses tighter spacing (see SpeciesCard `compact`); above
+// it cards are photo-filled, names on the photo (too small to read there at these sizes).
 const COMPACT_CARD_WIDTH = 150;
 
 // "unrated" ranks after "common": it isn't easier, just unknown.
@@ -123,17 +126,37 @@ export { Chevron };
 // A link-variant Button: text-footnote, font-medium, and a 1px transparent border each side.
 const linkButtonWidth = (text: string) => textWidth(text, 12, 500) + 2;
 
+/** Photographed of shown, for a group's band. */
+function groupProgress(group: SpeciesGroup): { collected: number; total: number } {
+  let collected = 0;
+  for (const i of group.items) if (i.state === "collected") collected++;
+  return { collected, total: group.items.length };
+}
+
 // The heading's parts as rendered: arrow, gap-2, label (text-callout medium), gap-2, count (text-footnote),
-// then gap-x-3 and the archive button when it has one.
-function headingWidthFor(group: SpeciesGroup, collapsed: boolean, archivable: boolean, selecting: boolean): number {
-  const width =
-    CHEVRON_WIDTH +
-    8 +
-    textWidth(group.label, 14, 500) +
-    8 +
-    textWidth(`(${group.items.length})`, 12, 400) +
+// then gap-x-3 and the archive button when it has one. A band's label is text-title-3 semibold with
+// no count beside it, and its number line (text-display, then text-callout) can be the wider part.
+function headingWidthFor(
+  group: SpeciesGroup,
+  collapsed: boolean,
+  archivable: boolean,
+  selecting: boolean,
+  band: boolean,
+): number {
+  const buttons =
     (archivable && !collapsed && !selecting ? 12 + linkButtonWidth(i18n.t("speciesGrid.archiveGroup")) : 0) +
     (selecting && !collapsed ? 12 + linkButtonWidth(i18n.t("speciesGrid.deselectGroup")) : 0);
+  if (band && !collapsed) {
+    const { collected, total } = groupProgress(group);
+    const top = CHEVRON_WIDTH + 8 + textWidth(group.label, 17, 600) + buttons;
+    const number =
+      textWidth(formatNumber(collected), 40, 700) +
+      6 +
+      textWidth(i18n.t("collection.breadcrumb.ofTotal", { total: formatNumber(total) }), 14, 400);
+    return Math.ceil(Math.max(top, number)) + 1;
+  }
+  const width =
+    CHEVRON_WIDTH + 8 + textWidth(group.label, 14, 500) + 8 + textWidth(`(${group.items.length})`, 12, 400) + buttons;
   return Math.ceil(width) + 1;
 }
 
@@ -282,6 +305,9 @@ export default function GroupedSpeciesGrid({
   const packSmallGroups = groupBy === "group" || groupBy === "broad";
   // Only real taxonomic groups offer "Archive group"; dropping a whole tier would be a surprise.
   const archivable = (group: SpeciesGroup) => packSmallGroups && !PINNED_KEYS.has(group.key);
+  // Animal groups (Owls, Frogs & Toads) head with a band and their own "22 of 48"; families and
+  // tiers keep the one-line heading.
+  const banded = (group: SpeciesGroup) => groupBy === "broad" && !PINNED_KEYS.has(group.key);
   const gap = gapPxFor(cardMinWidth);
   const selecting = !!selection;
   const blocks = useMemo(
@@ -296,7 +322,13 @@ export default function GroupedSpeciesGrid({
         cardMinWidth,
         gap,
         headingWidth: (group, isCollapsed) =>
-          headingWidthFor(group, isCollapsed, packSmallGroups && !PINNED_KEYS.has(group.key), selecting),
+          headingWidthFor(
+            group,
+            isCollapsed,
+            packSmallGroups && !PINNED_KEYS.has(group.key),
+            selecting,
+            groupBy === "broad" && !PINNED_KEYS.has(group.key),
+          ),
       }),
     [groups, groupBy, collapsed, packSmallGroups, width, cardMinWidth, gap, selecting],
   );
@@ -305,11 +337,9 @@ export default function GroupedSpeciesGrid({
   // row's is stored beyond its square photos, so it still fits after a resize; unmeasured rows
   // and headings borrow the latest measurement.
   const [measuredHeights] = useState(() => new Map<string, number>());
-  const nameBoxGuess = hideNames
-    ? 2
-    : cardMinWidth <= COMPACT_CARD_WIDTH
-      ? COMPACT_NAME_BOX_ESTIMATE_PX
-      : NAME_BOX_ESTIMATE_PX;
+  const overlay = cardMinWidth > COMPACT_CARD_WIDTH;
+  const nameBoxGuess =
+    hideNames || overlay ? 2 : cardMinWidth <= COMPACT_CARD_WIDTH ? COMPACT_NAME_BOX_ESTIMATE_PX : NAME_BOX_ESTIMATE_PX;
   const [measured, setMeasured] = useState({ version: 0, row: -1, heading: -1 });
   const [blockObserver] = useState(() =>
     typeof ResizeObserver === "undefined"
@@ -501,7 +531,8 @@ export default function GroupedSpeciesGrid({
     showVolumeBadge: multiDriveInUse,
     hideLabels,
     hideNames,
-    compact: cardMinWidth <= COMPACT_CARD_WIDTH,
+    compact: !overlay,
+    overlay,
     cardImageSide,
     backLabel,
     tripId,
@@ -526,6 +557,7 @@ export default function GroupedSpeciesGrid({
               onChanged={onChanged}
               archivable={archivable(block.group)}
               select={groupSelect(block.group)}
+              band={banded(block.group)}
             />
           )}
         </div>
@@ -580,6 +612,7 @@ export default function GroupedSpeciesGrid({
               onChanged={onChanged}
               archivable={archivable(group)}
               select={groupSelect(group)}
+              band={banded(group)}
               selectedIds={selection?.selected}
               columns={columns}
               width={groupWidth}
@@ -661,6 +694,7 @@ function GroupHeading({
   archivable,
   select,
   nowrap,
+  band = false,
   className = "",
 }: {
   group: SpeciesGroup;
@@ -670,6 +704,8 @@ function GroupHeading({
   /** While selecting: whether every species in the group is picked, and how to pick or drop them. */
   select?: { all: boolean; onToggle: () => void };
   nowrap?: boolean;
+  /** A bigger heading with the group's photographed count and bar, for animal groups. */
+  band?: boolean;
   className?: string;
 }) {
   const { t } = useTranslation();
@@ -709,7 +745,8 @@ function GroupHeading({
     }
   }
 
-  return (
+  const progress = band ? groupProgress(group) : null;
+  const heading = (
     // The archive action sits right after the name, not across the group's width.
     <div className={`flex items-center gap-x-3 gap-y-1 ${nowrap ? "whitespace-nowrap" : "flex-wrap"} ${className}`}>
       {/* raw-control: the group's heading is its disclosure. */}
@@ -718,11 +755,13 @@ function GroupHeading({
         onClick={onToggle}
         aria-expanded="true"
         data-group-heading={group.key}
-        className="flex items-center gap-2 text-left text-callout font-medium text-ink hover:underline"
+        className={`flex items-center gap-2 text-left text-ink hover:underline ${
+          band ? "text-title-3 font-semibold" : "text-callout font-medium"
+        }`}
       >
         <Chevron open />
         {group.label}
-        <span className="text-footnote font-normal text-muted">({group.items.length})</span>
+        {!band && <span className="text-footnote font-normal text-muted">({group.items.length})</span>}
       </button>
       {select && (
         <Button variant="link" size="sm" onClick={select.onToggle} className="shrink-0">
@@ -743,6 +782,25 @@ function GroupHeading({
       )}
     </div>
   );
+  if (!progress) return heading;
+  return (
+    <div className="flex flex-col gap-1">
+      {heading}
+      <p className="flex items-baseline gap-1.5 whitespace-nowrap">
+        <span className="text-display font-bold tabular-nums text-ink">{formatNumber(progress.collected)}</span>
+        <span className="text-callout text-muted">
+          {t("collection.breadcrumb.ofTotal", { total: formatNumber(progress.total) })}
+        </span>
+      </p>
+      <ProgressBar
+        determinate
+        size="xs"
+        value={progress.total ? progress.collected / progress.total : 0}
+        label={t("speciesGrid.groupProgress", { group: group.label })}
+        className="w-full max-w-56"
+      />
+    </div>
+  );
 }
 
 /** A small group packed beside others: its heading over a cluster of `columns` cards, on the rows
@@ -753,6 +811,7 @@ function GroupSection({
   onChanged,
   archivable,
   select,
+  band,
   selectedIds,
   columns,
   width,
@@ -766,6 +825,7 @@ function GroupSection({
   onChanged?: SpeciesChangeHandler;
   archivable: boolean;
   select?: { all: boolean; onToggle: () => void };
+  band: boolean;
   selectedIds?: ReadonlySet<string>;
   columns: number;
   /** The width the layout gave it: a heading wider than its cards widens the group. */
@@ -794,6 +854,7 @@ function GroupSection({
           onChanged={onChanged}
           archivable={archivable}
           select={select}
+          band={band}
           nowrap
         />
       </div>

@@ -1,45 +1,64 @@
 // Tree of life (V-16): class, order, family and genus down to species, from
 // GET /api/collection/tree?include=uncollected, whose collected totals equal Collection's (U1).
-// The tree on the left, the selected group or species on the right (a sheet on a phone). The tree
-// is one windowed list of the expanded rows, so 10,000 species scroll like 100, and its expansion,
-// selection and scroll survive opening a photo, a species page and coming back.
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+// The tree on the left as a list or a circle, the selected group or species on the right (a sheet
+// on a phone). The list is windowed over the expanded rows, so 10,000 species scroll like 100, and
+// its expansion, focus, selection and scroll survive opening a photo, a species page and coming back.
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { apiPath } from "../api/client";
 import Button from "../components/Button";
 import EmptyState from "../components/EmptyState";
+import FilterPopover from "../components/FilterPopover";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import Modal from "../components/Modal";
+import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import ProgressiveImg from "../components/ProgressiveImg";
 import PageHeader from "../components/PageHeader";
 import SearchInput from "../components/SearchInput";
+import SegmentedControl from "../components/SegmentedControl";
+import SpeciesNameText from "../components/SpeciesNameText";
+import Switch from "../components/Switch";
 import Chevron from "../components/Chevron";
 import { useWindowRange } from "../components/windowing";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { downloadWithToast } from "../lib/downloadFile";
 import { formatNumber } from "../lib/format";
 import { useApiResource } from "../lib/resource";
-import { taxonClassLabel } from "../lib/speciesGroups";
-import { useSpeciesName } from "../lib/speciesName";
+import { speciesGroupLabel, taxonClassLabel } from "../lib/speciesGroups";
+import { namePartClass, useSpeciesNameParts } from "../lib/speciesName";
 import { useToast } from "../hooks/useToast";
+import { usePersistedState } from "../hooks/usePersistedState";
 import { useScrollMemory } from "../hooks/useScrollMemory";
 import { matches } from "../lib/keymap";
 import ExplorerDetail from "./explorer/ExplorerDetail";
+import TreeCircle from "./explorer/TreeCircle";
 import {
   ancestorIds,
   collectedLeaves,
   explorerMemory as memory,
   indexTree,
+  myBranches,
   searchTree,
   visibleRows,
-  type IndexedNode,
   type TreeNode,
+  type VisibleRow,
 } from "./explorer/treeModel";
 
-const ROW = 64;
+const GROUP_ROW = 84;
+// Species names can run to three lines on a phone (very long Latin names).
+const SPECIES_ROW = 76;
+const INDENT = 24;
 const MOUNT = { above: 2, below: 2 };
 const WIDE = "(min-width: 1024px)";
+const RESULTS = 50;
+const RANK_KEYS: Record<TreeNode["rank"], string> = {
+  class: "explorer.rank.class",
+  order: "explorer.rank.order",
+  family: "explorer.rank.family",
+  genus: "explorer.rank.genus",
+  species: "explorer.rank.species",
+};
 
 function subscribeWide(onChange: () => void) {
   const query = window.matchMedia?.(WIDE);
@@ -48,7 +67,7 @@ function subscribeWide(onChange: () => void) {
 }
 const isWide = () => window.matchMedia?.(WIDE).matches ?? true;
 
-// An uncollected species shows its catalog reference photo instead of one of yours.
+// An uncollected species or group shows its catalog reference photo instead of one of yours.
 const slideFor = (node: TreeNode, caption: string): LightboxSlide => ({
   url: node.photoId ? `/api/photos/${node.photoId}/display` : (node.referenceUrl ?? ""),
   thumbUrl: node.photoId ? `/api/photos/${node.photoId}/thumb` : node.referenceUrl,
@@ -56,11 +75,26 @@ const slideFor = (node: TreeNode, caption: string): LightboxSlide => ({
   speciesId: node.speciesId ?? null,
 });
 
+/** Connector lines: one vertical per indent level that runs on, and an elbow into this row. */
+function RowLines({ lines }: { lines: boolean[] }) {
+  return lines.map((more, level) => {
+    const own = level === lines.length - 1;
+    if (!own && !more) return null;
+    const x = level * INDENT + 12;
+    return (
+      <span key={level} aria-hidden="true">
+        <span className="absolute w-px bg-line" style={{ left: x, top: 0, bottom: own && !more ? "50%" : 0 }} />
+        {own && <span className="absolute h-px bg-line" style={{ left: x, top: "50%", width: INDENT - 4 }} />}
+      </span>
+    );
+  });
+}
+
 export default function TaxaExplorer() {
   const { t } = useTranslation();
   const toast = useToast();
   const navigate = useNavigate();
-  const speciesName = useSpeciesName();
+  const nameParts = useSpeciesNameParts();
   const res = useApiResource<{ collected: number; tree: TreeNode[] }>(
     apiPath("/collection/tree", {}, { include: "uncollected" }),
   );
@@ -68,36 +102,81 @@ export default function TaxaExplorer() {
   const index = useMemo(() => (tree ? indexTree(tree.tree) : null), [tree]);
   useScrollMemory(!!index);
   const wide = useSyncExternalStore(subscribeWide, isWide, () => true);
+  const [view, setView] = usePersistedState<"list" | "circle">("explorer.view", "list");
+  // Most genera hold one species, so the simple shape skips them.
+  const [genus, setGenus] = usePersistedState("explorer.genus", false);
 
+  // Bird families have birding names ("Owls"); which list applies depends on the family's class.
+  const familyClass = useMemo(() => {
+    const out = new Map<TreeNode, string>();
+    for (const [id, entry] of index?.byId ?? [])
+      if (entry.node.rank === "family") out.set(entry.node, id.slice("class:".length, id.indexOf("/")));
+    return out;
+  }, [index]);
   const label = useCallback(
     (node: TreeNode) =>
       node.rank === "species"
-        ? speciesName({ commonName: node.commonName, scientificName: node.name })
-        : node.rank === "class"
-          ? (taxonClassLabel(node.name) ?? node.name)
-          : node.name,
-    [speciesName],
+        ? nameParts({ commonName: node.commonName, scientificName: node.name }).primary.text
+        : node.name === "Other"
+          ? t("taxa.other")
+          : node.rank === "class"
+            ? (taxonClassLabel(node.name) ?? node.name)
+            : node.rank === "family"
+              ? speciesGroupLabel(familyClass.get(node) ?? null, node.name)
+              : node.name,
+    [nameParts, familyClass, t],
   );
 
-  const [expanded, setExpanded] = useState<Set<string>>(memory.expanded);
+  // The name under or beside the main one: a species' other names, a group's Latin name.
+  const secondName = (node: TreeNode) =>
+    node.rank === "species"
+      ? nameParts({ commonName: node.commonName, scientificName: node.name }).secondary
+      : node.rank !== "class" && node.name !== "Other" && label(node) !== node.name
+        ? [{ kind: "scientific" as const, text: node.name }]
+        : [];
+  const nameClass = (node: TreeNode) =>
+    node.rank === "species"
+      ? namePartClass(nameParts({ commonName: node.commonName, scientificName: node.name }).primary)
+      : node.rank === "genus"
+        ? "italic"
+        : "";
+
+  const [expandedState, setExpanded] = useState<Set<string> | null>(memory.expanded);
+  // Until the tree is opened or closed by hand, it opens on your photographed branches.
+  const expanded = useMemo(
+    () => expandedState ?? (index ? myBranches(index) : new Set<string>()),
+    [expandedState, index],
+  );
   const [selected, select] = useState<string | null>(memory.selected);
+  const [focusState, setFocus] = useState<string | null>(memory.focus);
   useEffect(() => {
-    memory.expanded = expanded;
+    memory.expanded = expandedState;
     memory.selected = selected;
-  }, [expanded, selected]);
+    memory.focus = focusState;
+  }, [expandedState, selected, focusState]);
+  // A focus on a genus while genera are hidden falls back to its family.
+  const focusEntry = focusState ? index?.byId.get(focusState) : undefined;
+  const focus = focusEntry ? (!genus && focusEntry.node.rank === "genus" ? focusEntry.parentId : focusState) : null;
+
   const [active, setActive] = useState<string | null>(memory.selected);
-  const [highlight, setHighlight] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [matchAt, setMatchAt] = useState(0);
+  const [listOpen, setListOpen] = useState(false);
+  const [option, setOption] = useState(0);
+  const listId = useId();
   const [lightbox, setLightbox] = useState<{ slides: LightboxSlide[]; index: number } | null>(null);
 
-  const rows = useMemo(() => (index ? visibleRows(index, expanded) : []), [index, expanded]);
-  const listRef = useRef<HTMLDivElement>(null);
-  const layout = useMemo(
-    () => ({ structure: rows, tops: rows.map((_, i) => i * ROW), heights: rows.map(() => ROW) }),
-    [rows],
+  const rows = useMemo(
+    () => (index ? visibleRows(index, expanded, { focus, genus }) : []),
+    [index, expanded, focus, genus],
   );
-  const range = useWindowRange(listRef, layout, MOUNT);
+  const listRef = useRef<HTMLDivElement>(null);
+  const layout = useMemo(() => {
+    const heights = rows.map((r) => (r.node.rank === "species" ? SPECIES_ROW : GROUP_ROW));
+    const tops: number[] = [];
+    for (let i = 0, at = 0; i < heights.length; at += heights[i++]) tops.push(at);
+    return { structure: rows, tops, heights };
+  }, [rows]);
+  const range = useWindowRange(listRef, view === "list" ? layout : null, MOUNT);
 
   // Scrolls a row into view and, after a keyboard move, focuses it once it is mounted.
   const [pending, setPending] = useState<{ id: string; focus: boolean } | null>(null);
@@ -105,15 +184,15 @@ export default function TaxaExplorer() {
     if (!pending || !listRef.current) return;
     const i = rows.findIndex((r) => r.id === pending.id);
     if (i < 0) return;
-    const top = listRef.current.getBoundingClientRect().top + i * ROW;
-    if (top < ROW || top > window.innerHeight - 2 * ROW) window.scrollBy(0, top - window.innerHeight / 3);
+    const top = listRef.current.getBoundingClientRect().top + layout.tops[i];
+    if (top < GROUP_ROW || top > window.innerHeight - 2 * GROUP_ROW) window.scrollBy(0, top - window.innerHeight / 3);
     const el = [...listRef.current.querySelectorAll<HTMLElement>("[role=treeitem]")].find(
       (item) => item.dataset.id === pending.id,
     );
     if (!el) return; // the next range update mounts it and runs this again
     if (pending.focus) el.focus({ preventScroll: true });
     setPending(null);
-  }, [pending, rows, range]);
+  }, [pending, rows, range, layout]);
 
   if (res.error && !tree)
     return (
@@ -128,20 +207,22 @@ export default function TaxaExplorer() {
     if (!next.delete(id)) next.add(id);
     setExpanded(next);
   };
-  // Opens every group above a row, closing nothing.
-  const reveal = (id: string, focus = false) => {
+  // Opens every group above a row, closing nothing; leaves a focus the row is outside of.
+  const reveal = (id: string, focusRow = false) => {
+    const above = ancestorIds(index, id);
+    if (focus && !above.includes(focus)) setFocus(null);
     const next = new Set(expanded);
-    for (const a of ancestorIds(index, id)) next.add(a);
+    for (const a of above) next.add(a);
     if (next.size !== expanded.size) setExpanded(next);
     setActive(id);
-    setPending({ id, focus });
+    setPending({ id, focus: focusRow });
   };
   const choose = (id: string) => {
     reveal(id);
     select(id);
   };
   const rowPhotos = rows.filter((r) => r.node.photoId);
-  const openRowPhoto = (row: IndexedNode) => {
+  const openRowPhoto = (row: VisibleRow) => {
     const at = rowPhotos.indexOf(row);
     if (at < 0) return;
     setLightbox({ index: at, slides: rowPhotos.map((r) => slideFor(r.node, label(r.node))) });
@@ -153,14 +234,38 @@ export default function TaxaExplorer() {
     if (others.length === 0) return null;
     return () => choose(others[Math.floor(Math.random() * others.length)].id);
   };
+  const shownPath = (id: string) =>
+    ancestorIds(index, id).filter((a) => genus || index.byId.get(a)!.node.rank !== "genus");
+  const zoomTo = (id: string | null) => {
+    setFocus(id);
+    window.scrollTo(0, 0);
+  };
+  const zoomOut = focus ? () => zoomTo(shownPath(focus).at(-1) ?? null) : null;
 
-  const found = searchTree(index, query, label);
-  const jumpTo = (at: number) => {
-    if (found.length === 0) return;
-    const i = ((at % found.length) + found.length) % found.length;
-    setMatchAt(i);
-    setHighlight(found[i]);
-    reveal(found[i]);
+  const found = searchTree(index, query, label).filter((id) => genus || index.byId.get(id)!.node.rank !== "genus");
+  const results = found.slice(0, RESULTS);
+  const showResults = listOpen && query.trim().length >= 2;
+  const pick = (id: string) => {
+    setListOpen(false);
+    if (view === "circle") {
+      // A group becomes the middle; a species shows in its group.
+      zoomTo(index.byId.get(id)!.node.rank === "species" ? (shownPath(id).at(-1) ?? null) : id);
+      select(id);
+    } else choose(id);
+  };
+  const onSearchKey = (e: React.KeyboardEvent) => {
+    if (matches(e, "listNext")) {
+      setListOpen(true);
+      if (results.length) setOption((option + 1) % results.length);
+    } else if (matches(e, "listPrevious")) {
+      if (results.length) setOption((option - 1 + results.length) % results.length);
+    } else if (matches(e, "choose") && showResults && results[option]) pick(results[option]);
+    else if (matches(e, "close") && showResults) {
+      // Closes just the results, not anything around the page.
+      e.stopPropagation();
+      setListOpen(false);
+    } else return;
+    e.preventDefault();
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -186,8 +291,9 @@ export default function TaxaExplorer() {
       else move(i + 1);
     } else if (matches(e, "stepDown")) {
       if (!row) return;
+      const parent = rows.findIndex((r) => r.id === row.parentId);
       if (isClade && expanded.has(row.id)) toggle(row.id);
-      else if (row.parentId) move(rows.findIndex((r) => r.id === row.parentId));
+      else if (parent >= 0) move(parent);
     } else if (matches(e, "choose")) {
       if (row) select(row.id);
     } else if (matches(e, "toggle")) {
@@ -197,13 +303,22 @@ export default function TaxaExplorer() {
   };
 
   const exportCsv = () => void downloadWithToast(toast, "/api/collection/tree?format=csv", "lifer-collection.csv");
-  const detail = selected && index.byId.has(selected) && (
+  const selectedEntry = selected ? index.byId.get(selected) : undefined;
+  const detail = selected && selectedEntry && (
     <ExplorerDetail
       index={index}
       id={selected}
       label={label}
       onSelect={choose}
       onRandom={randomUnder(selected)}
+      onFocusGroup={
+        selectedEntry.node.rank !== "species" && selected !== focus && (genus || selectedEntry.node.rank !== "genus")
+          ? () => {
+              zoomTo(selected);
+              if (!wide) select(null);
+            }
+          : null
+      }
       onOpenPhotos={(nodes, start) => setLightbox({ index: start, slides: nodes.map((n) => slideFor(n, label(n))) })}
     />
   );
@@ -211,6 +326,7 @@ export default function TaxaExplorer() {
   const last = Math.min(range?.[1] ?? 40, rows.length - 1);
   const focusable = active && rows.some((r) => r.id === active) ? active : rows[0]?.id;
   const random = randomUnder(null);
+  const optionId = (i: number) => `${listId}-${i}`;
 
   return (
     <main className="space-y-section p-page">
@@ -233,51 +349,122 @@ export default function TaxaExplorer() {
         />
       ) : (
         <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-8">
-          <div>
+          <div className="min-w-0">
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              <SearchInput
-                value={query}
-                onChange={(q) => {
-                  setQuery(q);
-                  setMatchAt(0);
-                  const first = searchTree(index, q, label)[0];
-                  setHighlight(first ?? null);
-                  if (first) reveal(first);
-                }}
-                onKeyDown={(e) => {
-                  if (!matches(e, "choose")) return;
-                  e.preventDefault();
-                  jumpTo(matchAt + 1);
-                }}
-                placeholder={t("explorer.searchPlaceholder")}
-                aria-label={t("explorer.searchPlaceholder")}
-                className="w-full sm:w-72"
+              <div className="relative w-full sm:w-72">
+                <SearchInput
+                  value={query}
+                  onChange={(q) => {
+                    setQuery(q);
+                    setOption(0);
+                    setListOpen(true);
+                  }}
+                  onFocus={() => setListOpen(true)}
+                  onBlur={() => setListOpen(false)}
+                  onKeyDown={onSearchKey}
+                  placeholder={t("explorer.searchPlaceholder")}
+                  aria-label={t("explorer.searchPlaceholder")}
+                  inputProps={{
+                    role: "combobox",
+                    autoComplete: "off",
+                    "aria-autocomplete": "list",
+                    "aria-expanded": showResults,
+                    "aria-controls": listId,
+                    "aria-activedescendant": showResults && results.length ? optionId(option) : undefined,
+                  }}
+                />
+                {showResults && (
+                  <ul
+                    id={listId}
+                    role="listbox"
+                    aria-label={t("explorer.results")}
+                    className="absolute inset-x-0 top-full z-30 mt-1 max-h-96 min-w-72 overflow-y-auto rounded-panel border border-line bg-surface py-1 shadow-lg"
+                  >
+                    {results.length === 0 && (
+                      <li className="px-3 py-2 text-callout text-muted">{t("explorer.noMatch")}</li>
+                    )}
+                    {results.map((id, i) => {
+                      const { node } = index.byId.get(id)!;
+                      const path = shownPath(id).map((a) => label(index.byId.get(a)!.node));
+                      const rank = t(RANK_KEYS[node.rank]);
+                      return (
+                        <li
+                          key={id}
+                          id={optionId(i)}
+                          role="option"
+                          aria-selected={i === option}
+                          // Keeps focus in the field, so its blur doesn't close the list before the pick.
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            pick(id);
+                          }}
+                          onMouseEnter={() => setOption(i)}
+                          className={`cursor-pointer px-3 py-1.5 ${i === option ? "bg-surface-muted" : ""}`}
+                        >
+                          <span className="block text-callout wrap-anywhere">
+                            <span className={`text-ink ${nameClass(node)}`}>{label(node)}</span>
+                            {secondName(node).length > 0 && (
+                              <span className="ml-1.5 text-footnote text-muted">
+                                <SpeciesNameText parts={secondName(node)} />
+                              </span>
+                            )}
+                          </span>
+                          <span className="block text-footnote text-muted wrap-anywhere">
+                            {path.length ? t("explorer.resultPath", { rank, path: path.join(" / ") }) : rank}
+                          </span>
+                        </li>
+                      );
+                    })}
+                    {found.length > RESULTS && (
+                      <li className="px-3 py-1.5 text-footnote text-muted">
+                        {t("explorer.moreResults", { count: found.length - RESULTS })}
+                      </li>
+                    )}
+                  </ul>
+                )}
+              </div>
+              <SegmentedControl
+                label={t("explorer.shape")}
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: "list", label: t("explorer.list") },
+                  { value: "circle", label: t("explorer.circle") },
+                ]}
               />
-              {query.trim().length >= 2 && (
-                <span className="text-footnote text-muted" aria-live="polite">
-                  {found.length > 0
-                    ? t("explorer.matches", { count: found.length, at: matchAt + 1 })
-                    : t("explorer.noMatch")}
-                </span>
-              )}
+              <FilterPopover label={t("collection.toolbar.view")} activeCount={0}>
+                <label className="flex items-center justify-between gap-4 text-callout text-ink">
+                  {t("explorer.showGenera")}
+                  <Switch checked={genus} onChange={setGenus} label={t("explorer.showGenera")} />
+                </label>
+              </FilterPopover>
               <div className="ml-auto flex flex-wrap gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() =>
-                    setExpanded(new Set([...expanded, ...rows.filter((r) => r.childIds.length > 0).map((r) => r.id)]))
-                  }
-                >
-                  {t("explorer.expandLevel")}
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  disabled={expanded.size === 0}
-                  onClick={() => setExpanded(new Set())}
-                >
-                  {t("explorer.collapseAll")}
-                </Button>
+                {view === "list" && (
+                  <>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() =>
+                        setExpanded(
+                          new Set([...expanded, ...rows.filter((r) => r.childIds.length > 0).map((r) => r.id)]),
+                        )
+                      }
+                    >
+                      {t("explorer.expandLevel")}
+                    </Button>
+                    <Button variant="secondary" size="sm" onClick={() => setExpanded(myBranches(index))}>
+                      {t("explorer.myBranches")}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={expanded.size === 0}
+                      onClick={() => setExpanded(new Set())}
+                    >
+                      {t("explorer.collapseAll")}
+                    </Button>
+                  </>
+                )}
                 {random && (
                   <Button variant="secondary" size="sm" onClick={random}>
                     {t("explorer.random")}
@@ -285,104 +472,186 @@ export default function TaxaExplorer() {
                 )}
               </div>
             </div>
-            <div
-              ref={listRef}
-              role="tree"
-              aria-label={t("explorer.title")}
-              onKeyDown={onKeyDown}
-              style={{ height: rows.length * ROW, position: "relative" }}
-            >
-              {rows.slice(first, last + 1).map((row, k) => {
-                const { node, id, depth } = row;
-                const isClade = row.childIds.length > 0;
-                const open = expanded.has(id);
-                const faded = node.collected === 0;
-                return (
-                  <div
-                    key={id}
-                    data-id={id}
-                    role="treeitem"
-                    aria-level={depth + 1}
-                    aria-expanded={isClade ? open : undefined}
-                    aria-selected={selected === id}
-                    tabIndex={id === focusable ? 0 : -1}
-                    onFocus={() => setActive(id)}
-                    onClick={() => {
-                      setActive(id);
-                      select(id);
-                      // Opening a group by its name never closes it; the chevron does both.
-                      if (isClade && !open) toggle(id);
-                    }}
-                    className={`absolute inset-x-0 flex cursor-pointer items-center gap-2 rounded-control pr-2 transition-colors hover:bg-line focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
-                      selected === id ? "bg-accent/10" : ""
-                    } ${highlight === id ? "ring-2 ring-inset ring-accent" : ""}`}
-                    style={{ top: (first + k) * ROW, height: ROW, paddingLeft: depth * 20 }}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={`flex h-8 w-6 shrink-0 items-center justify-center ${isClade ? "" : "invisible"}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (isClade) toggle(id);
-                      }}
-                    >
-                      <Chevron open={open} />
+            {focus && (
+              <nav
+                aria-label={t("explorer.focusPath")}
+                className="sticky top-[var(--mac-title-bar,0px)] z-10 mb-2 flex flex-wrap items-center gap-x-1 bg-canvas py-1.5 text-footnote"
+              >
+                <Button variant="link" size="sm" onClick={() => zoomTo(null)}>
+                  {t("explorer.allGroups")}
+                </Button>
+                {[...shownPath(focus), focus].map((id) => (
+                  <span key={id} className="flex min-w-0 items-center gap-1">
+                    <span aria-hidden="true" className="text-muted">
+                      /
                     </span>
-                    {node.photoId ? (
-                      // raw-control: the whole thumbnail is the button that opens the photo.
-                      <button
-                        type="button"
-                        tabIndex={-1}
-                        aria-label={t("explorer.openPhoto", { name: label(node) })}
-                        onClick={(e) => {
-                          // The row's own click selects and expands; a photo only opens.
-                          e.stopPropagation();
-                          openRowPhoto(row);
-                        }}
-                        className="h-14 w-14 shrink-0 overflow-hidden rounded-panel transition hover:opacity-90"
-                      >
-                        <ProgressiveImg
-                          thumbSrc={`/api/photos/${node.photoId}/thumb`}
-                          alt=""
-                          className="h-full w-full object-cover"
-                        />
-                      </button>
-                    ) : (
-                      <span
-                        className={`h-14 w-14 shrink-0 overflow-hidden rounded-panel bg-surface-muted ${faded ? "cover-uncollected opacity-70" : ""}`}
-                      >
-                        {node.referenceUrl && (
-                          <ProgressiveImg thumbSrc={node.referenceUrl} alt="" className="h-full w-full object-cover" />
-                        )}
+                    {id === focus ? (
+                      <span aria-current="location" className="font-semibold text-ink wrap-anywhere">
+                        {label(index.byId.get(id)!.node)}
                       </span>
+                    ) : (
+                      <Button variant="link" size="sm" onClick={() => zoomTo(id)}>
+                        {label(index.byId.get(id)!.node)}
+                      </Button>
                     )}
-                    <div className={`min-w-0 flex-1 ${faded ? "opacity-60" : ""}`}>
-                      <p className="line-clamp-2 text-callout text-ink wrap-anywhere" title={label(node)}>
-                        {label(node)}
-                      </p>
-                      {isClade ? (
-                        <div className="mt-0.5 flex items-center gap-2">
-                          <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-line" aria-hidden="true">
-                            <span
-                              className="block h-full rounded-full bg-accent"
-                              style={{ width: `${node.total ? (node.collected / node.total) * 100 : 0}%` }}
-                            />
-                          </span>
-                          <span className="text-footnote text-muted tabular-nums">
-                            {t("explorer.progress", {
-                              collected: formatNumber(node.collected),
-                              total: formatNumber(node.total),
-                            })}
-                          </span>
-                        </div>
-                      ) : (
-                        faded && <p className="text-footnote text-muted">{t("explorer.notYet")}</p>
+                  </span>
+                ))}
+              </nav>
+            )}
+            {view === "circle" ? (
+              <TreeCircle
+                index={index}
+                center={focus}
+                genus={genus}
+                selected={selected}
+                label={label}
+                onZoomOut={zoomOut}
+                onPick={(id) => {
+                  const entry = index.byId.get(id)!;
+                  const group = entry.node.rank !== "species";
+                  if (group) setFocus(id);
+                  // On a phone the detail is a sheet, so zooming into a group doesn't also open it.
+                  if (!group || wide) select(id);
+                }}
+              />
+            ) : (
+              <div
+                ref={listRef}
+                role="tree"
+                aria-label={t("explorer.title")}
+                onKeyDown={onKeyDown}
+                style={{
+                  height: layout.tops.length ? layout.tops.at(-1)! + layout.heights.at(-1)! : 0,
+                  position: "relative",
+                }}
+              >
+                {rows.slice(first, last + 1).map((row, k) => {
+                  const { node, id, depth } = row;
+                  const isClade = row.childIds.length > 0;
+                  const open = expanded.has(id);
+                  const faded = node.collected === 0;
+                  const isSpecies = node.rank === "species";
+                  const name = label(node);
+                  const second = secondName(node);
+                  const at = first + k;
+                  return (
+                    <div
+                      key={id}
+                      data-id={id}
+                      role="treeitem"
+                      aria-level={depth + 1}
+                      aria-expanded={isClade ? open : undefined}
+                      aria-selected={selected === id}
+                      tabIndex={id === focusable ? 0 : -1}
+                      onFocus={() => setActive(id)}
+                      onClick={() => {
+                        setActive(id);
+                        select(id);
+                        // Opening a group by its name never closes it; the chevron does both.
+                        if (isClade && !open) toggle(id);
+                      }}
+                      className={`absolute inset-x-0 flex cursor-pointer items-center gap-2 rounded-control pr-2 transition-colors hover:bg-line focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
+                        selected === id ? "bg-accent/10" : ""
+                      }`}
+                      style={{ top: layout.tops[at], height: layout.heights[at], paddingLeft: depth * INDENT }}
+                    >
+                      <RowLines lines={row.lines} />
+                      {isClade && open && (
+                        // The line down to this group's own children.
+                        <span
+                          aria-hidden="true"
+                          className="absolute bottom-0 w-px bg-line"
+                          style={{ left: depth * INDENT + 12, top: "calc(50% + 10px)" }}
+                        />
                       )}
+                      <span
+                        aria-hidden="true"
+                        className={`relative flex h-8 w-6 shrink-0 items-center justify-center ${isClade ? "" : "invisible"}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isClade) toggle(id);
+                        }}
+                      >
+                        <Chevron open={open} />
+                      </span>
+                      {node.photoId ? (
+                        // raw-control: the whole thumbnail is the button that opens the photo.
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          aria-label={t("explorer.openPhoto", { name })}
+                          onClick={(e) => {
+                            // The row's own click selects and expands; a photo only opens.
+                            e.stopPropagation();
+                            openRowPhoto(row);
+                          }}
+                          className="h-14 w-14 shrink-0 overflow-hidden rounded-panel transition hover:opacity-90"
+                        >
+                          <ProgressiveImg
+                            thumbSrc={`/api/photos/${node.photoId}/thumb`}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        </button>
+                      ) : node.referenceUrl ? (
+                        <span
+                          className={`h-14 w-14 shrink-0 overflow-hidden rounded-panel bg-surface-muted ${faded ? "cover-uncollected opacity-70" : ""}`}
+                        >
+                          <ProgressiveImg thumbSrc={node.referenceUrl} alt="" className="h-full w-full object-cover" />
+                        </span>
+                      ) : (
+                        <PhotoPlaceholder className="h-14 w-14 shrink-0 rounded-panel" />
+                      )}
+                      <div className={`min-w-0 flex-1 ${faded ? "opacity-70" : ""}`}>
+                        {!isSpecies && <p className="text-overline text-muted uppercase">{t(RANK_KEYS[node.rank])}</p>}
+                        <p
+                          className={`${isSpecies ? "line-clamp-3" : "line-clamp-2"} text-callout wrap-anywhere`}
+                          title={name}
+                        >
+                          <span className={`font-semibold text-ink ${nameClass(node)}`}>{name}</span>
+                          {second.length > 0 && (
+                            <span className="ml-1.5 text-footnote text-muted">
+                              <SpeciesNameText parts={second} />
+                            </span>
+                          )}
+                        </p>
+                        {!isSpecies ? (
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2">
+                            <span
+                              className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-line"
+                              aria-hidden="true"
+                            >
+                              <span
+                                className="block h-full rounded-full bg-accent"
+                                style={{ width: `${node.total ? (node.collected / node.total) * 100 : 0}%` }}
+                              />
+                            </span>
+                            <span className="text-footnote text-muted tabular-nums">
+                              {t("explorer.speciesOf", {
+                                collected: formatNumber(node.collected),
+                                total: formatNumber(node.total),
+                              })}
+                            </span>
+                            {node.photos > 0 && (
+                              <span className="text-footnote text-muted tabular-nums">
+                                {t("explorer.photoCount", { count: node.photos, formatted: formatNumber(node.photos) })}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-footnote text-muted tabular-nums">
+                            {faded
+                              ? t("explorer.notYet")
+                              : node.photos > 0 &&
+                                t("explorer.photoCount", { count: node.photos, formatted: formatNumber(node.photos) })}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
           {wide ? (
             <aside className="sticky top-4 max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-panel border border-line bg-surface p-4">

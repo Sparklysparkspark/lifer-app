@@ -37,6 +37,8 @@ Corner radii already agree: framed cards use `rounded-panel`, bare photos `round
   markLabel={selectMode ? label : undefined} // shows the SelectMark
   actions={<>Preview, Menu</>}   // the top-right overlay row
   renderBody={(p) => <Link {...p} to="..." />} // the interactive element: Link, button or option
+  layout="overlay"               // photo-filled: text on a dark scrim at the photo's bottom, media on bg-media
+  count={{ value: "14", label: "14 photos" }} // a number pill at the top right, after the actions
 />
 ```
 

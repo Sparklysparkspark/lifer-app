@@ -216,18 +216,6 @@
     "count": 4
   },
   {
-    "file": "apps/web/src/components/SpeciesCard.tsx",
-    "kind": "colour",
-    "text": "className=\"absolute left-1.5 bottom-1.5 max-w-[80%] truncate rounded-full bg-black/60 px-2 py-0.5 text-footnote font-medium text-white shadow\"",
-    "count": 2
-  },
-  {
-    "file": "apps/web/src/components/SpeciesCard.tsx",
-    "kind": "colour",
-    "text": "className=\"flex h-5 w-5 items-center justify-center rounded-full bg-white/90 text-footnote font-bold text-stone-600 shadow\"",
-    "count": 4
-  },
-  {
     "file": "apps/web/src/components/SpeciesHotspotMap.tsx",
     "kind": "colour",
     "text": "\"circle-color\": \"#b45309\",",

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import {
   applyOnlineBasemap,
+  applyOnlineRelief,
   onlineMode,
   resetOnlineMapPrefs,
   useOnlineBasemap,
@@ -14,13 +15,17 @@ import {
   BASEMAP_ATTRIBUTION,
   customSatelliteUrl,
   DETAIL_SOURCE_ID,
+  ONLINE_RELIEF_SOURCE_ID,
   onlineSources,
   SATELLITE_SOURCE_ID,
 } from "../lib/mapStyle";
 
 // Just enough of a MapLibre map to record what goes where.
 function fakeMap(layerIds: Array<[string, string?]>) {
-  const layers = layerIds.map(([id, source]) => ({ id, type: id === "background" ? "background" : "fill", source }));
+  const type = (id: string) => (id === "background" ? "background" : id === "relief-hillshade" ? "hillshade" : "fill");
+  const layers: Array<{ id: string; type: string; source?: string; minzoom?: number; maxzoom?: number }> = layerIds.map(
+    ([id, source]) => ({ id, type: type(id), source }),
+  );
   const sources = new Map<string, unknown>();
   const paint: Record<string, unknown> = { "circle-opacity": 0.01, "circle-stroke-opacity": 0.55 };
   let maxZoom = 22;
@@ -40,12 +45,18 @@ function fakeMap(layerIds: Array<[string, string?]>) {
         1,
       ),
     setMaxZoom: (z: number) => (maxZoom = z),
+    setLayerZoomRange: (id: string, minzoom: number, maxzoom: number) =>
+      Object.assign(
+        layers.find((l) => l.id === id)!,
+        { minzoom, maxzoom },
+      ),
     getPaintProperty: (_l: string, k: string) => paint[k],
     setPaintProperty: (_l: string, k: string, v: unknown) => (paint[k] = v),
   };
   return {
     map: map as unknown as MapLibreMap,
     ids: () => layers.map((l) => l.id),
+    layer: (id: string) => layers.find((l) => l.id === id),
     sources,
     paint,
     maxZoom: () => maxZoom,
@@ -131,6 +142,50 @@ describe("online sources", () => {
   });
 });
 
+describe("applyOnlineRelief", () => {
+  function withEvents() {
+    const m = fakeMap(BUNDLED);
+    const handlers: Record<string, Array<(e: unknown) => void>> = {};
+    Object.assign(m.map, {
+      on: (ev: string, fn: (e: unknown) => void) => (handlers[ev] ??= []).push(fn),
+      off: (ev: string, fn: (e: unknown) => void) => (handlers[ev] = (handlers[ev] ?? []).filter((f) => f !== fn)),
+    });
+    const emit = (ev: string, e: unknown) => [...(handlers[ev] ?? [])].forEach((fn) => fn(e));
+    return { ...m, emit };
+  }
+  const tile = { sourceId: ONLINE_RELIEF_SOURCE_ID, tile: {} };
+  const tileError = { sourceId: ONLINE_RELIEF_SOURCE_ID, error: new Error("Failed to fetch") };
+
+  it("keeps the bundled shading until an online tile arrives, then hands over past zoom 5", () => {
+    const m = withEvents();
+    const undo = applyOnlineRelief(m.map);
+    expect(m.layer("online-relief-hillshade")).toMatchObject({ type: "hillshade", minzoom: 6 });
+    expect(m.layer("relief-hillshade")?.maxzoom).toBeUndefined();
+    m.emit("sourcedata", tile);
+    expect(m.layer("relief-hillshade")?.maxzoom).toBe(6);
+    undo();
+    expect(m.ids()).toEqual(BUNDLED.map(([id]) => id));
+    expect(m.layer("relief-hillshade")?.maxzoom).toBe(24);
+    expect(m.sources.size).toBe(0);
+  });
+
+  it("gives way to the bundled relief silently after a run of errors", () => {
+    const m = withEvents();
+    applyOnlineRelief(m.map);
+    m.emit("sourcedata", tile);
+    [1, 2, 3, 4].forEach(() => m.emit("error", tileError));
+    expect(m.sources.size).toBe(0);
+    expect(m.layer("relief-hillshade")?.maxzoom).toBe(24);
+  });
+
+  it("does nothing on a map without the bundled relief", () => {
+    const m = withEvents();
+    m.map.removeLayer("relief-hillshade");
+    applyOnlineRelief(m.map);
+    expect(m.sources.size).toBe(0);
+  });
+});
+
 describe("onlineMode", () => {
   const auto = { detail: "auto", base: "map" } as const;
   it("loads detail only when zoomed in and online, and never with Off or offline", () => {
@@ -207,7 +262,24 @@ describe("useOnlineBasemap", () => {
     renderHook(() => useOnlineBasemap(m.map, prefs()));
     expect(m.sources.size).toBe(0);
     act(() => m.zoomTo(12));
-    expect([...m.sources.keys()]).toEqual([DETAIL_SOURCE_ID]);
+    expect([...m.sources.keys()]).toEqual([DETAIL_SOURCE_ID, ONLINE_RELIEF_SOURCE_ID]);
+  });
+
+  it("adds sharper relief past the bundled zoom, but not with Off, satellite or offline", () => {
+    const m = zoomable(4);
+    renderHook(() => useOnlineBasemap(m.map, prefs()));
+    expect(m.sources.size).toBe(0);
+    act(() => m.zoomTo(6));
+    expect([...m.sources.keys()]).toEqual([ONLINE_RELIEF_SOURCE_ID]);
+    for (const over of [{ detail: "off" }, { base: "satellite" }] as const) {
+      const other = zoomable(6);
+      renderHook(() => useOnlineBasemap(other.map, prefs(over)));
+      expect(other.sources.has(ONLINE_RELIEF_SOURCE_ID)).toBe(false);
+    }
+    setOnline(false);
+    const offline = zoomable(6);
+    renderHook(() => useOnlineBasemap(offline.map, prefs()));
+    expect(offline.sources.size).toBe(0);
   });
 
   it("asks nothing online with Off, or while offline, and says so offline", () => {
@@ -235,7 +307,7 @@ describe("useOnlineBasemap", () => {
       expect(result.current.slow).toBe(true);
       act(() => m.emit("sourcedata", tile));
       expect(result.current.slow).toBe(false);
-      expect([...m.sources.keys()]).toEqual([DETAIL_SOURCE_ID]);
+      expect(m.sources.has(DETAIL_SOURCE_ID)).toBe(true);
     });
 
     it("keeps trying a dead host in the background, says so only after a run of errors, and clears", async () => {
@@ -251,7 +323,7 @@ describe("useOnlineBasemap", () => {
       burst();
       expect(result.current.failed).toBe(true);
       // Never turned off: the layers are still there, and the next tile clears the notice.
-      expect([...m.sources.keys()]).toEqual([DETAIL_SOURCE_ID]);
+      expect(m.sources.has(DETAIL_SOURCE_ID)).toBe(true);
       act(() => m.emit("sourcedata", tile));
       expect(result.current.failed).toBe(false);
     });

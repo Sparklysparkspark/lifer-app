@@ -125,3 +125,32 @@ describe("SpeciesCard remove from list", () => {
     expect(api.put).toHaveBeenCalledWith("/regions/r1/checklist-additions/s1");
   });
 });
+
+describe("SpeciesCard photo-filled layout", () => {
+  function renderCard(props: { overlay?: boolean; photoCount?: number }) {
+    render(
+      <ToastContext.Provider value={toast}>
+        <ConfirmContext.Provider value={vi.fn().mockResolvedValue(false)}>
+          <MemoryRouter>
+            <SpeciesCard item={{ ...item, photoCount: props.photoCount }} overlay={props.overlay} />
+          </MemoryRouter>
+        </ConfirmContext.Provider>
+      </ToastContext.Provider>,
+    );
+  }
+
+  it("counts your photos at the top right, outside the link, only on a photo-filled card", () => {
+    renderCard({ overlay: true, photoCount: 1204 });
+    const count = screen.getByRole("img", { name: "1,204 photos" });
+    expect(count.textContent).toBe("1,204");
+    expect(screen.getByRole("link").contains(count)).toBe(false);
+    cleanup();
+    renderCard({ overlay: false, photoCount: 14 });
+    expect(screen.queryByRole("img", { name: "14 photos" })).toBeNull();
+  });
+
+  it("shows no count without photos", () => {
+    renderCard({ overlay: true, photoCount: 0 });
+    expect(screen.queryByRole("img", { name: /photos/ })).toBeNull();
+  });
+});

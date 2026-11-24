@@ -2462,6 +2462,8 @@ export interface paths {
                 /** @description 12 monthly values, on region checklist rows */
                 seasonality: null | number[];
                 capturedYears: number[] | null;
+                /** @description Your photos of it, videos and recordings aside; Collection and region rows */
+                photoCount?: number;
                 heard?: boolean;
                 /** @description Collected only through photos Lifer filed, none confirmed yet */
                 suggested?: boolean;
@@ -8617,6 +8619,8 @@ export interface paths {
                 /** @description 12 monthly values, on region checklist rows */
                 seasonality: null | number[];
                 capturedYears: number[] | null;
+                /** @description Your photos of it, videos and recordings aside; Collection and region rows */
+                photoCount?: number;
                 heard?: boolean;
                 /** @description Collected only through photos Lifer filed, none confirmed yet */
                 suggested?: boolean;
@@ -26325,6 +26329,8 @@ export interface paths {
                 /** @description 12 monthly values, on region checklist rows */
                 seasonality: null | number[];
                 capturedYears: number[] | null;
+                /** @description Your photos of it, videos and recordings aside; Collection and region rows */
+                photoCount?: number;
                 heard?: boolean;
                 /** @description Collected only through photos Lifer filed, none confirmed yet */
                 suggested?: boolean;
@@ -26853,6 +26859,8 @@ export interface paths {
                 /** @description 12 monthly values, on region checklist rows */
                 seasonality: null | number[];
                 capturedYears: number[] | null;
+                /** @description Your photos of it, videos and recordings aside; Collection and region rows */
+                photoCount?: number;
                 heard?: boolean;
                 /** @description Collected only through photos Lifer filed, none confirmed yet */
                 suggested?: boolean;
@@ -41566,6 +41574,8 @@ export interface paths {
                 /** @description 12 monthly values, on region checklist rows */
                 seasonality: null | number[];
                 capturedYears: number[] | null;
+                /** @description Your photos of it, videos and recordings aside; Collection and region rows */
+                photoCount?: number;
                 heard?: boolean;
                 /** @description Collected only through photos Lifer filed, none confirmed yet */
                 suggested?: boolean;

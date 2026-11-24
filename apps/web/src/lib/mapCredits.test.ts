@@ -30,6 +30,15 @@ describe("activeCredits", () => {
     expect(keys(map([...bundled, detail], 12))).toContain("openfreemap");
   });
 
+  it("credits Mapterhorn only while its sharper relief shows, linking its sources page", () => {
+    const relief = { id: "online-relief-hillshade", source: "online-relief", minzoom: 6 };
+    const handedOver = [{ id: "earth", source: "protomaps" }, { ...bundled[1], maxzoom: 6 }, relief];
+    expect(keys(map(handedOver, 5))).not.toContain("mapterhorn");
+    const credits = activeCredits(map(handedOver, 9));
+    expect(credits.map((c) => c.key)).toEqual(["mapterhorn", "osm", "protomaps"]);
+    expect(credits[0].href).toBe("https://mapterhorn.com/attribution");
+  });
+
   it("puts EOX's own full sentence first under satellite, and drops the covered offline map", () => {
     const credits = activeCredits(map([...bundled, satellite, labels], 5, { "online-satellite": { tiles: [EOX] } }));
     expect(credits[0]).toMatchObject({
@@ -62,6 +71,6 @@ describe("activeCredits", () => {
 describe("alsoUsedCredits", () => {
   it("lists every other source once, so all licences stay one click away", () => {
     const also = alsoUsedCredits(activeCredits(map(bundled))).map((c) => c.key);
-    expect(also).toEqual(["openfreemap", "eox"]);
+    expect(also).toEqual(["mapterhorn", "openfreemap", "eox"]);
   });
 });

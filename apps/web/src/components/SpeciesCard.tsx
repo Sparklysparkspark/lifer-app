@@ -14,6 +14,7 @@ import { useConfirm } from "../hooks/useConfirm";
 import { useToast } from "../hooks/useToast";
 import { addToChecklist, checklistLabel, removeFromChecklist } from "../lib/checklistAdditions";
 import { errorMessage } from "../lib/errorMessage";
+import { formatNumber } from "../lib/format";
 import ProgressiveImg from "./ProgressiveImg";
 import PhotoPlaceholder from "./PhotoPlaceholder";
 import Menu, { MenuItem, MenuPanel, MenuSeparator } from "./Menu";
@@ -31,6 +32,28 @@ import SpeciesNameText from "./SpeciesNameText";
 // the species leaving this view, or "reload" after a failed optimistic change.
 export type SpeciesChange = Partial<CollectionItem> | "removed" | "reload";
 export type SpeciesChangeHandler = (speciesId: string | string[], change: SpeciesChange) => void;
+
+// The seen and target marks: house line icons (an eye, a target), not text glyphs.
+function MarkIcon({ d }: { d: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-3.5 w-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d={d} />
+    </svg>
+  );
+}
+const SEEN_ICON = "M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z";
+const TARGET_ICON = "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM12 11.5v1";
+const MARK =
+  "flex h-5 w-5 items-center justify-center rounded-full border border-glass-line bg-glass text-ink shadow-sm";
 
 function speciesLinkSearch(regionId?: string, tripId?: string): string {
   const params = new URLSearchParams();
@@ -55,6 +78,7 @@ function SpeciesCard({
   hideLabels,
   hideNames,
   compact,
+  overlay = false,
   cardImageSide,
   selectMode = false,
   selected = false,
@@ -82,6 +106,8 @@ function SpeciesCard({
   hideNames?: boolean;
   /** The smallest card sizes: tighter spacing so the name box isn't mostly empty space. */
   compact?: boolean;
+  /** Photo-filled: names on a scrim over the photo, the photo count at the top right. */
+  overlay?: boolean;
   /** Pixel side of the card's photo square, so a cropped photo loads only that much. */
   cardImageSide?: number;
   /** Select mode: a click picks the card instead of opening it, and the menu is hidden. */
@@ -135,64 +161,73 @@ function SpeciesCard({
     !!item.localTier &&
     !!item.tier &&
     TIER_ORDER.indexOf(item.localTier as TierValue) > TIER_ORDER.indexOf(item.tier as TierValue);
-  const badge: { label: string; title: string; className: string; onClick?: (e: React.MouseEvent) => void } | null =
-    item.heard
+  const badge: {
+    label: string;
+    title: string;
+    className: string;
+    /** Keeps its colour on a photo; the plain ones become a translucent chip there. */
+    tinted?: boolean;
+    onClick?: (e: React.MouseEvent) => void;
+  } | null = item.heard
+    ? {
+        label: t("speciesCard.badge.heard"),
+        title: t("speciesCard.badge.heardTitle"),
+        className: "bg-surface-muted text-ink",
+      }
+    : item.nameChanged
       ? {
-          label: t("speciesCard.badge.heard"),
-          title: t("speciesCard.badge.heardTitle"),
-          className: "bg-surface-muted text-ink",
+          label: t("speciesCard.badge.nameChanged"),
+          title: t("speciesCard.badge.nameChangedTitle"),
+          className: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+          tinted: true,
+          onClick: openNameChanged,
         }
-      : item.nameChanged
+      : item.rediscoveredGhost || item.rediscoveredLost
         ? {
-            label: t("speciesCard.badge.nameChanged"),
-            title: t("speciesCard.badge.nameChangedTitle"),
-            className: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
-            onClick: openNameChanged,
+            label: t("speciesCard.badge.rediscovered"),
+            title: t("speciesCard.badge.rediscoveredTitle"),
+            className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
+            tinted: true,
           }
-        : item.rediscoveredGhost || item.rediscoveredLost
+        : item.isLost
           ? {
-              label: t("speciesCard.badge.rediscovered"),
-              title: t("speciesCard.badge.rediscoveredTitle"),
-              className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
+              label: t("speciesCard.badge.lost"),
+              title: t("speciesCard.badge.lostTitle"),
+              className: "bg-surface-muted text-ink",
             }
-          : item.isLost
+          : item.isGhost
             ? {
-                label: t("speciesCard.badge.lost"),
-                title: t("speciesCard.badge.lostTitle"),
+                label: t("speciesCard.badge.ghost"),
+                title: t("speciesCard.badge.ghostTitle"),
                 className: "bg-surface-muted text-ink",
               }
-            : item.isGhost
+            : item.endemic
               ? {
-                  label: t("speciesCard.badge.ghost"),
-                  title: t("speciesCard.badge.ghostTitle"),
+                  label: t("speciesCard.badge.endemic"),
+                  title: t("speciesCard.badge.endemicTitle"),
                   className: "bg-surface-muted text-ink",
                 }
-              : item.endemic
+              : item.vagrant
                 ? {
-                    label: t("speciesCard.badge.endemic"),
-                    title: t("speciesCard.badge.endemicTitle"),
+                    label: t("speciesCard.badge.vagrant"),
+                    title: t("speciesCard.badge.vagrantTitle"),
                     className: "bg-surface-muted text-ink",
                   }
-                : item.vagrant
+                : localRarer
                   ? {
-                      label: t("speciesCard.badge.vagrant"),
-                      title: t("speciesCard.badge.vagrantTitle"),
-                      className: "bg-surface-muted text-ink",
+                      label: t("speciesCard.badge.localTier", { tier: tierLabel(item.localTier!) }),
+                      title: t("speciesCard.badge.localTierTitle"),
+                      className: "bg-surface-muted text-muted",
+                      onClick: openTier,
                     }
-                  : localRarer
+                  : item.userAddedRegion
                     ? {
-                        label: t("speciesCard.badge.localTier", { tier: tierLabel(item.localTier!) }),
-                        title: t("speciesCard.badge.localTierTitle"),
-                        className: "bg-surface-muted text-muted",
-                        onClick: openTier,
+                        label: t("speciesCard.badge.addedByYou"),
+                        title: t("speciesCard.badge.addedByYouTitle", { list: checklistLabel(item.userAddedRegion) }),
+                        className: "border border-dashed border-line text-muted",
                       }
-                    : item.userAddedRegion
-                      ? {
-                          label: t("speciesCard.badge.addedByYou"),
-                          title: t("speciesCard.badge.addedByYouTitle", { list: checklistLabel(item.userAddedRegion) }),
-                          className: "border border-dashed border-line text-muted",
-                        }
-                      : null;
+                    : null;
+  const chipClass = badge && overlay && !badge.tinted ? "border border-glass-line bg-glass text-ink" : badge?.className;
   const { openKey: menuOpen, setOpenKey: setMenuOpen, ref: menuRef } = useDropdownMenu<true>();
   const confirm = useConfirm();
   const toast = useToast();
@@ -409,6 +444,16 @@ function SpeciesCard({
     }
   }
 
+  const volumeLabel = showVolumeBadge && item.coverVolumeLabel && (
+    <span
+      // design-token: a label over a photo, dark in both themes.
+      className="block max-w-full truncate rounded-full bg-black/60 px-2 py-0.5 text-footnote font-medium text-white shadow"
+      title={t("speciesCard.volumeTitle", { drive: item.coverVolumeLabel })}
+    >
+      {item.coverVolumeLabel}
+    </span>
+  );
+
   // The card is one big Link, so a click right after drag-selecting the name would navigate and
   // drop the selection. Skip navigating when the click follows a real text selection.
   function handleClickCapture(e: React.MouseEvent) {
@@ -472,37 +517,32 @@ function SpeciesCard({
             ) : (
               <PhotoPlaceholder className="h-full w-full" />
             )}
-            {(isSeen || isTarget) && (
-              <div className="absolute left-1.5 top-1.5 flex gap-1">
+            {(isSeen || isTarget || (overlay && volumeLabel)) && (
+              <div className="absolute left-1.5 top-1.5 flex max-w-[55%] items-center gap-1">
                 {isSeen && (
-                  <span
-                    className="flex h-5 w-5 items-center justify-center rounded-full bg-white/90 text-footnote font-bold text-stone-600 shadow"
-                    title={t("speciesCard.seenTitle")}
-                  >
-                    ✓
+                  <span className={MARK} title={t("speciesCard.seenTitle")}>
+                    <MarkIcon d={SEEN_ICON} />
                   </span>
                 )}
                 {isTarget && (
-                  <span
-                    className="flex h-5 w-5 items-center justify-center rounded-full bg-white/90 text-footnote font-bold text-stone-600 shadow"
-                    title={t("speciesCard.targetTitle")}
-                  >
-                    ◎
+                  <span className={MARK} title={t("speciesCard.targetTitle")}>
+                    <MarkIcon d={TARGET_ICON} />
                   </span>
                 )}
+                {/* On a photo-filled card the names take the bottom, so the drive moves up here. */}
+                {overlay && volumeLabel}
               </div>
             )}
-            {showVolumeBadge && item.coverVolumeLabel && (
-              <span
-                className="absolute left-1.5 bottom-1.5 max-w-[80%] truncate rounded-full bg-black/60 px-2 py-0.5 text-footnote font-medium text-white shadow"
-                title={t("speciesCard.volumeTitle", { drive: item.coverVolumeLabel })}
-              >
-                {item.coverVolumeLabel}
-              </span>
-            )}
+            {!overlay && volumeLabel && <div className="absolute left-1.5 bottom-1.5 max-w-[80%]">{volumeLabel}</div>}
           </>
         }
         mediaClassName={`aspect-square ${isSeen ? "cover-seen" : isUncollected ? "cover-uncollected" : ""}`}
+        layout={overlay ? "overlay" : "stacked"}
+        count={
+          overlay && item.photoCount
+            ? { value: formatNumber(item.photoCount), label: t("speciesCard.photoCount", { count: item.photoCount }) }
+            : undefined
+        }
         title={
           hideNames ? undefined : (
             <span title={shownTier ? `${displayName}, ${tierLabel(shownTier)}` : displayName}>{displayName}</span>
@@ -515,7 +555,7 @@ function SpeciesCard({
                 <p
                   key="second"
                   ref={secondNameRef}
-                  className={`select-text break-words text-muted text-footnote ${compact ? "leading-tight" : ""}`}
+                  className={`select-text break-words text-footnote ${overlay ? "opacity-85" : "text-muted"} ${compact ? "leading-tight" : ""}`}
                   style={{ fontSize: secondNameFontSize }}
                 >
                   <SpeciesNameText parts={secondaryName} />
@@ -534,7 +574,7 @@ function SpeciesCard({
                     type="button"
                     {...tip}
                     onClick={badge.onClick}
-                    className={`inline-block rounded-badge px-1.5 py-0.5 text-footnote hover:underline ${badge.className}`}
+                    className={`inline-block rounded-badge px-1.5 py-0.5 text-footnote hover:underline ${chipClass}`}
                   >
                     {badge.label}
                   </button>
@@ -543,14 +583,14 @@ function SpeciesCard({
             ) : (
               <span
                 title={badge.title}
-                className={`inline-block rounded-badge px-1.5 py-0.5 text-footnote ${badge.className}`}
+                className={`inline-block rounded-badge px-1.5 py-0.5 text-footnote ${chipClass}`}
               >
                 {badge.label}
               </span>
             )
           ) : null
         }
-        textClassName={isUncollected ? "text-uncollected" : ""}
+        textClassName={isUncollected && !overlay ? "text-uncollected" : ""}
         compact={compact}
         selected={selectMode && selected}
         markLabel={selectMode ? t("speciesCard.select", { name: displayName }) : undefined}

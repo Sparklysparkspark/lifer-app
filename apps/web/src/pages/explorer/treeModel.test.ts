@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   ancestorIds,
+  circleArcs,
   collectedLeaves,
+  myBranches,
   indexTree,
   rarestFirst,
   searchTree,
@@ -67,6 +69,40 @@ describe("treeModel", () => {
     expect(visibleRows(index, new Set([aves]))).toHaveLength(11);
   });
 
+  it("draws connector lines from each row's later siblings", () => {
+    const index = indexTree(big);
+    const o0 = "class:Aves/order:O0";
+    const rows = visibleRows(index, new Set(["class:Aves", o0]));
+    expect(rows[0].lines).toEqual([]);
+    expect(rows[1]).toMatchObject({ id: o0, depth: 1, lines: [true] });
+    // O0's families: the line for O0's later siblings runs on through them.
+    expect(rows[2].lines).toEqual([true, true]);
+    expect(rows[11].lines).toEqual([true, false]);
+    expect(rows.at(-1)!.lines).toEqual([false]);
+  });
+
+  it("hides genera by listing a family's species, photographed first, and re-roots on a focus", () => {
+    const index = indexTree(big);
+    const family = "class:Aves/order:O0/family:F0-0";
+    const rows = visibleRows(index, new Set([family]), { focus: "class:Aves/order:O0", genus: false });
+    expect(rows[0]).toMatchObject({ id: family, depth: 0, parentId: "class:Aves/order:O0" });
+    const species = rows.filter((r) => r.parentId === family);
+    expect(species).toHaveLength(100);
+    expect(species.every((r) => r.node.rank === "species" && r.depth === 1)).toBe(true);
+    expect(species.slice(0, 40).every((r) => r.node.collected === 1)).toBe(true);
+    expect(species[40].node.collected).toBe(0);
+  });
+
+  it("opens on photographed classes and orders, within the row cap", () => {
+    const index = indexTree(big);
+    expect(myBranches(index)).toEqual(
+      new Set(["class:Aves", ...Array.from({ length: 10 }, (_, o) => `class:Aves/order:O${o}`)]),
+    );
+    // 1 + 10 rows fit in 20, then only one order's 10 families more.
+    expect(myBranches(index, 20).size).toBe(1);
+    expect(myBranches(index, 21).size).toBe(2);
+  });
+
   it("lists photographed children first and gives paths as ids", () => {
     const index = indexTree(big);
     const genus = "class:Aves/order:O0/family:F0-0/genus:G0-0-0";
@@ -93,5 +129,38 @@ describe("treeModel", () => {
     const tree = [clade("genus", "G", [leaf("a", 1), leaf("b", 0, "legendary"), leaf("c", 1, "rare")])];
     const index = indexTree(tree);
     expect(rarestFirst(collectedLeaves(index, "genus:G")).map((l) => l.node.name)).toEqual(["c", "a"]);
+  });
+});
+
+describe("circleArcs", () => {
+  const close = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThan(1e-9);
+
+  it("fills each ring: children's arcs add up to their parent's", () => {
+    const index = indexTree(big);
+    const arcs = circleArcs(index, null, { rings: 3 });
+    const ring1 = arcs.filter((a) => a.ring === 1);
+    close(
+      ring1.reduce((n, a) => n + a.end - a.start, 0),
+      2 * Math.PI,
+    );
+    const o3 = arcs.find((a) => a.id === "class:Aves/order:O3")!;
+    const kids = arcs.filter((a) => a.ring === 3 && a.start >= o3.start - 1e-9 && a.end <= o3.end + 1e-9);
+    close(
+      kids.reduce((n, a) => n + a.end - a.start, 0),
+      o3.end - o3.start,
+    );
+    expect(arcs.some((a) => a.ring === 4)).toBe(false);
+  });
+
+  it("merges arcs thinner than the minimum into one more arc", () => {
+    const index = indexTree(big);
+    // 100 families of 100 species share the circle: 0.063 rad each.
+    const arcs = circleArcs(index, "class:Aves", { rings: 2, minAngle: 0.1 });
+    const ring2 = arcs.filter((a) => a.ring === 2);
+    expect(ring2.every((a) => a.id === null && a.more === 10)).toBe(true);
+    close(
+      ring2.reduce((n, a) => n + a.end - a.start, 0),
+      2 * Math.PI,
+    );
   });
 });

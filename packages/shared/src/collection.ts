@@ -52,6 +52,9 @@ export interface CollectionItem {
   /** Every calendar year with a non-trashed capture of this species, for big-year counts.
    *  Null if never captured. */
   capturedYears: number[] | null;
+  /** Your photos of it (videos and recordings aside), as the species page counts them. Only on
+   *  GET /collection and region checklist rows. */
+  photoCount?: number;
   /** Seen only because a recording of it exists (shown as a "Heard" badge). */
   heard?: boolean;
   /** On the life list only through photos Lifer filed itself, none confirmed yet. */

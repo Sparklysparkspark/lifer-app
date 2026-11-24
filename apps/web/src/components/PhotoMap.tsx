@@ -164,7 +164,7 @@ function plainStyle(): StyleSpecification {
 }
 
 function mapStyle(available: boolean, theme: string): StyleSpecification {
-  return available ? pmtilesStyle(theme === "dark" ? "dark" : "light") : plainStyle();
+  return available ? pmtilesStyle(theme === "dark" ? "dark" : "light", { strongRelief: true }) : plainStyle();
 }
 
 // "1,204" fits a disc up to four digits; past that "12k". A ring has its own count.

@@ -133,6 +133,9 @@
     }
   },
   "collection": {
+    "categories": {
+      "label": "Spoken name of the row of cards at the top of the Collection, one per animal group (Birds, Mammals...); a card filters the list to its group."
+    },
     "addSpecies": {
       "intro": "\"Added by you\" must match the label shown on species cards added by hand.",
       "seaZone": "Option for a sea zone checklist (a stretch of ocean) next to the region's own. {name} is the zone's name.",
@@ -1284,7 +1287,8 @@
     "removedFromList": "{name} is a species name, {list} a species list name, e.g. \"British Columbia's species list\".",
     "archivedToast": "{name} is a species name. The species is left out of the user's counts.",
     "addedToTargets": "Targets: species the user wants to photograph next.",
-    "seenTitle": "Hover text on a check mark: the user saw this species but has no photo of it.",
+    "seenTitle": "Hover text on an eye icon: the user saw this species but has no photo of it.",
+    "photoCount": "Spoken name of the number in the top corner of a species card: how many photos of it the user has.",
     "volumeTitle": "{drive} is the name of an external drive.",
     "menu": {
       "adjustPreview": "Menu item: choose how the species card crops its photo.",
@@ -1300,7 +1304,8 @@
     "pinned": {
       "photographed": "Heading of a group pinned above the others: species the user has photographed.",
       "targets": "Heading of a pinned group: species the user wants to photograph next."
-    }
+    },
+    "groupProgress": "Spoken name of the progress bar under an animal group's heading. {group} is a group name such as Owls or Frogs & Toads."
   },
   "stats": {
     "filter": {
@@ -1693,5 +1698,24 @@
   },
   "review": {
     "progress": "{confirmed} and {total} are counts already formatted with digit grouping, like 2,500."
+  },
+  "explorer": {
+    "resultPath": "Under a search result in the Tree of life: {rank} is the group's level (Family) and {path} the groups above it, like Family in Birds / Strigiformes.",
+    "moreResults": "Last line of the search results when only the first 50 are listed.",
+    "shape": "Screen reader name of the List / Circle switch for the Tree of life.",
+    "circle": "Tree of life drawn as rings of groups around a centre (a sunburst chart).",
+    "showGenera": "View option: also list the genus level between family and species. Genera is the plural of genus.",
+    "myBranches": "Opens the groups you have photographed something in.",
+    "focus": "Shows only this group and what is inside it, as if it were the top of the tree.",
+    "zoomOut": "Screen reader name of the middle of the circle view; it goes up one group.",
+    "arcLabel": "Screen reader name of one ring segment in the circle view, like Owls, 3 of 12 species.",
+    "moreGroups": "A ring segment standing in for groups too small to draw separately.",
+    "rank": {
+      "class": "Taxonomic rank, shown small above a group's name.",
+      "order": "Taxonomic rank.",
+      "family": "Taxonomic rank.",
+      "genus": "Taxonomic rank.",
+      "species": "Taxonomic rank, used in search results."
+    }
   }
 }

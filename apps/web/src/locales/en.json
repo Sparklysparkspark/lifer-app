@@ -447,6 +447,9 @@
     }
   },
   "collection": {
+    "categories": {
+      "label": "Animal groups"
+    },
     "select": {
       "archive": "Archive",
       "deselectAll": "Deselect all",
@@ -1109,7 +1112,7 @@
         "online": "Online detail",
         "auto": "Automatic",
         "off": "Off",
-        "detailNote": "Zoomed in and online, detail loads from {detail}, which sees the area you view and your IP address. No photos or photo locations are sent.",
+        "detailNote": "Zoomed in and online, detail loads from {detail} and relief from {relief}, which see the area you view and your IP address. No photos or photo locations are sent.",
         "offNote": "The map stays offline.",
         "satelliteNote": "Imagery from {imagery}, which sees the area you view and your IP address.",
         "imageryLimit": "Imagery is about 10 m per pixel: fields and forests, not single trees.",
@@ -2640,7 +2643,7 @@
       "map": {
         "title": "Map and places",
         "mode": "Online map",
-        "modeHelp": "Automatic loads street and trail detail from {detail} when you zoom in and are online. Satellite shows imagery from {imagery}. Off keeps the map offline.",
+        "modeHelp": "Automatic loads street and trail detail from {detail} and sharper relief from {relief} when you zoom in and are online. Satellite shows imagery from {imagery}. Off keeps the map offline.",
         "imageryUrl": "Satellite imagery URL",
         "imageryUrlHelp": "Optional. A tile address from your own imagery provider, key included. Saved only on this device.",
         "imageryUrlPlaceholder": "https://example.com/satellite/{z}/{x}/{y}.jpg?key=YOUR_KEY",
@@ -3651,6 +3654,7 @@
     "updateFailed": "Couldn't update this species. Try again.",
     "seenTitle": "Seen, not yet photographed",
     "targetTitle": "On your targets",
+    "photoCount": "{count, plural, one {# photo} other {# photos}}",
     "volumeTitle": "This photo is on the \"{drive}\" drive",
     "menu": {
       "markUnseen": "Mark as unseen",
@@ -3689,7 +3693,8 @@
       "targets": "Targets"
     },
     "archiveFailed": "Couldn't archive this group. Try again.",
-    "archiveTitle": "Leaves every species in this group out of your lists and counts. Nothing is deleted, and you can unarchive them from Settings."
+    "archiveTitle": "Leaves every species in this group out of your lists and counts. Nothing is deleted, and you can unarchive them from Settings.",
+    "groupProgress": "Photographed in {group}"
   },
   "stats": {
     "yearInReview": "Year in review",
@@ -4771,12 +4776,32 @@
     "emptyTitle": "No species photographed yet",
     "openPhoto": "Open photo of {name}",
     "searchPlaceholder": "Jump to a group or species",
-    "matches": "{at} of {count}",
+    "results": "Groups and species",
+    "resultPath": "{rank} in {path}",
+    "moreResults": "{count, plural, one {# more match} other {# more matches}}",
     "noMatch": "No group or species matches.",
+    "shape": "Show as",
+    "list": "List",
+    "circle": "Circle",
+    "showGenera": "Show genera",
     "expandLevel": "Expand one level",
+    "myBranches": "Show my branches",
     "collapseAll": "Collapse all",
     "random": "Random species",
-    "progress": "{collected} of {total}",
+    "focusPath": "Focused group",
+    "allGroups": "All groups",
+    "focus": "Focus on this group",
+    "zoomOut": "Step back out",
+    "circleLabel": "Tree of life as a circle",
+    "arcLabel": "{name}, {collected} of {total} species",
+    "moreGroups": "{count, plural, one {# more group} other {# more groups}}",
+    "rank": {
+      "class": "Class",
+      "order": "Order",
+      "family": "Family",
+      "genus": "Genus",
+      "species": "Species"
+    },
     "notYet": "Not photographed yet",
     "detailEmpty": "Pick a group or species to see your photos of it.",
     "breadcrumbs": "Groups above this one",

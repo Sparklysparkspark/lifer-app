@@ -21,6 +21,7 @@ import { filterCollectionItems, searchHaystack, searchRanks } from "./collection
 import RegionBreadcrumb from "./collection/RegionBreadcrumb";
 import CollectionSelectBar from "./collection/CollectionSelectBar";
 import CollectionToolbar from "./collection/CollectionToolbar";
+import CategoryCards from "./collection/CategoryCards";
 import { NeedsPackPrompt, TaxonPackPrompt } from "./collection/PackPrompts";
 import { isOtherTaxaFilter } from "./collection/taxonLabels";
 import { useScrollMemory } from "../hooks/useScrollMemory";
@@ -180,6 +181,17 @@ export default function CollectionPage() {
   const selectedSeaZones = useMemo(
     () => (seaZonesRelevant ? nearbySeaZones.zones.filter((z) => seaZoneIds.includes(z.id)) : []),
     [seaZonesRelevant, nearbySeaZones.zones, seaZoneIds],
+  );
+
+  // Same as the animal pills in Filters: a click adds or drops that group.
+  const toggleTaxon = useCallback(
+    (taxon: string) => {
+      const next = new Set(taxonFilters);
+      if (next.has(taxon)) next.delete(taxon);
+      else next.add(taxon);
+      updateParam("taxon", next.size > 0 ? [...next].join(",") : null);
+    },
+    [taxonFilters, updateParam],
   );
 
   // A pack downloaded from a prompt changes which taxa are unlocked, not only the list.
@@ -505,6 +517,16 @@ export default function CollectionPage() {
                   photographed={visibleItems.filter((i) => i.state === "collected" || i.state === "seen").length}
                 />
               )}
+            {items && (
+              <CategoryCards
+                items={items}
+                available={taxa.availableTaxonFilters}
+                active={taxonFilters}
+                listKey={JSON.stringify([regionId, seaZoneIds, includeLand, prefs.photographedIn])}
+                namingStyles={namingStyles}
+                onToggle={toggleTaxon}
+              />
+            )}
             <div data-tour="species">
               <GroupedSpeciesGrid
                 items={visibleItems}

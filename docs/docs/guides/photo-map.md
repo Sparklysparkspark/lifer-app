@@ -88,15 +88,15 @@ Far-off islands and overseas parts are left out of a country's view so the mainl
 
 ## Flat or 3D {#three-d}
 
-The map is always north up. With **3D** (the default) it tilts to one fixed angle once you zoom in far enough for mountains to show, about where a province fills the map, and levels out again as you zoom out. **Flat** never tilts. The switch is at the top left of the map, and Lifer remembers your choice. With reduced motion turned on in your system settings, the map changes angle at once instead of easing. The relief comes with the [offline map](./offline-packs-and-map.md#offline-map); without it the map stays flat and the switch is hidden.
+The map is always north up. With **3D** (the default) it tilts to one fixed angle once you zoom in far enough for mountains to show, about where a province fills the map, and levels out again as you zoom out. **Flat** never tilts. The switch is at the top left of the map, and Lifer remembers your choice. With reduced motion turned on in your system settings, the map changes angle at once instead of easing. The relief comes with the [offline map](./offline-packs-and-map.md#offline-map); without it the map stays flat and the switch is hidden. Tilted, a soft sky and haze sit along the horizon.
 
 ## How the map looks {#look}
 
-The map is drawn to stay quiet under your photos: pale land (charcoal in dark mode), soft blue water, a hint of green for forest, crisp relief and thin borders. Country names show at world zoom; province names, province borders and towns of about 50,000 people or more appear as you zoom into a region. Names are in English.
+The map is drawn to stay quiet under your photos: pale land (charcoal in dark mode), soft blue water, a hint of green for forest, thin borders, and relief shaded from several sides so slopes facing any way stand out. As you zoom into a region, high ground takes on a tint: tan, then brown, then white on the highest peaks. Country names show at world zoom; province names, province borders and towns of about 50,000 people or more appear as you zoom into a region. Names are in English.
 
 ## Satellite and online detail {#online}
 
-The offline map is sharp to about a region's towns. When you zoom in closer and are online, Lifer loads street and trail detail by itself, on every map (including the small maps for placing photos and adding a spot): woods, rivers, quiet roads, trails and village names from [OpenFreeMap](https://openfreemap.org/) (OpenStreetMap data), in the same calm look, down to street level. Zoom back out, or lose the connection, and the offline map is back. What this sends is on the [Privacy](../privacy.md#map-tiles) page: only which area you're viewing, never your photos.
+The offline map is sharp to about a region's towns. When you zoom in closer and are online, Lifer loads street and trail detail by itself, on every map (including the small maps for placing photos and adding a spot): woods, rivers, quiet roads, trails and village names from [OpenFreeMap](https://openfreemap.org/) (OpenStreetMap data), in the same calm look, down to street level. From about a province's zoom, sharper relief loads from [Mapterhorn](https://mapterhorn.com) the same way. Zoom back out, or lose the connection, and the offline map is back. What this sends is on the [Privacy](../privacy.md#map-tiles) page: only which area you're viewing, never your photos.
 
 The layers button at the top right of the map (a stack of sheets) holds the choices, and Lifer remembers them:
 

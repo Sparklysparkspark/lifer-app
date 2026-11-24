@@ -44,6 +44,21 @@
   --color-map-relief: #4d4a40;
   --color-map-relief-highlight: #fffdf7;
   --color-map-label: #4f5652;
+  /* Relief map: elevation tint from clear lowlands (landcover shows) to tan, brown and snow, and
+     the sky and haze seen when tilted. */
+  --color-map-elevation-low: #e3d3ae00;
+  --color-map-elevation-mid: #e3d3ae;
+  --color-map-elevation-high: #c4a982;
+  --color-map-elevation-peak: #ffffff;
+  --color-map-sky: #c9d9e3;
+  --color-map-horizon: #eef0ea;
+  /* Near-black behind photo-filled cards in both themes, so photos pop and a slow image never
+     flashes the cream page (bg-media). */
+  --color-media: #141516;
+  /* Floating panels over a photo or map (bg-glass, border-glass-line); solid enough to read as a
+     surface where the system asks for reduced transparency. */
+  --color-glass: #fbf7eed9;
+  --color-glass-line: #ffffff80;
 }
 
 .dark {
@@ -79,6 +94,14 @@
   --color-map-relief: #050606;
   --color-map-relief-highlight: #4b504c;
   --color-map-label: #c8cbc4;
+  --color-map-elevation-low: #3b382f00;
+  --color-map-elevation-mid: #3b382f;
+  --color-map-elevation-high: #4d4537;
+  --color-map-elevation-peak: #8a8d89;
+  --color-map-sky: #0f151b;
+  --color-map-horizon: #2b2e2c;
+  --color-glass: #1c1e1fd9;
+  --color-glass-line: #ffffff1f;
 }
 
 @theme inline {
@@ -113,6 +136,9 @@
   --color-map-line-province: var(--color-map-line-province);
   --color-map-relief-highlight: var(--color-map-relief-highlight);
   --color-map-label: var(--color-map-label);
+  --color-media: var(--color-media);
+  --color-glass: var(--color-glass);
+  --color-glass-line: var(--color-glass-line);
 }
 
 @theme {
@@ -135,6 +161,10 @@
   /* Named text styles, after Apple's (Large Title down to Caption): use these rather than raw
      sizes, so a screen's hierarchy reads the same everywhere. text-large-title, text-title-1...
      In rem, so the browser's and the Mac's text size settings scale them. */
+  /* Headline counts ("212 of 480") on class headers, category cards and Stats; pair with
+     tabular-nums so digits line up. */
+  --text-display: 2.5rem;
+  --text-display--line-height: 1.05;
   --text-large-title: 1.75rem;
   --text-large-title--line-height: 1.2;
   --text-title-1: 1.5rem;
@@ -155,6 +185,11 @@
   --text-footnote--line-height: calc(1 / 0.75);
   --text-caption: 0.6875rem;
   --text-caption--line-height: 1.3;
+  /* Rank labels over a name ("ORDER", "FAMILY"); pair with uppercase. */
+  --text-overline: 0.6875rem;
+  --text-overline--line-height: 1.2;
+  --text-overline--letter-spacing: 0.08em;
+  --text-overline--font-weight: 600;
   /* Only for labels inside a chart or a badge on a photo, where space is a few pixels. */
   --text-micro: 0.5625rem;
   --text-micro--line-height: 1.2;

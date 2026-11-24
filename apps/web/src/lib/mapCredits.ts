@@ -2,8 +2,10 @@ import type { Map as MapLibreMap } from "maplibre-gl";
 import {
   DETAIL_SOURCE_ID,
   LANDCOVER_SOURCE_ID,
+  MAPTERHORN,
   OFFLINE_DETAIL_PREFIX,
   ONLINE_PROVIDERS,
+  ONLINE_RELIEF_SOURCE_ID,
   PMTILES_SOURCE_ID,
   RELIEF_SOURCE_ID,
   SATELLITE_SOURCE_ID,
@@ -13,7 +15,7 @@ import {
 // (docs/plans/map-detail-and-satellite.md has what each provider requires). Licence text is kept as
 // data, untranslated, exactly as the providers ask.
 
-export type CreditKey = "osm" | "protomaps" | "terrain" | "openfreemap" | "eox" | "imagery" | "photon";
+export type CreditKey = "osm" | "protomaps" | "terrain" | "mapterhorn" | "openfreemap" | "eox" | "imagery" | "photon";
 
 export interface Credit {
   key: CreditKey;
@@ -64,6 +66,13 @@ const FULL: Record<Exclude<CreditKey, "imagery">, Credit> = {
     text: "Shaded relief from the Terrain Tiles composite (Mapzen, on AWS Open Data), with these notices from its sources (also on Lifer's credits page):",
     href: CREDITS_PAGE,
     lines: TERRAIN_NOTICES,
+  },
+  mapterhorn: {
+    key: "mapterhorn",
+    name: MAPTERHORN.name,
+    // Mapterhorn adds no licence of its own; its sources' notices live on the linked page.
+    text: "Sharper online relief from Mapterhorn, built from open elevation data. Its sources and their notices are listed on Mapterhorn's attribution page.",
+    href: "https://mapterhorn.com/attribution",
   },
   openfreemap: {
     key: "openfreemap",
@@ -116,8 +125,9 @@ export function activeCredits(map: MapLibreMap, { placeSearch = false } = {}): C
   if (!satellite && (shown.has(PMTILES_SOURCE_ID) || shown.has(LANDCOVER_SOURCE_ID) || offlineDetail))
     keys.add("osm").add("protomaps");
   if (!satellite && shown.has(RELIEF_SOURCE_ID)) keys.add("terrain");
+  if (!satellite && shown.has(ONLINE_RELIEF_SOURCE_ID)) keys.add("mapterhorn");
   if (shown.has(DETAIL_SOURCE_ID)) keys.add("osm").add("openfreemap");
-  const credits = (["terrain", "osm", "openfreemap", "protomaps"] as const)
+  const credits = (["terrain", "mapterhorn", "osm", "openfreemap", "protomaps"] as const)
     .filter((k) => keys.has(k))
     .map((k) => FULL[k]);
   // Imagery first: its credit is the one a satellite view must show at the top.
@@ -135,7 +145,7 @@ export function activeCredits(map: MapLibreMap, { placeSearch = false } = {}): C
  *  the active ones so every licence stays one click away. */
 export function alsoUsedCredits(active: Credit[]): Credit[] {
   const shown = new Set(active.map((c) => c.key));
-  return (["osm", "protomaps", "terrain", "openfreemap", "eox"] as const)
+  return (["osm", "protomaps", "terrain", "mapterhorn", "openfreemap", "eox"] as const)
     .filter((k) => !shown.has(k) && !(k === "eox" && shown.has("imagery")))
     .map((k) => FULL[k]);
 }

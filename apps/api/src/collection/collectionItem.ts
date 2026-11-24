@@ -79,7 +79,18 @@ export interface CollectionRow {
   photographed_where?: "here" | "elsewhere" | null;
   /** rawOnlySql: every photo of it is still an unedited RAW. */
   raw_only?: boolean | null;
+  /** PHOTO_COUNT_JOIN; absent from routes that don't join it (trips, albums). */
+  photo_count?: number | null;
 }
+
+/** Per-species photo count, grouped once (not a subquery per row). Same rule as the species
+ *  page's total: every capture except videos and recordings. Joined as `pc`. */
+export const photoCountJoin = (user: string) => `LEFT JOIN (
+    SELECT pcc.species_id, count(*)::int AS photo_count
+    FROM captures pcc LEFT JOIN photos pcp ON pcp.id = pcc.current_photo_id
+    WHERE pcc.user_id = ${user} AND pcc.species_id IS NOT NULL
+      AND (pcp.kind IS NULL OR pcp.kind NOT IN ('video', 'audio'))
+    GROUP BY pcc.species_id) pc ON pc.species_id = s.id`;
 
 /** A collected species whose every photo is a RAW with no edited version: none beside a RAW and
  *  none linked to one (linked versions are hidden captures, so the second probe finds them).
@@ -171,6 +182,7 @@ export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNIC
     heard: row.heard === true,
     suggested: row.suggested === true,
     ...(row.photographed_where !== undefined && { photographedWhere: row.photographed_where }),
+    ...(row.photo_count !== undefined && { photoCount: row.photo_count ?? 0 }),
     // Only region rows carry it, so GET /collection items are unchanged.
     ...(row.user_added_region_id !== undefined && {
       userAddedRegion: row.user_added_region_id

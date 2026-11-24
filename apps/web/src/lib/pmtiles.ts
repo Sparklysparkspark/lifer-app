@@ -44,7 +44,8 @@ export function ensurePmtilesProtocol(): void {
 
 // maxzoom must match the archive's real max (8) so deeper zooms reuse z8 tiles instead of
 // requesting ones that don't exist.
-export function pmtilesStyle(theme: "light" | "dark"): StyleSpecification {
+// `strongRelief` gives the photo map the relief look; small maps stay quiet under their pins.
+export function pmtilesStyle(theme: "light" | "dark", { strongRelief = false } = {}): StyleSpecification {
   const absolute = (url: string) => new URL(url, window.location.origin).toString();
   const base = quietLayers(PMTILES_SOURCE_ID, theme);
   const archive = `pmtiles://${absolute(PMTILES_URL)}`;
@@ -57,17 +58,20 @@ export function pmtilesStyle(theme: "light" | "dark"): StyleSpecification {
     },
     layers: base,
   };
-  return withDetailMaps(reliefAvailable() ? withRelief(style, absolute(RELIEF_URL)) : style, absolute);
+  const relief = reliefAvailable() ? withRelief(style, absolute(RELIEF_URL), strongRelief) : style;
+  return withDetailMaps(relief, absolute);
 }
 
-function withRelief(style: StyleSpecification, url: string): StyleSpecification {
-  const relief = reliefStyleParts(url);
+function withRelief(style: StyleSpecification, url: string, strong: boolean): StyleSpecification {
+  const relief = reliefStyleParts(url, strong);
   const water = style.layers.findIndex((l) => l.id === "water");
+  const shading = relief.tint ? [relief.tint, relief.hillshade] : [relief.hillshade];
   return {
     ...style,
     sources: { ...style.sources, ...relief.sources },
+    ...(relief.sky && { sky: relief.sky }),
     // Between land and water, so the sea stays flat.
-    layers: [...style.layers.slice(0, water), relief.hillshade, ...style.layers.slice(water)],
+    layers: [...style.layers.slice(0, water), ...shading, ...style.layers.slice(water)],
   };
 }
 

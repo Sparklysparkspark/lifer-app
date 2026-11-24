@@ -49,6 +49,7 @@ export default function ExplorerDetail({
   label,
   onSelect,
   onRandom,
+  onFocusGroup,
   onOpenPhotos,
 }: {
   index: TreeIndex;
@@ -56,6 +57,8 @@ export default function ExplorerDetail({
   label: (node: TreeNode) => string;
   onSelect: (id: string) => void;
   onRandom: (() => void) | null;
+  /** Re-roots the tree at this group; null when it already is the root or is a species. */
+  onFocusGroup: (() => void) | null;
   /** Opens the viewer on these species' best photos at `start`. */
   onOpenPhotos: (nodes: TreeNode[], start: number) => void;
 }) {
@@ -176,6 +179,11 @@ export default function ExplorerDetail({
           >
             {t("explorer.openSpecies")}
           </Link>
+        )}
+        {onFocusGroup && (
+          <Button variant="secondary" size="sm" onClick={onFocusGroup}>
+            {t("explorer.focus")}
+          </Button>
         )}
         {onRandom && (
           <Button variant="secondary" size="sm" onClick={onRandom}>

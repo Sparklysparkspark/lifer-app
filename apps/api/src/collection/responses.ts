@@ -38,6 +38,9 @@ export const CollectionItem = Open({
   introduced: Type.Boolean(),
   seasonality: NullableNumbers({ description: "12 monthly values, on region checklist rows" }),
   capturedYears: Nullable(Type.Array(Type.Integer())),
+  photoCount: Type.Optional(
+    Type.Integer({ description: "Your photos of it, videos and recordings aside; Collection and region rows" }),
+  ),
   heard: Type.Optional(Type.Boolean()),
   suggested: Type.Optional(
     Type.Boolean({ description: "Collected only through photos Lifer filed, none confirmed yet" }),

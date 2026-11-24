@@ -2981,6 +2981,10 @@
                           "capturedYears": {
                             "anyOf": [{ "type": "array", "items": { "type": "integer" } }, { "type": "null" }]
                           },
+                          "photoCount": {
+                            "type": "integer",
+                            "description": "Your photos of it, videos and recordings aside; Collection and region rows"
+                          },
                           "heard": { "type": "boolean" },
                           "suggested": {
                             "type": "boolean",
@@ -8047,6 +8051,10 @@
                           "capturedYears": {
                             "anyOf": [{ "type": "array", "items": { "type": "integer" } }, { "type": "null" }]
                           },
+                          "photoCount": {
+                            "type": "integer",
+                            "description": "Your photos of it, videos and recordings aside; Collection and region rows"
+                          },
                           "heard": { "type": "boolean" },
                           "suggested": {
                             "type": "boolean",
@@ -8802,7 +8810,7 @@
                             "anyOf": [
                               {
                                 "type": "string",
-                                "description": "Species not photographed yet: the catalogue picture's URL"
+                                "description": "Nothing photographed yet: the species' catalogue picture, or for a group (or one whose photos are missing) a representative species' picture"
                               },
                               { "type": "null" }
                             ]
@@ -23937,6 +23945,10 @@
                           "capturedYears": {
                             "anyOf": [{ "type": "array", "items": { "type": "integer" } }, { "type": "null" }]
                           },
+                          "photoCount": {
+                            "type": "integer",
+                            "description": "Your photos of it, videos and recordings aside; Collection and region rows"
+                          },
                           "heard": { "type": "boolean" },
                           "suggested": {
                             "type": "boolean",
@@ -24405,6 +24417,10 @@
                           },
                           "capturedYears": {
                             "anyOf": [{ "type": "array", "items": { "type": "integer" } }, { "type": "null" }]
+                          },
+                          "photoCount": {
+                            "type": "integer",
+                            "description": "Your photos of it, videos and recordings aside; Collection and region rows"
                           },
                           "heard": { "type": "boolean" },
                           "suggested": {
@@ -36961,6 +36977,10 @@
                           },
                           "capturedYears": {
                             "anyOf": [{ "type": "array", "items": { "type": "integer" } }, { "type": "null" }]
+                          },
+                          "photoCount": {
+                            "type": "integer",
+                            "description": "Your photos of it, videos and recordings aside; Collection and region rows"
                           },
                           "heard": { "type": "boolean" },
                           "suggested": {

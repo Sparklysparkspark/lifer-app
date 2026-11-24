@@ -7,7 +7,7 @@ import { pool } from "@lifer/core/db.js";
 import { isUuid } from "../lib/validate.js";
 import { requireAuth } from "../auth/session.js";
 import { IdParams, Open, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
-import { rawOnlySql, toCollectionItem } from "../collection/collectionItem.js";
+import { photoCountJoin, rawOnlySql, toCollectionItem } from "../collection/collectionItem.js";
 import { AggregateSpecies, RegionSpecies } from "./responses.js";
 import { markNameChanged } from "../species/speciesSplits.js";
 import { outlineOf } from "../collection/map.js";
@@ -336,7 +336,8 @@ const checklistItemColumns = (
               WHERE ch.user_id = ${userParam} AND ch.species_id = s.id AND hp.kind = 'audio')) AS heard,
            ${rawOnlySql(userParam)} AS raw_only,
            (SELECT array_agg(DISTINCT EXTRACT(YEAR FROM cy.taken_at)::int)
-              FROM captures cy WHERE cy.user_id = ${userParam} AND cy.species_id = s.id AND cy.taken_at IS NOT NULL) AS captured_years`;
+              FROM captures cy WHERE cy.user_id = ${userParam} AND cy.species_id = s.id AND cy.taken_at IS NOT NULL) AS captured_years,
+           pc.photo_count`;
 
 /** The rest of a checklist row's joins: tier, traits, the user's state and cover photo, and
  *  whether it's archived. */
@@ -345,7 +346,8 @@ const checklistItemJoins = (userParam: string) => `LEFT JOIN species_traits t ON
          LEFT JOIN photos p ON p.id = us.cover_photo_id
          LEFT JOIN originals o ON o.capture_id = p.capture_id AND o.kind = 'jpeg'
          LEFT JOIN storage_volumes sv ON sv.id = o.volume_id
-         LEFT JOIN user_archived_species uas ON uas.user_id = ${userParam} AND uas.species_id = s.id`;
+         LEFT JOIN user_archived_species uas ON uas.user_id = ${userParam} AND uas.species_id = s.id
+         ${photoCountJoin(userParam)}`;
 
 function splitList(value: string | undefined): string[] {
   return value ? value.split(",").filter(Boolean) : [];

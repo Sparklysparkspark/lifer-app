@@ -11,6 +11,9 @@ const SP_A = "eeeeeeee-0000-4000-8000-000000000b0a";
 const SP_B = "eeeeeeee-0000-4000-8000-000000000b0b";
 // Seen, not photographed: in the catalogue without a downloaded region.
 const SP_C = "eeeeeeee-0000-4000-8000-000000000b0c";
+// A seen-only order, so its groups have no photo of yours.
+const SP_D = "eeeeeeee-0000-4000-8000-000000000b0d";
+const SP_E = "eeeeeeee-0000-4000-8000-000000000b0e";
 const TOKEN = "lifer_test_collection_tree_b01";
 
 describe.skipIf(!url)("collection tree", () => {
@@ -24,7 +27,7 @@ describe.skipIf(!url)("collection tree", () => {
     await db.query(`DELETE FROM user_species WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
-    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SP_A, SP_B, SP_C]]);
+    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SP_A, SP_B, SP_C, SP_D, SP_E]]);
   }
 
   beforeAll(async () => {
@@ -46,10 +49,17 @@ describe.skipIf(!url)("collection tree", () => {
       `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class, taxon_order, family) VALUES
          ($1, 920801, 'Treeus alphus', 'Alpha, Tree Bird', 'aves', 'Passeriformes', 'Treeidae'),
          ($2, 920802, 'Handus addedus', 'Hand Bird', 'aves', NULL, NULL),
-         ($3, 920803, 'Treeus betus', 'Beta Tree Bird', 'aves', 'Passeriformes', 'Treeidae')`,
-      [SP_A, SP_B, SP_C],
+         ($3, 920803, 'Treeus betus', 'Beta Tree Bird', 'aves', 'Passeriformes', 'Treeidae'),
+         ($4, 920804, 'Rootus deltus', 'Delta Root Bird', 'aves', 'Rootiformes', 'Rootidae'),
+         ($5, 920805, 'Rootus epsilon', 'Epsilon Root Bird', 'aves', 'Rootiformes', 'Rootidae')`,
+      [SP_A, SP_B, SP_C, SP_D, SP_E],
     );
-    await db.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'seen')`, [USER, SP_C]);
+    await db.query(
+      `UPDATE species SET reference_photo = 'https://example.org/' || gbif_key || '.jpg', reference_credit = 'x', reference_license = 'cc-by' WHERE id = ANY($1)`,
+      [[SP_A, SP_B, SP_C, SP_D, SP_E]],
+    );
+    for (const sp of [SP_C, SP_D, SP_E])
+      await db.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'seen')`, [USER, sp]);
     for (const sp of [SP_A, SP_B]) {
       const c = await db.query<{ id: string }>(
         `INSERT INTO captures (user_id, species_id, fingerprint, taken_at) VALUES ($1, $2, $3, now()) RETURNING id`,
@@ -122,6 +132,19 @@ describe.skipIf(!url)("collection tree", () => {
       ["Treeus betus", 0, true],
     ]);
     expect(leaves[1]).toMatchObject({ speciesId: SP_C, total: 1, photos: 0 });
+  });
+
+  it("gives every node a picture, groups with no photo a faded species picture differing from the group above", async () => {
+    type N = { rank: string; name: string; photoId: string | null; referenceUrl?: string | null; children: N[] };
+    const tree: N[] = (await get("/api/collection/tree?include=uncollected")).json().tree;
+    const walk = (nodes: N[]): N[] => nodes.flatMap((n) => [n, ...walk(n.children)]);
+    for (const n of walk(tree)) expect(n.photoId ?? n.referenceUrl, `${n.rank} ${n.name}`).toBeTruthy();
+    const order = tree.find((n) => n.name === "aves")!.children.find((n) => n.name === "Rootiformes")!;
+    const family = order.children[0];
+    expect(order.photoId).toBeNull();
+    expect(order.referenceUrl).toMatch(/^https:\/\/example\.org\/92080[45]\.jpg$/);
+    expect(family.referenceUrl).toMatch(/^https:\/\/example\.org\/92080[45]\.jpg$/);
+    expect(family.referenceUrl).not.toBe(order.referenceUrl);
   });
 
   it("exports a CSV with a header, one line per species and escaped commas", async () => {

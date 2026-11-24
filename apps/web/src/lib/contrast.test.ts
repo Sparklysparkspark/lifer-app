@@ -41,6 +41,9 @@ const PAIRS: Array<[string, string]> = [
   ["accent-fg", "accent"],
   ["ink", "sidebar"],
   ["link", "sidebar"],
+  // Glass is translucent; checked at its base colour, which a photo or map under it only softens.
+  ["ink", "glass"],
+  ["muted", "glass"],
 ];
 
 describe("colour contrast", () => {
@@ -119,5 +122,6 @@ describe("control and viewer contrast", () => {
   ])("keeps the slider and viewer text legible in %s mode", (_mode, theme) => {
     for (const bg of ["surface", "canvas"]) expect(contrast(theme.accent, theme[bg])).toBeGreaterThanOrEqual(3);
     expect(contrast("#ffffff", theme.surround)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast("#ffffff", theme.media)).toBeGreaterThanOrEqual(4.5);
   });
 });

@@ -130,10 +130,23 @@ function labelLayers(source: string, halo: string): LayerSpecification[] {
   ] as LayerSpecification[];
 }
 
+export const RELIEF_LAYER_ID = "relief-hillshade";
+export const ELEVATION_TINT_LAYER_ID = "relief-elevation";
+// A north-west sun plus fainter fill lights, so slopes facing away from it still read.
+const LIGHTS = [315, 270, 0, 225];
+// Each light's strength as a hex alpha suffix on the token colour.
+const SHADOW_ALPHA = ["ff", "80", "80", "40"];
+const HIGHLIGHT_ALPHA = ["ff", "00", "00", "00"];
+
 /** Shaded relief from the offline elevation archive (terrarium tiles). The 3D terrain is switched
- *  on only while the map is tilted (tiltTerrain), since flat maps gain nothing from it. */
-export function reliefStyleParts(url: string): Pick<StyleSpecification, "sources" | "terrain"> & {
-  hillshade: StyleSpecification["layers"][number];
+ *  on only while the map is tilted (tiltTerrain), since flat maps gain nothing from it. `strong` is
+ *  the relief look (photo map): lit from several sides, tinted by elevation, with sky when tilted. */
+export function reliefStyleParts(
+  url: string,
+  strong = false,
+): Pick<StyleSpecification, "sources" | "terrain" | "sky"> & {
+  hillshade: LayerSpecification;
+  tint?: LayerSpecification;
 } {
   const dem = {
     type: "raster-dem" as const,
@@ -149,19 +162,102 @@ export function reliefStyleParts(url: string): Pick<StyleSpecification, "sources
     },
     terrain: { source: TERRAIN_SOURCE_ID, exaggeration: 1.3 },
     hillshade: {
-      id: "relief-hillshade",
+      id: RELIEF_LAYER_ID,
       type: "hillshade",
       source: RELIEF_SOURCE_ID,
-      paint: {
-        "hillshade-shadow-color": token("--color-map-relief"),
-        "hillshade-highlight-color": token("--color-map-relief-highlight"),
-        "hillshade-accent-color": token("--color-map-relief"),
-        // Stronger once a region fills the map, lit from the north-west whatever the bearing.
-        "hillshade-exaggeration": ["interpolate", ["linear"], ["zoom"], 3, 0.6, 5, 0.75],
-        "hillshade-illumination-direction": 315,
-        "hillshade-illumination-anchor": "map",
-      },
+      paint: strong ? strongShade() : quietShade(),
     },
+    ...(strong && { tint: elevationTint(), sky: sky() }),
+  };
+}
+
+type ShadePaint = Extract<LayerSpecification, { type: "hillshade" }>["paint"];
+
+function quietShade(): ShadePaint {
+  return {
+    "hillshade-shadow-color": token("--color-map-relief"),
+    "hillshade-highlight-color": token("--color-map-relief-highlight"),
+    "hillshade-accent-color": token("--color-map-relief"),
+    // Stronger once a region fills the map, lit from the north-west whatever the bearing.
+    "hillshade-exaggeration": ["interpolate", ["linear"], ["zoom"], 3, 0.6, 5, 0.75],
+    "hillshade-illumination-direction": 315,
+    "hillshade-illumination-anchor": "map",
+  };
+}
+
+function strongShade(): ShadePaint {
+  const weighted = (c: string, alpha: string[]) => alpha.map((a) => (/^#[0-9a-f]{6}$/i.test(c) ? c + a : c));
+  return {
+    "hillshade-method": "multidirectional",
+    "hillshade-illumination-direction": LIGHTS,
+    "hillshade-illumination-altitude": LIGHTS.map(() => 35),
+    "hillshade-shadow-color": weighted(token("--color-map-relief"), SHADOW_ALPHA),
+    "hillshade-highlight-color": weighted(token("--color-map-relief-highlight"), HIGHLIGHT_ALPHA),
+    "hillshade-exaggeration": ["interpolate", ["linear"], ["zoom"], 2, 0.4, 5, 0.7],
+    "hillshade-illumination-anchor": "map",
+  };
+}
+
+/** Lowlands stay clear so landcover shows; uplands go tan, brown, then snow. Faded in by region
+ *  zoom so the world view stays calm under the pins. */
+function elevationTint(): LayerSpecification {
+  return {
+    id: ELEVATION_TINT_LAYER_ID,
+    type: "color-relief",
+    source: RELIEF_SOURCE_ID,
+    paint: {
+      "color-relief-color": [
+        "interpolate",
+        ["linear"],
+        ["elevation"],
+        300,
+        token("--color-map-elevation-low"),
+        1200,
+        token("--color-map-elevation-mid"),
+        2800,
+        token("--color-map-elevation-high"),
+        4500,
+        token("--color-map-elevation-peak"),
+      ],
+      "color-relief-opacity": ["interpolate", ["linear"], ["zoom"], 2, 0.3, 5, 0.85],
+    },
+  };
+}
+
+/** Only seen when tilted: a soft sky, and haze over far terrain so the horizon isn't a hard edge. */
+function sky(): StyleSpecification["sky"] {
+  return {
+    "sky-color": token("--color-map-sky"),
+    "horizon-color": token("--color-map-horizon"),
+    "fog-color": token("--color-map-land"),
+    "sky-horizon-blend": 0.6,
+    "horizon-fog-blend": 0.7,
+    "fog-ground-blend": 0.6,
+  };
+}
+
+// --- Online relief (Mapterhorn, docs/plans/refined-feel.md RF-M2) ---
+
+export const ONLINE_RELIEF_SOURCE_ID = "online-relief";
+export const ONLINE_RELIEF_LAYER_ID = "online-relief-hillshade";
+/** Past the bundled archive's zoom 5 its relief goes soft, so sharper tiles take over from here. */
+export const ONLINE_RELIEF_FROM = 6;
+export const MAPTERHORN = {
+  name: "Mapterhorn",
+  // Key-free terrarium tiles; the planet set stops at 12 (deeper ones are regional only).
+  tiles: "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp",
+  maxzoom: 12,
+  attribution: '<a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">© Mapterhorn</a>',
+} as const;
+
+export function onlineReliefSource(): StyleSpecification["sources"][string] {
+  return {
+    type: "raster-dem",
+    tiles: [MAPTERHORN.tiles],
+    encoding: "terrarium",
+    tileSize: 512,
+    maxzoom: MAPTERHORN.maxzoom,
+    attribution: MAPTERHORN.attribution,
   };
 }
 
@@ -175,6 +271,7 @@ export const BASEMAP_SOURCE_IDS: ReadonlySet<string> = new Set([
   PMTILES_SOURCE_ID,
   LANDCOVER_SOURCE_ID,
   RELIEF_SOURCE_ID,
+  ONLINE_RELIEF_SOURCE_ID,
   DETAIL_SOURCE_ID,
   SATELLITE_SOURCE_ID,
 ]);
@@ -220,9 +317,13 @@ export function customSatelliteUrl(raw: string): string | null {
 const hostOf = (template: string) => new URL(template.replace(/[{}]/g, "")).host;
 
 /** Who the tiles come from, for the consent line. */
-export function providerNames(satelliteUrl: string): { detail: string; imagery: string } {
+export function providerNames(satelliteUrl: string): { detail: string; relief: string; imagery: string } {
   const custom = customSatelliteUrl(satelliteUrl);
-  return { detail: ONLINE_PROVIDERS.detail.name, imagery: custom ? hostOf(custom) : ONLINE_PROVIDERS.satellite.name };
+  return {
+    detail: ONLINE_PROVIDERS.detail.name,
+    relief: MAPTERHORN.name,
+    imagery: custom ? hostOf(custom) : ONLINE_PROVIDERS.satellite.name,
+  };
 }
 
 export type OnlineMode = "detail" | "satellite";

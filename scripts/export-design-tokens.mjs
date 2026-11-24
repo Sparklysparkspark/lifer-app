@@ -44,7 +44,8 @@ export function buildTokens(css) {
     );
   const type = {};
   for (const [k, v] of theme) {
-    if (!k.startsWith("--text-")) continue;
+    // Letter spacing and weight are web-only refinements; the phone app takes size and line height.
+    if (!k.startsWith("--text-") || /--(letter-spacing|font-weight)$/.test(k)) continue;
     const m = /^--text-([\w-]+?)(--line-height)?$/.exec(k);
     type[m[1]] ??= {};
     type[m[1]][m[2] ? "lineHeight" : "size"] = m[2] ? ratio(v) : px(v);

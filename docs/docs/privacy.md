@@ -41,9 +41,10 @@ To fill in species details Lifer doesn't have yet, it looks species and places u
 
 What's sent is the species or place being looked up, never your photos or your library.
 
-## Map tiles and place search: OpenFreeMap, EOX and Photon {#map-tiles}
+## Map tiles and place search: OpenFreeMap, Mapterhorn, EOX and Photon {#map-tiles}
 
 - **Map detail:** when you zoom the photo map in past what the offline map shows and are online, Lifer loads map tiles from **OpenFreeMap** (tiles.openfreemap.org). Each request is only the map square being drawn, so the provider sees the area you're viewing and your IP address, never your photos or species. Set **Online detail** to **Off** in the map's layers button or under [Settings > General > Map and places](./settings.md#map) to keep the map fully offline.
+- **Relief:** with the same setting, once you zoom in past about a province, sharper hill shading loads from **Mapterhorn** (tiles.mapterhorn.com) the same way: it sees the area you're viewing and your IP address, never your photos or species, and keeps its logs for up to 30 days. Without a connection the offline relief stays.
 - **Satellite:** only if you pick it, imagery comes from **EOX** (tiles.maps.eox.at) the same way, with place names from OpenFreeMap. A satellite address you add yourself goes to that provider instead.
 
 - **Place search and place names:** when you're online, the map's place search also looks online, at **Photon** by komoot (photon.komoot.io): it gets the text you type and the middle of the map rounded to about 10 km, to rank nearby places first. Naming a place from a point (such as "Prince George, British Columbia, Canada") sends that point rounded to about 100 m. Photon sees your IP address; no photos or species are sent. The first time, a note by the search field says so, with **Turn off**. Set **Online place names and search** to **Off** under [Settings > General > Map and places](./settings.md#map) (or in the map's layers button) to keep place search on your device; your saved spots and regions are always searched offline.
