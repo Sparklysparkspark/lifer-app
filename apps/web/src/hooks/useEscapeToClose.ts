@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { useLatest } from "./useLatest";
 import { matches } from "../lib/keymap";
 
@@ -17,8 +17,8 @@ function handleKeyDown(e: KeyboardEvent) {
 
 /** Calls `onClose` on Escape while `enabled`, the keyboard twin of clicking a dialog's backdrop
  * or Cancel. Listens on document (bubble phase), so an inner field's own Escape handler that
- * calls preventDefault (e.g. closing an autocomplete) wins first. */
-export function useEscapeToClose(onClose: () => void, enabled: boolean = true): void {
+ * calls preventDefault (e.g. closing an autocomplete) wins first. Returns whether it is the top layer. */
+export function useEscapeToClose(onClose: () => void, enabled: boolean = true): () => boolean {
   const ref = useLatest(onClose);
 
   useEffect(() => {
@@ -32,4 +32,6 @@ export function useEscapeToClose(onClose: () => void, enabled: boolean = true): 
       if (stack.length === 0) document.removeEventListener("keydown", handleKeyDown);
     };
   }, [enabled, ref]);
+  // Whether this is the newest open layer, so keys meant for the top layer skip the ones below.
+  return useCallback(() => stack[stack.length - 1] === ref, [ref]);
 }

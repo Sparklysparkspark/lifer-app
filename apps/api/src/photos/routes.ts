@@ -534,12 +534,19 @@ export async function photoRoutes(fastify: FastifyInstance): Promise<void> {
     {
       preValidation: requireScope("photos.read", ["companion"]),
       config: notFoundOnInvalidId("Original not found"),
-      schema: { params: IdParams },
+      schema: {
+        params: IdParams,
+        querystring: Type.Object({
+          original: Type.Optional(
+            Type.Enum(["raw"], { description: "raw: the RAW's own preview, when a JPG beside it is the photo" }),
+          ),
+        }),
+      },
     },
     async (request, reply) => {
       const userId = request.user!.id;
       const photoId = request.params.id;
-      for (const kind of ["jpeg", "raw"] as const) {
+      for (const kind of request.query.original === "raw" ? (["raw"] as const) : (["jpeg", "raw"] as const)) {
         const original = await resolveOriginal(photoId, userId, kind);
         if (!original) continue;
         if (!original.connected) {

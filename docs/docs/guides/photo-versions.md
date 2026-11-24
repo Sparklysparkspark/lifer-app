@@ -108,7 +108,9 @@ File actions follow the version you see. In the viewer, **Open in** an editor op
 
 - **Rename**: double-click a version's name, or click **Rename**, type a name like "Gallery print" and press <kbd>Enter</kbd>. <kbd>Esc</kbd> cancels. Clear the name to go back to the one Lifer chose.
 - **Use this as the photo**: shows that version everywhere the photo appears: grids, the species card and albums. Use it to show the RAW's preview instead of an edit. Undo is in the message that follows.
-- **Manage versions**: the button at the top of the viewer lists every file with its size and format, and why it was grouped. From there you can **Split out** a version that isn't the same photo (it becomes a photo of its own again, and Lifer won't group it again).
+- **Manage versions**: the button at the top of the viewer opens the **Versions** window. It lists every file with its size and format, and why it was grouped. The line under the title says what it holds, like "2 files: your camera original and an export" for a RAW and its JPG, or "3 versions" for a photo with prints and edits. **Shown** marks the one file that is the photo. From there you can **Split out** a version that isn't the same photo (it becomes a photo of its own again, and Lifer won't group it again).
+- **List or Grid**: switch the Versions window between rows and large thumbnails. A few files open as a list and many as a grid, until you pick one, which Lifer remembers. Each file's **⋯** menu has the same actions in both.
+- **See a file full size**: click its thumbnail. A RAW shows its own preview, not the JPG beside it. Use <kbd>←</kbd> and <kbd>→</kbd> to go through the files, and <kbd>Esc</kbd> to go back to the Versions window.
 
 ## Link a version yourself
 

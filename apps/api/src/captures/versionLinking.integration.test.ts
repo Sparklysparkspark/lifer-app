@@ -2,6 +2,9 @@
 //   TEST_DATABASE_URL=postgres://lifer:lifer@localhost:5432/lifer_test npx vitest run versionLinking
 // Linking any photo as a version, across species and dates: the picker's search, the life list
 // following the original, a split giving everything back, and image routes serving the shown file.
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import pg from "pg";
@@ -212,5 +215,35 @@ describe.skipIf(!url)("linking any photo as a version", () => {
     expect((await resolveOriginal(photos.moose, USER, "jpeg"))?.ref).toBe("/lib/Moose/IMG_1234.jpg");
     // Showing and un-showing the moose never touched the heron's own pick.
     expect((await state(HERON))?.cover_photo_id).toBe(photos.print);
+  });
+
+  it("marks only the JPG shown when a RAW shares its capture, and renders the RAW's own picture", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "lifer-versions-"));
+    const jpg = path.join(dir, "IMG_0001.jpg");
+    writeFileSync(jpg, "jpeg bytes");
+    await db.query(`UPDATE originals SET ref = $1 WHERE capture_id = $2`, [jpg, ids.heron]);
+    await db.query(
+      `INSERT INTO originals (user_id, capture_id, kind, ref_type, ref, managed, content_hash, file_size, role)
+       VALUES ($1, $2, 'raw', 'path', $3, false, 'linking-hash-heron-raw', 5000, 'original')`,
+      [USER, ids.heron, path.join(dir, "IMG_0001.CR3")],
+    );
+    const group = (await call("GET", `/api/captures/${ids.heron}/versions`)).json();
+    expect(group.files.map((f: { format: string; shown: boolean }) => [f.format, f.shown])).toEqual([
+      ["JPG", true],
+      ["CR3", false],
+    ]);
+    expect(group.versions).toEqual([expect.objectContaining({ captureId: ids.heron, shown: true })]);
+
+    const { photoRoutes } = await import("../photos/routes.js");
+    const photosApp = Fastify();
+    await photosApp.register(cookie);
+    await photosApp.register(photoRoutes, { prefix: "/api" });
+    const full = (query: string) =>
+      photosApp.inject({ url: `/api/photos/${photos.heron}/full${query}`, cookies: { [cookieName]: TOKEN } });
+    expect((await full("")).body).toBe("jpeg bytes");
+    // The RAW file isn't on disk here: asking for it never falls back to the JPG.
+    expect((await full("?original=raw")).statusCode).toBe(404);
+    await photosApp.close();
+    rmSync(dir, { recursive: true, force: true });
   });
 });

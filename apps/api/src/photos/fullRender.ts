@@ -34,10 +34,12 @@ async function sweep(): Promise<void> {
 /** The cached JPEG render of this original, made if missing or older than the original; null when
  *  it can't be made (a RAW with no preview, an unreadable file). */
 export function fullRender(photoId: string, sourcePath: string, raw: boolean): Promise<string | null> {
-  const pending = inFlight.get(photoId);
+  // A capture can hold a RAW and another original; each gets its own render.
+  const key = raw ? `${photoId}-raw` : photoId;
+  const pending = inFlight.get(key);
   if (pending) return pending;
   const job = (async () => {
-    const target = path.join(fullDir(), `${photoId}.jpg`);
+    const target = path.join(fullDir(), `${key}.jpg`);
     const [cached, source] = await Promise.all([statFile(target), statFile(sourcePath)]);
     if (!source) return null;
     if (cached && cached.mtimeMs >= source.mtimeMs) return target;
@@ -57,7 +59,7 @@ export function fullRender(photoId: string, sourcePath: string, raw: boolean): P
     } catch {
       return null;
     }
-  })().finally(() => inFlight.delete(photoId));
-  inFlight.set(photoId, job);
+  })().finally(() => inFlight.delete(key));
+  inFlight.set(key, job);
   return job;
 }

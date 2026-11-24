@@ -21,6 +21,7 @@ When you add something that is remembered, add a row and a test.
 | Stats: include RAW photos           | `lifer:stats.includeRaw`                                 | Nothing to point at; unreadable storage reads as on.                                                                           | `StatsPage.test.tsx`                                |
 | Album and portfolio export folders  | `lifer:albumExportFolder`, `lifer:portfolioExportFolder` | The folder picker opens at the top level.                                                                                      | `FolderPicker.test.tsx`                             |
 | Import: Move photos into my library | `lifer:import.moveOriginals`                             | Nothing to point at; unreadable storage reads as off.                                                                          | `PhotoImportRows.known.test.tsx`                    |
+| Versions window: list or grid       | `lifer:versions.view`                                    | Nothing to point at; an unknown or unreadable value goes back to a list for a few files and a grid for many.                   | `PhotoVersions.test.tsx`                            |
 
 ## Saved in the library
 

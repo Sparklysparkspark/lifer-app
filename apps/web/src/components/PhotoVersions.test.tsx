@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 // Photo versions in the UI: the stack badge, the viewer's switcher (keys, rename, use as photo),
 // the Gallery's "Show every version" choice and the notice after an import.
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastContext, type ToastApi } from "../hooks/useToast";
 
 const get = vi.fn();
@@ -216,6 +216,155 @@ describe("linking to any photo", () => {
     undo.onClick();
     await waitFor(() => expect(post).toHaveBeenCalledWith("/captures/solo/versions/split"));
     photoVersionsPanel.set(null);
+  });
+});
+
+describe("the Versions dialog", () => {
+  const file = (originalId: string, captureId: string, extra: object = {}) => ({
+    originalId,
+    captureId,
+    photoId: `p-${captureId}`,
+    role: "original",
+    kind: "jpeg",
+    fileName: `${originalId}.jpg`,
+    format: "JPG",
+    ref: `/lib/${originalId}.jpg`,
+    managed: false,
+    fileSize: 1000,
+    width: 2560,
+    height: 1707,
+    isGroup: captureId === "g1",
+    shown: false,
+    evidence: null,
+    ...extra,
+  });
+  // One capture: the JPG export is the photo, the RAW beside it is not.
+  const PAIR = [
+    file("6F9A3556-jpg", "g1", { role: "export", shown: true }),
+    file("6F9A3556-cr3", "g1", { kind: "raw", fileName: "6F9A3556.cr3", format: "CR3" }),
+  ];
+  const many = (n: number) =>
+    Array.from({ length: n }, (_, i) => file(`f${i}`, i === 0 ? "g1" : `v${i}`, { shown: i === 0 }));
+
+  let mounted = false;
+  beforeEach(() => {
+    mounted = false;
+  });
+  // Opens (or reopens) the dialog on `files`.
+  function openDialog(files: object[]) {
+    get.mockImplementation(async (path: string) => {
+      if (path.startsWith("/captures/version-counts")) return { counts: {} };
+      if (path.includes("/versions")) return { groupCaptureId: "g1", files, versions: [], nearby: [] };
+      if (path.includes("/ebird")) return { checklists: [] };
+      return {};
+    });
+    act(() => photoVersionsPanel.set(null));
+    if (!mounted) wrap(<PhotoVersionsHost />);
+    mounted = true;
+    act(() => openPhotoVersions("g1"));
+  }
+  const viewer = () => screen.queryByRole("dialog", { name: "Photo viewer" });
+  const viewerSrc = () => viewer()?.querySelector("img")?.getAttribute("src");
+  afterEach(() => act(() => photoVersionsPanel.set(null)));
+
+  it("says plainly what the list holds", async () => {
+    openDialog(PAIR);
+    expect(await screen.findByText("2 files: your camera original and an export")).toBeTruthy();
+    openDialog([file("solo", "g1", { shown: true })]);
+    expect(await screen.findByText("Only one file")).toBeTruthy();
+    // A single file has nothing to switch between.
+    expect(screen.queryByRole("group", { name: "Show files as" })).toBeNull();
+    openDialog([...PAIR, file("print", "v2"), file("bw", "v3")]);
+    expect(await screen.findByText("3 versions, counted as one photo")).toBeTruthy();
+  });
+
+  it("marks only the file that is the photo as shown", async () => {
+    openDialog(PAIR);
+    await screen.findByText("6F9A3556.cr3");
+    expect(screen.getAllByText(/^Shown/)).toHaveLength(1);
+    expect(screen.getByText(/^Shown · Export · JPG/)).toBeTruthy();
+    expect(screen.getByText("Original · CR3 · 2560 × 1707 · 1 KB")).toBeTruthy();
+    // Its own capture is already the photo, so the RAW isn't offered as one.
+    fireEvent.click(screen.getAllByRole("button", { name: "More options" })[1]);
+    expect(screen.queryByRole("menuitem", { name: "Use this as the photo" })).toBeNull();
+  });
+
+  it("lists a few files and shows many as a grid, and remembers the choice", async () => {
+    openDialog(PAIR);
+    const list = await screen.findByRole("button", { name: "List" });
+    expect(list.getAttribute("aria-pressed")).toBe("true");
+    act(() => photoVersionsPanel.set(null));
+
+    openDialog(many(7));
+    expect((await screen.findByRole("button", { name: "Grid" })).getAttribute("aria-pressed")).toBe("true");
+    // Each tile: a thumbnail that opens it, its name and role, one Shown badge and its own menu.
+    expect(screen.getAllByRole("button", { name: /^View f\d\.jpg full size$/ })).toHaveLength(7);
+    expect(screen.getAllByText("Original · JPG · 1 KB")).toHaveLength(7);
+    expect(screen.getAllByText("Shown")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "More options" })).toHaveLength(7);
+    fireEvent.click(screen.getByRole("button", { name: "List" }));
+    expect(localStorage.getItem("lifer:versions.view")).toBe('"list"');
+    act(() => photoVersionsPanel.set(null));
+
+    // The remembered choice wins over the count.
+    openDialog(many(7));
+    expect((await screen.findByRole("button", { name: "List" })).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("opens a file full size, pages with the arrows, and Escape closes only the viewer", async () => {
+    localStorage.setItem("lifer:versions.view", '"grid"');
+    openDialog(PAIR);
+    const rawTile = await screen.findByRole("button", { name: "View 6F9A3556.cr3 full size" });
+    rawTile.focus();
+    fireEvent.click(rawTile);
+    // The RAW shows its own preview, not the JPG beside it.
+    await waitFor(() => expect(viewerSrc()).toBe("/api/photos/p-g1/full?original=raw"));
+    fireEvent.keyDown(window, { key: "ArrowRight", code: "ArrowRight" });
+    await waitFor(() => expect(viewerSrc()).toBe("/api/photos/p-g1/display"));
+
+    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+    expect(viewer()).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Versions" })).toBeTruthy();
+    expect(document.activeElement).toBe(rawTile);
+  });
+
+  it("opened from the photo viewer, takes the keys one layer at a time", async () => {
+    localStorage.setItem("lifer:versions.view", '"grid"');
+    get.mockImplementation(async (path: string) => {
+      if (path.startsWith("/captures/version-counts")) return { counts: {} };
+      if (path.includes("/versions")) return { groupCaptureId: "g1", files: many(3), versions: [], nearby: [] };
+      if (path.includes("/ebird")) return { checklists: [] };
+      return {};
+    });
+    const outerIndex = vi.fn();
+    wrap(
+      <>
+        <Lightbox
+          slides={[
+            { url: "/api/photos/a/display", captureId: "g1" },
+            { url: "/api/photos/b/display", captureId: "b" },
+          ]}
+          index={0}
+          onIndexChange={outerIndex}
+          onClose={() => {}}
+        />
+        <PhotoVersionsHost />
+      </>,
+    );
+    act(() => openPhotoVersions("g1"));
+    // Arrows over the dialog don't page the photo behind it.
+    fireEvent.keyDown(window, { key: "ArrowRight", code: "ArrowRight" });
+    fireEvent.click(await screen.findByRole("button", { name: "View f0.jpg full size" }));
+    await waitFor(() => expect(screen.getAllByRole("dialog", { name: "Photo viewer" })).toHaveLength(2));
+    fireEvent.keyDown(window, { key: "ArrowRight", code: "ArrowRight" });
+    expect(outerIndex).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+    expect(screen.getAllByRole("dialog", { name: "Photo viewer" })).toHaveLength(1);
+    expect(screen.getByRole("dialog", { name: "Versions" })).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Versions" })).toBeNull());
+    expect(screen.getAllByRole("dialog", { name: "Photo viewer" })).toHaveLength(1);
   });
 });
 

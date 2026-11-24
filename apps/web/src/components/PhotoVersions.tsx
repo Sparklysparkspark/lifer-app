@@ -1,6 +1,6 @@
 // A photo's versions: the original, edits and exports grouped into one capture
 // (apps/api/src/uploads/versionGrouping.ts). Every change applies at once with an Undo toast.
-import { useEffect, useState, type CSSProperties, type KeyboardEvent, type Ref } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type Ref } from "react";
 import { useTranslation } from "react-i18next";
 import { api, apiPath, type ApiResponse } from "../api/client";
 import { useApiRoute } from "../lib/resource";
@@ -13,24 +13,40 @@ import {
   versionName,
   type PhotoVersion,
 } from "../lib/photoVersions";
-import { formatBytes, formatDate } from "../lib/format";
+import { formatBytes, formatDate, formatList } from "../lib/format";
 import { errorMessage } from "../lib/errorMessage";
 import { docsUrl } from "../lib/docs";
 import { openExternal } from "../lib/openExternal";
 import { useToast } from "../hooks/useToast";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { usePersistedState } from "../hooks/usePersistedState";
 import { matches, shortcutLabel } from "../lib/keymap";
 import Modal from "./Modal";
 import Button from "./Button";
+import Lightbox, { type LightboxSlide } from "./Lightbox";
 import Menu, { MenuItem, MenuPanel } from "./Menu";
 import PhotoMenu from "./PhotoMenu";
 import { VersionStackBadge } from "./PhotoTile";
 import SearchInput from "./SearchInput";
+import SegmentedControl from "./SegmentedControl";
 import { Tooltip } from "./Tooltip";
 
 type Group = ApiResponse<"/captures/{id}/versions">;
 type VersionFile = Group["files"][number];
+type FilesView = "list" | "grid";
+
+const ROLE_PHRASES = {
+  original: "versions.filesRole.original",
+  edit: "versions.filesRole.edit",
+  export: "versions.filesRole.export",
+} as const;
+// More files than this open as a grid unless the user chose otherwise.
+const LIST_MAX = 4;
+
+const thumbUrl = (f: VersionFile) => `/api/photos/${f.photoId}/thumb`;
+const TILE_THUMB = "block aspect-square w-full";
+const ROW_THUMB = "block h-14 w-14 shrink-0";
 
 /** Mounted once beside the app's other global dialogs. */
 export function PhotoVersionsHost() {
@@ -63,9 +79,32 @@ function PhotoVersionsPanel({
   const group = useApiRoute(apiPath("/captures/{id}/versions", { id: captureId }));
   const menu = useDropdownMenu<string>();
   const [linking, setLinking] = useState(link);
-  const files = group.data?.files ?? [];
+  const [savedView, setView] = usePersistedState<FilesView | null>("versions.view", null);
+  // The file open full size, as an index into `viewable`.
+  const [viewing, setViewing] = useState<number | null>(null);
+  const files = useMemo(() => group.data?.files ?? [], [group.data]);
   const groupId = group.data?.groupCaptureId ?? captureId;
-  const grouped = new Set(files.map((f) => f.captureId)).size > 1;
+  const captureCount = new Set(files.map((f) => f.captureId)).size;
+  const grouped = captureCount > 1;
+  const shownCapture = files.find((f) => f.shown)?.captureId;
+  const view: FilesView =
+    savedView === "list" || savedView === "grid" ? savedView : files.length > LIST_MAX ? "grid" : "list";
+  const viewable = useMemo(() => files.filter((f) => f.photoId), [files]);
+  const slides = useMemo<LightboxSlide[]>(
+    () =>
+      viewable.map((f) => {
+        // A RAW beside the JPG that is the photo shows its own preview, not the JPG's picture.
+        const ownRender = f.kind === "raw" && files.some((o) => o.captureId === f.captureId && o.kind !== "raw");
+        return {
+          url: ownRender ? `/api/photos/${f.photoId}/full?original=raw` : `/api/photos/${f.photoId}/display`,
+          thumbUrl: thumbUrl(f),
+          width: ownRender ? null : f.width,
+          height: ownRender ? null : f.height,
+          caption: f.fileName,
+        };
+      }),
+    [files, viewable],
+  );
   // A group's own photo can't join another group; split its versions out first.
   const picking = linking && !grouped;
 
@@ -96,7 +135,7 @@ function PhotoVersionsPanel({
   };
 
   const showAsPhoto = (f: VersionFile) => {
-    const before = files.find((x) => x.shown)?.captureId ?? groupId;
+    const before = shownCapture ?? groupId;
     void run(
       () => api.post(apiPath("/captures/{id}/versions/show", { id: groupId }), { captureId: f.captureId }),
       t("versions.shownToast", { name: f.fileName }),
@@ -124,7 +163,7 @@ function PhotoVersionsPanel({
     {
       versionUseAsPhoto: (e) => {
         e.preventDefault();
-        if (focused && !focused.shown) showAsPhoto(focused);
+        if (focused && focused.captureId !== shownCapture) showAsPhoto(focused);
       },
       versionSplitOut: (e) => {
         e.preventDefault();
@@ -135,7 +174,7 @@ function PhotoVersionsPanel({
         if (!grouped) setLinking(true);
       },
     },
-    { enabled: !picking && files.length > 0 },
+    { enabled: !picking && files.length > 0 && viewing === null },
   );
 
   const roleLabel = (f: VersionFile) =>
@@ -157,6 +196,92 @@ function PhotoVersionsPanel({
               ? t("versions.evidence.versionFolder")
               : null;
 
+  // What the list holds, said plainly: a RAW and its JPG are one photo's files, not versions.
+  const summary = !group.data
+    ? undefined
+    : grouped
+      ? t("versions.summary", { count: captureCount })
+      : files.length > 1
+        ? t("versions.filesSummary", {
+            count: files.length,
+            list: formatList(
+              Object.entries(ROLE_PHRASES)
+                .map(([r, key]) => [key, files.filter((f) => (f.role ?? "original") === r).length] as const)
+                .filter(([, n]) => n > 0)
+                .map(([key, n]) => t(key, { count: n })),
+            ),
+          })
+        : t("versions.oneFile");
+
+  const fileMenu = (f: VersionFile) => (
+    <Menu
+      trigger="plain"
+      open={menu.openKey === f.originalId}
+      onToggle={() => menu.setOpenKey(menu.openKey === f.originalId ? null : f.originalId)}
+      menuRef={menu.ref}
+      className="relative shrink-0"
+    >
+      <PhotoMenu
+        photo={{
+          captureId: f.captureId,
+          photoId: f.photoId ?? "",
+          originalRef: f.ref,
+          originalKind: f.kind,
+          originalManaged: f.managed,
+        }}
+        onClose={menu.close}
+        coverItems={
+          f.captureId !== shownCapture && (
+            <MenuItem
+              onSelect={() => {
+                menu.close();
+                showAsPhoto(f);
+              }}
+            >
+              {t("versions.useAsPhoto")}
+            </MenuItem>
+          )
+        }
+        endItems={
+          !f.isGroup && (
+            <MenuItem
+              onSelect={() => {
+                menu.close();
+                splitOut(f);
+              }}
+            >
+              {t("versions.splitOut")}
+            </MenuItem>
+          )
+        }
+      />
+    </Menu>
+  );
+  // The thumbnail opens the file full size; focus comes back to it when the viewer closes.
+  const thumb = (f: VersionFile, className: string) =>
+    f.photoId ? (
+      // raw-control: a whole thumbnail opens the file, as on a photo tile.
+      <button
+        type="button"
+        onClick={() => setViewing(viewable.indexOf(f))}
+        aria-label={t("versions.viewFile", { name: f.fileName })}
+        className={`${className} overflow-hidden rounded-control bg-surface-muted transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent`}
+      >
+        <img src={thumbUrl(f)} alt="" loading="lazy" className="h-full w-full object-cover" />
+      </button>
+    ) : (
+      <span className={`${className} rounded-control bg-surface-muted`} />
+    );
+  const meta = (f: VersionFile, withSize: boolean) =>
+    [
+      roleLabel(f),
+      f.format,
+      withSize && f.width && f.height ? `${f.width} × ${f.height}` : null,
+      formatBytes(f.fileSize),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
   return (
     <>
       <Modal
@@ -164,7 +289,7 @@ function PhotoVersionsPanel({
         onClose={onClose}
         size="lg"
         title={t("versions.title")}
-        description={grouped ? t("versions.description") : t("versions.single")}
+        description={summary}
         footerStart={
           group.data && !grouped ? (
             <Button
@@ -178,80 +303,63 @@ function PhotoVersionsPanel({
         }
         footer={<Button onClick={onClose}>{t("common.done")}</Button>}
       >
-        <ul className="divide-y divide-line">
-          {files.map((f) => (
-            <li key={f.originalId} className="group flex items-center gap-3 py-3">
-              {f.photoId ? (
-                <img
-                  src={`/api/photos/${f.photoId}/thumb`}
-                  alt=""
-                  className="h-14 w-14 shrink-0 rounded-control bg-surface-muted object-cover"
-                />
-              ) : (
-                <span className="h-14 w-14 shrink-0 rounded-control bg-surface-muted" />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-callout text-ink wrap-anywhere" title={f.ref}>
-                  {f.fileName}
-                </p>
-                <p className="text-footnote text-muted">
-                  {[
-                    f.shown ? t("versions.shown") : null,
-                    roleLabel(f),
-                    f.format,
-                    f.width && f.height ? `${f.width} × ${f.height}` : null,
-                    formatBytes(f.fileSize),
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-                {evidenceLabel(f) && <p className="text-footnote text-muted">{evidenceLabel(f)}</p>}
-              </div>
-              <Menu
-                trigger="plain"
-                open={menu.openKey === f.originalId}
-                onToggle={() => menu.setOpenKey(menu.openKey === f.originalId ? null : f.originalId)}
-                menuRef={menu.ref}
-                className="relative shrink-0"
-              >
-                <PhotoMenu
-                  photo={{
-                    captureId: f.captureId,
-                    photoId: f.photoId ?? "",
-                    originalRef: f.ref,
-                    originalKind: f.kind,
-                    originalManaged: f.managed,
-                  }}
-                  onClose={menu.close}
-                  coverItems={
-                    !f.shown && (
-                      <MenuItem
-                        onSelect={() => {
-                          menu.close();
-                          showAsPhoto(f);
-                        }}
-                      >
-                        {t("versions.useAsPhoto")}
-                      </MenuItem>
-                    )
-                  }
-                  endItems={
-                    !f.isGroup && (
-                      <MenuItem
-                        onSelect={() => {
-                          menu.close();
-                          splitOut(f);
-                        }}
-                      >
-                        {t("versions.splitOut")}
-                      </MenuItem>
-                    )
-                  }
-                />
-              </Menu>
-            </li>
-          ))}
-        </ul>
+        {files.length > 1 && (
+          <div className="mb-2">
+            <SegmentedControl
+              label={t("versions.view.label")}
+              value={view}
+              onChange={setView}
+              options={[
+                { value: "list", label: t("versions.view.list") },
+                { value: "grid", label: t("versions.view.grid") },
+              ]}
+            />
+          </div>
+        )}
+        {view === "grid" ? (
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-3 py-2">
+            {files.map((f) => (
+              <li key={f.originalId} className="min-w-0">
+                <div className="relative">
+                  {thumb(f, TILE_THUMB)}
+                  {f.shown && (
+                    // design-token: a scrim over the photo, as the version badge on photo tiles.
+                    <span className="pointer-events-none absolute top-2 left-2 rounded-badge bg-black/60 px-1.5 py-0.5 text-caption text-white">
+                      {t("versions.shown")}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 flex items-start gap-1">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-footnote text-ink wrap-anywhere" title={f.ref}>
+                      {f.fileName}
+                    </p>
+                    <p className="text-caption text-muted">{meta(f, false)}</p>
+                  </div>
+                  {fileMenu(f)}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <ul className="divide-y divide-line">
+            {files.map((f) => (
+              <li key={f.originalId} className="group flex items-center gap-3 py-3">
+                {thumb(f, ROW_THUMB)}
+                <div className="min-w-0 flex-1">
+                  <p className="text-callout text-ink wrap-anywhere" title={f.ref}>
+                    {f.fileName}
+                  </p>
+                  <p className="text-footnote text-muted">
+                    {f.shown ? `${t("versions.shown")} · ${meta(f, true)}` : meta(f, true)}
+                  </p>
+                  {evidenceLabel(f) && <p className="text-footnote text-muted">{evidenceLabel(f)}</p>}
+                </div>
+                {fileMenu(f)}
+              </li>
+            ))}
+          </ul>
+        )}
         {group.data && !grouped && (
           <p className="mt-2 text-footnote text-muted">
             {t("versions.singleHint")}{" "}
@@ -261,6 +369,9 @@ function PhotoVersionsPanel({
           </p>
         )}
       </Modal>
+      {viewing !== null && (
+        <Lightbox slides={slides} index={viewing} onIndexChange={setViewing} onClose={() => setViewing(null)} />
+      )}
       <LinkPicker
         open={picking}
         captureId={captureId}

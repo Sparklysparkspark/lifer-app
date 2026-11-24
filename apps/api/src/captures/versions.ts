@@ -61,7 +61,10 @@ const VersionFile = Type.Object({
   width: Nullable(Type.Integer()),
   height: Nullable(Type.Integer()),
   isGroup: Type.Boolean({ description: "This file's capture is the one the group is shown as" }),
-  shown: Type.Boolean({ description: "This file's capture provides the photo shown" }),
+  shown: Type.Boolean({
+    description:
+      "This file is the photo shown: of a RAW and its JPG in one capture, the JPG, which the photo is made from",
+  }),
   evidence: Evidence,
 });
 
@@ -75,7 +78,7 @@ const LinkCandidate = Type.Object({
 
 const VersionGroup = Type.Object({
   groupCaptureId: Uuid(),
-  files: Type.Array(VersionFile, { description: "The shown photo's files first" }),
+  files: Type.Array(VersionFile, { description: "The shown file first, then the rest of its capture" }),
   versions: Type.Array(Version, {
     description: "One per photo of the group, the original first, in a steady order for a switcher",
   }),
@@ -191,6 +194,9 @@ export async function captureVersionRoutes(fastify: FastifyInstance): Promise<vo
         ).rows.map((p) => [p.id, p]),
       );
       const shownCapture = shownVersion ?? groupId;
+      // A RAW and its JPG share one capture, whose photo is made from the JPG: only that file is shown.
+      const shownFiles = rows.rows.filter((r) => r.capture_id === shownCapture);
+      const shownFile = (shownFiles.find((r) => r.kind !== "raw") ?? shownFiles[0])?.original_id;
       const mapped = rows.rows.map((r) => {
         const photoId = ownPhoto(r);
         const size = photoId ? sizes.get(photoId) : undefined;
@@ -208,12 +214,13 @@ export async function captureVersionRoutes(fastify: FastifyInstance): Promise<vo
           width: size?.width ?? null,
           height: size?.height ?? null,
           isGroup: r.is_group,
-          shown: r.capture_id === shownCapture,
+          shown: r.original_id === shownFile,
           evidence: r.is_group ? null : r.evidence,
         };
       });
       // The finished photo is always pinned first, however many exports there are.
-      const files = [...mapped].sort((a, b) => Number(b.shown) - Number(a.shown));
+      const rank = (f: (typeof mapped)[number]) => (f.shown ? 0 : f.captureId === shownCapture ? 1 : 2);
+      const files = [...mapped].sort((a, b) => rank(a) - rank(b));
 
       const labels = new Map(
         (
@@ -253,7 +260,7 @@ export async function captureVersionRoutes(fastify: FastifyInstance): Promise<vo
             labelSize: auto.size,
             fileName: f.fileName,
             isGroup: f.isGroup,
-            shown: f.shown,
+            shown: f.captureId === shownCapture,
           };
         }),
         nearby: await describeCandidates(
