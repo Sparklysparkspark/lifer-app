@@ -3,6 +3,7 @@ import { api, apiPath } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import type { useSelectMode } from "../../hooks/useSelectMode";
 import { errorMessage } from "../../lib/errorMessage";
+import { photosDeleted } from "../../lib/resource";
 import type { TripDetail, TripPhoto } from "./types";
 
 // Changes to the trip and its photos from this page: name, description and cover, rating photos,
@@ -76,6 +77,7 @@ export function useTripEdits({
     setDeleting(true);
     try {
       await api.delete(apiPath("/captures/{id}", { id: captureId }));
+      photosDeleted();
       setConfirmingDeleteCaptureId(null);
       void load();
     } catch (err) {
@@ -115,6 +117,7 @@ export function useTripEdits({
         captureIds: [...selectedCaptureIds],
         deleteRaw: deleteRawToo,
       });
+      photosDeleted();
       setConfirmingBatchDelete(false);
       setDeleteRawToo(false);
       exitSelectMode();

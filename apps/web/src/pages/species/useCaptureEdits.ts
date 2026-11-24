@@ -7,6 +7,7 @@ import { useToast } from "../../hooks/useToast";
 import type { useSelectMode } from "../../hooks/useSelectMode";
 import type { SpeciesCapture } from "./types";
 import { ignore } from "../../lib/ignore";
+import { photosDeleted } from "../../lib/resource";
 import { useSpeciesName } from "../../lib/speciesName";
 import type { SpeciesResult } from "../../components/SpeciesPicker";
 
@@ -240,6 +241,7 @@ export function useCaptureEdits({
     setDeleting(true);
     try {
       await api.post("/captures/batch-delete", { captureIds: [...selectedIds], deleteRaw: deleteRawToo });
+      photosDeleted();
       setConfirmingDelete(false);
       setDeleteRawToo(false);
       exitSelectMode();

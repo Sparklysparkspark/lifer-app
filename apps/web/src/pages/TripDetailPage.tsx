@@ -101,9 +101,16 @@ const EMPTY_TRIP_ICON = (
   </svg>
 );
 
+// Keyed by trip, so moving to another trip starts fresh: no selection, open dialog or viewer
+// carries over to photos the user can't see.
+export default function TripDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  return <TripDetail key={id} />;
+}
+
 // Species once the trip has photos, with a photo grid toggle. The species-assignment review opens
 // once a scan of the folder finds something new; a newly created trip scans on first open.
-export default function TripDetailPage() {
+function TripDetail() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
   const speciesName = useSpeciesName();

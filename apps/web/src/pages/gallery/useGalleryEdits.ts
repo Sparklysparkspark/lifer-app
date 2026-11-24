@@ -8,6 +8,7 @@ import { useEnterToConfirm } from "../../hooks/useEnterToConfirm";
 import { useToast } from "../../hooks/useToast";
 import type { useSelectMode } from "../../hooks/useSelectMode";
 import { errorMessage } from "../../lib/errorMessage";
+import { photosDeleted } from "../../lib/resource";
 import { downloadFile, pickDownloadFolder } from "../../lib/downloadFile";
 import { pluralize } from "../../lib/pluralize";
 import { useSpeciesName } from "../../lib/speciesName";
@@ -279,6 +280,7 @@ export function useGalleryEdits({
     setDeleting(true);
     try {
       await api.delete(apiPath("/captures/{id}", { id: captureId }));
+      photosDeleted();
       setConfirmingDeleteKey(null);
       setItems((prev) => prev?.filter((it) => it.captureId !== captureId) ?? prev);
       setTotal((t) => (t === null ? t : Math.max(0, t - 1)));
@@ -328,6 +330,7 @@ export function useGalleryEdits({
     const ids = new Set(selectedCaptureIds);
     try {
       await api.post("/captures/batch-delete", { captureIds: [...ids], deleteRaw: deleteRawToo });
+      photosDeleted();
       closeBatchDelete();
       exitSelectMode();
       setItems((prev) => prev?.filter((it) => !ids.has(it.captureId)) ?? prev);

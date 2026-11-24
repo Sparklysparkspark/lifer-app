@@ -3,7 +3,8 @@ import { Trans, useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent } from "maplibre-gl";
 import { api, apiPath, type ApiResponse } from "../../api/client";
-import { useApiResource } from "../../lib/resource";
+import { onAccountReset, onPhotosDeleted, useApiResource } from "../../lib/resource";
+import { MOVED_PHOTOS_CHANGED } from "../../hooks/useMovedPhotos";
 import { useLatest } from "../../hooks/useLatest";
 import { formatNumber } from "../../lib/format";
 import { useSpeciesName } from "../../lib/speciesName";
@@ -45,8 +46,12 @@ const GESTURE_GRACE_MS = 250;
 const CARD_PHOTOS = 6;
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
-// One request per pin while Lifer runs, however often it's opened.
+// One request per pin, however often it's opened, until the photos change.
 const pinPhotos = new Map<string, Promise<GalleryItem[]>>();
+const forgetPinPhotos = () => pinPhotos.clear();
+onAccountReset(forgetPinPhotos);
+onPhotosDeleted(forgetPinPhotos);
+window.addEventListener(MOVED_PHOTOS_CHANGED, forgetPinPhotos);
 function photosAt(regionId: string, pin: SpeciesPin): Promise<GalleryItem[]> {
   const q = { regionId, speciesId: pin.speciesId, lat: pin.lat, lon: pin.lon };
   const key = JSON.stringify(q);

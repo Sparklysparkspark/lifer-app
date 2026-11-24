@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -51,6 +51,11 @@ import { VersionStrip, usePhotoVersions } from "./PhotoVersions";
 import { StackIcon } from "./PhotoTile";
 import { openPhotoVersions, photoVersionsPanel, type PhotoVersion } from "../lib/photoVersions";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+
+/** A slide's identity across reloads; trip slides carry no captureId, and their URL is per photo. */
+function slideKey(slide: LightboxSlide | undefined): string | undefined {
+  return slide && (slide.captureId ?? slide.url);
+}
 
 /** m:ss.cc, to the hundredth, so the saved frame is named exactly. */
 function frameTimeLabel(seconds: number): string {
@@ -209,9 +214,10 @@ export default function Lightbox({
   const checklist = useApiRoute(
     slides[index]?.captureId ? apiPath("/captures/{id}/ebird", { id: slides[index].captureId }) : null,
   ).data?.checklists[0];
-  const [correcting, setCorrecting] = useState(false);
-  const [editingCoordinates, setEditingCoordinates] = useState(false);
-  const [editingAppearance, setEditingAppearance] = useState(false);
+  // Each dialog holds the slide it opened on, so a reload that moves the slides can't retarget it.
+  const [correcting, setCorrecting] = useState<LightboxSlide | null>(null);
+  const [editingCoordinates, setEditingCoordinates] = useState<LightboxSlide | null>(null);
+  const [editingAppearance, setEditingAppearance] = useState<LightboxSlide | null>(null);
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef);
@@ -307,6 +313,30 @@ export default function Lightbox({
   const [versionId, setVersionId] = useState<string | null>(null);
   // A new slide starts unzoomed, with its controls showing and no failure carried over.
   const [shownIndex, setShownIndex] = useState(index);
+  // The photo on screen and the slides it was found in. A rating or edit can re-sort or filter the
+  // list under the viewer, so it follows the photo, not the position.
+  const shown = useRef({ slides, key: slideKey(slides[index]) });
+  const go = useCallback(
+    (to: number) => {
+      shown.current.key = slideKey(slides[to]);
+      onIndexChange(to);
+    },
+    [slides, onIndexChange],
+  );
+  useLayoutEffect(() => {
+    const { slides: before, key } = shown.current;
+    shown.current.slides = slides;
+    if (before === slides || slideKey(slides[index]) === key) {
+      shown.current.key = slideKey(slides[index]);
+      return;
+    }
+    // Gone: whatever now fills its place, or the last photo.
+    const at = slides.findIndex((s) => slideKey(s) === key);
+    const to = at >= 0 ? at : Math.min(index, slides.length - 1);
+    if (to < 0) return;
+    shown.current.key = slideKey(slides[to]);
+    if (to !== index) onIndexChange(to);
+  }, [slides, index, onIndexChange]);
   if (shownIndex !== index) {
     setShownIndex(index);
     setVideoControlsIdle(false);
@@ -371,7 +401,7 @@ export default function Lightbox({
 
   // Escape leaves fullscreen first, then closes on a second press. Through the shared stack so a
   // dialog or menu opened over the lightbox closes before it does.
-  useEscapeToClose(() => {
+  const isTopLayer = useEscapeToClose(() => {
     if (isTypingTarget(document.activeElement)) {
       (document.activeElement as HTMLElement).blur();
       return;
@@ -389,6 +419,8 @@ export default function Lightbox({
     function handleKey(e: KeyboardEvent) {
       if (correcting || editingCoordinates || editingAppearance || isTypingTarget(e.target) || e.defaultPrevented)
         return;
+      // A dialog or another viewer over this one takes the keys (a Versions dialog's own viewer).
+      if (!isTopLayer()) return;
       const slide = slides[index];
       const video = videoRef.current;
       const hasDuration = !!video && Number.isFinite(video.duration) && video.duration > 0;
@@ -415,28 +447,28 @@ export default function Lightbox({
         video.pause();
         // 30 steps a second: the file's own frame rate isn't known here.
         video.currentTime = Math.max(0, video.currentTime + (matches(e, "frameForward") ? 1 : -1) / 30);
-      } else if (matches(e, "next")) onIndexChange((index + 1) % slides.length);
-      else if (matches(e, "previous")) onIndexChange((index - 1 + slides.length) % slides.length);
+      } else if (matches(e, "next")) go((index + 1) % slides.length);
+      else if (matches(e, "previous")) go((index - 1 + slides.length) % slides.length);
       else if (slide?.onRate && (matches(e, "rateClear") || RATE_ACTIONS.some((a) => matches(e, a)))) {
         const rating = RATE_ACTIONS.findIndex((a) => matches(e, a)) + 1;
         slide.onRate(rating === 0 || slide.rating === rating ? null : rating);
       } else if (slide?.onRate && RATE_NEXT_ACTIONS.some((a) => matches(e, a))) {
         const stars = RATE_NEXT_ACTIONS.findIndex((a) => matches(e, a));
         slide.onRate(stars === 0 ? null : stars);
-        onIndexChange(Math.min(index + 1, slides.length - 1));
+        go(Math.min(index + 1, slides.length - 1));
       } else if (matches(e, "playPause") && slide?.videoUrl) {
         e.preventDefault();
         if (video) video.paused ? video.play() : video.pause();
       } else if (matches(e, "fullScreen") && canToggleFullscreenRef.current) {
         void toggleFullscreenRef.current();
-      } else if (matches(e, "changeSpecies") && slide?.onReassign) setCorrecting(true);
+      } else if (matches(e, "changeSpecies") && slide?.onReassign) setCorrecting(slide);
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [
     index,
     slides,
-    onIndexChange,
+    go,
     toggleFullscreenRef,
     canToggleFullscreenRef,
     correcting,
@@ -444,11 +476,12 @@ export default function Lightbox({
     editingAppearance,
     versionsRef,
     stepVersionRef,
+    isTopLayer,
   ]);
 
-  // The open photo can leave the list (an ID corrected in a filtered gallery): close rather than
+  // The last photo can leave the list (an ID corrected in a filtered gallery): close rather than
   // leave an empty overlay holding the scroll lock. Keyed on the change, so it fires once.
-  const slideMissing = !slides[index];
+  const slideMissing = slides.length === 0;
   const onCloseRef = useLatest(onClose);
   useEffect(() => {
     if (slideMissing) onCloseRef.current();
@@ -625,8 +658,8 @@ export default function Lightbox({
             tone="dark"
             wide
             className={overlayFadeClass}
-            onPrevious={() => onIndexChange((index - 1 + slides.length) % slides.length)}
-            onNext={() => onIndexChange((index + 1) % slides.length)}
+            onPrevious={() => go((index - 1 + slides.length) % slides.length)}
+            onNext={() => go((index + 1) % slides.length)}
             previousLabel={t("lightbox.previous")}
             nextLabel={t("lightbox.next")}
           />
@@ -736,7 +769,7 @@ export default function Lightbox({
                     {/* raw-control: a link in the caption, light on the dark backdrop. */}
                     <button
                       type="button"
-                      onClick={() => setCorrecting(true)}
+                      onClick={() => setCorrecting(slide)}
                       className="text-white/70 underline hover:text-white"
                     >
                       {t("captureEdit.reassign.title")}
@@ -809,7 +842,7 @@ export default function Lightbox({
                   // raw-control: a link in the caption, light on the dark backdrop. design-token: as the links above
                   <button
                     type="button"
-                    onClick={() => setEditingAppearance(true)}
+                    onClick={() => setEditingAppearance(slide)}
                     // design-token: as the links above
                     className="text-footnote text-white/70 underline hover:text-white"
                   >
@@ -854,7 +887,7 @@ export default function Lightbox({
                     {/* raw-control: a link in the caption, light on the dark backdrop. */}
                     <button
                       type="button"
-                      onClick={() => setEditingCoordinates(true)}
+                      onClick={() => setEditingCoordinates(slide)}
                       className="text-white/70 underline hover:text-white"
                     >
                       {slide.coordinates.lat != null ? t("coordinates.edit") : t("coordinates.add")}
@@ -885,38 +918,38 @@ export default function Lightbox({
         )}
       </div>
       {/* Clicks inside the dialog would otherwise reach the viewer's click-to-close. */}
-      {correcting && slide.onReassign && (
+      {correcting?.onReassign && (
         <div onClick={(e) => e.stopPropagation()}>
           <CaptureEditModal
             edit="reassign"
-            capture={{ captureId: slide.captureId, tags: [] }}
+            capture={{ captureId: correcting.captureId, tags: [] }}
             tagOptions={[]}
             onTagsChange={() => {}}
-            onReassign={slide.onReassign}
-            onClose={() => setCorrecting(false)}
+            onReassign={correcting.onReassign}
+            onClose={() => setCorrecting(null)}
           />
         </div>
       )}
-      {editingAppearance && slide.onAppearanceChange && slide.captureId && (
+      {editingAppearance?.onAppearanceChange && editingAppearance.captureId && (
         <div onClick={(e) => e.stopPropagation()}>
           <AppearanceModal
-            captureIds={[slide.captureId]}
-            initial={slide.appearance ?? NO_APPEARANCE}
+            captureIds={[editingAppearance.captureId]}
+            initial={editingAppearance.appearance ?? NO_APPEARANCE}
             morphOptions={morphOptions}
-            onSaved={slide.onAppearanceChange}
-            onClose={() => setEditingAppearance(false)}
+            onSaved={editingAppearance.onAppearanceChange}
+            onClose={() => setEditingAppearance(null)}
           />
         </div>
       )}
-      {editingCoordinates && slide.coordinates?.onChange && slide.captureId && (
+      {editingCoordinates?.coordinates?.onChange && editingCoordinates.captureId && (
         <div onClick={(e) => e.stopPropagation()}>
           <CoordinatesModal
-            captureIds={[slide.captureId]}
-            lat={slide.coordinates.lat}
-            lon={slide.coordinates.lon}
-            suggestRegion={!slide.coordinates.hasRegion}
-            onSaved={slide.coordinates.onChange}
-            onClose={() => setEditingCoordinates(false)}
+            captureIds={[editingCoordinates.captureId]}
+            lat={editingCoordinates.coordinates.lat}
+            lon={editingCoordinates.coordinates.lon}
+            suggestRegion={!editingCoordinates.coordinates.hasRegion}
+            onSaved={editingCoordinates.coordinates.onChange}
+            onClose={() => setEditingCoordinates(null)}
           />
         </div>
       )}

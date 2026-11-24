@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, apiPath } from "../../api/client";
 import { formatNumber } from "../../lib/format";
+import { onAccountReset, onPhotosDeleted } from "../../lib/resource";
+import { MOVED_PHOTOS_CHANGED } from "../../hooks/useMovedPhotos";
 import { useSpeciesName } from "../../lib/speciesName";
 import type { GalleryItem } from "../../pages/gallery/types";
 import Button from "../Button";
@@ -13,8 +15,12 @@ import { slideCaption } from "./gallerySlide";
 const SHOWN = 6;
 
 type Samples = { items: GalleryItem[]; total: number };
-// One request per place while Lifer runs, however often the pointer comes back to it.
+// One request per place, however often the pointer comes back to it, until the photos change.
 const samples = new Map<string, Promise<Samples>>();
+const forgetSamples = () => samples.clear();
+onAccountReset(forgetSamples);
+onPhotosDeleted(forgetSamples);
+window.addEventListener(MOVED_PHOTOS_CHANGED, forgetSamples);
 
 /** The best photos at a place, as the side panel sorts them (rating, then newest). */
 export function hoverSamples(query: URLSearchParams): Promise<Samples> {

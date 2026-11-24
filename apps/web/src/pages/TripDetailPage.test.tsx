@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CollectionItem } from "@lifer/shared";
 
@@ -199,6 +199,30 @@ describe("TripDetailPage", () => {
     expect(await screen.findByText("Photos with only a RAW file are hidden.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Show all photos" }));
     expect(await screen.findAllByRole("img")).toHaveLength(2);
+  });
+
+  it("drops the selection on moving to another trip, so Delete can't reach photos out of view", async () => {
+    // The second trip answers with the first one's data, under its own id.
+    const answer = get.getMockImplementation()!;
+    get.mockImplementation((path: string) => answer(path.replace("/trips/t2", "/trips/t1")));
+    render(
+      <ToastContext.Provider value={toast}>
+        <ConfirmContext.Provider value={vi.fn().mockResolvedValue(false)}>
+          <MemoryRouter initialEntries={["/trips/t1?view=gallery"]}>
+            <Link to="/trips/t2?view=gallery">Next trip</Link>
+            <Routes>
+              <Route path="/trips/:id" element={<TripDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </ConfirmContext.Provider>
+      </ToastContext.Provider>,
+    );
+    await screen.findAllByRole("img");
+    fireEvent.keyDown(window, { key: "a", ctrlKey: true });
+    expect(await screen.findByText("2 selected")).toBeTruthy();
+    fireEvent.click(screen.getByText("Next trip"));
+    await screen.findAllByRole("img");
+    expect(screen.queryByText("2 selected")).toBeNull();
   });
 
   it("starts a folder scan from an empty trip", async () => {

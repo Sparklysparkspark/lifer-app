@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { api, apiPath, ApiError } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
+import { photosDeleted } from "../lib/resource";
 import { mapWithConcurrency } from "../lib/concurrency";
 import { checkImportSpace, isDiskFullError, type ImportSpace } from "../lib/importSpace";
 import ImportSpaceNotice from "./importReview/ImportSpaceNotice";
@@ -1083,7 +1084,10 @@ export default function PhotoImportRows({
     );
     for (const u of undonePhotos) undoneCaptureIds.current.add(u.captureId);
     const undone = batch.filter((c) => undoneCaptureIds.current.has(c.captureId));
-    if (undone.length > 0) reportImportsRemoved();
+    if (undone.length > 0) {
+      reportImportsRemoved();
+      photosDeleted();
+    }
     setRows((prev) => resetUndoneRows(prev, undone));
     setLastBatch((prev) => prev.filter((c) => !undoneCaptureIds.current.has(c.captureId)));
     if (failed.length > 0) {

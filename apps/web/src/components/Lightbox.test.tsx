@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -73,19 +73,66 @@ describe("Lightbox keyboard", () => {
 });
 
 describe("Lightbox open photo leaving the list", () => {
-  it("closes once instead of showing an empty overlay", () => {
-    const onClose = vi.fn();
-    const view = (list: LightboxSlide[]) => (
+  // The caller owns the index; the slides change under it, as after a rating re-sorts the list.
+  function ListHarness({ list, start, onClose }: { list: LightboxSlide[]; start: number; onClose: () => void }) {
+    const [index, setIndex] = useState(start);
+    return <Lightbox slides={list} index={index} onIndexChange={setIndex} onClose={onClose} />;
+  }
+  const view = (list: LightboxSlide[], start: number, onClose = vi.fn()) => (
+    <MemoryRouter>
+      <ToastContext.Provider value={toast}>
+        <ListHarness list={list} start={start} onClose={onClose} />
+      </ToastContext.Provider>
+    </MemoryRouter>
+  );
+  const [a, b, c] = slides;
+
+  it("stays on the shown photo when the list reorders", () => {
+    const { rerender } = render(view(slides, 1));
+    expect(screen.getByText("Snowy Egret")).toBeTruthy();
+    rerender(view([b, a, c], 1));
+    expect(screen.getByText("Snowy Egret")).toBeTruthy();
+    expect(screen.getByText("1 / 3")).toBeTruthy();
+  });
+
+  it("shows the next photo when the shown one leaves, and the last when it was last", () => {
+    const { rerender } = render(view(slides, 1));
+    rerender(view([a, c], 1));
+    expect(screen.getByText("Green Heron")).toBeTruthy();
+    rerender(view([a], 1));
+    expect(screen.getByText("Great Blue Heron")).toBeTruthy();
+  });
+
+  it("follows the photo it moved to when a rate-and-next re-sorts the list", () => {
+    function RatingHarness() {
+      const [order, setOrder] = useState([0, 1, 2]);
+      const [index, setIndex] = useState(0);
+      // Rating sorts the rated photo to the end, in the same update as the move.
+      const list = useMemo(
+        () => order.map((i) => ({ ...slides[i], onRate: () => setOrder((o) => [...o.filter((x) => x !== i), i]) })),
+        [order],
+      );
+      return <Lightbox slides={list} index={index} onIndexChange={setIndex} onClose={() => {}} />;
+    }
+    render(
       <MemoryRouter>
         <ToastContext.Provider value={toast}>
-          <Lightbox slides={list} index={2} onIndexChange={() => {}} onClose={onClose} />
+          <RatingHarness />
         </ToastContext.Provider>
-      </MemoryRouter>
+      </MemoryRouter>,
     );
-    const { rerender } = render(view(slides));
+    expect(screen.getByText("Great Blue Heron")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "#", code: "Digit3", shiftKey: true });
+    expect(screen.getByText("Snowy Egret")).toBeTruthy();
+  });
+
+  it("closes once instead of showing an empty overlay", () => {
+    const onClose = vi.fn();
+    const { rerender } = render(view(slides, 2, onClose));
     expect(onClose).not.toHaveBeenCalled();
-    rerender(view(slides.slice(0, 2)));
-    rerender(view(slides.slice(0, 1)));
+    rerender(view(slides.slice(0, 1), 2, onClose));
+    expect(onClose).not.toHaveBeenCalled();
+    rerender(view([], 2, onClose));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

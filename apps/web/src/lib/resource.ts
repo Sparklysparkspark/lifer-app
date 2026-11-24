@@ -11,6 +11,18 @@ export function onAccountReset(reset: () => void): void {
   accountResetters.add(reset);
 }
 
+// Caches that would otherwise keep offering a photo after it's deleted.
+const photoDeleteListeners = new Set<() => void>();
+
+/** Registers a module cache to clear once photos are deleted. */
+export function onPhotosDeleted(forget: () => void): void {
+  photoDeleteListeners.add(forget);
+}
+
+export function photosDeleted(): void {
+  photoDeleteListeners.forEach((forget) => forget());
+}
+
 /** Clears every per-account module cache, so the next account never sees the last one's data. */
 export function resetAccountCaches(): void {
   accountResetters.forEach((reset) => reset());
