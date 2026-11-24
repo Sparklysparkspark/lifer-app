@@ -25,7 +25,7 @@ test("rates, sorts, edits and deletes photos on a species page", async ({ page }
   const viewMenu = page.getByRole("button", { name: /^View( \(\d\))?$/ });
   await viewMenu.click();
   await page.getByRole("slider", { name: "Photo grid thumbnail size" }).fill("800");
-  await page.getByRole("checkbox", { name: "Labels" }).check();
+  await page.getByRole("checkbox", { name: "Labels", exact: true }).check();
   await expect(tiles.first()).toContainText("Nov 20, 2024");
   await page.getByLabel("Sort").selectOption("oldest");
   await expect(tiles.first()).toContainText("Jan 15, 2020");
@@ -46,7 +46,7 @@ test("rates, sorts, edits and deletes photos on a species page", async ({ page }
   await expect(tiles.first()).toContainText("Nov 20, 2024");
 
   // Labels (here the date and place) and Ratings hide their captions.
-  const labels = page.getByRole("checkbox", { name: "Labels" });
+  const labels = page.getByRole("checkbox", { name: "Labels", exact: true });
   const ratings = page.getByRole("checkbox", { name: "Ratings" });
   await labels.uncheck();
   await ratings.uncheck();

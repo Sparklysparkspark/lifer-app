@@ -41,7 +41,7 @@ test("shows, edits, shares and refills an album", async ({ page }) => {
   await page.getByLabel("Sort").selectOption("oldest");
   await expect(tiles.first().getByRole("img").first()).toHaveAccessibleName(SPECIES.chickadee.commonName);
   await expect(page.getByRole("button", { name: "View (1)" })).toBeVisible();
-  await page.getByRole("checkbox", { name: "Labels" }).check();
+  await page.getByRole("checkbox", { name: "Labels", exact: true }).check();
   await expect(page.locator("main").getByText(SPECIES.moose.commonName, { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
 
