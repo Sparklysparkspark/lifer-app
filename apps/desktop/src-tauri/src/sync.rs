@@ -114,7 +114,7 @@ pub(crate) fn kick(app: &AppHandle) {
                     PERIODIC.store(false, Ordering::SeqCst);
                     break;
                 }
-                let Some(_busy) = InFlight::begin() else {
+                let Some(busy) = InFlight::begin() else {
                     continue;
                 };
                 // The local API may have stopped since (a crash): start it again first.
@@ -125,6 +125,11 @@ pub(crate) fn kick(app: &AppHandle) {
                     };
                 if let Err(e) = synced {
                     eprintln!("[lifer] sync: {e}");
+                }
+                drop(busy);
+                // A sync asked for during this pass was turned away (see kick): run it now.
+                if AGAIN.swap(false, Ordering::SeqCst) {
+                    kick(&app);
                 }
             }
         }
