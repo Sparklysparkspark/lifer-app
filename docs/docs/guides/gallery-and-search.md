@@ -168,7 +168,7 @@ Click a photo to open it full screen.
 | <kbd>←</kbd> <kbd>→</kbd>                   | Previous or next photo, wrapping around at the ends. In a video, skip 10 seconds.                                                                     |
 | <kbd>1</kbd> to <kbd>5</kbd>                | Set the star rating. Press the same number again to clear it.                                                                                         |
 | <kbd>F</kbd>                                | Full screen (hidden when Lifer is already full screen)                                                                                                |
-| <kbd>Option</kbd>+<kbd>←</kbd> <kbd>→</kbd> | Previous or next version of the photo (<kbd>Alt</kbd> on Windows and Linux). See [Photo versions](./photo-versions.md#seeing-and-switching-versions). |
+| <kbd>Option</kbd>+<kbd>←</kbd> <kbd>→</kbd> | Previous or next version of the photo (<kbd>Alt</kbd> on Windows and Linux). See [Photo versions](./photo-versions.md#switching). |
 | <kbd>Cmd</kbd>+<kbd>0</kbd>                 | Fit the photo to the window again after zooming (<kbd>Ctrl</kbd>+<kbd>0</kbd> on Windows and Linux)                                                   |
 | <kbd>Space</kbd>                            | Play or pause a video                                                                                                                                 |
 | <kbd>Esc</kbd>                              | Leave full screen, then close                                                                                                                         |
