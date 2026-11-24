@@ -19,6 +19,7 @@ import { openLocalLibrary } from "../lib/desktopConnection";
 import { pluginIdFromPath, pluginPath, safeAccent, safeIconPath, useHiddenPlugins, usePlugins } from "../lib/plugins";
 import { usePluginTitle } from "../lib/pluginHost";
 import { SUGGESTED_APPS, offerPath, useSuggestedApps } from "../lib/suggestedApps";
+import { appNavLabel, appTitle as appName } from "../lib/appName";
 import { isTauri } from "../lib/tauri";
 import { buttonClasses } from "../lib/buttonClasses";
 import AccountMenu from "./AccountMenu";
@@ -224,7 +225,7 @@ function PluginLinks() {
             key={p.id}
             onContextMenu={(e) => {
               e.preventDefault();
-              menu.setOpenKey({ id: p.id, label: p.page.label, point: { x: e.clientX, y: e.clientY } });
+              menu.setOpenKey({ id: p.id, label: appNavLabel(p), point: { x: e.clientX, y: e.clientY } });
             }}
           >
             <SidebarLink
@@ -233,8 +234,8 @@ function PluginLinks() {
               iconSrc={logo?.iconSrc}
               iconSrcDark={logo?.iconSrcDark}
               iconColor={safeAccent(p.page.accent) ?? undefined}
-              label={logo?.label ?? p.page.label}
-              title={logo?.label ?? p.page.label}
+              label={appNavLabel(p)}
+              title={appNavLabel(p)}
             />
           </div>
         );
@@ -273,8 +274,8 @@ function SuggestedLinks() {
           icon={safeIconPath(a.icon) ?? ICONS.app}
           iconSrc={a.iconSrc}
           iconSrcDark={a.iconSrcDark}
-          label={a.label}
-          title={a.label}
+          label={appNavLabel(a)}
+          title={appNavLabel(a)}
         />
       ))}
     </>
@@ -392,8 +393,11 @@ function usePageTitle(): string {
   // The page's own title (host protocol `title`), else its sidebar label.
   const appTitle = usePluginTitle(appId);
   const offered = SUGGESTED_APPS.find((a) => pathname === offerPath(a.id));
-  if (offered) return offered.label;
-  if (appId !== null) return appTitle ?? plugins?.find((p) => p.id === appId)?.page.label ?? "";
+  if (offered) return appName(offered);
+  if (appId !== null) {
+    const plugin = plugins?.find((p) => p.id === appId);
+    return appTitle ?? (plugin ? appName(plugin) : "");
+  }
   return titles.find(([prefix]) => pathname.startsWith(prefix))?.[1] ?? t("nav.collection");
 }
 
@@ -411,8 +415,9 @@ export function AppToolbar({
   const { pathname } = useLocation();
   const title = usePageTitle();
   const appId = pluginIdFromPath(pathname);
-  // An app Lifer also suggests is titled by its own name and logo, whatever its page sends.
-  const known = appId === null ? undefined : SUGGESTED_APPS.find((a) => a.id === appId);
+  // An app Lifer suggests is titled by its own name and logo, whatever its page sends, on its
+  // offer page too.
+  const known = SUGGESTED_APPS.find((a) => a.id === appId || pathname === offerPath(a.id));
   const mac = window.liferSetup?.platform === "darwin";
   return (
     <header
@@ -434,7 +439,7 @@ export function AppToolbar({
         </IconButton>
         <p className="flex min-w-0 items-center gap-2 truncate text-headline font-semibold text-ink" aria-hidden="true">
           {known?.iconSrc && <AppLogo src={known.iconSrc} srcDark={known.iconSrcDark} />}
-          <span className="truncate">{known ? known.name : title}</span>
+          <span className="truncate">{known ? appName(known) : title}</span>
         </p>
       </div>
       <div className="flex items-center gap-2">

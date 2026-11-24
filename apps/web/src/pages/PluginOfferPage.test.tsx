@@ -105,7 +105,7 @@ describe("PluginOfferPage", () => {
     show();
     expect(screen.getByText(/also lets Example connect to Lifer/)).toBeTruthy();
     expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
-      "Read your life list, targets and seen species, and your own photos",
+      "See your life list, targets, seen species and your own photos",
       "Import photos into your library",
     ]);
     expect(grant).not.toHaveBeenCalled();

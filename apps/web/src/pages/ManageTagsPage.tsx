@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
-import { api, ApiError } from "../api/client";
+import { api } from "../api/client";
+import { errorMessage } from "../lib/errorMessage";
 import ManageListPage, { ManageList, RowRenameField } from "../components/ManageListPage";
 import { docsUrl } from "../lib/docs";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -61,7 +62,7 @@ export default function ManageTagsPage() {
       setEditingTag(null);
       load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t("manageTags.renameFailed"));
+      setError(errorMessage(err, t("manageTags.renameFailed")));
     } finally {
       setRenaming(false);
     }

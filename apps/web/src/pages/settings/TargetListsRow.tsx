@@ -10,14 +10,19 @@ import { useConfirm } from "../../hooks/useConfirm";
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { formatNumber } from "../../lib/format";
 import { targetListsChanged, useTargetLists, type TargetList } from "../../lib/targetLists";
+import SearchInput from "../../components/SearchInput";
 import { SettingRow } from "./shared";
 
 /** Target lists: import one, and view, rename or delete each. Sits beside the eBird import. */
+// Past this many lists, a filter box.
+const FILTER_AT = 8;
+
 export default function TargetListsRow() {
   const { t } = useTranslation();
   const lists = useTargetLists();
   const confirm = useConfirm();
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const menu = useDropdownMenu<string>();
   const [importing, setImporting] = useState(false);
   const [renaming, setRenaming] = useState<TargetList | null>(null);
@@ -51,41 +56,54 @@ export default function TargetListsRow() {
         }
       >
         {error && <FormMessage error={error} />}
+        {(lists?.length ?? 0) > FILTER_AT && (
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            aria-label={t("targetLists.settings.filter")}
+            placeholder={t("targetLists.settings.filter")}
+          />
+        )}
       </SettingRow>
-      {lists?.map((list) => (
-        <SettingRow
-          key={list.id}
-          label={<span className="break-words">{list.name}</span>}
-          description={
-            list.regionName
-              ? t("targetLists.summaryRegion", { count: formatNumber(list.speciesIds.length), region: list.regionName })
-              : t("targetLists.summaryGeneral", { count: formatNumber(list.speciesIds.length) })
-          }
-          control={
-            <Menu
-              open={menu.openKey === list.id}
-              onToggle={() => menu.setOpenKey(menu.openKey === list.id ? null : list.id)}
-              menuRef={menu.ref}
-              className="relative shrink-0"
-              trigger="plain"
-            >
-              <MenuPanel className="whitespace-nowrap">
-                <MenuLink
-                  to={`/?${new URLSearchParams({
-                    ...(list.regionId ? { region: list.regionId } : {}),
-                    show: "target",
-                    targetList: list.id,
-                  })}`}
-                >
-                  {t("targetLists.view")}
-                </MenuLink>
-                <MenuItem onSelect={() => setRenaming(list)}>{t("common.rename")}</MenuItem>
-                <MenuItem onSelect={() => void remove(list)}>{t("common.delete")}</MenuItem>
-              </MenuPanel>
-            </Menu>
-          }
-        />
-      ))}
+      {lists
+        ?.filter((l) => !query.trim() || l.name.toLowerCase().includes(query.trim().toLowerCase()))
+        .map((list) => (
+          <SettingRow
+            key={list.id}
+            label={<span className="break-words">{list.name}</span>}
+            description={
+              list.regionName
+                ? t("targetLists.summaryRegion", {
+                    count: formatNumber(list.speciesIds.length),
+                    region: list.regionName,
+                  })
+                : t("targetLists.summaryGeneral", { count: formatNumber(list.speciesIds.length) })
+            }
+            control={
+              <Menu
+                open={menu.openKey === list.id}
+                onToggle={() => menu.setOpenKey(menu.openKey === list.id ? null : list.id)}
+                menuRef={menu.ref}
+                className="relative shrink-0"
+                trigger="plain"
+              >
+                <MenuPanel className="whitespace-nowrap">
+                  <MenuLink
+                    to={`/?${new URLSearchParams({
+                      ...(list.regionId ? { region: list.regionId } : {}),
+                      show: "target",
+                      targetList: list.id,
+                    })}`}
+                  >
+                    {t("targetLists.view")}
+                  </MenuLink>
+                  <MenuItem onSelect={() => setRenaming(list)}>{t("common.rename")}</MenuItem>
+                  <MenuItem onSelect={() => void remove(list)}>{t("common.delete")}</MenuItem>
+                </MenuPanel>
+              </Menu>
+            }
+          />
+        ))}
       {importing && <TargetListImportModal onClose={() => setImporting(false)} />}
       {renaming && (
         <RenameModal

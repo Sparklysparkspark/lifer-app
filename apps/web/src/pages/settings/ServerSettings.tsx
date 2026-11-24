@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import Button, { IconButton } from "../../components/Button";
+import Chevron from "../../components/Chevron";
 import FormMessage from "../../components/FormMessage";
 import InlineSpinner from "../../components/InlineSpinner";
 import PasswordInput from "../../components/PasswordInput";
@@ -256,7 +257,7 @@ interface ExternalEndpoint {
 
 // Only once connected to a remote server: prefer a local address while on a named Wi-Fi network,
 // otherwise try an ordered list of external ones (see store.rs/lib.rs apply_config).
-function AutomaticUrlSwitchingRows() {
+export function AutomaticUrlSwitchingRows() {
   const { t } = useTranslation();
   const [config, setConfig] = useState<DesktopBridgeConfig | null>(null);
   const [enabled, setEnabled] = useState(false);
@@ -264,6 +265,7 @@ function AutomaticUrlSwitchingRows() {
   const [localNetworkName, setLocalNetworkName] = useState("");
   const [externalUrls, setExternalUrls] = useState<ExternalEndpoint[]>([]);
   const [newExternalUrl, setNewExternalUrl] = useState("");
+  const [duplicate, setDuplicate] = useState(false);
   const [usingCurrent, setUsingCurrent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -300,10 +302,13 @@ function AutomaticUrlSwitchingRows() {
     }
   }
 
-  async function addExternalUrl() {
+  async function addExternalUrl(e?: FormEvent) {
+    e?.preventDefault();
     const url = newExternalUrl.trim();
+    if (!url) return;
     // URLs double as list keys and remove targets, so a repeat would act on both rows.
-    if (!url || externalUrls.some((e) => e.url === url)) return;
+    if (externalUrls.some((x) => x.url === url)) return setDuplicate(true);
+    setDuplicate(false);
     setNewExternalUrl("");
     setExternalUrls((prev) => [...prev, { url, status: "testing" }]);
     const ok = await window.liferSetup!.testEndpoint(url).catch(() => false);
@@ -429,6 +434,23 @@ function AutomaticUrlSwitchingRows() {
                     ✕
                   </span>
                 )}
+                {/* The keyboard's way to reorder; dragging is the mouse's. */}
+                <IconButton
+                  tone="plain"
+                  disabled={index === 0}
+                  onClick={() => reorder(index, index - 1)}
+                  aria-label={t("settings.server.moveUp", { url: entry.url })}
+                >
+                  <Chevron open={false} className="-rotate-90" />
+                </IconButton>
+                <IconButton
+                  tone="plain"
+                  disabled={index === externalUrls.length - 1}
+                  onClick={() => reorder(index, index + 1)}
+                  aria-label={t("settings.server.moveDown", { url: entry.url })}
+                >
+                  <Chevron open />
+                </IconButton>
                 <IconButton
                   tone="plain"
                   onClick={() => removeExternalUrl(entry.url)}
@@ -440,19 +462,23 @@ function AutomaticUrlSwitchingRows() {
             ))}
           </ul>
         )}
-        <div className="flex gap-2">
+        <form className="flex gap-2" onSubmit={(e) => void addExternalUrl(e)}>
           <TextField
             size="sm"
             type="text"
             aria-label={t("settings.server.newAddress")}
             placeholder={SERVER_URL_EXAMPLE}
             value={newExternalUrl}
-            onChange={(e) => setNewExternalUrl(e.target.value)}
+            onChange={(e) => {
+              setNewExternalUrl(e.target.value);
+              setDuplicate(false);
+            }}
           />
-          <Button size="sm" variant="secondary" onClick={addExternalUrl} className="whitespace-nowrap">
+          <Button size="sm" variant="secondary" type="submit" className="whitespace-nowrap">
             {t("settings.server.add")}
           </Button>
-        </div>
+        </form>
+        {duplicate && <p className="text-footnote text-muted">{t("settings.server.alreadyListed")}</p>}
         <InsecureUrlWarning urls={[localUrl, newExternalUrl, ...externalUrls.map((e) => e.url)]} />
       </SettingRow>
       <SettingRow

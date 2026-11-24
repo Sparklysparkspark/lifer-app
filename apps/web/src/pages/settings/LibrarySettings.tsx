@@ -8,16 +8,15 @@ import {
   type FolderLevel,
 } from "@lifer/shared";
 import { api, apiPath } from "../../api/client";
-import Button from "../../components/Button";
 import Select from "../../components/Select";
 import FormMessage from "../../components/FormMessage";
 import { useServerInfo } from "../../hooks/useDeploymentMode";
-import { useConfirm } from "../../hooks/useConfirm";
 import { useSettings } from "../../hooks/useSettings";
 import { errorMessage } from "../../lib/errorMessage";
 import LibraryReimportSection from "./LibraryReimportSection";
 import BringInWorkGroup from "./BringInWorkGroup";
 import WatchedFoldersGroup from "./WatchedFoldersGroup";
+import ReorganizeRow from "./ReorganizeRow";
 import { SettingLinkRow, SettingRow, SettingsGroup } from "./shared";
 import FolderPath from "../../components/FolderPath";
 import InfoTip from "../../components/InfoTip";
@@ -96,10 +95,7 @@ const PRESET_LABEL: Record<FolderLayoutPreset | "custom", string> = {
 function OrganizePhotosRows() {
   const { t } = useTranslation();
   const { settings, setLocal } = useSettings();
-  const confirm = useConfirm();
   const [saving, setSaving] = useState(false);
-  const [reorganizing, setReorganizing] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Custom picked from the menu while the layout is still a preset: shows the list to edit it.
   const [editing, setEditing] = useState(false);
@@ -142,33 +138,6 @@ function OrganizePhotosRows() {
     }
     setEditing(false);
     void save([...FOLDER_LAYOUT_PRESETS[value]]);
-  }
-
-  async function reorganizeNow() {
-    const ok = await confirm({
-      title: t("settings.library.reorganizeConfirm.title"),
-      message: t("settings.library.reorganizeConfirm.message"),
-      confirmLabel: t("settings.library.reorganize"),
-    });
-    if (!ok) return;
-    setReorganizing(true);
-    setError(null);
-    setResult(null);
-    try {
-      const res = await api.post("/settings/reorganize-originals");
-      setResult(
-        t("settings.library.reorganizeResult", {
-          moved: res.moved,
-          total: res.total,
-          skipped: res.skipped,
-          failed: res.failed,
-        }),
-      );
-    } catch (err) {
-      setError(errorMessage(err, t("settings.library.reorganizeFailed")));
-    } finally {
-      setReorganizing(false);
-    }
   }
 
   return (
@@ -220,19 +189,13 @@ function OrganizePhotosRows() {
             <span className="break-all font-medium text-ink">{example.path.replaceAll("\\", "/")}</span>
           </p>
         )}
+        {error && <FormMessage error={error} />}
       </SettingRow>
       <FileNameRow />
-      <SettingRow
-        label={t("settings.library.reorganizeLabel")}
+      <ReorganizeRow
         description={t("settings.library.reorganizeDescription")}
-        control={
-          <Button variant="secondary" size="sm" onClick={reorganizeNow} loading={reorganizing}>
-            {reorganizing ? t("settings.library.reorganizing") : t("settings.library.reorganize")}
-          </Button>
-        }
-      >
-        {(error || result) && <FormMessage error={error} success={result} />}
-      </SettingRow>
+        confirmMessage={t("settings.library.reorganizeConfirm.message")}
+      />
     </>
   );
 }

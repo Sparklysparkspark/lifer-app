@@ -272,6 +272,7 @@ const STATE_ROUTES = [
   /^\/api\/species\/[^/]+\/(archive|seen|target|tier-override)$/,
   /^\/api\/archive\/bulk$/,
   /^\/api\/regions\/[^/]+\/species\/[^/]+\/hide$/,
+  /^\/api\/regions\/hidden-species\/bulk$/,
   /^\/api\/regions\/[^/]+\/checklist-additions\/[^/]+$/,
   /^\/api\/sea-zones\/[^/]+\/checklist-additions\/[^/]+$/,
   // Hand imports and their removal (species/otherTaxa.ts) change checklist additions.

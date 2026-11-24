@@ -2,6 +2,7 @@
 // after that a stopped app only restarts when the user asks, so a crashing app can't loop.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { appTitle } from "../lib/appName";
 import { useNavigate, useParams } from "react-router-dom";
 import type { PluginEndpoint, PluginStatus } from "@lifer/shared";
 import EmptyState from "../components/EmptyState";
@@ -103,7 +104,7 @@ function PluginView({ id }: { id: string }) {
   const { session, start } = usePluginSession(id, !!plugin);
   if (plugins === null) return null;
 
-  const name = plugin?.page.label || plugin?.name || id;
+  const name = plugin ? appTitle(plugin) : id;
   const heading = sidebarLayout ? <h1 className="sr-only">{name}</h1> : <PageHeader title={name} />;
   // The frame itself is the layout's, so the app keeps its state when the user leaves this page.
   if (plugin && session.phase === "ready") return heading;

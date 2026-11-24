@@ -53,6 +53,24 @@ describe("TargetListsRow", () => {
     expect(view.getAttribute("href")).toBe(`/?region=${REGION}&show=target&targetList=${ID}`);
   });
 
+  it("filters a long set of lists", async () => {
+    get.mockResolvedValueOnce({
+      lists: Array.from({ length: 10 }, (_, i) => ({
+        id: `l${i}`,
+        name: i === 4 ? "Owls of Alberta" : `List ${i}`,
+        regionId: null,
+        regionName: null,
+        speciesIds: [],
+      })),
+    });
+    renderRow();
+    fireEvent.change(await screen.findByRole("textbox", { name: "Filter target lists" }), {
+      target: { value: "owls" },
+    });
+    expect(screen.getByText("Owls of Alberta")).toBeTruthy();
+    expect(screen.queryByText("List 3")).toBeNull();
+  });
+
   it("deletes a list after confirming, and renames one", async () => {
     renderRow();
     await screen.findByText(longName);

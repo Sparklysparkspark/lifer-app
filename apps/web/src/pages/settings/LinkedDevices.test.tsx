@@ -53,6 +53,9 @@ describe("LinkedDevices", () => {
   it("holds 30 devices and a 300-character name", async () => {
     show(Array.from({ length: 30 }, (_, i) => key(i, ["sync"])));
     await screen.findByText("Desktop app 29");
+    // The group title isn't repeated as a row, and a cut-short name shows in full on hover.
+    expect(screen.getAllByText("Linked devices")).toHaveLength(1);
+    expect(screen.getByText("Desktop app 29").getAttribute("title")).toBe("Desktop app 29");
     expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(30);
   });
 });

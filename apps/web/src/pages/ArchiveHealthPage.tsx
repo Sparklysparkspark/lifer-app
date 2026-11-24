@@ -4,6 +4,7 @@ import { commonFolder } from "@lifer/shared";
 import { api, apiPath } from "../api/client";
 import Button from "../components/Button";
 import FolderPath from "../components/FolderPath";
+import { useLightbox } from "../components/Lightbox";
 import MovedFolderSuggestion from "../components/MovedFolderSuggestion";
 import ManageListPage, { ManageList, RowThumb, type ManageMenuItem } from "../components/ManageListPage";
 import { useRevealOriginal } from "../hooks/useRevealOriginal";
@@ -98,6 +99,16 @@ export default function ArchiveHealthPage() {
     [data],
   );
 
+  const viewer = useLightbox();
+  const slides = shown
+    .filter((i) => i.photoId)
+    .map((i) => ({
+      id: i.id,
+      url: `/api/photos/${i.photoId}/display`,
+      thumbUrl: `/api/photos/${i.photoId}/thumb`,
+      caption: i.path,
+    }));
+
   const title = t("archiveHealth.title");
   return (
     <ManageListPage
@@ -144,6 +155,7 @@ export default function ArchiveHealthPage() {
         </p>
       )}
       {missingFolder && <MovedFolderSuggestion folder={missingFolder} />}
+      {viewer.node}
       <ManageList
         label={title}
         rows={shown.map((item) => {
@@ -155,7 +167,24 @@ export default function ArchiveHealthPage() {
           menu.push({ label: t("archiveHealth.ignore"), onSelect: () => void ignoreOne(item) });
           return {
             key: item.id,
-            thumb: <RowThumb src={item.photoId ? `/api/photos/${item.photoId}/thumb` : null} alt="" />,
+            thumb: item.photoId ? (
+              // raw-control: the thumbnail opens the photo full size (ux-rules C12).
+              <button
+                type="button"
+                className="rounded-badge"
+                aria-label={t("archiveHealth.openPhoto", { file: item.path })}
+                onClick={() =>
+                  viewer.open(
+                    slides,
+                    slides.findIndex((s) => s.id === item.id),
+                  )
+                }
+              >
+                <RowThumb src={`/api/photos/${item.photoId}/thumb`} alt="" />
+              </button>
+            ) : (
+              <RowThumb src={null} alt="" />
+            ),
             primary: <FolderPath path={item.path} />,
             // The problem leads the second line, so a narrow window keeps it in view.
             secondary: [

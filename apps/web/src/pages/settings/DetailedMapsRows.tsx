@@ -36,7 +36,7 @@ export default function DetailedMapsRows() {
   });
   const [code, setCode] = useState("");
   const [removing, setRemoving] = useState<string | null>(null);
-  const [removeError, setRemoveError] = useState<{ code: string; message: string } | null>(null);
+  const [removeError, setRemoveError] = useState<{ code: string; text: string } | null>(null);
   const status = job.status;
   if (!status || (!status.available && !status.extracts.some((e) => e.downloaded))) return null;
 
@@ -58,7 +58,7 @@ export default function DetailedMapsRows() {
       await api.delete(`/offline-packs/maps/${encodeURIComponent(e.code)}`);
       await Promise.all([job.refresh(), checkPmtilesAvailable()]);
     } catch (err) {
-      setRemoveError({ code: e.code, message: errorMessage(err, t("settings.offlineData.detailMaps.removeFailed")) });
+      setRemoveError({ code: e.code, text: errorMessage(err, t("settings.offlineData.detailMaps.removeFailed")) });
     } finally {
       setRemoving(null);
     }
@@ -150,7 +150,7 @@ export default function DetailedMapsRows() {
               </div>
             }
           >
-            {removeError?.code === e.code && <FormMessage error={removeError.message} />}
+            {removeError?.code === e.code && <FormMessage error={removeError.text} />}
           </SettingRow>
         ))}
     </>

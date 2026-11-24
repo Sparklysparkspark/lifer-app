@@ -5,6 +5,7 @@ import { errorMessage } from "../lib/errorMessage";
 import { useToast } from "../hooks/useToast";
 import { useDeploymentMode } from "../hooks/useDeploymentMode";
 import { announceHostPreference } from "../lib/hostPreference";
+import { appScopeDetail, appScopeLabel } from "../lib/appScopes";
 import Modal from "./Modal";
 import Button from "./Button";
 
@@ -14,15 +15,6 @@ const POLL_MS = 2000;
 // Allow stays off this long after the dialog appears, so a key press or click meant for the app's
 // own page (which can ask to pair at any moment) can't answer for the user.
 const ARM_MS = 1000;
-
-/** Plain words for each scope an app can ask for; also shown on a suggested app's offer page. */
-export const SCOPE_KEYS: Record<string, string> = {
-  "userdata.read": "pairing.scopes.userdata",
-  "userdata.write": "pairing.scopes.userdataWrite",
-  "imports.write": "pairing.scopes.imports",
-  "opendata.read": "pairing.scopes.opendata",
-  "host.preference": "pairing.scopes.hostPreference",
-};
 
 // A companion app asking to connect (api plugins/routes.ts), or a paired app asking to open inside
 // Lifer from now on (hostPreference.ts). Lifer's own window answers, in a dialog above any plugin
@@ -138,7 +130,12 @@ export default function PairingConsentModal() {
             <p className="text-muted">{t("pairing.willBeAbleTo", { name: current.name })}</p>
             <ul className="mt-1 list-disc space-y-1 pl-5 text-ink">
               {current.scopes.map((s) => (
-                <li key={s}>{SCOPE_KEYS[s] ? t(SCOPE_KEYS[s]) : s}</li>
+                <li key={s}>
+                  {appScopeLabel(t, s)}
+                  {appScopeDetail(t, s) && (
+                    <span className="block text-footnote text-muted">{appScopeDetail(t, s)}</span>
+                  )}
+                </li>
               ))}
             </ul>
           </div>

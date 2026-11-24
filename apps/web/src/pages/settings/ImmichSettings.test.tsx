@@ -133,6 +133,27 @@ describe("Immich settings", () => {
     await waitFor(() => expect(put).toHaveBeenCalledWith("/immich/settings", { writeTags: true }));
   });
 
+  it("filters hundreds of albums and picks the shown ones in one save", async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      id: `m${i}`,
+      name: i < 3 ? `Owls ${i}` : `Trip ${i}`,
+      assetCount: 1,
+    }));
+    answer(linked);
+    get.mockImplementation(async (path: string) => {
+      if (path === "/immich/status") return linked;
+      if (path === "/immich/albums") return many;
+      return idle;
+    });
+    render(<ImmichSettings />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Filter albums" }), { target: { value: "owls" } });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    await waitFor(() => expect(put).toHaveBeenCalledWith("/immich/settings", { albumIds: ["a1", "m0", "m1", "m2"] }));
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Deselect all" })).toBeTruthy();
+  });
+
   it("can't sync with no album chosen", async () => {
     answer({ ...linked, albumIds: [] });
     render(<ImmichSettings />);

@@ -7,6 +7,8 @@ import Button from "../../components/Button";
 import { FolderBrowser } from "../../components/FolderPicker";
 import { pickFolderNative } from "../../lib/pickFolderNative";
 import FormMessage from "../../components/FormMessage";
+import FolderPath from "../../components/FolderPath";
+import { useLightbox } from "../../components/Lightbox";
 import JobProgress from "../../components/JobProgress";
 import Select from "../../components/Select";
 import Switch from "../../components/Switch";
@@ -21,7 +23,6 @@ import { SettingRow, SettingsGroup } from "./shared";
 import { formatList } from "../../lib/format";
 import { useSpeciesName } from "../../lib/speciesName";
 import { ignore } from "../../lib/ignore";
-import TextField from "../../components/TextField";
 import { SPECIES_DOWNLOADS_PATH } from "../../lib/speciesDownloads";
 
 interface SpeciesSuggestion {
@@ -60,11 +61,24 @@ type ReimportStatus = JobStatus<{ missingReferenceData: string[] }> & {
 
 // Previews are keyed by content hash, so they stay right when an Ignore shifts the list. A row
 // without a hash falls back to its position; the list is refetched after an Ignore for that reason.
-function UnmatchedReviewPanel({ files, onIgnored }: { files: UnmatchedFile[]; onIgnored: () => Promise<unknown> }) {
+export function UnmatchedReviewPanel({
+  files,
+  onIgnored,
+}: {
+  files: UnmatchedFile[];
+  onIgnored: () => Promise<unknown>;
+}) {
   const { t } = useTranslation();
   const toast = useToast();
   const [ignoringHash, setIgnoringHash] = useState<string | null>(null);
   const [assigningTaxon, setAssigningTaxon] = useState<number | null>(null);
+  const viewer = useLightbox();
+  // The index route can't bust the browser cache per file, so it gets the path as a key.
+  const previewUrl = (f: UnmatchedFile, i: number) =>
+    f.contentHash
+      ? `/api/library/reimport/unmatched-preview-by-hash/${encodeURIComponent(f.contentHash)}`
+      : `/api/library/reimport/unmatched-preview/${i}?p=${encodeURIComponent(f.relativePath)}`;
+  const slides = files.map((f, i) => ({ url: previewUrl(f, i), caption: f.relativePath }));
   const speciesName = useSpeciesName();
   const speciesLabel = (s: SpeciesSuggestion) =>
     speciesName(s) === s.scientificName ? s.scientificName : `${speciesName(s)} (${s.scientificName})`;
@@ -108,22 +122,26 @@ function UnmatchedReviewPanel({ files, onIgnored }: { files: UnmatchedFile[]; on
     <div className="max-h-96 space-y-1 overflow-y-auto">
       {files.map((f, i) => (
         <div key={f.contentHash ?? f.relativePath} className="flex items-center gap-3 py-1">
-          {/* The index route can't bust the browser cache per file, so it gets the path as a key. */}
-          <img
-            src={
-              f.contentHash
-                ? `/api/library/reimport/unmatched-preview-by-hash/${encodeURIComponent(f.contentHash)}`
-                : `/api/library/reimport/unmatched-preview/${i}?p=${encodeURIComponent(f.relativePath)}`
-            }
-            alt=""
-            loading="lazy"
-            className="h-12 w-12 shrink-0 rounded-badge object-cover"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.visibility = "hidden";
-            }}
-          />
+          {/* raw-control: a thumbnail that opens the file full size. */}
+          <button
+            type="button"
+            onClick={() => viewer.open(slides, i)}
+            aria-label={t("settings.reimport.review.openPreview", { file: f.relativePath })}
+            className="shrink-0 rounded-badge"
+          >
+            <img
+              src={previewUrl(f, i)}
+              alt=""
+              loading="lazy"
+              className="h-12 w-12 rounded-badge object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.visibility = "hidden";
+              }}
+            />
+          </button>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-footnote text-ink">{f.relativePath}</p>
+            {/* The file name tells files apart: it comes first, the full path on hover. */}
+            <FolderPath path={f.relativePath} className="text-footnote" />
             <p className="truncate text-caption text-muted">
               {f.scientificNames
                 ? t("settings.reimport.review.matchedMany", { names: formatList(f.scientificNames, "unit") })
@@ -137,6 +155,7 @@ function UnmatchedReviewPanel({ files, onIgnored }: { files: UnmatchedFile[]; on
           {f.contentHash && f.suggestion && (
             <Button
               size="sm"
+              variant="secondary"
               onClick={() => assign(f.suggestion!)}
               disabled={assigningTaxon !== null || ignoringHash !== null}
               loading={assigningTaxon === f.suggestion.inatTaxonId}
@@ -161,6 +180,7 @@ function UnmatchedReviewPanel({ files, onIgnored }: { files: UnmatchedFile[]; on
           )}
         </div>
       ))}
+      {viewer.node}
     </div>
   );
 }
@@ -269,17 +289,11 @@ export default function LibraryReimportSection() {
         label={t("settings.reimport.folder.label")}
         description={t(liferLibrary ? "settings.reimport.folder.liferLibrary" : "settings.reimport.folder.anyLayout")}
       >
-        <div className="flex gap-2">
-          <TextField
-            size="sm"
-            type="text"
-            aria-label={t("settings.reimport.folder.ariaLabel")}
-            value={folder}
-            onChange={(e) => setFolder(e.target.value)}
-            placeholder={t("settings.reimport.folder.placeholder")}
-            disabled={busy}
-            className="flex-1"
-          />
+        {/* Picked, never typed: the folder browser reaches every folder this Lifer can. */}
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1" aria-label={t("settings.reimport.folder.ariaLabel")}>
+            {folder && <FolderPath path={folder} className="text-callout" />}
+          </div>
           <Button size="sm" variant="secondary" onClick={chooseFolder} disabled={busy} className="shrink-0">
             {t("settings.reimport.folder.choose")}
           </Button>

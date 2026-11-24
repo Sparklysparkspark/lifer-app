@@ -81,3 +81,12 @@ describe("ArchiveHealthPage Ignore all", () => {
     expect(get).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("ArchiveHealthPage thumbnails", () => {
+  it("open the flagged photo full size", async () => {
+    get.mockResolvedValue({ total: 1, items: [{ ...item(1), problem: "changed", photoId: "p1" }] });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Open /data/originals/1.jpg" }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+});

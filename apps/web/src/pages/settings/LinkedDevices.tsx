@@ -54,7 +54,7 @@ export default function LinkedDevices() {
 
   return (
     <SettingsGroup title={t("settings.devices.title")}>
-      <SettingRow label={t("settings.devices.title")} description={t("settings.devices.description")}>
+      <SettingRow label={t("settings.devices.description")}>
         {error && <FormMessage error={error} />}
         {!error && devices === null && <InlineSpinner />}
         {devices?.length === 0 && <p className="text-footnote text-muted">{t("settings.devices.empty")}</p>}
@@ -62,7 +62,11 @@ export default function LinkedDevices() {
       {devices?.map((device) => (
         <SettingRow
           key={device.id}
-          label={<span className="block truncate">{device.name}</span>}
+          label={
+            <span className="block truncate" title={device.name}>
+              {device.name}
+            </span>
+          }
           description={[
             t("settings.devices.linkedOn", { date: formatDate(device.createdAt) }),
             device.lastUsedAt

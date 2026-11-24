@@ -177,6 +177,25 @@ describe.skipIf(!url)("region routes validation", () => {
     );
   });
 
+  it("unhides a set of rows in one request and puts them back for Undo", async () => {
+    const rows = [{ regionId, speciesId: SPECIES }];
+    expect((await call("POST", `/api/regions/${regionId}/species/${SPECIES}/hide`)).json()).toEqual({ ok: true });
+    expect((await call("DELETE", "/api/regions/hidden-species/bulk", { items: rows })).json()).toEqual({
+      ok: true,
+      count: 1,
+    });
+    expect((await call("GET", `/api/regions/${regionId}/hidden-species`)).json().items).toEqual([]);
+    // Undo skips a region that no longer exists rather than failing the whole batch.
+    const undo = await call("POST", "/api/regions/hidden-species/bulk", {
+      items: [...rows, { regionId: UNKNOWN, speciesId: SPECIES }],
+    });
+    expect(undo.json()).toEqual({ ok: true, count: 1 });
+    expect((await call("GET", `/api/regions/${regionId}/hidden-species`)).json().items).toHaveLength(1);
+    expect((await call("DELETE", "/api/regions/hidden-species/bulk", { items: [] })).statusCode).toBe(400);
+    expect((await call("DELETE", "/api/regions/hidden-species/bulk", { items: rows }, false)).statusCode).toBe(401);
+    await call("DELETE", "/api/regions/hidden-species/bulk", { items: rows });
+  });
+
   it("drills down only from a country, accepting the empty body the web app sends", async () => {
     const res = await call("POST", `/api/regions/${regionId}/drill-down`, {});
     expect([res.statusCode, res.json()]).toEqual([

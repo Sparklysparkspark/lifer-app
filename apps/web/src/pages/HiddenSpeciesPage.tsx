@@ -45,8 +45,8 @@ export default function HiddenSpeciesPage() {
   const toast = useToast();
   // openCountryId: the country drilled into (narrows to all of it). selectedRegionId: one
   // province within it, or the country's own "Whole country" leaf.
-  const [openCountryId, setOpenCountryId] = useState<string | null>(null);
-  const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
+  const [pickedCountryId, setOpenCountryId] = useState<string | null>(null);
+  const [pickedRegionId, setSelectedRegionId] = useState<string | null>(null);
   // Auto-drill into a lone country only on first load, not on every refetch after an unhide.
   const autoOpenedRef = useRef(false);
 
@@ -130,7 +130,10 @@ export default function HiddenSpeciesPage() {
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [data]);
-  const openCountryGroup = openCountryId ? countryGroups.find((g) => g.id === openCountryId) : undefined;
+  // After an unhide empties the open country or province, the page falls back up a level rather
+  // than show a blank crumb over an empty list (ux-rules N7).
+  const openCountryGroup = pickedCountryId ? countryGroups.find((g) => g.id === pickedCountryId) : undefined;
+  const openCountryId = openCountryGroup?.id ?? null;
   // The open country's provinces with something hidden, plus a "Whole country" leaf when the
   // country itself has direct hides.
   const openCountryProvinces = useMemo(() => {
@@ -148,6 +151,7 @@ export default function HiddenSpeciesPage() {
       ...openCountryGroup.provinces,
     ];
   }, [openCountryGroup, t]);
+  const selectedRegionId = openCountryProvinces.some((p) => p.id === pickedRegionId) ? pickedRegionId : null;
 
   // Raw rows in scope: bulk unhide must clear every underlying region row, not just the cards.
   const scopedItems = useMemo(() => {
@@ -200,6 +204,7 @@ export default function HiddenSpeciesPage() {
             res.children.map((c) => c.regionName),
             "unit",
           );
+          // confirm-ok: a choice between two scopes, not a guard on a reversible action.
           const alsoChildren = await confirm({
             title: t("hiddenSpecies.unhideChildren.title", { names }),
             message: t("hiddenSpecies.unhideChildren.message", { count: res.children.length }),
@@ -211,6 +216,8 @@ export default function HiddenSpeciesPage() {
       }
       const query = cascadeRegionIds.length > 0 ? `?cascadeRegionIds=${cascadeRegionIds.join(",")}` : "";
       await api.delete(`/regions/${item.regionId}/species/${item.speciesId}/hide${query}`);
+      const rows = [item.regionId, ...cascadeRegionIds].map((regionId) => ({ regionId, speciesId: item.speciesId }));
+      announceUnhidden(1, rows);
     } catch {
       toast.error(t("hiddenSpecies.unhideFailed"));
     } finally {
@@ -223,24 +230,23 @@ export default function HiddenSpeciesPage() {
     }
   }
 
-  // One confirmation for the whole scope, over the raw rows so a country-wide hide also clears
-  // every province row under it.
+  // Unhiding is reversible, so it acts at once and offers Undo, which puts back the same rows.
+  function announceUnhidden(count: number, rows: { regionId: string; speciesId: string }[]) {
+    const undo = () =>
+      api
+        .post("/regions/hidden-species/bulk", { items: rows })
+        .catch(() => toast.error(t("hiddenSpecies.undoFailed")))
+        .finally(load);
+    toast.show(t("hiddenSpecies.unhidToast", { count }), { actions: [{ label: t("common.undo"), onClick: undo }] });
+  }
+
+  // One request over the raw rows, so a country-wide hide also clears every province row under it.
   async function unhideScope() {
-    const uniqueSpeciesCount = new Set(scopedItems.map((i) => i.speciesId)).size;
-    const ok = await confirm({
-      title: t("hiddenSpecies.unhideAll.title", { count: uniqueSpeciesCount, scope: scopeLabel }),
-      confirmLabel: t("hiddenSpecies.unhideAll.confirm"),
-    });
-    if (!ok) return;
+    const rows = scopedItems.map((i) => ({ regionId: i.regionId, speciesId: i.speciesId }));
     setBulkBusy(true);
     try {
-      await Promise.all(
-        scopedItems.map((i) =>
-          api.delete(
-            apiPath("/regions/{regionId}/species/{speciesId}/hide", { regionId: i.regionId, speciesId: i.speciesId }),
-          ),
-        ),
-      );
+      await api.delete("/regions/hidden-species/bulk", { items: rows });
+      announceUnhidden(new Set(rows.map((r) => r.speciesId)).size, rows);
     } catch {
       toast.error(t("hiddenSpecies.unhideGroupFailed"));
     } finally {
@@ -340,7 +346,14 @@ export default function HiddenSpeciesPage() {
         </div>
       )}
       {displayedItems.length === 0 ? (
-        <EmptyState compact title={t("hiddenSpecies.noMatch", { search })} />
+        <EmptyState
+          compact
+          title={
+            search.trim()
+              ? t("hiddenSpecies.noMatch", { search })
+              : t("hiddenSpecies.noneInScope", { scope: scopeLabel ?? t("hiddenSpecies.allScope") })
+          }
+        />
       ) : (
         <>
           <p className="text-subheadline font-medium text-ink">

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { matches } from "../../lib/keymap";
 import { Trans, useTranslation } from "react-i18next";
 import type { StorageVolume } from "@lifer/shared";
 import { api, apiPath } from "../../api/client";
@@ -16,6 +15,9 @@ import { ignore } from "../../lib/ignore";
 import { tauriInvoke } from "../../lib/tauri";
 import { changeLibraryFolder } from "../../lib/libraryFolderChange";
 import TextField from "../../components/TextField";
+import Menu, { MenuItem, MenuPanel } from "../../components/Menu";
+import { RowRenameField } from "../../components/ManageListPage";
+import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { SettingRow, SettingsGroup } from "./shared";
 import FolderPath from "../../components/FolderPath";
 import ArchiveHealthRows from "./ArchiveHealthRows";
@@ -76,7 +78,8 @@ function StorageLocationRow() {
       if (outcome.kind === "importsRunning") setError(t("settings.storage.location.importsRunning"));
       else if (outcome.kind === "launchConfigFailed") {
         setCurrentDataDir(outcome.dataDir);
-        setError(t("settings.storage.location.saveForLaunchFailed", { error: outcome.error, folder: outcome.dataDir }));
+        console.error(outcome.error);
+        setError(t("settings.storage.location.saveForLaunchFailed", { folder: outcome.dataDir }));
       } else {
         setCurrentDataDir(newPath);
         setResult(t(outcome.filesMoved ? "settings.storage.location.moved" : "settings.storage.location.saved"));
@@ -136,10 +139,9 @@ function StorageLocationRow() {
 
 // Desktop: register external drives with their live connected state. Server: a read-only list of
 // LIFER_LIBRARY_ROOTS, which are configured in docker-compose.
-function StorageVolumesRows() {
+export function StorageVolumesRows() {
   const { t } = useTranslation();
   const isDesktopApi = useDeploymentMode() === "desktop";
-  const confirm = useConfirm();
   const toast = useToast();
   const [available, setAvailable] = useState(false);
   const [volumes, setVolumes] = useState<StorageVolume[] | null>(null);
@@ -151,6 +153,7 @@ function StorageVolumesRows() {
   const [result, setResult] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const { openKey, setOpenKey, ref: menuRef } = useDropdownMenu<string>();
 
   function load() {
     api
@@ -171,7 +174,13 @@ function StorageVolumesRows() {
       return;
     }
     if (native === null) return;
-    setPendingPath(native);
+    choosePath(native);
+  }
+
+  // The folder's own name is a good first guess; the user can still change it.
+  function choosePath(path: string) {
+    setPendingPath(path);
+    setLabel(path.split(/[\\/]/).filter(Boolean).pop() ?? "");
   }
 
   async function registerThisFolder() {
@@ -210,18 +219,26 @@ function StorageVolumesRows() {
     }
   }
 
-  async function remove(id: string) {
-    const ok = await confirm({
-      title: t("settings.storage.drives.removeConfirm.title"),
-      message: t("settings.storage.drives.removeConfirm.message"),
-      confirmLabel: t("settings.storage.drives.removeConfirm.confirm"),
-      danger: true,
+  // Nothing on disk changes, so it acts at once. Undo adds the drive back, which needs it plugged in.
+  async function remove(v: StorageVolume) {
+    const removed = await mutate(
+      () => api.delete(apiPath("/storage-volumes/{id}", { id: v.id })),
+      t("settings.storage.drives.removeFailed"),
+    );
+    if (!removed) return;
+    if (!v.connected || !v.mountPath) {
+      toast.show(t("settings.storage.drives.removedOffline", { name: v.label }));
+      return;
+    }
+    const path = v.mountPath;
+    const undo = () =>
+      mutate(async () => {
+        const added = await api.post("/storage-volumes", { path, label: v.label });
+        if (v.isDefault) await api.put(apiPath("/storage-volumes/{id}/default", { id: added.id }), {});
+      }, t("settings.storage.drives.registerFailed"));
+    toast.show(t("settings.storage.drives.removed", { name: v.label }), {
+      actions: [{ label: t("common.undo"), onClick: () => void undo() }],
     });
-    if (ok)
-      await mutate(
-        () => api.delete(apiPath("/storage-volumes/{id}", { id })),
-        t("settings.storage.drives.removeFailed"),
-      );
   }
 
   function setDefault(id: string) {
@@ -232,7 +249,7 @@ function StorageVolumesRows() {
   }
 
   async function rename(id: string) {
-    if (!renameValue.trim()) return;
+    if (!renameValue.trim()) return setRenamingId(null);
     if (
       await mutate(
         () => api.put(apiPath("/storage-volumes/{id}", { id }), { label: renameValue.trim() }),
@@ -270,7 +287,7 @@ function StorageVolumesRows() {
           <SettingRow
             key={v.id}
             label={v.label}
-            description={<span className="block truncate">{v.rootPath ?? v.mountPath}</span>}
+            description={<FolderPath path={v.rootPath ?? v.mountPath ?? ""} />}
             control={<ConnectedLabel connected={v.connected} offline={t("settings.storage.drives.notFound")} />}
           />
         ))}
@@ -280,76 +297,6 @@ function StorageVolumesRows() {
 
   return (
     <>
-      {volumes?.map((v) =>
-        renamingId === v.id ? (
-          <SettingRow
-            key={v.id}
-            label={
-              <TextField
-                size="sm"
-                type="text"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onKeyDown={(e) => matches(e, "confirm") && rename(v.id)}
-                aria-label={t("settings.storage.drives.nameLabel")}
-                autoFocus
-              />
-            }
-            control={
-              <div className="flex gap-2">
-                <Button size="sm" variant="secondary" onClick={() => rename(v.id)}>
-                  {t("common.save")}
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => setRenamingId(null)}>
-                  {t("common.cancel")}
-                </Button>
-              </div>
-            }
-          />
-        ) : (
-          <SettingRow
-            key={v.id}
-            label={v.isDefault ? t("settings.storage.drives.defaultLabel", { name: v.label }) : v.label}
-            description={
-              <>
-                <ConnectedLabel connected={v.connected} />
-                {" · "}
-                {v.connected
-                  ? v.mountPath
-                  : t("settings.storage.drives.lastSeen", {
-                      date: formatDate(v.lastSeenAt, "dateTime") || t("settings.storage.drives.lastSeenUnknown"),
-                    })}
-                {v.managedByEnv && ` · ${t("settings.storage.drives.managedByEnv")}`}
-              </>
-            }
-            control={
-              !v.managedByEnv && (
-                <div className="flex flex-wrap justify-end gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      setRenamingId(v.id);
-                      setRenameValue(v.label);
-                    }}
-                  >
-                    {t("common.rename")}
-                  </Button>
-                  {!v.isDefault && (
-                    <Button variant="secondary" size="sm" onClick={() => setDefault(v.id)}>
-                      {t("settings.storage.drives.makeDefault")}
-                    </Button>
-                  )}
-                  <Button variant="secondary" size="sm" onClick={() => remove(v.id)}>
-                    {t("settings.storage.drives.remove")}
-                  </Button>
-                </div>
-              )
-            }
-          />
-        ),
-      )}
-
       <SettingRow
         label={t("settings.storage.drives.label")}
         description={t("settings.storage.drives.description")}
@@ -366,7 +313,7 @@ function StorageVolumesRows() {
           <FolderBrowser
             onChoose={(path) => {
               setBrowsing(false);
-              setPendingPath(path);
+              choosePath(path);
             }}
             onCancel={() => setBrowsing(false)}
           />
@@ -402,6 +349,68 @@ function StorageVolumesRows() {
         )}
         {(error || result) && <FormMessage error={error} success={result} />}
       </SettingRow>
+      {volumes?.map((v) => (
+        <SettingRow
+          key={v.id}
+          label={
+            renamingId === v.id ? (
+              <RowRenameField
+                label={t("settings.storage.drives.nameLabel")}
+                value={renameValue}
+                onChange={setRenameValue}
+                onSave={() => void rename(v.id)}
+                onCancel={() => setRenamingId(null)}
+                saving={false}
+              />
+            ) : v.isDefault ? (
+              t("settings.storage.drives.defaultLabel", { name: v.label })
+            ) : (
+              v.label
+            )
+          }
+          description={
+            <>
+              <ConnectedLabel connected={v.connected} />
+              {" · "}
+              {v.connected && v.mountPath ? (
+                <FolderPath path={v.mountPath} className="inline" />
+              ) : (
+                t("settings.storage.drives.lastSeen", {
+                  date: formatDate(v.lastSeenAt, "dateTime") || t("settings.storage.drives.lastSeenUnknown"),
+                })
+              )}
+              {v.managedByEnv && ` · ${t("settings.storage.drives.managedByEnv")}`}
+            </>
+          }
+          control={
+            !v.managedByEnv &&
+            renamingId !== v.id && (
+              <Menu
+                open={openKey === v.id}
+                onToggle={() => setOpenKey(openKey === v.id ? null : v.id)}
+                menuRef={menuRef}
+                className="relative shrink-0"
+                trigger="plain"
+              >
+                <MenuPanel className="whitespace-nowrap">
+                  <MenuItem
+                    onSelect={() => {
+                      setRenamingId(v.id);
+                      setRenameValue(v.label);
+                    }}
+                  >
+                    {t("common.rename")}
+                  </MenuItem>
+                  {!v.isDefault && (
+                    <MenuItem onSelect={() => setDefault(v.id)}>{t("settings.storage.drives.makeDefault")}</MenuItem>
+                  )}
+                  <MenuItem onSelect={() => void remove(v)}>{t("settings.storage.drives.remove")}</MenuItem>
+                </MenuPanel>
+              </Menu>
+            )
+          }
+        />
+      ))}
     </>
   );
 }
@@ -527,7 +536,8 @@ export function RemoveAllDataSection() {
 function ConnectedLabel({ connected, offline }: { connected: boolean; offline?: string }) {
   const { t } = useTranslation();
   return (
-    <span className={`text-footnote ${connected ? "text-green-700 dark:text-green-400" : "text-muted"}`}>
+    // design-token: the same success green as FormMessage, which has no theme token yet.
+    <span className={`text-footnote ${connected ? "text-emerald-700 dark:text-emerald-400" : "text-muted"}`}>
       {connected ? t("settings.storage.drives.connected") : (offline ?? t("settings.storage.drives.notConnected"))}
     </span>
   );

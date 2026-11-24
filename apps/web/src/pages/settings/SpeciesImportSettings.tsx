@@ -7,7 +7,7 @@ import Button from "../../components/Button";
 import EbirdImportRow from "./EbirdImportRow";
 import TargetListsRow from "./TargetListsRow";
 import FormMessage from "../../components/FormMessage";
-import { useConfirm } from "../../hooks/useConfirm";
+import ReorganizeRow from "./ReorganizeRow";
 import { useSettings } from "../../hooks/useSettings";
 import { errorMessage } from "../../lib/errorMessage";
 import { SettingLinkRow, SettingRow, SettingSwitchRow, SettingsGroup } from "./shared";
@@ -162,11 +162,8 @@ const NAMING_STYLE_HINT: Record<NamingStyle, string> = {
 function SpeciesNamingRows() {
   const { t } = useTranslation();
   const { settings, setLocal } = useSettings();
-  const confirm = useConfirm();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [updating, setUpdating] = useState(false);
-  const [updateResult, setUpdateResult] = useState<string | null>(null);
 
   if (!settings) return null;
   const styles: NamingStyle[] =
@@ -176,7 +173,6 @@ function SpeciesNamingRows() {
   async function apply(next: NamingStyle[]) {
     setSaving(true);
     setError(null);
-    setUpdateResult(null);
     try {
       await api.put("/settings/species-naming-style", { styles: next });
       setLocal({ speciesNamingStyles: next });
@@ -184,35 +180,6 @@ function SpeciesNamingRows() {
       setError(errorMessage(err, t("settings.species.saveFailed")));
     } finally {
       setSaving(false);
-    }
-  }
-
-  // The style only affects new photos; this reuses Library's reorganize endpoint to rename
-  // existing folders and refresh embedded tags.
-  async function updateExistingPhotos() {
-    const ok = await confirm({
-      title: t("settings.species.updateConfirm.title"),
-      message: t("settings.species.updateConfirm.message"),
-      confirmLabel: t("settings.species.updatePhotos"),
-    });
-    if (!ok) return;
-    setUpdating(true);
-    setError(null);
-    setUpdateResult(null);
-    try {
-      const res = await api.post("/settings/reorganize-originals");
-      setUpdateResult(
-        t("settings.species.updateResult", {
-          moved: res.moved,
-          total: res.total,
-          skipped: res.skipped,
-          failed: res.failed,
-        }),
-      );
-    } catch (err) {
-      setError(errorMessage(err, t("settings.species.updateFailed")));
-    } finally {
-      setUpdating(false);
     }
   }
 
@@ -237,18 +204,13 @@ function SpeciesNamingRows() {
           hint={(style) => t(NAMING_STYLE_HINT[style])}
         />
         {!abaAvailable && <p className="text-footnote text-muted">{t("settings.species.abaHint")}</p>}
+        {error && <FormMessage error={error} />}
       </SettingRow>
-      <SettingRow
-        label={t("settings.species.rename")}
+      {/* The style only affects new photos; reorganizing renames folders and refreshes tags already on disk. */}
+      <ReorganizeRow
         description={t("settings.species.renameDescription")}
-        control={
-          <Button variant="secondary" size="sm" onClick={updateExistingPhotos} loading={updating}>
-            {updating ? t("settings.species.updating") : t("settings.species.updatePhotos")}
-          </Button>
-        }
-      >
-        {(error || updateResult) && <FormMessage error={error} success={updateResult} />}
-      </SettingRow>
+        confirmMessage={t("settings.species.updateConfirm.message")}
+      />
     </>
   );
 }

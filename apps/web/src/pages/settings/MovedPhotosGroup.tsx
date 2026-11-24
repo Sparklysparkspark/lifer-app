@@ -2,12 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 import { api, type ApiResponse } from "../../api/client";
-import Button, { IconButton } from "../../components/Button";
+import Button from "../../components/Button";
 import { FolderBrowser } from "../../components/FolderPicker";
-import FolderPath from "../../components/FolderPath";
+import FolderList from "../../components/FolderList";
 import FormMessage from "../../components/FormMessage";
 import MovedFolderSuggestion from "../../components/MovedFolderSuggestion";
-import SearchInput from "../../components/SearchInput";
 import Switch from "../../components/Switch";
 import MovedPhotosReview from "../../components/MovedPhotosReview";
 import {
@@ -30,58 +29,8 @@ type Batch = ApiResponse<"/moved-photos/batches">["batches"][number];
 type Added = ApiResponse<"/moved-photos/places", "post">;
 type Notice = { kind: "covered"; by: string } | { kind: "merge"; path: string; contains: string[] };
 
-// Lists longer than this get a filter box.
-const FILTER_AT = 8;
-
-/** A compact list of folders, each name first with its full path on hover, filterable when long. */
-function FolderList({
-  label,
-  folders,
-  onRemove,
-}: {
-  label: string;
-  folders: Array<{ path: string; available?: boolean }>;
-  onRemove?: (path: string) => void;
-}) {
-  const { t } = useTranslation();
-  const [query, setQuery] = useState("");
-  const q = query.trim().toLowerCase();
-  const shown = q ? folders.filter((f) => f.path.toLowerCase().includes(q)) : folders;
-  return (
-    <>
-      {folders.length > FILTER_AT && (
-        <SearchInput
-          value={query}
-          onChange={setQuery}
-          aria-label={t("movedPhotos.settings.filterLabel", { list: label })}
-          placeholder={t("movedPhotos.settings.filterPlaceholder")}
-        />
-      )}
-      <ul aria-label={label} className="max-h-72 divide-y divide-line overflow-y-auto">
-        {shown.map((f) => (
-          <li key={f.path} className="flex min-h-9 items-center justify-between gap-item py-1">
-            <div className="min-w-0 flex-1">
-              <FolderPath path={f.path} className="text-callout" />
-              {f.available === false && (
-                <p className="text-footnote text-muted">{t("movedPhotos.settings.notFound")}</p>
-              )}
-            </div>
-            {onRemove && (
-              <IconButton
-                tone="plain"
-                onClick={() => onRemove(f.path)}
-                aria-label={t("movedPhotos.settings.removeFolder", { folder: f.path })}
-              >
-                ✕
-              </IconButton>
-            )}
-          </li>
-        ))}
-      </ul>
-      {q && shown.length === 0 && <p className="text-callout text-muted">{t("movedPhotos.settings.noMatch")}</p>}
-    </>
-  );
-}
+// Moved trip folders shown before "Show more"; a reorganized drive can move dozens at once.
+const PROPOSALS_SHOWN = 3;
 
 // Settings > Storage: where Lifer looks for photos the user moved or renamed, a "Look now" button,
 // matches to review, and a log of recent relinks with Undo.
@@ -99,6 +48,7 @@ export default function MovedPhotosGroup() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [showFixed, setShowFixed] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [allProposals, setAllProposals] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(
     () => (location.state as Record<string, unknown> | null)?.[OPEN_REVIEW] === true,
   );
@@ -202,6 +152,7 @@ export default function MovedPhotosGroup() {
       settings.watched.length > 0 ? t("movedPhotos.settings.watchedFolders", { count: settings.watched.length }) : "",
     ].filter(Boolean),
   );
+  const proposals = status?.proposals ?? [];
   return (
     <section id="moved-photos">
       <SettingsGroup title={t("movedPhotos.settings.title")}>
@@ -295,7 +246,7 @@ export default function MovedPhotosGroup() {
             }
           />
         )}
-        {status?.proposals.map((p) => (
+        {(allProposals ? proposals : proposals.slice(0, PROPOSALS_SHOWN)).map((p) => (
           <SettingRow
             key={p.tripId}
             label={t("movedPhotos.tripFolderMoved", { trip: p.tripName, folder: p.folder })}
@@ -311,9 +262,18 @@ export default function MovedPhotosGroup() {
             }
           />
         ))}
+        {!allProposals && proposals.length > PROPOSALS_SHOWN && (
+          <SettingRow
+            label={
+              <Button variant="link" size="sm" onClick={() => setAllProposals(true)}>
+                {t("manageList.showMore", { count: proposals.length - PROPOSALS_SHOWN })}
+              </Button>
+            }
+          />
+        )}
         {batches.length > 0 && (
           <SettingRow label={t("movedPhotos.settings.recent")}>
-            <ul className="divide-y divide-line">
+            <ul className="max-h-72 divide-y divide-line overflow-y-auto">
               {batches.map((b) => (
                 <li key={b.id} className="flex items-center justify-between gap-item py-2">
                   <span className="min-w-0 break-words text-callout text-ink">

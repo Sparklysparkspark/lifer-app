@@ -23,6 +23,7 @@ vi.mock("./settings/RegionsSettings", () => ({ default: () => <h2>Species downlo
 const { default: SettingsPage } = await import("./SettingsPage");
 const { ConfirmContext } = await import("../hooks/useConfirm");
 const { ThemeContext } = await import("../hooks/useTheme");
+const { ToastProvider } = await import("../components/ToastProvider");
 const { resetAccountCaches } = await import("../lib/resource");
 const { resetSpeciesNamePrefsCache } = await import("../lib/speciesName");
 
@@ -53,14 +54,16 @@ function serve(response: SettingsResponse) {
 function renderAt(path: string) {
   return render(
     <ThemeContext.Provider value={{ theme: "light", preference: "system", setPreference: vi.fn() }}>
-      <ConfirmContext.Provider value={vi.fn().mockResolvedValue(false)}>
-        <MemoryRouter initialEntries={[path]}>
-          <Routes>
-            <Route path="/settings/:groupId?" element={<SettingsPage />} />
-            <Route path="/settings/species/downloads" element={<SettingsPage subpage="downloads" />} />
-          </Routes>
-        </MemoryRouter>
-      </ConfirmContext.Provider>
+      <ToastProvider>
+        <ConfirmContext.Provider value={vi.fn().mockResolvedValue(false)}>
+          <MemoryRouter initialEntries={[path]}>
+            <Routes>
+              <Route path="/settings/:groupId?" element={<SettingsPage />} />
+              <Route path="/settings/species/downloads" element={<SettingsPage subpage="downloads" />} />
+            </Routes>
+          </MemoryRouter>
+        </ConfirmContext.Provider>
+      </ToastProvider>
     </ThemeContext.Provider>,
   );
 }

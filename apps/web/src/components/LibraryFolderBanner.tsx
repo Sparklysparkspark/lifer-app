@@ -17,6 +17,16 @@ interface LibraryFolderStatus {
 }
 
 const POLL_MS = 60_000;
+const PROBLEM_KEYS = {
+  library: {
+    missing: "status.libraryFolder.problem.libraryMissing",
+    moved: "status.libraryFolder.problem.libraryMoved",
+  },
+  appData: {
+    missing: "status.libraryFolder.problem.appDataMissing",
+    moved: "status.libraryFolder.problem.appDataMoved",
+  },
+} as const;
 // Per session: a relaunch, or the next save that fails, brings it back.
 const DISMISSED_KEY = "lifer-library-folder-dismissed";
 
@@ -108,17 +118,25 @@ export default function LibraryFolderBanner() {
     if (res && !res.ok) setNote(t("status.libraryFolder.stillMissing"));
   }
 
+  // Picked first, then confirmed with the folder named, as Settings > Storage does.
   async function apply(dataDir: string) {
     setBrowsing(false);
+    const ok = await confirm({
+      title: t("settings.storage.location.chooseConfirm.title", { folder: dataDir }),
+      message: t("settings.storage.location.restartWarning"),
+      confirmLabel: t("settings.storage.location.chooseConfirm.confirm"),
+    });
+    if (!ok) return;
     setApplying(true);
     setNote(null);
     try {
       const outcome = await changeLibraryFolder(dataDir);
       if (outcome.kind === "restarting") return;
       if (outcome.kind === "importsRunning") setNote(t("settings.storage.location.importsRunning"));
-      else if (outcome.kind === "launchConfigFailed")
-        setNote(t("settings.storage.location.saveForLaunchFailed", { error: outcome.error, folder: outcome.dataDir }));
-      else setNote(t("settings.storage.location.saved"));
+      else if (outcome.kind === "launchConfigFailed") {
+        console.error(outcome.error);
+        setNote(t("settings.storage.location.saveForLaunchFailed", { folder: outcome.dataDir }));
+      } else setNote(t("settings.storage.location.saved"));
     } catch (err) {
       setNote(errorMessage(err, t("settings.storage.location.moveFailed")));
     }
@@ -126,12 +144,6 @@ export default function LibraryFolderBanner() {
   }
 
   async function chooseLocation() {
-    const ok = await confirm({
-      title: t("settings.storage.location.chooseConfirm.title"),
-      message: t("settings.storage.location.restartWarning"),
-      confirmLabel: t("settings.storage.location.chooseConfirm.confirm"),
-    });
-    if (!ok) return;
     const native = await pickFolderNative(library?.path);
     if (native === undefined) setBrowsing(true);
     else if (native !== null) await apply(native);
@@ -179,15 +191,10 @@ export default function LibraryFolderBanner() {
       {showDetails &&
         status.problems.map((p) => (
           <p key={p.folder} className="mt-1 break-words">
-            {/* eslint-disable-next-line no-restricted-syntax -- authored server copy, not error text; translate from p.problem later */}
-            {p.message}
+            {t(PROBLEM_KEYS[p.folder][p.problem], { path: p.path })}
           </p>
         ))}
-      <Modal
-        open={browsing}
-        onClose={() => setBrowsing(false)}
-        title={t("settings.storage.location.chooseConfirm.title")}
-      >
+      <Modal open={browsing} onClose={() => setBrowsing(false)} title={t("status.libraryFolder.chooseLocation")}>
         <FolderBrowser initialPath={library?.path} onChoose={apply} onCancel={() => setBrowsing(false)} />
       </Modal>
     </div>

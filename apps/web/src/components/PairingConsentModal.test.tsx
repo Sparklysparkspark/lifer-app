@@ -45,12 +45,13 @@ describe("PairingConsentModal", () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith(`/plugins/v1/consents/${ID}`, { allow: true }));
   });
 
-  it("says in plain words what the write scope allows", async () => {
+  it("says in plain words what the write scope allows, under the label Connected apps shows later", async () => {
     get.mockResolvedValue({ consents: [consent({ scopes: ["userdata.write"] })] });
     render(<PairingConsentModal />);
     await screen.findByText("Allow Field Kit to connect to Lifer?");
     expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
-      "Rate your photos, mark them pick or reject, give them a colour label, choose each species' featured photo and its crop, and mark species that need a better photo. You can undo each change in Settings > Connected apps.",
+      "Rate and label photos, and choose featured photos" +
+        "Rate your photos, mark them pick or reject, give them a colour label, choose each species' featured photo and its crop, and mark species that need a better photo. You can undo each change in Settings > Connected apps.",
     ]);
   });
 

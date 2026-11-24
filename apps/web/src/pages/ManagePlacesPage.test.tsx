@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { ToastProvider } from "../components/ToastProvider";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const get = vi.fn();
@@ -47,7 +48,9 @@ function openRowMenu(index: number, item: string) {
 function renderPage() {
   render(
     <MemoryRouter>
-      <ManagePlacesPage />
+      <ToastProvider>
+        <ManagePlacesPage />
+      </ToastProvider>
     </MemoryRouter>,
   );
 }
@@ -117,5 +120,38 @@ describe("ManagePlacesPage", () => {
     expect(within(dialog).getByText("Their regions stay.")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove name" }));
     await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/places/remove", { name: "Pigeon Lake" }));
+  });
+  it("keeps saved spots on screen when no photo has a place name yet", async () => {
+    get.mockImplementation((p: string) =>
+      Promise.resolve(
+        p === "/saved-spots"
+          ? { spots: [{ id: "s1", name: "Home pond", lat: 1, lon: 2, radiusM: 100, photoCount: 0, locality: null }] }
+          : p === "/saved-spots/suggestions"
+            ? { suggestions: [] }
+            : { places: [] },
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText("No photos have a place name yet.")).toBeTruthy();
+    expect(screen.getByText("Saved spots")).toBeTruthy();
+    expect(screen.queryByText(/No places match/)).toBeNull();
+  });
+
+  it("offers Add spot from the empty state", async () => {
+    get.mockImplementation((p: string) =>
+      Promise.resolve(
+        p === "/saved-spots" ? { spots: [] } : p === "/saved-spots/suggestions" ? { suggestions: [] } : { places: [] },
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText("No place names yet")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add spot" })).toBeTruthy();
+  });
+
+  it("says no match only for a search, in place of the place-name list", async () => {
+    renderPage();
+    await screen.findByRole("link", { name: "Pigeon Lake" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search places…" }), { target: { value: "zzz" } });
+    expect(await screen.findByText('No places match "zzz".')).toBeTruthy();
   });
 });

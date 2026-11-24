@@ -8,6 +8,8 @@ import { useConfirm } from "../../hooks/useConfirm";
 import { useDeploymentMode } from "../../hooks/useDeploymentMode";
 import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
+import { appScopeLabel } from "../../lib/appScopes";
+import { appTitle } from "../../lib/appName";
 import { getHostPreference, onHostPreference, setHostPreference } from "../../lib/hostPreference";
 import { formatDate, formatList, formatRelativeTime } from "../../lib/format";
 import {
@@ -66,15 +68,6 @@ export default function ConnectedAppsSettings() {
     }
     loadGrants();
   }
-
-  // One label per scope an app can hold; anything unknown shows as its id.
-  const scopeLabels: Record<string, string> = {
-    "userdata.read": t("connectedApps.scope.yourData"),
-    "userdata.write": t("connectedApps.scope.yourDataWrite"),
-    "imports.write": t("connectedApps.scope.imports"),
-    "opendata.read": t("connectedApps.scope.openData"),
-    "host.preference": t("connectedApps.scope.hostPreference"),
-  };
 
   const load = useCallback(
     () =>
@@ -181,64 +174,62 @@ export default function ConnectedAppsSettings() {
   return (
     <>
       <FormMessage error={error} />
-      {mode === "desktop" && installed.length > 0 && (
-        <SettingsGroup title={t("connectedApps.installed")}>
-          {installed.map((p) => (
-            <Fragment key={p.id}>
+      {/* One group per app, so each app's rows say whose they are. */}
+      {mode === "desktop" &&
+        installed.map((p) => (
+          <SettingsGroup key={p.id} title={appTitle(p)}>
+            <SettingRow
+              label={t("connectedApps.showInSidebarRow")}
+              control={
+                <Switch
+                  label={t("connectedApps.showInSidebar", { name: appTitle(p) })}
+                  checked={!hidden.has(p.id)}
+                  onChange={(on) => (on ? show(p.id) : hide(p.id))}
+                />
+              }
+              description={t("connectedApps.showInSidebarHint")}
+            />
+            {p.capabilities.includes("background") && (
               <SettingRow
-                label={<span className="break-words">{p.name}</span>}
+                label={t("connectedApps.openInBackground")}
                 control={
                   <Switch
-                    label={t("connectedApps.showInSidebar", { name: p.name })}
-                    checked={!hidden.has(p.id)}
-                    onChange={(on) => (on ? show(p.id) : hide(p.id))}
+                    label={t("connectedApps.openInBackgroundLabel", { name: appTitle(p) })}
+                    checked={opensInBackground(p, off)}
+                    onChange={(on) => setBackground(p.id, on)}
                   />
                 }
-                description={t("connectedApps.showInSidebarHint")}
+                description={t("connectedApps.openInBackgroundHint")}
               />
-              {p.capabilities.includes("background") && (
-                <SettingRow
-                  label={t("connectedApps.openInBackground")}
-                  control={
-                    <Switch
-                      label={t("connectedApps.openInBackgroundLabel", { name: p.name })}
-                      checked={opensInBackground(p, off)}
-                      onChange={(on) => setBackground(p.id, on)}
-                    />
-                  }
-                  description={t("connectedApps.openInBackgroundHint")}
-                />
-              )}
-              {p.capabilities.includes("notifications") && (
-                <SettingRow
-                  label={t("connectedApps.notices")}
-                  control={
-                    <Switch
-                      label={t("connectedApps.noticesLabel", { name: p.name })}
-                      checked={!muted.has(p.id)}
-                      onChange={(on) => setNotices(p.id, on)}
-                    />
-                  }
-                />
-              )}
+            )}
+            {p.capabilities.includes("notifications") && (
               <SettingRow
-                label={t("connectedApps.removeRow")}
-                description={t("connectedApps.removeHint")}
+                label={t("connectedApps.notices")}
                 control={
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    aria-label={t("connectedApps.removeLabel", { name: p.name })}
-                    onClick={() => void remove(p)}
-                  >
-                    {t("connectedApps.remove")}
-                  </Button>
+                  <Switch
+                    label={t("connectedApps.noticesLabel", { name: appTitle(p) })}
+                    checked={!muted.has(p.id)}
+                    onChange={(on) => setNotices(p.id, on)}
+                  />
                 }
               />
-            </Fragment>
-          ))}
-        </SettingsGroup>
-      )}
+            )}
+            <SettingRow
+              label={t("connectedApps.removeRow")}
+              description={t("connectedApps.removeHint")}
+              control={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  aria-label={t("connectedApps.removeLabel", { name: appTitle(p) })}
+                  onClick={() => void remove({ id: p.id, name: appTitle(p) })}
+                >
+                  {t("connectedApps.remove")}
+                </Button>
+              }
+            />
+          </SettingsGroup>
+        ))}
       {mode === "desktop" && SUGGESTED_APPS.length > 0 && (
         <SettingsGroup title={t("suggestedApps.title")}>
           <SettingRow
@@ -258,7 +249,7 @@ export default function ConnectedAppsSettings() {
               label={<span className="break-words">{k.name}</span>}
               description={[
                 formatList(
-                  k.permissions.map((s) => scopeLabels[s] ?? s),
+                  k.permissions.map((s) => appScopeLabel(t, s)),
                   "unit",
                 ),
                 k.lastUsedAt

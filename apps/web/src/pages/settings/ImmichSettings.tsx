@@ -8,6 +8,7 @@ import Checkbox from "../../components/Checkbox";
 import FormMessage from "../../components/FormMessage";
 import JobProgress from "../../components/JobProgress";
 import PasswordInput from "../../components/PasswordInput";
+import SearchInput from "../../components/SearchInput";
 import Switch from "../../components/Switch";
 import TextField from "../../components/TextField";
 import { useDeploymentMode } from "../../hooks/useDeploymentMode";
@@ -15,6 +16,9 @@ import { useJobPoll } from "../../hooks/useJobPoll";
 import { errorMessage } from "../../lib/errorMessage";
 import { formatRelativeTime } from "../../lib/format";
 import { SettingRow, SettingsGroup } from "./shared";
+
+// Album lists longer than this get a filter and Select all.
+const FILTER_AT = 8;
 
 const IMMICH = "Immich";
 
@@ -102,6 +106,7 @@ function Linked({ status, onChanged }: { status: Status; onChanged: () => void }
   const [albums, setAlbums] = useState<Album[] | null>(null);
   const [albumsError, setAlbumsError] = useState<string | null>(null);
   const [chosen, setChosen] = useState(status.albumIds);
+  const [albumQuery, setAlbumQuery] = useState("");
   const [writeTags, setWriteTags] = useState(status.writeTags);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [unlinking, setUnlinking] = useState(false);
@@ -124,12 +129,16 @@ function Linked({ status, onChanged }: { status: Status; onChanged: () => void }
     }
   }
 
-  function toggleAlbum(id: string, on: boolean) {
+  function toggleAlbums(ids: string[], on: boolean) {
     const before = chosen;
-    const next = on ? [...chosen, id] : chosen.filter((a) => a !== id);
+    const next = on ? [...new Set([...chosen, ...ids])] : chosen.filter((a) => !ids.includes(a));
     setChosen(next);
     void save({ albumIds: next }, () => setChosen(before));
   }
+
+  const q = albumQuery.trim().toLowerCase();
+  const shownAlbums = (albums ?? []).filter((a) => !q || a.name.toLowerCase().includes(q));
+  const allShownChosen = shownAlbums.length > 0 && shownAlbums.every((a) => chosen.includes(a.id));
 
   function toggleTags(on: boolean) {
     setWriteTags(on);
@@ -180,19 +189,46 @@ function Linked({ status, onChanged }: { status: Status; onChanged: () => void }
         ) : albums?.length === 0 ? (
           <p className="text-subheadline text-muted">{t("settings.immich.noAlbums")}</p>
         ) : (
-          <div className="max-h-72 space-y-1 overflow-y-auto">
-            {albums?.map((album) => (
-              <Checkbox
-                key={album.id}
-                checked={chosen.includes(album.id)}
-                onChange={(on) => toggleAlbum(album.id, on)}
-                description={t("settings.immich.albumCount", { count: album.assetCount })}
-                labelClassName="break-words"
-              >
-                {album.name}
-              </Checkbox>
-            ))}
-          </div>
+          <>
+            {/* Immich libraries often have hundreds of albums: filter, and pick the shown ones at once. */}
+            {(albums?.length ?? 0) > FILTER_AT && (
+              <div className="flex items-center gap-2">
+                <SearchInput
+                  value={albumQuery}
+                  onChange={setAlbumQuery}
+                  aria-label={t("settings.immich.filterAlbums")}
+                  placeholder={t("settings.immich.filterAlbums")}
+                  className="flex-1"
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={shownAlbums.length === 0}
+                  onClick={() =>
+                    toggleAlbums(
+                      shownAlbums.map((a) => a.id),
+                      !allShownChosen,
+                    )
+                  }
+                >
+                  {allShownChosen ? t("ui.deselectAll") : t("ui.selectAll")}
+                </Button>
+              </div>
+            )}
+            <div className="max-h-72 space-y-1 overflow-y-auto">
+              {shownAlbums.map((album) => (
+                <Checkbox
+                  key={album.id}
+                  checked={chosen.includes(album.id)}
+                  onChange={(on) => toggleAlbums([album.id], on)}
+                  description={t("settings.immich.albumCount", { count: album.assetCount })}
+                  labelClassName="break-words"
+                >
+                  {album.name}
+                </Checkbox>
+              ))}
+            </div>
+          </>
         )}
       </SettingRow>
       <SettingRow

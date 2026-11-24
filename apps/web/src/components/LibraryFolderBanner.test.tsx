@@ -58,9 +58,14 @@ describe("LibraryFolderBanner", () => {
     render(<LibraryFolderBanner />);
     await screen.findByText("Lifer can't save photos right now");
     expect(screen.getByText("Birds")).toBeTruthy();
-    expect(screen.queryByText(/is missing\.$/)).toBeNull();
+    expect(screen.queryByText(/is missing, so/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Details" }));
-    expect(screen.getByText(/is missing\.$/)).toBeTruthy();
+    // In the app's own words, not the server's English.
+    expect(
+      screen.getByText(
+        "The photo library folder /Users/someone/Desktop/Birds is missing, so nothing can be saved there.",
+      ),
+    ).toBeTruthy();
   });
 
   it("hides on Remind me later until a save fails again", async () => {
@@ -88,15 +93,16 @@ describe("LibraryFolderBanner", () => {
     await screen.findByText(/Still missing/);
   });
 
-  it("warns about the restart, then applies the chosen folder", async () => {
+  it("picks the folder first, then confirms the restart naming it", async () => {
     confirm.mockResolvedValue(true);
     pick.mockResolvedValue("/Volumes/Photos/Birds");
     change.mockResolvedValue({ kind: "restarting" });
     render(<LibraryFolderBanner />);
     fireEvent.click(await screen.findByRole("button", { name: "Choose new location" }));
     await waitFor(() => expect(change).toHaveBeenCalledWith("/Volumes/Photos/Birds"));
+    expect(pick.mock.invocationCallOrder[0]).toBeLessThan(confirm.mock.invocationCallOrder[0]);
     expect(confirm).toHaveBeenCalledWith({
-      title: "Choose your library folder",
+      title: "Use /Volumes/Photos/Birds as your library folder?",
       message: "Lifer will restart to use this folder. Anything running (imports, downloads) will pause and resume.",
       confirmLabel: "Choose folder and restart",
     });
@@ -104,10 +110,10 @@ describe("LibraryFolderBanner", () => {
 
   it("does nothing when the restart warning is cancelled", async () => {
     confirm.mockResolvedValue(false);
+    pick.mockResolvedValue("/Volumes/Photos/Birds");
     render(<LibraryFolderBanner />);
     fireEvent.click(await screen.findByRole("button", { name: "Choose new location" }));
     await waitFor(() => expect(confirm).toHaveBeenCalled());
-    expect(pick).not.toHaveBeenCalled();
     expect(change).not.toHaveBeenCalled();
   });
 

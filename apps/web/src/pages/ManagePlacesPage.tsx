@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
-import { api, ApiError } from "../api/client";
-import ManageListPage, { ManageList, RowRenameField } from "../components/ManageListPage";
+import { api } from "../api/client";
+import ManageListPage, { ManageList, ManageNoMatch, RowRenameField } from "../components/ManageListPage";
+import { errorMessage } from "../lib/errorMessage";
 import { docsUrl } from "../lib/docs";
 import Button from "../components/Button";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -92,7 +93,7 @@ export default function ManagePlacesPage() {
       void report(done, { changed: "managePlaces.renamed", moved: "managePlaces.renamedAndMoved" });
     } catch (err) {
       setConfirmingMerge(null);
-      setError(err instanceof ApiError ? err.message : t("managePlaces.renameFailed"));
+      setError(errorMessage(err, t("managePlaces.renameFailed")));
     } finally {
       setRenaming(false);
     }
@@ -133,7 +134,7 @@ export default function ManagePlacesPage() {
         error={loadError ? t("managePlaces.loadFailed") : null}
         onRetry={load}
         actions={
-          <Button variant="secondary" onClick={() => setAddingSpot(true)}>
+          <Button variant="secondary" size="sm" onClick={() => setAddingSpot(true)}>
             {t("savedSpots.add")}
           </Button>
         }
@@ -155,8 +156,8 @@ export default function ManagePlacesPage() {
           ),
           title: t("managePlaces.empty.title"),
           description: t("managePlaces.empty.description"),
+          action: { label: t("savedSpots.add"), onClick: () => setAddingSpot(true) },
         }}
-        noMatch={visible.length === 0 ? t("managePlaces.noMatch", { search }) : null}
       >
         {suggested.suggestions.length > 0 && (
           <div className="mb-section">
@@ -174,32 +175,39 @@ export default function ManagePlacesPage() {
             />
           </div>
         )}
-        <ManageList
-          label={title}
-          rows={visible.map((row) => ({
-            key: row.name,
-            primary: row.name,
-            secondary: row.regionName ? regionText(row) : undefined,
-            trailing: t("managePlaces.photoCount", { count: row.count }),
-            to: galleryLink(row.name),
-            linkState,
-            menu: [
-              { label: t("common.rename"), onSelect: () => startRename(row.name) },
-              { label: t("managePlaces.remove"), danger: true, onSelect: () => setConfirmingRemove(row) },
-            ],
-            editor:
-              editing === row.name ? (
-                <RowRenameField
-                  label={t("managePlaces.renameLabel", { name: row.name })}
-                  value={renameDraft}
-                  onChange={setRenameDraft}
-                  onSave={() => requestRename(row)}
-                  onCancel={() => setEditing(null)}
-                  saving={renaming}
-                />
-              ) : undefined,
-          }))}
-        />
+        {/* Only the place-name list says it is empty; saved spots and suggestions above still show. */}
+        {places?.length === 0 ? (
+          <ManageNoMatch text={t("managePlaces.noPlaceNames")} />
+        ) : visible.length === 0 ? (
+          <ManageNoMatch text={t("managePlaces.noMatch", { search })} />
+        ) : (
+          <ManageList
+            label={title}
+            rows={visible.map((row) => ({
+              key: row.name,
+              primary: row.name,
+              secondary: row.regionName ? regionText(row) : undefined,
+              trailing: t("managePlaces.photoCount", { count: row.count }),
+              to: galleryLink(row.name),
+              linkState,
+              menu: [
+                { label: t("common.rename"), onSelect: () => startRename(row.name) },
+                { label: t("managePlaces.remove"), danger: true, onSelect: () => setConfirmingRemove(row) },
+              ],
+              editor:
+                editing === row.name ? (
+                  <RowRenameField
+                    label={t("managePlaces.renameLabel", { name: row.name })}
+                    value={renameDraft}
+                    onChange={setRenameDraft}
+                    onSave={() => requestRename(row)}
+                    onCancel={() => setEditing(null)}
+                    saving={renaming}
+                  />
+                ) : undefined,
+            }))}
+          />
+        )}
       </ManageListPage>
       {addingSpot && <AddSpotModal onClose={() => setAddingSpot(false)} onAdded={() => void saved.reload()} />}
 

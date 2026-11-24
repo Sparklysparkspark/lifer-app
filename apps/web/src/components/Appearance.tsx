@@ -11,7 +11,8 @@ import {
   type Sex,
 } from "@lifer/shared";
 import { PLUMAGE_KEYS, appearanceValues, useAppearanceLabels } from "../lib/appearance";
-import { api, ApiError } from "../api/client";
+import { api } from "../api/client";
+import { errorMessage } from "../lib/errorMessage";
 import { useToast } from "../hooks/useToast";
 import Button from "./Button";
 import Modal from "./Modal";
@@ -139,7 +140,7 @@ export function AppearanceModal({
         await api.post("/captures/appearance", { captureIds: captureIds.slice(i, i + 5000), ...changes });
     };
     send().catch((err: unknown) => {
-      toast.error(err instanceof ApiError ? err.message : t("appearance.saveFailed"));
+      toast.error(errorMessage(err, t("appearance.saveFailed")));
       // One photo: put its values back. A selection: the page reloads.
       if (initial) {
         const before = initial;

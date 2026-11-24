@@ -56,6 +56,25 @@ describe("BringInWorkGroup", () => {
     expect(toast.success).toHaveBeenCalled();
   });
 
+  it("filters a long list, dates in the app's format, and marks what was brought in", async () => {
+    plugins.mockReturnValue([app(["offersImports"])]);
+    offered.mockResolvedValue(
+      Array.from({ length: 10 }, (_, i) => ({ id: `w${i}`, name: `Session ${i}`, date: "2026-03-04", fileCount: 2 })),
+    );
+    exported.mockResolvedValue("/tmp/s");
+    post.mockResolvedValue({});
+    show();
+    fireEvent.click(screen.getByRole("button", { name: "Show past work" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Filter past work" }), {
+      target: { value: "session 3" },
+    });
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getByText("Mar 4, 2026, 2 files")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Bring in" }));
+    expect(await screen.findByText("Brought in")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Bring in" })).toBeNull();
+  });
+
   it("says so when the app has no past work", async () => {
     plugins.mockReturnValue([app(["offersImports"])]);
     offered.mockResolvedValue([]);

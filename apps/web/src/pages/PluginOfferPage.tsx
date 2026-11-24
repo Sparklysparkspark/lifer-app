@@ -10,7 +10,7 @@ import EmptyState from "../components/EmptyState";
 import FormMessage from "../components/FormMessage";
 import PageHeader from "../components/PageHeader";
 import ProgressBar from "../components/ProgressBar";
-import { SCOPE_KEYS } from "../components/PairingConsentModal";
+import { appScopeDetail, appScopeLabel } from "../lib/appScopes";
 import { useToast } from "../hooks/useToast";
 import { priceKeyFor } from "../lib/cullPrice";
 import { errorMessage } from "../lib/errorMessage";
@@ -59,7 +59,8 @@ export default function PluginOfferPage() {
     };
   }, [installing, id]);
 
-  const name = app?.label ?? "";
+  // Titled by the app's own name, like its toolbar and installed page (lib/appName.ts).
+  const name = app?.name ?? "";
   const heading = sidebarLayout ? <h1 className="sr-only">{name}</h1> : <PageHeader title={name} />;
   if (!app)
     return (
@@ -141,7 +142,12 @@ export default function PluginOfferPage() {
                 <p>{t("suggestedApps.connects", { name: app.name })}</p>
                 <ul className="mt-1 list-disc space-y-1 pl-5">
                   {app.scopes.map((s) => (
-                    <li key={s}>{SCOPE_KEYS[s] ? t(SCOPE_KEYS[s]) : s}</li>
+                    <li key={s}>
+                      {appScopeLabel(t, s)}
+                      {appScopeDetail(t, s) && (
+                        <span className="block text-footnote text-muted">{appScopeDetail(t, s)}</span>
+                      )}
+                    </li>
                   ))}
                 </ul>
                 <p className="mt-1 text-footnote text-ink-muted">{t("pairing.revokeLater")}</p>

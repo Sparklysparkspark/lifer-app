@@ -9,6 +9,12 @@ import { MEDIA_CACHE_BUST } from "@lifer/core/config.js";
 import { HiddenChildren, HiddenSpeciesList, RegionHiddenSpecies } from "./responses.js";
 
 const RegionSpeciesParams = Type.Object({ regionId: Uuid(), speciesId: Uuid() });
+// Exact rows, as the Hidden species page lists them: a country-wide hide is already one row per province.
+const HiddenRowsBody = Type.Object(
+  { items: Type.Array(Type.Object({ regionId: Uuid(), speciesId: Uuid() }), { minItems: 1 }) },
+  { additionalProperties: false },
+);
+const BulkCount = Type.Object({ ok: Type.Boolean(), count: Type.Integer() });
 const regionNotFound = notFoundOnInvalidId("Region not found");
 
 export async function regionHiddenSpeciesRoutes(fastify: FastifyInstance): Promise<void> {
@@ -99,6 +105,39 @@ export async function regionHiddenSpeciesRoutes(fastify: FastifyInstance): Promi
         [userId, regionIds, speciesId],
       );
       return { ok: true };
+    },
+  );
+
+  // "Unhide all shown" in one request, so a partial failure can't leave half a scope hidden.
+  app.delete(
+    "/regions/hidden-species/bulk",
+    { preValidation: requireAuth, schema: { body: HiddenRowsBody, response: replies(BulkCount) } },
+    async (request) => {
+      const { items } = request.body;
+      const res = await pool.query(
+        `DELETE FROM region_species_hidden h
+         USING unnest($2::uuid[], $3::uuid[]) AS x(region_id, species_id)
+         WHERE h.user_id = $1 AND h.region_id = x.region_id AND h.species_id = x.species_id`,
+        [request.user!.id, items.map((i) => i.regionId), items.map((i) => i.speciesId)],
+      );
+      return { ok: true, count: res.rowCount ?? 0 };
+    },
+  );
+
+  // Undo for the above: puts back exactly those rows, skipping any region or species since removed.
+  app.post(
+    "/regions/hidden-species/bulk",
+    { preValidation: requireAuth, schema: { body: HiddenRowsBody, response: replies(BulkCount) } },
+    async (request) => {
+      const { items } = request.body;
+      const res = await pool.query(
+        `INSERT INTO region_species_hidden (user_id, region_id, species_id)
+         SELECT $1, r.id, s.id FROM unnest($2::uuid[], $3::uuid[]) AS x(region_id, species_id)
+         JOIN regions r ON r.id = x.region_id JOIN species s ON s.id = x.species_id
+         ON CONFLICT DO NOTHING`,
+        [request.user!.id, items.map((i) => i.regionId), items.map((i) => i.speciesId)],
+      );
+      return { ok: true, count: res.rowCount ?? 0 };
     },
   );
 

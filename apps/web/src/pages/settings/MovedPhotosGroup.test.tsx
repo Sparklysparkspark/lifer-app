@@ -36,6 +36,27 @@ function answer(routes: Record<string, unknown>) {
 }
 
 describe("Settings > Storage > Moved photos", () => {
+  it("shows a few moved trip folders, then the rest on request", async () => {
+    const proposals = Array.from({ length: 7 }, (_, i) => ({
+      ...STATUS.proposals[0],
+      tripId: `t${i}`,
+      tripName: `Trip ${i}`,
+    }));
+    answer({
+      "/moved-photos/settings": { auto: true, library: "/Lifer", trips: [], watched: [], places: [] },
+      "/moved-photos/status": { ...STATUS, proposals },
+      "/moved-photos/batches": { batches: [] },
+    });
+    render(
+      <MemoryRouter>
+        <MovedPhotosGroup />
+      </MemoryRouter>,
+    );
+    expect(await screen.findAllByRole("button", { name: "Use it" })).toHaveLength(3);
+    fireEvent.click(screen.getByRole("button", { name: "Show 4 more" }));
+    expect(screen.getAllByRole("button", { name: "Use it" })).toHaveLength(7);
+  });
+
   it("lists the places, what's always included, and removes one", async () => {
     answer({
       "/moved-photos/settings": {

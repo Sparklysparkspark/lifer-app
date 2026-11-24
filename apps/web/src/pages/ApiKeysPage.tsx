@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { api, apiPath, type ApiBody, type ApiResponse } from "../api/client";
+import { api, apiPath, type ApiResponse } from "../api/client";
+import { SCOPE_GROUPS, keyScopeLabel, type KeyScope as Scope } from "../lib/appScopes";
 import Button from "../components/Button";
 import FormMessage from "../components/FormMessage";
 import { Spinner } from "../components/LoadingScreen";
@@ -17,28 +18,8 @@ import Panel from "../components/Panel";
 
 const API_GUIDE_URL = docsUrl("/api/overview");
 
-// One row per resource with Read/Write columns. Keep in sync with API_KEY_SCOPES in
-// apps/api/src/auth/apiKeyRoutes.ts, the source of truth.
-type Scope = ApiBody<"/api-keys", "post">["permissions"][number];
-const SCOPE_GROUPS: Array<{ labelKey: string; read?: Scope; write?: Scope }> = [
-  { labelKey: "apiKeys.scopes.gallery", read: "gallery.read" },
-  { labelKey: "apiKeys.scopes.species", read: "species.read" },
-  { labelKey: "apiKeys.scopes.stats", read: "stats.read" },
-  { labelKey: "apiKeys.scopes.trips", read: "trips.read" },
-  { labelKey: "apiKeys.scopes.albums", read: "album.read", write: "album.write" },
-  { labelKey: "apiKeys.scopes.shares", read: "share.read", write: "share.write" },
-  // Integrations (see the API guide): read = photo feed + image files; write = imports + photo edits.
-  { labelKey: "apiKeys.scopes.photos", read: "photos.read", write: "photos.write" },
-  // write = adding species to region checklists yourself.
-  { labelKey: "apiKeys.scopes.lifeList", read: "collection.read", write: "collection.write" },
-  // Companion apps: your own marks and photos with no catalog data (write = ratings, featured photos and
-  // the "needs a better photo" mark); importing new photos.
-  { labelKey: "apiKeys.scopes.yourData", read: "userdata.read", write: "userdata.write" },
-  { labelKey: "apiKeys.scopes.imports", write: "imports.write" },
-  { labelKey: "apiKeys.scopes.openData", read: "opendata.read" },
-];
-
 type ApiKey = ApiResponse<"/api-keys">["keys"][number];
+const OWN_PAGE = new Set(["sync", "companion"]);
 
 export default function ApiKeysPage() {
   const { t } = useTranslation();
@@ -56,7 +37,8 @@ export default function ApiKeysPage() {
   function fetchKeys() {
     api
       .get("/api-keys")
-      .then((res) => setKeys(res.keys))
+      // Linked desktops, phones and connected apps have their own Settings pages.
+      .then((res) => setKeys(res.keys.filter((k) => !k.pluginId && !k.permissions.some((p) => OWN_PAGE.has(p)))))
       .catch((err) => setLoadError(errorMessage(err, t("apiKeys.loadFailed"))));
   }
 
@@ -267,6 +249,7 @@ export default function ApiKeysPage() {
                 }
                 title={t("apiKeys.empty.title")}
                 description={t("apiKeys.empty.description")}
+                action={{ label: t("apiKeys.newKey"), onClick: () => setCreating(true) }}
               />
               <p className="text-center text-callout text-muted">
                 <Trans
@@ -292,19 +275,19 @@ export default function ApiKeysPage() {
               <li key={key.id} className="flex items-center justify-between gap-3 p-4">
                 <div className="min-w-0">
                   <p className="text-callout font-medium text-ink">{key.name}</p>
-                  <p className="mt-0.5 truncate text-footnote text-muted">{formatList(key.permissions, "unit")}</p>
+                  <p className="mt-0.5 text-footnote text-muted">
+                    {formatList(
+                      key.permissions.map((p) => keyScopeLabel(t, p)),
+                      "unit",
+                    )}
+                  </p>
                   <p className="mt-0.5 text-footnote text-muted">
                     {key.lastUsedAt
                       ? t("apiKeys.lastUsed", { date: formatDate(key.lastUsedAt) })
                       : t("apiKeys.neverUsed")}
                   </p>
                 </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => void revoke(key)}
-                  className="shrink-0 text-rose-700 dark:text-rose-400"
-                >
+                <Button variant="secondary" size="sm" onClick={() => void revoke(key)} className="shrink-0">
                   {t("apiKeys.revoke")}
                 </Button>
               </li>

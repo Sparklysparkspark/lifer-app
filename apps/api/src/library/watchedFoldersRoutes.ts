@@ -2,14 +2,27 @@
 // its own library root.
 import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
-import { SINGLE_USER_MODE } from "@lifer/core/config.js";
+import { ORIGINALS_DIR, SINGLE_USER_MODE } from "@lifer/core/config.js";
 import { assertAllowedPath, isDirectory } from "@lifer/core/lib/allowedPaths.js";
+import { isWithinResolved } from "@lifer/core/lib/pathContainment.js";
+import { Nullable, Ok, replies, withSchemas } from "../lib/schema.js";
 import { requireAuth } from "../auth/session.js";
-import { Ok, replies, withSchemas } from "../lib/schema.js";
 import { listWatchedFolders, saveWatchedFolders } from "./watchedFolders.js";
 
 const Folder = Type.Object({ path: Type.String(), enabled: Type.Boolean(), available: Type.Boolean() });
 const PathBody = Type.Object({ path: Type.String({ minLength: 1 }) }, { additionalProperties: false });
+const AddBody = Type.Object(
+  {
+    path: Type.String({ minLength: 1 }),
+    merge: Type.Optional(Type.Boolean({ description: "Stop watching the watched folders inside it" })),
+  },
+  { additionalProperties: false },
+);
+const Added = Type.Object({
+  added: Type.Boolean(),
+  coveredBy: Nullable(Type.String({ description: "A watched folder or the library that already holds it" })),
+  contains: Type.Array(Type.String(), { description: "Watched folders inside it: replaced on merge, else not added" }),
+});
 
 export async function watchedFoldersRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
@@ -32,19 +45,25 @@ export async function watchedFoldersRoutes(fastify: FastifyInstance): Promise<vo
 
   app.post(
     "/library/watched-folders",
-    { preValidation: requireAuth, schema: { body: PathBody, response: replies(Ok) } },
+    { preValidation: requireAuth, schema: { body: AddBody, response: replies(Added) } },
     async (request, reply) => {
       if (desktopOnly(reply)) return reply;
-      const { path: raw } = request.body;
+      const { path: raw, merge } = request.body;
       if (!(await isDirectory(raw))) return reply.code(400).send({ error: "That folder doesn't exist" });
       const folder = assertAllowedPath(raw);
       const folders = await listWatchedFolders();
-      if (!folders.some((f) => f.path === folder))
-        await saveWatchedFolders([
-          ...folders,
-          { path: folder, enabled: true, userId: request.user!.id, signature: null },
-        ]);
-      return { ok: true };
+      // Nested watches would poll the same files twice, and the library is already Lifer's own.
+      const coveredBy =
+        folders.find((f) => isWithinResolved(f.path, folder))?.path ??
+        (isWithinResolved(ORIGINALS_DIR, folder) ? ORIGINALS_DIR : null);
+      if (coveredBy) return { added: false, coveredBy, contains: [] };
+      const contains = folders.filter((f) => isWithinResolved(folder, f.path)).map((f) => f.path);
+      if (contains.length > 0 && !merge) return { added: false, coveredBy: null, contains };
+      await saveWatchedFolders([
+        ...folders.filter((f) => !contains.includes(f.path)),
+        { path: folder, enabled: true, userId: request.user!.id, signature: null },
+      ]);
+      return { added: true, coveredBy: null, contains };
     },
   );
 

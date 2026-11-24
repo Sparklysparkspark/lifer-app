@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { api, type ApiResponse } from "../api/client";
 import ManageListPage, { ManageList, RowThumb } from "../components/ManageListPage";
 import { docsUrl } from "../lib/docs";
-import { useConfirm } from "../hooks/useConfirm";
 import { useToast } from "../hooks/useToast";
 import { useSpeciesName } from "../lib/speciesName";
 
@@ -22,7 +21,6 @@ export default function ArchivedSpeciesPage() {
   const [loadError, setLoadError] = useState(false);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
-  const confirm = useConfirm();
   const toast = useToast();
 
   // A refetch after an unarchive keeps the current list up instead of flashing a spinner.
@@ -62,6 +60,7 @@ export default function ArchivedSpeciesPage() {
     setBusyIds((prev) => new Set(prev).add(speciesId));
     try {
       await api.delete("/archive/bulk", { speciesIds: [speciesId] });
+      announceUnarchived([speciesId]);
     } catch {
       toast.error(t("archivedSpecies.countAgainFailed"));
     } finally {
@@ -74,16 +73,24 @@ export default function ArchivedSpeciesPage() {
     }
   }
 
+  // Unarchiving is reversible, so it acts at once and offers Undo.
+  function announceUnarchived(speciesIds: string[]) {
+    const undo = () =>
+      api
+        .post("/archive/bulk", { speciesIds })
+        .catch(() => toast.error(t("archivedSpecies.undoFailed")))
+        .finally(load);
+    toast.show(t("archivedSpecies.unarchivedToast", { count: speciesIds.length }), {
+      actions: [{ label: t("common.undo"), onClick: undo }],
+    });
+  }
+
   // Only the species shown under that family: a search narrows what this touches.
   async function unarchiveFamily(family: string) {
     const speciesIds = visibleItems.filter((i) => (i.family ?? OTHER) === family).map((i) => i.speciesId);
-    const ok = await confirm({
-      title: t("archivedSpecies.countAll.title", { count: speciesIds.length, family }),
-      confirmLabel: t("archivedSpecies.countAll.confirm"),
-    });
-    if (!ok) return;
     try {
       await api.delete("/archive/bulk", { speciesIds });
+      announceUnarchived(speciesIds);
     } catch {
       toast.error(t("archivedSpecies.countGroupFailed"));
     } finally {
