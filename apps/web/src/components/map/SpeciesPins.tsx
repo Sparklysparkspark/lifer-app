@@ -42,9 +42,11 @@ type Hover =
       y: number;
       r: number;
       species: number;
+      pins: number;
       photos: number;
       top: SpeciesPin[];
-      zoom: () => void;
+      /** The Gallery with every photo inside this cluster. */
+      showAll: string;
     };
 
 const HOVER_DELAY_MS = 200;
@@ -209,6 +211,14 @@ export default function SpeciesPins({
         )
         .then((zoom) => zoomOntoCluster(map, hit.data.coords, zoom, reducedMotion()));
     };
+    // A cluster at the zoom limit never splits, so "+N" opens its photos by the box they sit in.
+    const galleryLink = (leaves: SpeciesPin[]) => {
+      const lons = leaves.map((p) => p.lon);
+      const lats = leaves.map((p) => p.lat);
+      const pad = 0.0005;
+      const bbox = [Math.min(...lons) - pad, Math.min(...lats) - pad, Math.max(...lons) + pad, Math.max(...lats) + pad];
+      return `/gallery?regionId=${regionId}&bbox=${bbox.map((n) => +n.toFixed(5)).join(",")}`;
+    };
     const preview = async (hit: Hit) => {
       const box = canvas.getBoundingClientRect();
       const x = box.left + hit.x;
@@ -219,10 +229,6 @@ export default function SpeciesPins({
         return;
       }
       const source = map.getSource(PIN_SOURCE) as GeoJSONSource;
-      const zoom = () => {
-        setHover(null);
-        zoomOnto(hit);
-      };
       const leaves = await source.getClusterLeaves(Number(hit.data.props.cluster_id), Infinity, 0);
       const leafPins = leaves.map((l) => pinsRef.current[Number(l.properties?.i)]).filter(Boolean);
       const seen = new Set<string>();
@@ -231,7 +237,7 @@ export default function SpeciesPins({
         .sort((a, b) => b.count - a.count)
         .filter((p) => !seen.has(p.speciesId) && seen.add(p.speciesId))
         .slice(0, CARD_PHOTOS);
-      setHover({ kind: "cluster", x, y, r: hit.radius, ...clusterSummary(leafPins), top, zoom });
+      setHover({ kind: "cluster", x, y, r: hit.radius, ...clusterSummary(leafPins), top, showAll: galleryLink(leafPins) });
     };
     const hoverAt = (point: { x: number; y: number }, pointerType: string) => {
       const hit = pickAt(point, pointerType);
@@ -300,7 +306,7 @@ export default function SpeciesPins({
       map.off("moveend", onMoveEnd);
       map.off("movestart", hide);
     };
-  }, [map, pinsRef, openRef]);
+  }, [map, pinsRef, openRef, regionId]);
 
   const clusterTitle = (h: { species: number; top: SpeciesPin[] }) =>
     h.species === 1 && h.top[0]
@@ -372,8 +378,14 @@ export default function SpeciesPins({
           <div className="space-y-1.5" data-testid="species-cluster-card">
             <p className="break-words font-medium">{clusterTitle(hover)}</p>
             {hover.species === 1 && <p className="text-muted">{photosHere(hover.photos)}</p>}
+            {/* The disc counts pins, one per species per spot, so it can top the species count. */}
+            {hover.pins > hover.species && hover.species > 1 && (
+              <p className="text-muted">
+                {t("collection.map.pinsHere", { count: hover.pins, formatted: formatNumber(hover.pins) })}
+              </p>
+            )}
             <div className="grid w-60 grid-cols-3 gap-1">
-              {/* Past six species the last cell is "+N", zooming in as a click on the cluster does. */}
+              {/* Past six species the last cell is "+N", opening them all in the Gallery. */}
               {hover.top.slice(0, hover.species > CARD_PHOTOS ? CARD_PHOTOS - 1 : CARD_PHOTOS).map((pin) => (
                 <Button
                   key={pin.speciesId}
@@ -392,14 +404,25 @@ export default function SpeciesPins({
                 </Button>
               ))}
               {hover.species > CARD_PHOTOS && (
-                <Button variant="secondary" size="sm" onClick={hover.zoom} className="aspect-square h-auto!">
+                <Link
+                  to={hover.showAll}
+                  state={{ backLabel: regionName ?? t("nav.collection") }}
+                  className="flex aspect-square items-center justify-center rounded-control bg-surface-raised font-medium text-link hover:underline"
+                >
                   {t("gallery.map.card.more", {
                     count: hover.species - (CARD_PHOTOS - 1),
                     formatted: formatNumber(hover.species - (CARD_PHOTOS - 1)),
                   })}
-                </Button>
+                </Link>
               )}
             </div>
+            <Link
+              to={hover.showAll}
+              state={{ backLabel: regionName ?? t("nav.collection") }}
+              className="block text-link underline"
+            >
+              {t("gallery.map.card.showAll")}
+            </Link>
           </div>
         </PointCard>
       )}

@@ -43,6 +43,6 @@ describe("clusterSummary", () => {
         { speciesId: "a", count: 3 },
         { speciesId: "b", count: 1 },
       ]),
-    ).toEqual({ species: 2, photos: 6 });
+    ).toEqual({ species: 2, pins: 3, photos: 6 });
   });
 });

@@ -216,6 +216,7 @@
       "noPins": "Shown on the Collection map when no photo here has coordinates. <placeLink> opens the Gallery map's Needs placing tray, where photos get a location.",
       "photosHere": "Hover card of a species pin: how many of the user's photos of that species were taken at this place. {formatted} is {count} with digit grouping.",
       "speciesHere": "Hover card of a group of species pins merged at this zoom: how many different species it holds. {formatted} is {count} with digit grouping.",
+      "pinsHere": "Line in the card over a cluster on the Collection map, under its species count: the number on the cluster's disc counts pins, one for each species at each spot, so it can be higher than the species count. {formatted} is the pin count, like 1,204.",
       "resetView": "Button on the Collection map once zoomed in: go back to the starting view of the whole region.",
       "viewSpecies": "Link in a species pin's hover card on the Collection map: opens the species page.",
       "openPhotos": "Screen reader name of the photo in a species pin's hover card; clicking it opens that species' photos at this place in the photo viewer. {name} is the species name.",

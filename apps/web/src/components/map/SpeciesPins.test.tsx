@@ -311,7 +311,7 @@ describe("SpeciesPins", () => {
     expect(screen.queryByTestId("species-pins-empty")).toBeNull();
   });
 
-  it("ends a cluster card of more than six species with a +N cell that zooms in", async () => {
+  it("ends a cluster card of more than six species with a +N link to all its photos", async () => {
     vi.useFakeTimers();
     const many = Array.from({ length: 8 }, (_, i) => ({ ...PIN, speciesId: `s${i}`, commonName: `Pin ${i}` }));
     env.data = { pins: many, truncated: false };
@@ -324,9 +324,26 @@ describe("SpeciesPins", () => {
     const card = screen.getByTestId("species-cluster-card");
     expect(card.querySelectorAll("img")).toHaveLength(5);
     vi.useRealTimers();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "+3" })));
-    expect(map.easeTo).toHaveBeenCalled();
-    expect(screen.queryByTestId("species-cluster-card")).toBeNull();
+    const more = screen.getByRole("link", { name: "+3" });
+    expect(more.getAttribute("href")).toMatch(/^\/gallery\?regionId=r1&bbox=-?[\d.]+,-?[\d.]+,-?[\d.]+,-?[\d.]+$/);
+    expect(screen.getByRole("link", { name: "Show all" }).getAttribute("href")).toBe(more.getAttribute("href"));
+    await act(async () => fireEvent.click(more));
+    expect(screen.getByTestId("where").textContent).toContain("/gallery");
+  });
+
+  it("explains a cluster disc that counts more pins than the card has species", async () => {
+    vi.useFakeTimers();
+    const pins = [PIN, { ...PIN, lat: 1 }, { ...PIN, speciesId: "s2", commonName: "Pin Fox" }];
+    env.data = { pins, truncated: false };
+    const map = new FakeMap();
+    map.rendered = [clusterFeature];
+    await renderPins(map);
+    map.getSource(PIN_SOURCE)!.getClusterLeaves.mockResolvedValue(pins.map((_, i) => ({ properties: { i } })));
+    act(() => map.fire("mousemove", mouse(50, 50)));
+    await act(async () => vi.advanceTimersByTime(300));
+    const card = screen.getByTestId("species-cluster-card");
+    expect(card.textContent).toContain("2 species here");
+    expect(card.textContent).toContain("3 pins, one per species per spot");
   });
 
   it("titles a one-species cluster with its name and photos", async () => {

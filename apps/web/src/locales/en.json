@@ -659,6 +659,7 @@
       "noPins": "No pins yet. <placeLink>Place photos on the map</placeLink> to see where you found each species.",
       "photosHere": "{count, plural, one {{formatted} photo here} other {{formatted} photos here}}",
       "speciesHere": "{count, plural, one {{formatted} species here} other {{formatted} species here}}",
+      "pinsHere": "{count, plural, one {{formatted} pin, one per species per spot} other {{formatted} pins, one per species per spot}}",
       "resetView": "Reset view",
       "viewSpecies": "View species",
       "openPhotos": "Open the photos of {name} here",

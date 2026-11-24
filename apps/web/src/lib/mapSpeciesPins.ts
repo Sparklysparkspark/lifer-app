@@ -150,9 +150,9 @@ export function highlightSpecies(map: MapLibreMap, speciesId: string | null): vo
   if (map.getLayer(PIN_HIGHLIGHT)) map.setFilter(PIN_HIGHLIGHT, ["==", ["get", "speciesId"], speciesId ?? ""]);
 }
 
-/** Distinct species among a cluster's pins, and their photos. */
+/** Distinct species among a cluster's pins, the pins themselves (what its disc counts), and their photos. */
 export function clusterSummary(leaves: ReadonlyArray<{ speciesId: string; count: number }>) {
-  return { species: new Set(leaves.map((l) => l.speciesId)).size, photos: leaves.reduce((n, l) => n + l.count, 0) };
+  return { species: new Set(leaves.map((l) => l.speciesId)).size, pins: leaves.length, photos: leaves.reduce((n, l) => n + l.count, 0) };
 }
 
 // A click zooms in at most this far; a cluster still whole there (one point) is read from its card.
