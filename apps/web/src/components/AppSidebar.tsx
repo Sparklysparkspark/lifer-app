@@ -115,6 +115,29 @@ function SidebarIcon() {
   );
 }
 
+/** An app's own logo at the 18px of the line icons beside it, with its dark-theme variant if it has one. */
+function AppLogo({ src, srcDark }: { src: string; srcDark?: string }) {
+  return (
+    <>
+      {/* design-token: the same 18px as the line icons beside it. */}
+      <img
+        src={src}
+        alt=""
+        aria-hidden="true"
+        className={`h-[18px] w-[18px] shrink-0 object-contain ${srcDark ? "dark:hidden" : ""}`}
+      />
+      {srcDark && (
+        <img
+          src={srcDark}
+          alt=""
+          aria-hidden="true"
+          className="hidden h-[18px] w-[18px] shrink-0 object-contain dark:block"
+        />
+      )}
+    </>
+  );
+}
+
 function SidebarLink({
   to,
   icon,
@@ -167,27 +190,7 @@ function SidebarLink({
         }
       >
         <span style={iconColor ? { color: iconColor } : undefined} className="flex">
-          {iconSrc ? (
-            <>
-              {/* design-token: the same 18px as the line icons beside it. */}
-              <img
-                src={iconSrc}
-                alt=""
-                aria-hidden="true"
-                className={`h-[18px] w-[18px] shrink-0 object-contain ${iconSrcDark ? "dark:hidden" : ""}`}
-              />
-              {iconSrcDark && (
-                <img
-                  src={iconSrcDark}
-                  alt=""
-                  aria-hidden="true"
-                  className="hidden h-[18px] w-[18px] shrink-0 object-contain dark:block"
-                />
-              )}
-            </>
-          ) : (
-            <Icon d={icon ?? ""} />
-          )}
+          {iconSrc ? <AppLogo src={iconSrc} srcDark={iconSrcDark} /> : <Icon d={icon ?? ""} />}
         </span>
         <span className="min-w-0 truncate">{label}</span>
         {!!count && (
@@ -407,6 +410,8 @@ export function AppToolbar({
   const { pathname } = useLocation();
   const title = usePageTitle();
   const appId = pluginIdFromPath(pathname);
+  // An app Lifer also suggests is titled by its own name and logo, whatever its page sends.
+  const known = appId === null ? undefined : SUGGESTED_APPS.find((a) => a.id === appId);
   const mac = window.liferSetup?.platform === "darwin";
   return (
     <header
@@ -426,8 +431,9 @@ export function AppToolbar({
         >
           <SidebarIcon />
         </IconButton>
-        <p className="truncate text-headline font-semibold text-ink" aria-hidden="true">
-          {title}
+        <p className="flex min-w-0 items-center gap-2 truncate text-headline font-semibold text-ink" aria-hidden="true">
+          {known?.iconSrc && <AppLogo src={known.iconSrc} srcDark={known.iconSrcDark} />}
+          <span className="truncate">{known ? known.name : title}</span>
         </p>
       </div>
       <div className="flex items-center gap-2">
