@@ -140,13 +140,6 @@
     "fixedBy": "I-04"
   },
   {
-    "spec": "multi-value-filters.spec.ts",
-    "test": "a reload or a copied URL brings back BC or Alberta, 3 to 5 stars",
-    "reason": "the rating range is never written to or read from the Gallery URL, so a reload keeps the regions but drops 3 to 5 stars",
-    "uxRule": "N1",
-    "fixedBy": "F-02"
-  },
-  {
     "spec": "smart-album-tag.spec.ts",
     "test": "a smart album and a pin on a tag survive the tag being deleted",
     "reason": "applying a pinned filter replaces the Gallery URL and the filters are not read back from the URL, so Back leaves the Gallery instead of the pin (apps/web, pages/gallery/useGalleryFilters.ts)",

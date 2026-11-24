@@ -70,13 +70,13 @@ test("shows, edits, shares and refills an album", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Filters", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
 
-  // Species view, from the View menu's Show switch. Filters and Select act on photos, so they go.
+  // Species view, from the View menu's Show switch: the Collection's toolbar, without Select.
   const viewMenu = page.getByRole("button", { name: /^View( \(\d\))?$/ });
   await viewMenu.click();
   await page.getByRole("group", { name: "Show" }).getByRole("button", { name: "Species" }).click();
   await expect(tiles).toHaveCount(0);
   await expect(page.getByText(SPECIES.chickadee.commonName).first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "Filters" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Select", exact: true })).toHaveCount(0);
   await page.getByRole("group", { name: "Show" }).getByRole("button", { name: "Photos" }).click();
   await page.keyboard.press("Escape");
   await expect(tiles).toHaveCount(2);
@@ -123,10 +123,15 @@ test("shows, edits, shares and refills an album", async ({ page }) => {
   await expect(page.getByRole("checkbox", { name: /Show exact locations/ })).not.toBeChecked();
   await page.getByRole("checkbox", { name: "Allow visitors to download photos" }).check();
   await page.getByRole("button", { name: "Create share link" }).click();
-  await expect(page.getByText("No password · Downloads allowed")).toBeVisible();
+  await expect(page.getByText("No password, Downloads allowed")).toBeVisible();
   await expect(page.getByText(/\/share\/[^/]+$/)).toBeVisible();
   await page.getByRole("button", { name: "Revoke" }).click();
-  await page.getByRole("dialog", { name: "Revoke this share link?" }).getByRole("button", { name: "Revoke" }).click();
+  await page
+    .getByRole("dialog", { name: "Revoke this share link?" })
+    .getByRole("button", { name: "Revoke link" })
+    .click();
+  // Revoked links leave the list, one click from coming back into view.
+  await page.getByRole("button", { name: "Show 1 revoked or expired link" }).click();
   await expect(page.getByText("Revoked", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Hide sharing" }).click();
 
@@ -135,6 +140,9 @@ test("shows, edits, shares and refills an album", async ({ page }) => {
   await tiles.first().getByRole("checkbox", { name: "Select photo" }).check();
   await expect(page.getByText("1 selected")).toBeVisible();
   await page.getByRole("button", { name: "Remove from album" }).click();
+  await expect(
+    page.getByRole("region", { name: "Notifications" }).getByText("Removed 1 photo from the album"),
+  ).toBeVisible();
   await expect(tiles).toHaveCount(1);
   await page.reload();
   await expect(tiles).toHaveCount(1);

@@ -128,15 +128,21 @@ test("scans, imports and manages a trip's photos", async ({ page }) => {
   expect((await coverStyle).ok()).toBe(true);
   await page.keyboard.press("Escape");
 
-  // Select one photo and delete it.
-  await page.getByRole("button", { name: "Select", exact: true }).click();
-  await expect(page.getByText("0 selected")).toBeVisible();
-  await tiles.first().getByRole("checkbox", { name: "Select photo" }).check();
-  await expect(page.getByText("1 selected")).toBeVisible();
-  await page.getByRole("button", { name: "Delete selected" }).click();
-  await expect(page.getByRole("heading", { name: "Delete 1 photo?" })).toBeVisible();
-  await page.getByRole("button", { name: "Delete", exact: true }).click();
-  await expect(tiles).toHaveCount(1);
+  // Select one photo and delete it: at once, with Undo in the toast. Undo brings it back.
+  const notifications = page.getByRole("region", { name: "Notifications" });
+  const deleteFirst = async () => {
+    await page.getByRole("button", { name: "Select", exact: true }).click();
+    await expect(page.getByText("0 selected")).toBeVisible();
+    await tiles.first().getByRole("checkbox", { name: "Select photo" }).check();
+    await expect(page.getByText("1 selected")).toBeVisible();
+    await page.getByRole("button", { name: "Delete selected" }).click();
+    await expect(notifications.getByText("Moved to Trash")).toBeVisible();
+    await expect(tiles).toHaveCount(1);
+  };
+  await deleteFirst();
+  await notifications.getByRole("button", { name: "Undo" }).click();
+  await expect(tiles).toHaveCount(2);
+  await deleteFirst();
   await expect(page.getByText("· 1 photo")).toBeVisible();
   await expect(tiles.getByRole("img", { name: SPECIES.moose.commonName })).toBeVisible();
 

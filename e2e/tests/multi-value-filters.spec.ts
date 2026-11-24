@@ -1,7 +1,6 @@
 // F-02: several values in one filter (any of them) combined with another filter (all of them), and
 // the whole set surviving a reload or a copied URL.
 import { COUNTRY, PROVINCE, SECOND_PROVINCE, SPECIES } from "../support/fixtureCatalog.js";
-import { markKnownFailure } from "../support/knownFailures.js";
 import { rate, seedTrip, setRegion, type SeededTrip } from "../support/library.js";
 import { expect, test } from "../support/test.js";
 
@@ -55,11 +54,12 @@ test("filters to BC or Alberta, 3 to 5 stars", async ({ page }) => {
   await stars.getByRole("button", { name: "5 stars", exact: true }).click();
   await expect(tiles).toHaveCount(2);
   await expect(page).toHaveURL(/[?&]regionId=[^&]+&regionId=[^&]+/);
+  // 5 is the top of the scale, so 3 to 5 is kept as a minimum alone.
+  await expect(page).toHaveURL(/[?&]ratingMin=3(&|$)/);
   filteredUrl = page.url();
 });
 
 test("a reload or a copied URL brings back BC or Alberta, 3 to 5 stars", async ({ page }) => {
-  markKnownFailure(test.info());
   const tiles = page.getByTestId("photo-tile");
   for (const open of [() => page.goto(filteredUrl), () => page.reload()]) {
     await open();

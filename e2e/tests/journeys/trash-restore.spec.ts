@@ -21,8 +21,9 @@ test("delete, find in the Trash, restore, and back to the Gallery", async ({ pag
   await page.getByRole("button", { name: "Select", exact: true }).click();
   await tiles.first().getByRole("checkbox", { name: "Select photo" }).check();
   await page.locator("main").click({ position: { x: 5, y: 5 } });
+  // Instant, since the Trash keeps it: the toast says where it went.
   await page.keyboard.press("Delete");
-  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Notifications" }).getByText("Moved to Trash")).toBeVisible();
   await expect(tiles).toHaveCount(1);
 
   // The Trash holds it, with its days left.

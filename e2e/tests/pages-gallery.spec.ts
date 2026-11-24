@@ -148,8 +148,7 @@ test("searches, selects and edits photos in the Gallery", async ({ page }) => {
     .check();
   await page.locator("main").click({ position: { x: 5, y: 5 } });
   await page.keyboard.press("Delete");
-  await expect(page.getByRole("heading", { name: "Delete 1 photo?" })).toBeVisible();
-  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Notifications" }).getByText("Moved to Trash")).toBeVisible();
   await expect(tiles).toHaveCount(2);
   await expect(page.getByText("2 photos", { exact: true })).toBeVisible();
 

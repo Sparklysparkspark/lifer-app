@@ -164,7 +164,7 @@ test("consent pairs the app, and its page opens from the sidebar", async ({ page
   // The app asks to pair as soon as it starts; Lifer asks the user once, over any page.
   const consent = page.getByRole("dialog", { name: "Allow Example companion to connect to Lifer?" });
   await expect(consent).toBeVisible();
-  await expect(consent.getByText("Read your life list, targets and seen species, and your own photos")).toBeVisible();
+  await expect(consent.getByText("See your life list, targets, seen species and your own photos")).toBeVisible();
   await expect(consent.getByText("Import photos into your library")).toBeVisible();
   await consent.getByRole("button", { name: "Allow", exact: true }).click();
   await expect(consent).toBeHidden();
@@ -269,7 +269,7 @@ test("suggested apps request nothing before Install, and Show suggested apps off
   const offer = page.getByRole("navigation").getByRole("link", { name: "Cull", exact: true });
   await offer.click();
   await expect(page).toHaveURL(/\/apps\/offer\/app\.preen\.desktop$/);
-  await expect(page.getByRole("heading", { name: "Preen" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Preen" })).toBeVisible();
   expect(outside).toEqual([]);
   expect(await page.evaluate(() => (window as unknown as { __shellCalls: string[] }).__shellCalls)).not.toContain(
     "plugin_install",

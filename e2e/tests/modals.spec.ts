@@ -14,8 +14,6 @@ const SMALL = { width: 800, height: 600 };
 interface Opener {
   name: string;
   open: (page: Page) => Promise<void>;
-  /** Enter would delete or send something: the Enter check is skipped. */
-  destructive?: boolean;
 }
 
 /** A selection-bar action, directly or through its "More" menu when the bar is too narrow. */
@@ -35,7 +33,6 @@ const OPENERS: Opener[] = [
   { name: "set region", open: fromSelectionBar(/^Set region/) },
   { name: "add coordinates", open: fromSelectionBar(/^Add location coordinates/) },
   { name: "adjust date and time", open: fromSelectionBar(/^Adjust date and time/) },
-  { name: "delete", open: fromSelectionBar(/^Delete selected/), destructive: true },
 ];
 
 let tripId = "";
@@ -110,9 +107,9 @@ for (const opener of OPENERS) {
     const exit = modal.getByRole("button", { name: /^(cancel|close|done|back|not now|ok)\b/i });
     check((await exit.count()) > 0, "no Cancel, Close or Done button");
 
-    // M4: Enter fires the primary action (skipped where it would delete, or has no input yet).
+    // M4: Enter fires the primary action (skipped where it has no input yet).
     const primary = modal.locator("[data-primary]");
-    const enterable = !opener.destructive && (await primary.count()) > 0 && (await primary.first().isEnabled());
+    const enterable = (await primary.count()) > 0 && (await primary.first().isEnabled());
     if (enterable) {
       await modal.focus();
       await page.keyboard.press("Enter");

@@ -48,8 +48,8 @@ test("links a print from years later by search, then splits it out and undoes", 
   await page.keyboard.press("Alt+ArrowRight");
   await expect(strip.getByRole("radio", { checked: true })).toHaveText("Print 16x20");
   await page.keyboard.press("Shift+U");
-  await expect(notifications.getByText("Showing Print 16x20")).toBeVisible();
-  await expect(page.getByText("Shown as the photo")).toBeVisible();
+  await expect(notifications.getByText("Print 16x20 is now used as the photo")).toBeVisible();
+  await expect(page.getByText("Used as the photo", { exact: true })).toBeVisible();
 
   await page.keyboard.press("Control+Shift+g");
   await expect(notifications.getByText("Print 16x20 is a photo of its own again")).toBeVisible();

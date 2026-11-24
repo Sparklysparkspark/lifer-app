@@ -216,7 +216,7 @@ test("a download that fails before the first pack says why and offers it again",
   await startDownload(page);
   await expect(page.getByText(`${BIRDS}, 1 of 2`)).toBeVisible({ timeout: 8000 });
   run.end = "failed";
-  await expect(page.getByText("The download didn't finish: Couldn't reach the download server.")).toBeVisible();
+  await expect(page.getByText("The download didn't finish. Check your connection, then download again.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Download 1 country" })).toBeEnabled();
 });
 
