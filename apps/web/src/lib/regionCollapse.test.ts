@@ -37,7 +37,7 @@ describe("regionCollapse", () => {
     expect(pairs(c.trail("giza")).at(-2)).toBe("The Nile Delta>delta");
   });
 
-  it("never collapses hubs or countries", () => {
+  it("never collapses hubs, or countries into a differently named area", () => {
     expect(c.target("tiny")).toBe("tiny");
     expect(pairs(c.areasOf("af"))).toContain("Tiny>tiny");
   });
@@ -53,6 +53,59 @@ describe("regionCollapse", () => {
     const chain = regionCollapse([...REGIONS, region("b1", "North", "bahr")], null);
     expect(chain.target("coast")).toBe("b1");
     expect(pairs(chain.trail("b1")).at(-1)).toBe("The Red Sea Coast>b1");
+  });
+
+  describe("a country's lone same-named area is the country", () => {
+    const WITH_TWINS = [
+      ...REGIONS,
+      region("am", "Americas", "world", false),
+      region("aw", "Aruba", "am"),
+      region("aw-1", "Aruba", "aw"),
+      region("cw", "Curaçao", "am"),
+      region("cw-1", "CURACAO", "cw"),
+      region("pr", "Puerto Rico", "am"),
+      region("pr-1", "Puerto-Rico.", "pr"),
+      region("lu", "Luxembourg", "eu"),
+      region("lu-1", "Luxembourg", "lu"),
+      region("lu-2", "Diekirch", "lu"),
+      region("eu", "Europe", "world", false),
+    ];
+    const twins = regionCollapse(WITH_TWINS, null);
+
+    it("lists no areas, opens the country, and names it once in the trail", () => {
+      for (const [country, twin] of [
+        ["aw", "aw-1"],
+        ["cw", "cw-1"],
+        ["pr", "pr-1"],
+      ]) {
+        expect(twins.target(twin)).toBe(country);
+        expect(twins.target(country)).toBe(country);
+        expect(twins.shownAs(twin)).toBe(country);
+        expect(twins.areasOf(country)).toEqual([]);
+        expect(twins.areasOf(twin)).toEqual([]);
+        expect(twins.trail(twin).map((r) => r.id)).toEqual(["world", "am", country]);
+      }
+      expect(pairs(twins.areasOf("am"))).toEqual(["Aruba>aw", "Curaçao>cw", "Puerto Rico>pr"]);
+    });
+
+    it("keeps a same-named area that has a sibling, a lone area with another name, and an unavailable sibling counts as gone", () => {
+      expect(twins.target("lu-1")).toBe("lu-1");
+      expect(pairs(twins.areasOf("lu"))).toEqual(["Luxembourg>lu-1", "Diekirch>lu-2"]);
+      expect(pairs(twins.trail("lu-1")).at(-1)).toBe("Luxembourg>lu-1");
+      expect(c.target("tiny-1")).toBe("tiny-1");
+      expect(pairs(c.areasOf("tiny"))).toEqual(["Tiny Province>tiny-1"]);
+      const noSibling = regionCollapse(WITH_TWINS, new Set(["world", "eu", "lu", "lu-1"]));
+      expect(noSibling.target("lu-1")).toBe("lu");
+    });
+
+    it("lists the twin's own areas under the country", () => {
+      const deeper = regionCollapse(
+        [...REGIONS, region("aw", "Aruba", "af"), region("aw-1", "Aruba", "aw"), region("n", "Noord", "aw-1")],
+        null,
+      );
+      expect(pairs(deeper.areasOf("aw"))).toEqual(["Noord>n"]);
+      expect(deeper.trail("n").map((r) => r.id)).toEqual(["world", "af", "aw", "n"]);
+    });
   });
 
   it("leaves unknown ids alone", () => {

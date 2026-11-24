@@ -88,12 +88,16 @@ export function useRegionTree(regionId: string | null, fallbackCountryNames: rea
       )
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [allRegions, downloadedCountryNames]);
-  // A group holding one province lists, titles and opens as that province (see regionCollapse).
+  // A group holding one province lists, titles and opens as that province, and a country's
+  // same-named lone province as the country (see regionCollapse).
   const collapse = useMemo(() => regionCollapse(allRegions, availableRegionIds), [allRegions, availableRegionIds]);
-  // Where a deep link or stored region to a collapsed group should land; known once packs are.
+  // Where a deep link or stored region to a collapsed level should land; known once packs are.
   const landingId = regionId && availableRegionIds ? collapse.target(regionId) : regionId;
   const allChildren = useMemo(
-    () => allRegions.filter((r) => r.parentId === (regionId && collapse.target(regionId))),
+    () =>
+      allRegions.filter(
+        (r) => r.parentId === (regionId && collapse.target(regionId)) && collapse.shownAs(r.id) === r.id,
+      ),
     [allRegions, regionId, collapse],
   );
   const children = useMemo(

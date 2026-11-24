@@ -37,6 +37,9 @@ const REGIONS = [
   region("ga-us", "Georgia", "us"),
   region("ga", "Georgia", "asia"),
   region("ny", "New York", "us"),
+  // A one-area country whose area shares its name: shown as the country alone.
+  region("aw", "Aruba", "na"),
+  region("aw-1", "Aruba", "aw"),
 ];
 const byId = new Map(REGIONS.map((r) => [r.id, r]));
 const names = (rs: RegionSummary[]) => rs.map((r) => regionLabel(byId, r));
@@ -121,6 +124,23 @@ describe("RegionBrowser", () => {
     fireEvent.click(screen.getByRole("button", { name: "Georgia" }));
     expect(picked()).toBe("ga");
     expect(chips()).toEqual(["Manitoba, Canada", "Québec, Canada"]);
+  });
+
+  it("treats a country's lone same-named area as the country", () => {
+    render(<Harness suggested={["aw-1", "aw"]} initial="aw-1" />);
+    expect(screen.queryByText("Suggested:")).toBeNull();
+    expect(screen.getAllByText("Aruba")).toHaveLength(1);
+    expect(screen.queryByText("Drill in:")).toBeNull();
+    expect(screen.queryByText(/countries are downloaded yet/)).toBeNull();
+    cleanup();
+    render(<Harness suggested={["aw-1", "aw"]} />);
+    const chips2 = Array.from(
+      screen.getByText("Suggested:").parentElement!.querySelectorAll("button"),
+      (b) => b.textContent,
+    );
+    expect(chips2).toEqual(["Aruba"]);
+    fireEvent.change(search(), { target: { value: "aruba" } });
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Aruba"]);
   });
 
   it("shows no suggestions row when there's nothing to suggest, and a plain placeholder", () => {

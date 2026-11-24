@@ -93,18 +93,25 @@ export default function RegionBrowser({
   const listKnown = !!restrictToIds || allowAnyRegion || !!downloadedCountryNames;
 
   const worldRegion = useMemo(() => allRegions.find((r) => r.parentId === null && r.name === "World"), [allRegions]);
-  // Like the Collection, a group holding one province is listed as, and stands in for, that province.
+  // Like the Collection, a group holding one province is listed as, and stands in for, that province,
+  // and a country's same-named lone province is the country.
   const collapse = useMemo(() => regionCollapse(allRegions, availableRegionIds), [allRegions, availableRegionIds]);
   const allChildren = useMemo(
-    () => allRegions.filter((r) => r.parentId === (regionId && collapse.target(regionId))),
+    () =>
+      allRegions.filter(
+        (r) => r.parentId === (regionId && collapse.target(regionId)) && collapse.shownAs(r.id) === r.id,
+      ),
     [allRegions, regionId, collapse],
   );
   const children = useMemo(() => (regionId ? collapse.areasOf(regionId) : []), [regionId, collapse]);
   const byId = useMemo(() => new Map(allRegions.map((r) => [r.id, r])), [allRegions]);
   const reachable = (id: string) => byId.has(id) && (!availableRegionIds || availableRegionIds.has(id));
   const results = useMemo(
-    () => (term.trim() ? searchRegions(allRegions, byId, term, availableRegionIds) : []),
-    [allRegions, byId, term, availableRegionIds],
+    () =>
+      term.trim()
+        ? searchRegions(allRegions, byId, term, availableRegionIds).filter((r) => collapse.shownAs(r.id) === r.id)
+        : [],
+    [allRegions, byId, term, availableRegionIds, collapse],
   );
   const realms = useMemo(
     () =>
@@ -113,9 +120,9 @@ export default function RegionBrowser({
       ),
     [allRegions, byId, regionId, availableRegionIds],
   );
-  const suggestions = [...new Set([...(suggestedRegionIds ?? []), ...recentIds])].filter(
-    (id): id is string => !!id && id !== regionId && reachable(id),
-  );
+  const suggestions = [
+    ...new Set([...(suggestedRegionIds ?? []), ...recentIds].map((id) => id && collapse.shownAs(id))),
+  ].filter((id): id is string => !!id && id !== (regionId && collapse.shownAs(regionId)) && reachable(id));
   const example = searchExampleRegion(byId, suggestedRegionIds ?? []);
   // A choice the user made, as opposed to the fallback below; remembered for the suggestions.
   function pick(id: string | null) {

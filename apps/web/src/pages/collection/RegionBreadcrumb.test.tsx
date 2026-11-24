@@ -216,4 +216,27 @@ describe("RegionBreadcrumb with a group holding one province", () => {
     expect(screen.queryByText("Al Bahr al Ahmar")).toBeNull();
     expect(screen.queryByText(/^Areas in/)).toBeNull();
   });
+
+  it("shows a country whose only area has its name once, with no areas row", () => {
+    const aruba = regionCollapse(
+      [
+        ...regions,
+        region("am", "Americas", "world", false),
+        region("aw", "Aruba", "am"),
+        region("aw-1", "Aruba", "aw"),
+      ],
+      null,
+    );
+    render(
+      breadcrumb(countries, {
+        regionId: "aw",
+        regionKnownHub: false,
+        regionMeta: { id: "aw", name: "Aruba" } as Parameters<typeof RegionBreadcrumb>[0]["regionMeta"],
+        breadcrumb: aruba.trail("aw-1"),
+        childRegions: aruba.areasOf("aw-1"),
+      }),
+    );
+    expect(screen.getAllByText("Aruba")).toHaveLength(1);
+    expect(screen.queryByText(/^Areas in/)).toBeNull();
+  });
 });

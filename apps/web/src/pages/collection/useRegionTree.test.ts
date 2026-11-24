@@ -17,6 +17,8 @@ const REGIONS = [
   region("mb", "Manitoba", "ca"),
   region("prairies", "The Prairies", "ca"),
   region("sk", "Saskatchewan", "prairies"),
+  region("aw", "Aruba", "na"),
+  region("aw-1", "Aruba", "aw"),
 ];
 vi.mock("../../hooks/useRegions", () => ({
   useRegions: () => ({ regions: REGIONS, error: null, refresh: vi.fn() }),
@@ -76,5 +78,20 @@ describe("useRegionTree with a group holding one province", () => {
   it("doesn't redirect before the pack list says what's available", () => {
     index = { packs: null, error: null };
     expect(renderHook(() => useRegionTree("prairies")).result.current.landingId).toBe("prairies");
+  });
+});
+
+describe("useRegionTree with a country whose only area has its name", () => {
+  const arubaBirds = { ...canadaBirds, id: "aw-aves", region: "Aruba" } as PackStatusEntry;
+
+  it("shows the country with no areas, and sends the area's id to the country", () => {
+    index = { packs: [arubaBirds], error: null };
+    const aruba = renderHook(() => useRegionTree("aw")).result.current;
+    expect(aruba.landingId).toBe("aw");
+    expect(aruba.children).toEqual([]);
+    expect(aruba.allChildren).toEqual([]);
+    const area = renderHook(() => useRegionTree("aw-1")).result.current;
+    expect(area.landingId).toBe("aw");
+    expect(names(area.breadcrumb)).toEqual(["World", "North America", "Aruba"]);
   });
 });
