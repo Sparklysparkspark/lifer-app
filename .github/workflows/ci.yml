@@ -203,12 +203,27 @@ jobs:
       - run: npm ci
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
+      # A native crash in the API (exit code 0xC0000409 and the like) leaves a minidump in
+      # test-results, which the report upload below keeps.
+      - name: Keep crash dumps (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\node.exe'
+          New-Item -Path $key -Force | Out-Null
+          New-ItemProperty -Path $key -Name DumpFolder -PropertyType ExpandString -Value "$env:GITHUB_WORKSPACE\test-results\crash-dumps" -Force | Out-Null
+          New-ItemProperty -Path $key -Name DumpType -PropertyType DWord -Value 1 -Force | Out-Null
       - name: Smoke subset (pull requests)
         if: github.event_name == 'pull_request'
         run: npm run test:e2e -- first-run.spec.ts navigation.spec.ts
       - name: Full suite
         if: github.event_name != 'pull_request'
         run: npm run test:e2e
+      # Names the faulting module (libvips, onnxruntime, node) of any native crash during the run.
+      - name: Show native crashes (Windows)
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000 } -MaxEvents 5 -ErrorAction SilentlyContinue | Format-List TimeCreated, Message
       - name: Upload the Playwright report
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

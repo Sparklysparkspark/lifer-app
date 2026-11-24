@@ -204,6 +204,8 @@ async function main(): Promise<void> {
     HTTP_PROXY: MIRROR_URL,
     HTTPS_PROXY: MIRROR_URL,
     NO_PROXY: "127.0.0.1,localhost",
+    // Debug lines name each file before an import decodes it (trips/jobs.ts), for crash diagnosis.
+    LOG_LEVEL: "debug",
   };
   for (const dir of [env.DATA_DIR!, env.APP_DATA_DIR!, path.join(tempDir, "exports")])
     mkdirSync(dir, { recursive: true });
@@ -212,9 +214,22 @@ async function main(): Promise<void> {
   api = spawn(process.execPath, [`${API_DIST}/index.js`], { cwd: API_DIR, env, stdio: ["ignore", "pipe", "pipe"] });
   api.stdout!.pipe(logFile, { end: false });
   api.stderr!.pipe(logFile, { end: false });
-  api.on("exit", (code, signal) => {
+  // The server log's last lines, shown in the CI output when the API dies (a chunk may split a line).
+  let tail: string[] = [];
+  const keepTail = (chunk: Buffer) => (tail = [...tail, ...String(chunk).split(/\r?\n/).filter(Boolean)].slice(-40));
+  api.stdout!.on("data", keepTail);
+  api.stderr!.on("data", keepTail);
+  api.on("exit", async (code, signal) => {
     if (cleaningUp) return;
-    log(`the API exited unexpectedly (code ${code}, signal ${signal}); see ${LOG_PATH}`);
+    // The last output can still be in the pipes: give it a moment to arrive.
+    await Promise.race([
+      new Promise((resolve) => api!.once("close", resolve)),
+      new Promise((r) => setTimeout(r, 2000)),
+    ]);
+    // Windows reports a native crash as an NTSTATUS, e.g. 0xC0000409 for a fast-fail.
+    const hex = code !== null && code > 0xffff ? ` = 0x${code.toString(16).toUpperCase()}` : "";
+    log(`the API exited unexpectedly (code ${code}${hex}, signal ${signal}); see ${LOG_PATH}`);
+    process.stderr.write(`[e2e] the server log's last lines:\n${tail.join("\n")}\n`);
     void cleanup(1);
   });
 }

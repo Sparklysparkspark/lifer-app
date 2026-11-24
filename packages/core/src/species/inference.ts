@@ -300,6 +300,14 @@ function onWorkerGone(w: WorkerHandle, err: Error): void {
     pump();
     return;
   }
+  const image = job && "image" in job.request ? job.request.image : null;
+  log.warn(
+    {
+      err,
+      job: job && { op: job.request.op, priority: job.priority, file: image && "path" in image ? image.path : null },
+    },
+    "[inference] The inference worker stopped unexpectedly; it restarts with the next job",
+  );
   // A GPU runtime's process that keeps dying: the bundled runtime from here on.
   if (runtime && runtimeKeepsCrashing()) {
     log.warn(`[inference] The GPU inference process keeps stopping (${err.message}); using a worker thread`);

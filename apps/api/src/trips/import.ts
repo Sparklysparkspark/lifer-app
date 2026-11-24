@@ -6,6 +6,7 @@ import path from "node:path";
 import { pool } from "@lifer/core/db.js";
 import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { generateDerivatives } from "@lifer/core/uploads/image.js";
+import { sniffPhotoFormat } from "@lifer/core/uploads/formats.js";
 import { captureTimeFromTags, extractExif, readExifTags } from "../uploads/exif.js";
 import { computeFileFingerprint } from "../uploads/fileFingerprint.js";
 import { recordTripIndexEntry } from "./tripIndex.js";
@@ -61,6 +62,8 @@ export async function importTripFile(
     [speciesId],
   );
   if (speciesRes.rows.length === 0) throw new Error("Unknown species");
+  // An empty or non-photo file never reaches the native decoders, so it can't take the server down.
+  if (!(await sniffPhotoFormat(absolutePath))) throw new Error("This file isn't a photo Lifer can read");
 
   const tags = await readExifTags(absolutePath);
   const exif = await extractExif(absolutePath, tags);

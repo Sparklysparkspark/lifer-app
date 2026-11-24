@@ -191,6 +191,8 @@ async function runImportJob(
     if (!absolutePath) {
       result = { relativePath: file.relativePath, error: "File not found" };
     } else {
+      // Names the file before native decoding, so a crash's last log line says which one it was.
+      log.debug({ tripId, file: file.relativePath }, "[import] reading file");
       try {
         const outcome = await importInboxFile(
           tripId,
