@@ -49,6 +49,15 @@ export async function readExifTags(filePath: string): Promise<ExifTags> {
   return exiftool.read(filePath);
 }
 
+/** sha256 of the image data alone, which a keyword or rating write leaves unchanged; null when
+ *  exiftool can't hash this format. */
+export async function imageDataHash(filePath: string): Promise<string | null> {
+  const tags = await exiftool.read<ExifTags & { ImageDataHash?: string }>(filePath, {
+    readArgs: ["-ImageDataHash", "-api", "ImageHashType=SHA256"],
+  });
+  return tags.ImageDataHash ?? null;
+}
+
 // The fields culling apps leave their verdicts in (cullMarks.ts), group-qualified so an EXIF
 // Rating can't stand in for xmp:Rating, and so the read skips everything else in a big RAW.
 const CULL_TAGS = [

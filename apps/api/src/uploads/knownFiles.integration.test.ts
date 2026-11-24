@@ -90,7 +90,8 @@ describe.skipIf(!url)("importing a folder again", () => {
     const fp = webQuickHash(bytes);
     const other = webQuickHash(Buffer.from("never seen"));
     const res = await call("POST", "/uploads/known", { fingerprints: [fp, other] });
-    expect(res.json()).toEqual({ known: [{ fingerprint: fp, status: "imported", reason: null }] });
+    // Not linked to a photo, so there's none to show beside it.
+    expect(res.json()).toEqual({ known: [{ fingerprint: fp, status: "imported", reason: null, match: null }] });
   });
 
   it("remembers left-out photos idempotently, lists them and forgets them", async () => {
@@ -102,7 +103,7 @@ describe.skipIf(!url)("importing a folder again", () => {
     expect(list.total).toBe(1);
     expect(list.files[0]).toMatchObject({ fingerprint: fp, name: "leaf.jpg", reason: "not_wildlife" });
     expect((await call("POST", "/uploads/known", { fingerprints: [fp] })).json().known).toEqual([
-      { fingerprint: fp, status: "skipped", reason: "not_wildlife" },
+      { fingerprint: fp, status: "skipped", reason: "not_wildlife", match: null },
     ]);
     await call("POST", "/uploads/skipped/forget", { fingerprints: [fp] });
     expect((await call("POST", "/uploads/known", { fingerprints: [fp] })).json().known).toEqual([]);

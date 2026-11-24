@@ -8,7 +8,8 @@ import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify
 import type { PoolClient } from "pg";
 import { pool } from "@lifer/core/db.js";
 import { requireScope } from "../auth/session.js";
-import { ORIGINALS_DIR } from "@lifer/core/config.js";
+import { ORIGINALS_DIR, SINGLE_USER_MODE } from "@lifer/core/config.js";
+import { trashSourceGroup, type TrashOutcome } from "./sourceTrash.js";
 import { generateDerivatives } from "@lifer/core/uploads/image.js";
 import { settlePreparedAhead, takePreparedAhead, whileImporting, type PreparedAhead } from "./preparedAhead.js";
 import {
@@ -114,6 +115,7 @@ export async function photoUploadRoutes(fastify: FastifyInstance): Promise<void>
       } finally {
         await Promise.all(sources.map((s) => s.finish(ok).catch(() => {})));
       }
+      if (outcome.code === 201 && fields.moveSourcePath) outcome = await moveSourceAway(request, fields, outcome);
       // Any of the route's answers, each serialized through its status's schema.
       return reply.code(outcome.code).send(outcome.body as never);
     },
@@ -121,6 +123,26 @@ export async function photoUploadRoutes(fastify: FastifyInstance): Promise<void>
 }
 
 export type ImportResult = { code: number; body: unknown };
+
+/** "Move photos into my library": the desktop's own files go to the Trash once the capture is
+ *  saved, the RAW and JPG of one request together. Never on a server, where they aren't the
+ *  user's disk. A file that stays is reported, never an error for the import. */
+async function moveSourceAway(
+  request: FastifyRequest,
+  fields: Record<string, string>,
+  outcome: ImportResult,
+): Promise<ImportResult> {
+  const body = outcome.body as { captureId: string; sha256: string; rawSha256?: string };
+  if (!SINGLE_USER_MODE) return outcome;
+  const members = [{ path: fields.moveSourcePath, expect: body.sha256 }];
+  if (fields.moveRawSourcePath) members.push({ path: fields.moveRawSourcePath, expect: body.rawSha256 ?? "" });
+  const moved = await trashSourceGroup(request.user!.id, members).catch((): TrashOutcome => ({
+    moved: false,
+    reason: "trash_failed",
+    trashed: [],
+  }));
+  return { ...outcome, body: { ...body, sourceMove: { moved: moved.moved, reason: moved.reason ?? null } } };
+}
 const result = (code: number, body: unknown): ImportResult => ({ code, body });
 
 type SpeciesRow = {

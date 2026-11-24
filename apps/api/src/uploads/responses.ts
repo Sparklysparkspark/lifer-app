@@ -120,6 +120,16 @@ export const UploadInspection = Open({
 });
 
 /** POST /uploads: 201 with the new photo, or 200 for a duplicate or a skipped reject. */
+/** Why a file stayed where it was instead of going to the Trash (sourceTrash.ts). */
+export const TrashReason = Type.Enum([
+  "not_in_source_folder",
+  "in_library",
+  "unreadable",
+  "no_library_copy",
+  "partner_stays",
+  "trash_failed",
+]);
+
 export const UploadResponses = {
   200: Open({
     captureId: Type.Optional(Uuid()),
@@ -135,5 +145,14 @@ export const UploadResponses = {
     linkedExisting: Type.Optional(Type.Boolean()),
     sha256: Type.String({ description: "sha256 (hex) of the stored file's bytes, to verify the upload" }),
     rawSha256: Type.Optional(Type.String({ description: "sha256 of the RAW sent with the photo, when one was" })),
+    sourceMove: Type.Optional(
+      Type.Object(
+        { moved: Type.Boolean(), reason: Nullable(TrashReason) },
+        {
+          additionalProperties: true,
+          description: "Desktop, with moveSourcePath: whether the original went to the Trash, and why not",
+        },
+      ),
+    ),
   }),
 };

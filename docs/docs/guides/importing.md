@@ -213,9 +213,22 @@ From a species page, a **Possible duplicate** dialog appears instead, with **Ski
 
 Videos aren't checked for duplicates.
 
+## Move photos into my library {#move-photos}
+
+On the desktop app, the **Move photos into my library** switch beside the drop area tidies up as you import: once each photo is safely in your library, its original goes to your computer's Trash, so a folder of scattered photos is emptied as they're filed. It's off until you turn it on, and Lifer remembers your choice.
+
+- It works for folders you pick with **Choose a folder** (or a recent folder). Files you drag in or pick with **Choose files** are copied and left where they are, since Lifer can't see where they came from.
+- A file goes only after its photo is saved and Lifer has checked its copy. If anything fails, the original stays where it is and its row says why.
+- Skipped photos, duplicates and files already in Lifer aren't moved by the import. With the switch on, the files already in Lifer from that folder are cleared in the same pass.
+- A RAW and its JPG go together or not at all, with their XMP sidecars. Files inside your library's own folders are never touched.
+
+When it's done, the import's note says what happened, like "Moved 8 photos into your library. Cleared 42 already in Lifer. 3 skipped, still where they were."
+
 ## Importing a folder again {#folder-again}
 
-Pick a folder you've imported from before and only its new photos are brought in. Photos you already imported, and photos you left out of an earlier import, are set aside before anything is uploaded, so they don't fill the list. One line says how many, like "100 already imported or skipped before, 200 new". **Show them** lists them, each with **Import anyway**.
+Pick a folder you've imported from before and only its new photos are brought in. Photos you already imported, and photos you left out of an earlier import, are set aside before anything is uploaded, so they don't fill the list. The first line after you pick says how many, like "42 of 50 files are already in Lifer, 8 are new". **Show them** lists them, each with **Import anyway**: the ones already in Lifer with the photo each one became, and apart from them the ones you skipped before, which aren't in your library.
+
+On the desktop app, for a folder you chose with **Choose a folder**, **Clear out the ones already in Lifer** sends those files to your computer's Trash. Lifer says how many first, and only clears a file when your library holds the same photo, its copy is there and readable, and the file isn't inside your library's own folders. A RAW and its JPG go together or not at all, with their XMP sidecars. Files you only skipped before are never cleared. To get one back, put it back from the Trash.
 
 - **Renamed or moved files** are still recognised: Lifer goes by the file's contents, not its name.
 - **Edited files** (changed since you imported them) count as new. On the desktop app, the line also says how many look like edited copies of photos you imported.

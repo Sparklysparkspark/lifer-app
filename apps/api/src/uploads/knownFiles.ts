@@ -13,24 +13,57 @@ import { canonicalPath, isWithin } from "@lifer/core/lib/pathContainment.js";
 export type KnownStatus = "imported" | "skipped";
 export type SkipReason = "removed" | "not_wildlife" | "no_animal";
 
+/** The library photo an imported file became, for the Import page to show beside it. */
+export interface KnownMatch {
+  photoId: string | null;
+  speciesId: string;
+  commonName: string | null;
+  scientificName: string;
+}
+
 /** The fingerprints among `fingerprints` this user has imported or left out before. */
 export async function knownFingerprints(
   userId: string,
   fingerprints: string[],
-): Promise<Map<string, { status: KnownStatus; reason: SkipReason | null }>> {
-  const out = new Map<string, { status: KnownStatus; reason: SkipReason | null }>();
+): Promise<Map<string, { status: KnownStatus; reason: SkipReason | null; match: KnownMatch | null }>> {
+  const out = new Map<string, { status: KnownStatus; reason: SkipReason | null; match: KnownMatch | null }>();
   if (fingerprints.length === 0) return out;
-  const res = await pool.query<{ fp: string; status: KnownStatus; reason: SkipReason | null }>(
-    `SELECT DISTINCT source_quick_hash AS fp, 'imported' AS status, NULL AS reason
-       FROM originals WHERE user_id = $1 AND source_quick_hash = ANY($2::text[])
+  const res = await pool.query<{
+    fp: string;
+    status: KnownStatus;
+    reason: SkipReason | null;
+    photo_id: string | null;
+    species_id: string | null;
+    common_name: string | null;
+    scientific_name: string | null;
+  }>(
+    `(SELECT DISTINCT ON (o.source_quick_hash) o.source_quick_hash AS fp, 'imported' AS status, NULL AS reason,
+            c.current_photo_id AS photo_id, s.id AS species_id, s.common_name, s.scientific_name
+       FROM originals o
+       LEFT JOIN captures c ON c.id = o.capture_id
+       LEFT JOIN species s ON s.id = c.species_id
+      WHERE o.user_id = $1 AND o.source_quick_hash = ANY($2::text[])
+      ORDER BY o.source_quick_hash, (c.id IS NULL), o.id)
      UNION ALL
-     SELECT fingerprint, 'skipped', reason
+     SELECT fingerprint, 'skipped', reason, NULL, NULL, NULL, NULL
        FROM import_skipped_files WHERE user_id = $1 AND fingerprint = ANY($2::text[])`,
     [userId, fingerprints],
   );
   // Imported wins over an older "left out".
   for (const r of res.rows)
-    if (out.get(r.fp)?.status !== "imported") out.set(r.fp, { status: r.status, reason: r.reason });
+    if (out.get(r.fp)?.status !== "imported")
+      out.set(r.fp, {
+        status: r.status,
+        reason: r.reason,
+        match: r.species_id
+          ? {
+              photoId: r.photo_id,
+              speciesId: r.species_id,
+              commonName: r.common_name,
+              scientificName: r.scientific_name!,
+            }
+          : null,
+      });
   return out;
 }
 
@@ -64,6 +97,7 @@ export interface FolderFile {
   mtimeMs: number;
   fingerprint: string | null;
   status: "new" | KnownStatus;
+  match: KnownMatch | null;
   /** Same path as a file imported before, but its size or date changed: probably edited since. */
   edited: boolean;
 }
@@ -107,6 +141,7 @@ export async function lookAtFolder(userId: string, folder: string, { hash }: { h
       ...f,
       fingerprint,
       status: linked.has(f.path) ? "imported" : "new",
+      match: null as KnownMatch | null,
       // Settled below once the old hash's status is known.
       edited: Boolean(cached && !unchanged),
     } satisfies FolderFile;
@@ -119,6 +154,7 @@ export async function lookAtFolder(userId: string, folder: string, { hash }: { h
   for (const f of out) {
     const k = f.fingerprint ? known.get(f.fingerprint) : undefined;
     if (k && f.status === "new") f.status = k.status;
+    if (k) f.match = k.match;
     // Edited only matters for a photo that was imported in its earlier state.
     if (f.edited) f.edited = f.status === "new" && known.get(cache.get(f.path)!.quick_hash)?.status === "imported";
   }

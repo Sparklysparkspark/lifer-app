@@ -43,6 +43,7 @@ export default function ImportPlaceGroups<R extends Row>({
   onLabel,
   thumb,
   renderRow,
+  groupNote,
 }: {
   groups: R[][];
   /** The keyboard's row: its group stays open, and it offers a place of its own. */
@@ -55,6 +56,8 @@ export default function ImportPlaceGroups<R extends Row>({
   thumb: (row: R) => string | null;
   /** `place` goes in the row's status: its own place, when it differs from its group's. */
   renderRow: (row: R, place: ReactNode) => ReactNode;
+  /** A line under a group's header, such as the trip it looks part of. */
+  groupNote?: (group: R[]) => ReactNode;
 }) {
   const { t } = useTranslation();
   const { regions } = useRegions();
@@ -221,6 +224,7 @@ export default function ImportPlaceGroups<R extends Row>({
                 </Button>
               )}
             </div>
+            {groupNote?.(g)}
             {open && (
               <Panel grouped>
                 {g.map((r) =>

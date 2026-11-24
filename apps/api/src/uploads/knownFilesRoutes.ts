@@ -9,6 +9,8 @@ import { assertAllowedPath, isDirectory } from "@lifer/core/lib/allowedPaths.js"
 import { requireAuth } from "../auth/session.js";
 import { DateTime, Nullable, Ok, replies, withSchemas } from "../lib/schema.js";
 import { inSourceFolder, isImportableName, knownFingerprints, lookAtFolder, rememberSkipped } from "./knownFiles.js";
+import { clearKnownSources } from "./sourceTrash.js";
+import { TrashReason } from "./responses.js";
 
 const MAX_BATCH = 2000;
 const Fingerprint = Type.String({
@@ -22,6 +24,17 @@ const PathBody = Type.Object(
   { path: Type.String({ minLength: 1, description: "A folder on this computer" }) },
   { additionalProperties: false },
 );
+const Match = Nullable(
+  Type.Object(
+    {
+      photoId: Nullable(Type.String()),
+      speciesId: Type.String(),
+      commonName: Nullable(Type.String()),
+      scientificName: Type.String(),
+    },
+    { description: "The library photo an imported file became" },
+  ),
+);
 const FolderFile = Type.Object({
   path: Type.String(),
   name: Type.String(),
@@ -29,6 +42,7 @@ const FolderFile = Type.Object({
   mtimeMs: Type.Number(),
   fingerprint: Nullable(Fingerprint),
   status: Type.Enum(["new", "imported", "skipped"]),
+  match: Match,
   edited: Type.Boolean({ description: "Imported before at this path, changed since" }),
 });
 
@@ -56,6 +70,7 @@ export async function knownFilesRoutes(fastify: FastifyInstance): Promise<void> 
                 fingerprint: Type.String(),
                 status: Type.Enum(["imported", "skipped"]),
                 reason: Nullable(Reason),
+                match: Match,
               }),
               { description: "Only the fingerprints already imported or left out before; the rest are new" },
             ),
@@ -257,6 +272,35 @@ export async function knownFilesRoutes(fastify: FastifyInstance): Promise<void> 
       if (!isImportableName(file) || !(await inSourceFolder(request.user!.id, file)))
         return reply.code(403).send({ error: "Not a photo in a folder you imported from" });
       return reply.type("application/octet-stream").send(createReadStream(file));
+    },
+  );
+
+  // "Clear out the ones already in Lifer": files in a folder imported from whose exact bytes the
+  // library holds, checked again here, go to the system Trash. dryRun only counts them.
+  app.post(
+    "/uploads/source-folders/clear",
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          {
+            paths: Type.Array(Type.String({ minLength: 1 }), { maxItems: MAX_BATCH }),
+            dryRun: Type.Optional(Type.Boolean()),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(
+          Type.Object({
+            cleared: Type.Integer(),
+            trashed: Type.Array(Type.String(), { description: "Every file sent to the Trash, sidecars included" }),
+            kept: Type.Array(Type.Object({ path: Type.String(), reason: TrashReason })),
+          }),
+        ),
+      },
+    },
+    async (request, reply) => {
+      if (!SINGLE_USER_MODE) return reply.code(404).send({ error: "Not found" });
+      return clearKnownSources(request.user!.id, request.body.paths, request.body.dryRun === true);
     },
   );
 }

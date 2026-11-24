@@ -25,6 +25,15 @@ export interface KnownFile {
   /** The picked file, or for a desktop folder its path (read only if imported anyway). */
   file: File | null;
   path: string | null;
+  /** The library photo an imported file became. */
+  match?: KnownMatch | null;
+}
+
+export interface KnownMatch {
+  photoId: string | null;
+  speciesId: string;
+  commonName: string | null;
+  scientificName: string;
 }
 
 /** Splits `files` into new and known, batch by batch, calling `onBatch` as each settles so new rows
@@ -46,11 +55,11 @@ export async function sortKnownFiles(
   for (let start = 0, size = FIRST_BATCH; start < files.length; start += size, size = BATCH) {
     const chunk = files.slice(start, start + size);
     const prints = await mapWithConcurrency(chunk, 16, (f) => quickHash(f).catch(() => null));
-    let known = new Map<string, "imported" | "skipped">();
+    let known = new Map<string, { status: "imported" | "skipped"; match: KnownMatch | null }>();
     try {
       const fingerprints = [...new Set(prints.filter((p): p is string => p != null))];
       const res = await api.post("/uploads/known", { fingerprints });
-      known = new Map(res.known.map((k) => [k.fingerprint, k.status]));
+      known = new Map(res.known.map((k) => [k.fingerprint, { status: k.status, match: k.match }]));
     } catch {
       // Lookup failed: everything in this batch is treated as new.
     }
@@ -58,8 +67,9 @@ export async function sortKnownFiles(
     const old: KnownFile[] = [];
     chunk.forEach((file, i) => {
       const fingerprint = prints[i];
-      const status = fingerprint ? known.get(fingerprint) : undefined;
-      if (fingerprint && status) old.push({ name: file.name, fingerprint, status, file, path: null });
+      const k = fingerprint ? known.get(fingerprint) : undefined;
+      if (fingerprint && k)
+        old.push({ name: file.name, fingerprint, status: k.status, match: k.match, file, path: null });
       else fresh.push({ file, fingerprint });
     });
     onBatch(fresh, old);

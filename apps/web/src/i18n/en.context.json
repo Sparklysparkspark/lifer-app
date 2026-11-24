@@ -493,8 +493,10 @@
   },
   "import": {
     "known": {
-      "summary": "One quiet line on the import screen after picking a folder. {known} is how many picked photos were already imported or left out of an earlier import (so they're skipped), {fresh} how many are new; both formatted numbers.",
-      "edited": "New photos whose file changed since an earlier import, probably edited in another app."
+      "edited": "New photos whose file changed since an earlier import, probably edited in another app.",
+      "inLifer": "First line after a folder or files are picked. {total} is every picked file, formatted with digit grouping; joined to skippedCount and newCount with commas.",
+      "newCount": "Ends the line started by inLifer, e.g. \"42 of 50 files are already in Lifer, 8 are new\".",
+      "clear": "Link that sends picked files whose exact content is already in the library to the system Trash, after a confirmation."
     },
     "recentFolders": {
       "title": "Label before buttons for folders the user imported from before (desktop app).",
@@ -559,6 +561,14 @@
       "assignSelected": "Before a species picker: give the {count} selected rows that species.",
       "optional": "Hint next to the Location field label.",
       "tripHint": "Notice after an import. {name} is a trip whose dates the photos fall in, though they weren't added to it."
+    },
+    "move": {
+      "label": "A switch beside the Import drop area, desktop app only. On: originals are moved to the system Trash after they're safely copied into the library.",
+      "stayed": "Ends the import summary, after moved and cleared, e.g. \"Moved 42 photos into your library. Cleared 3 already in Lifer. 3 skipped, still where they were.\""
+    },
+    "tripFit": {
+      "one": "Asked above a group of import photos taken during an existing trip. {dates} is the trip's date range, like \"May 3 – 10, 2026\".",
+      "added": "Shown on the group once the user chose Add to trip, before importing."
     }
   },
   "inaturalist": {

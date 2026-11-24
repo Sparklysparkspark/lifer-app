@@ -218,4 +218,35 @@ describe.skipIf(!url)("starting a trip", () => {
     expect(await refOf(a)).toBe(path.join(speciesFolder(lib), "a.jpg"));
     expect(readFileSync(path.join(speciesFolder(folder), "a.jpg"), "utf8")).toBe("someone else's");
   });
+
+  it("before an import, offers the trip a day's photos clearly belong to, by date and place", async () => {
+    const osa = await start({ name: "Osa", startDate: "2026-05-03", endDate: "2026-05-10" });
+    const inOsa = await photo(path.join(speciesFolder(lib), "h.jpg"), "2026-05-04T12:00:00Z");
+    await db.query(`UPDATE captures_all SET trip_id = $1, lat = 8.54, lon = -83.5 WHERE id = $2`, [osa.id, inOsa]);
+    const ask = async (groups: object[]) =>
+      (await call("POST", "/trips/import-suggestions", { groups })).json().groups as Array<{
+        key: string;
+        trips: Array<{ id: string; name: string }>;
+      }>;
+
+    const offered = await ask([
+      { key: "no-gps", times: ["2026-05-05T15:00:00Z"], points: [], regionIds: [] },
+      { key: "near", times: ["2026-05-11T15:00:00Z"], points: [{ lat: 8.9, lon: -83.2 }], regionIds: [] },
+      { key: "far", times: ["2026-05-05T15:00:00Z"], points: [{ lat: 49.2, lon: -123.1 }], regionIds: [] },
+      { key: "later", times: ["2026-05-20T15:00:00Z"], points: [], regionIds: [] },
+    ]);
+    expect(offered.map((g) => [g.key, g.trips.map((t) => t.name)])).toEqual([
+      ["no-gps", ["Osa"]],
+      ["near", ["Osa"]],
+    ]);
+
+    // Two trips on those dates: by date alone that's no clear answer, so nothing is offered.
+    await start({ name: "Peru", startDate: "2026-05-01", endDate: "2026-05-12" });
+    expect(await ask([{ key: "no-gps", times: ["2026-05-05T15:00:00Z"], points: [], regionIds: [] }])).toEqual([]);
+    // With GPS near Osa's photos, Peru (no place known) still fits by date: both are offered.
+    const both = await ask([
+      { key: "near", times: ["2026-05-05T15:00:00Z"], points: [{ lat: 8.9, lon: -83.2 }], regionIds: [] },
+    ]);
+    expect(both[0].trips.map((t) => t.name).sort()).toEqual(["Osa", "Peru"]);
+  });
 });

@@ -45,6 +45,8 @@ The batch's photos join the trip you pick and are saved in the trip's folder, so
 
 Lifer never adds photos to a trip by itself. When photos taken during a trip's dates aren't in any trip, the trip page says so, for example "18 photos taken during Costa Rica 2026 (May 3 – 10, 2026) aren't in this trip." Click **Review**, tick the photos, then click **Add N to trip** or **Dismiss N**. Dismissed photos aren't suggested for that trip again.
 
+When you import with **No trip**, Lifer looks at each group of photos on the page. If they were taken during one of your trips (its dates, or its photos' dates, give or take a day) and, for photos with a GPS position, near that trip's photos or in its region, the group asks "These 12 photos look like part of Costa Rica 2026 (May 3 – 10, 2026). Add them to that trip?". **Add to trip** files them into the trip as you import, the same way as the trip's own photos; **Remove from trip** on the group takes that back before you import, and **Undo** after the import removes them along with it. **Not now** puts the question away. When two trips fit, it offers both; when it isn't clear, it asks nothing. Photos without a GPS position are only offered a trip when exactly one fits their dates.
+
 After an import, a short note tells you when some of the photos were taken during a trip they weren't added to, with a **Review** button.
 
 When a photo joins or leaves a trip, Lifer moves its files into the trip's folder, or back to your library, as long as Lifer manages them and the drive is connected. A file is never moved over another one.

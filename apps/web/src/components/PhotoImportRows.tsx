@@ -63,9 +63,23 @@ import type { CullMarksOption, JobStatus } from "@lifer/shared";
 import CullMarksChoice from "./importReview/CullMarksChoice";
 import { isRejected, rejectedRowNote } from "../lib/cullInfo";
 import { ignore } from "../lib/ignore";
+import Switch from "./Switch";
+import ImportTripNote, { type OfferedTrip } from "./importReview/ImportTripNote";
+import ClearKnownFiles from "./importReview/ClearKnownFiles";
 
 // Shared with CollectionPage, so the last region picked in either place is the default in both.
 const LAST_REGION_KEY = "lifer:lastRegionId";
+// "Move photos into my library", remembered on this computer; off unless the user turns it on.
+const MOVE_KEY = "lifer:import.moveOriginals";
+// Why an original stayed in its folder (sourceTrash.ts in the API).
+const STAYED_WHY = {
+  not_in_source_folder: "import.move.reasons.notInSourceFolder",
+  in_library: "import.move.reasons.inLibrary",
+  unreadable: "import.move.reasons.unreadable",
+  no_library_copy: "import.move.reasons.noLibraryCopy",
+  partner_stays: "import.move.reasons.partnerStays",
+  trash_failed: "import.move.reasons.trashFailed",
+} as const;
 
 // Species suggestions are one-click only; nothing is ever assigned automatically.
 type RowStatus = "pending" | "ready" | "uploading" | "done" | "error";
@@ -106,6 +120,10 @@ interface ImportRow extends ReviewRowBase {
   place?: StagedPlace | null;
   /** Free-text place label, sent with the import as the photo's Location. */
   label?: string;
+  /** A trip the user added these photos to on this screen, ahead of the batch's own. */
+  tripId?: string | null;
+  /** Why the original stayed in its folder after the import, in plain words. */
+  moveNote?: string;
 }
 
 function uniqueCaptures(all: CommittedImport[]): CommittedImport[] {
@@ -339,6 +357,8 @@ export default function PhotoImportRows({
   const [editedCount, setEditedCount] = useState(0);
   const [checking, setChecking] = useState<{ done: number; total: number } | null>(null);
   const fingerprintsRef = useRef(new WeakMap<File, string>());
+  // Where a file read from a folder on this computer is, so it can be moved once imported.
+  const pathsRef = useRef(new WeakMap<File, string>());
   // Rows arrive once the files are sorted, so they use the settings and region as they are then.
   const addRowsLatest = useLatest((files: File[]) => addRows(files));
   const removedFilesRef = useRef<File[]>([]);
@@ -362,6 +382,23 @@ export default function PhotoImportRows({
   // Desktop: a folder by its path, read by the local API, so it can be offered again later
   // (RecentImportFolders). Its new files are fetched and queued like picked ones.
   const desktop = useDeploymentMode() === "desktop";
+  const [moveOriginals, setMoveOriginals] = useState(() => {
+    try {
+      return localStorage.getItem(MOVE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  function chooseMove(on: boolean) {
+    setMoveOriginals(on);
+    try {
+      localStorage.setItem(MOVE_KEY, on ? "1" : "0");
+    } catch {
+      // Not remembered this time; the switch still applies to this import.
+    }
+  }
+  // Only the desktop app's local API can reach the files where they are.
+  const moving = desktop && moveOriginals;
   const [readingFolder, setReadingFolder] = useState<string | null>(null);
   async function importFolder(path: string) {
     setReadingFolder(path);
@@ -371,7 +408,7 @@ export default function PhotoImportRows({
       const old: KnownFile[] = files.flatMap((f) =>
         f.status === "new" || !f.fingerprint
           ? []
-          : [{ name: f.name, fingerprint: f.fingerprint, status: f.status, file: null, path: f.path }],
+          : [{ name: f.name, fingerprint: f.fingerprint, status: f.status, file: null, path: f.path, match: f.match }],
       );
       setKnown((prev) => [...prev, ...old]);
       setFreshCount((n) => n + fresh.length);
@@ -382,6 +419,7 @@ export default function PhotoImportRows({
           fetchFolderFile(f).then(
             (file) => {
               if (f.fingerprint) fingerprintsRef.current.set(file, f.fingerprint);
+              pathsRef.current.set(file, f.path);
               return file;
             },
             () => null,
@@ -403,7 +441,10 @@ export default function PhotoImportRows({
     const files = await mapWithConcurrency(chosen, 4, (k) =>
       k.file
         ? Promise.resolve(k.file)
-        : fetchFolderFile({ path: k.path!, name: k.name, mtimeMs: Date.now() }).catch(() => null),
+        : fetchFolderFile({ path: k.path!, name: k.name, mtimeMs: Date.now() }).then(
+            (file) => (pathsRef.current.set(file, k.path!), file),
+            () => null,
+          ),
     );
     addRowsLatest.current(files.filter((f): f is File => f != null));
   }
@@ -600,6 +641,49 @@ export default function PhotoImportRows({
   // Outings, oldest first; the review keys walk the rows in the order they're shown.
   const groups = useMemo(() => groupImportRows(rows.filter((r) => !skipKind(r))), [rows]);
   const orderedRows = useMemo(() => groups.flat(), [groups]);
+
+  // A batch going into no trip: each group's photos are checked against the trips they could be
+  // part of, and the page asks (ImportTripNote). Nothing joins a trip unless the user says so.
+  const [tripOffers, setTripOffers] = useState<Record<string, OfferedTrip[]>>({});
+  const [offeredTrips, setOfferedTrips] = useState<Record<string, OfferedTrip>>({});
+  const [tripDismissed, setTripDismissed] = useState<Set<string>>(new Set());
+  const tripQuery = useMemo(
+    () =>
+      tripId
+        ? []
+        : groups.flatMap((g) => {
+            const rows = g.filter((r) => r.takenAt && !r.captureId);
+            if (rows.length === 0) return [];
+            return [
+              {
+                key: g[0].key,
+                times: rows.map((r) => r.takenAt!),
+                points: rows.flatMap((r) => (r.gps ? [{ lat: r.gps.lat, lon: r.gps.lon }] : [])),
+                regionIds: [...new Set(rows.flatMap((r) => (r.gps?.regionId ? [r.gps.regionId] : [])))],
+              },
+            ];
+          }),
+    [groups, tripId],
+  );
+  const tripQueryKey = JSON.stringify(tripQuery);
+  useEffect(() => {
+    if (tripQuery.length === 0) return;
+    // Waits for a pick's checks to settle a little, so a big folder asks a few times, not hundreds.
+    const timer = setTimeout(() => {
+      api
+        .post("/trips/import-suggestions", { groups: tripQuery })
+        .then(({ groups: found }) => {
+          setTripOffers(Object.fromEntries(found.map((g) => [g.key, g.trips])));
+          setOfferedTrips((prev) => ({
+            ...prev,
+            ...Object.fromEntries(found.flatMap((g) => g.trips.map((trip) => [trip.id, trip]))),
+          }));
+        })
+        .catch(ignore("Couldn't look for trips these photos belong to"));
+    }, 600);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the serialised query is the dependency
+  }, [tripQueryKey]);
   const previewRows = useMemo(() => [...orderedRows, ...skippedRows], [orderedRows, skippedRows]);
   const previewIndex = previewKey ? previewRows.findIndex((r) => r.key === previewKey) : -1;
   // The previewed photo left the import (removed): the preview closes rather than show another.
@@ -735,6 +819,7 @@ export default function PhotoImportRows({
     const requests = toImport.filter((r) => !riding.has(r.key));
 
     const committed: CommittedImport[] = [];
+    let movedCount = 0;
     // Every file joins the global upload banner now, so its count is the whole import from the
     // start (not just the ones begun); the uploads keep going if this screen unmounts.
     for (const row of requests) rowJobsRef.current.set(row.key, registerExternalJob(row.speciesId!, row.file.name));
@@ -749,7 +834,7 @@ export default function PhotoImportRows({
             speciesId: row.speciesId!,
             isVideo: !!row.isVideo,
             cullOption,
-            tripId,
+            tripId: row.tripId ?? tripId,
             albumId,
             regionId,
             locationLabel: row.label ?? "",
@@ -759,6 +844,11 @@ export default function PhotoImportRows({
             // A 410 on the reused upload sends the file again.
             post: async (endpoint, uploadId, addFields) => {
               const rawUploadId = raw ? await ensureUploaded(raw.key, raw.file) : null;
+              // Only a file read from its folder on this computer can be moved; a RAW and its
+              // JPG go together or not at all.
+              const from = moving && !row.isVideo ? pathsRef.current.get(row.file) : undefined;
+              const rawFrom = raw ? pathsRef.current.get(raw.file) : undefined;
+              const moveBoth = from && (!raw || rawFrom);
               return postUploadedFile(endpoint, row.file, {
                 stagedId: row.isVideo ? row.stagedId : undefined,
                 uploadId,
@@ -766,6 +856,8 @@ export default function PhotoImportRows({
                 addFields: (form) => {
                   addFields(form);
                   if (rawUploadId) form.append("rawUploadId", rawUploadId);
+                  if (moveBoth) form.append("moveSourcePath", from);
+                  if (moveBoth && rawFrom) form.append("moveRawSourcePath", rawFrom);
                 },
               });
             },
@@ -787,7 +879,12 @@ export default function PhotoImportRows({
         }
         const captureId = outcome.captureId;
         for (const key of keys) committed.push({ key, captureId });
-        setRows((prev) => prev.map((r) => (keys.includes(r.key) ? { ...r, status: "done", captureId } : r)));
+        if (outcome.sourceMove?.moved) movedCount++;
+        const stayedWhy = outcome.sourceMove && !outcome.sourceMove.moved ? outcome.sourceMove.reason : null;
+        const moveNote = stayedWhy
+          ? t(STAYED_WHY[stayedWhy as keyof typeof STAYED_WHY] ?? STAYED_WHY.trash_failed)
+          : undefined;
+        setRows((prev) => prev.map((r) => (keys.includes(r.key) ? { ...r, status: "done", captureId, moveNote } : r)));
         settleExternalJob(jobId);
       } catch (err) {
         const message = err instanceof Error ? err.message : t("import.rows.uploadFailed");
@@ -805,6 +902,8 @@ export default function PhotoImportRows({
 
     setLastBatch(committed);
     setImporting(false);
+    // With Move on, files the library already has go to the Trash in the same pass.
+    const cleared = moving ? await clearAlreadyImported() : 0;
     if (committed.length === 0) return;
     // The staged places, read as they are now (they can change while files upload), in one step.
     const latest = new Map(rowsRef.current.map((r) => [r.key, r]));
@@ -829,7 +928,18 @@ export default function PhotoImportRows({
     const species = new Set(toImport.filter((r) => committed.some((c) => c.key === r.key)).map((r) => r.speciesId));
     const onlySpecies = species.size === 1 ? [...species][0] : null;
     reportResultShownElsewhere();
-    toast.show(t("import.rows.filed", { photos: photos.length, species: species.size }), {
+    const stayed = requests.length - movedCount;
+    const moveSummary = moving
+      ? [
+          t("import.move.moved", { count: movedCount, formatted: formatNumber(movedCount) }),
+          cleared > 0 ? t("import.move.cleared", { count: cleared, formatted: formatNumber(cleared) }) : "",
+          stayed > 0 ? t("import.move.stayed", { count: stayed, formatted: formatNumber(stayed) }) : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+      : "";
+    const filed = t("import.rows.filed", { photos: photos.length, species: species.size });
+    toast.show(moveSummary ? `${filed}. ${moveSummary}` : filed, {
       tone: "success",
       actions: [
         {
@@ -855,6 +965,24 @@ export default function PhotoImportRows({
         });
       })
       .catch(() => {});
+  }
+
+  // Known files from a folder on this computer whose exact bytes the library holds, sent to the
+  // Trash (the server checks each again). Returns how many went.
+  async function clearAlreadyImported(): Promise<number> {
+    const paths = known.flatMap((k) => (k.status === "imported" && k.path ? [k.path] : []));
+    let cleared = 0;
+    const gone = new Set<string>();
+    for (let i = 0; i < paths.length; i += 2000) {
+      const res = await api
+        .post("/uploads/source-folders/clear", { paths: paths.slice(i, i + 2000) })
+        .catch(() => null);
+      if (!res) break;
+      cleared += res.cleared;
+      for (const p of res.trashed) gone.add(p);
+    }
+    if (gone.size > 0) setKnown((prev) => prev.filter((k) => !k.path || !gone.has(k.path)));
+    return cleared;
   }
 
   // A capture that couldn't be deleted is still on the server, so its row stays imported (and
@@ -946,6 +1074,15 @@ export default function PhotoImportRows({
             : undefined
         }
       />
+      {desktop && (
+        <div className="flex items-start gap-3">
+          <Switch label={t("import.move.label")} checked={moveOriginals} onChange={chooseMove} disabled={importing} />
+          <div className="min-w-0">
+            <p className="text-callout text-ink">{t("import.move.label")}</p>
+            <p className="text-footnote text-muted">{t("import.move.help")}</p>
+          </div>
+        </div>
+      )}
       <RecentImportFolders onImport={(path) => void importFolder(path)} busyPath={readingFolder} />
       <KnownFiles
         known={known}
@@ -953,6 +1090,14 @@ export default function PhotoImportRows({
         edited={editedCount}
         checking={checking}
         onImportAnyway={(chosen) => void importKnownAnyway(chosen)}
+        clear={
+          desktop && known.some((k) => k.status === "imported" && k.path) ? (
+            <ClearKnownFiles
+              paths={known.flatMap((k) => (k.status === "imported" && k.path ? [k.path] : []))}
+              onCleared={(gone) => setKnown((prev) => prev.filter((k) => !k.path || !gone.has(k.path)))}
+            />
+          ) : null
+        }
       />
 
       {rows.length > 0 && (
@@ -998,6 +1143,29 @@ export default function PhotoImportRows({
             onPlace={(keys, place) => stage(keys, { place })}
             onLabel={(keys, label) => stage(keys, { label })}
             thumb={(r) => (r.previewFromServer ? (r.rawPreviewUrl ?? null) : r.isVideo ? null : r.previewUrl)}
+            groupNote={
+              tripId
+                ? undefined
+                : (g) => {
+                    const waiting = g.filter((r) => !r.captureId && r.status !== "uploading");
+                    const chosenId = waiting.find((r) => r.tripId)?.tripId;
+                    const key = g[0].key;
+                    if (waiting.length === 0 || (!chosenId && tripDismissed.has(key))) return null;
+                    const keys = new Set(waiting.map((r) => r.key));
+                    // A RAW and its JPG are one photo.
+                    const count = waiting.filter((r) => !(r.samePhotoAs && keys.has(r.partnerKey!))).length;
+                    return (
+                      <ImportTripNote
+                        count={count}
+                        trips={tripOffers[key] ?? []}
+                        chosen={chosenId ? (offeredTrips[chosenId] ?? null) : null}
+                        onAdd={(id) => stage([...keys], { tripId: id })}
+                        onRemove={() => stage([...keys], { tripId: null })}
+                        onDismiss={() => setTripDismissed((prev) => new Set(prev).add(key))}
+                      />
+                    );
+                  }
+            }
             renderRow={(row, place) => {
               const open = () => setPreviewKey(row.key);
               return (
@@ -1055,7 +1223,9 @@ export default function PhotoImportRows({
                       {place}
                       <span className="text-footnote text-muted">
                         {row.status === "done"
-                          ? t("import.rows.imported")
+                          ? row.moveNote
+                            ? `${t("import.rows.imported")} ${row.moveNote}`
+                            : t("import.rows.imported")
                           : row.status === "error"
                             ? row.error
                             : row.status === "uploading"

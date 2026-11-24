@@ -1,12 +1,14 @@
 // The one place the API writes, moves or deletes original photo files; eslint.config.mjs bans
 // direct fs writes elsewhere. Every move copies with copyVerified across drives and deletes the
 // source only once the copy is proven identical, and nothing here replaces an existing file.
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { link, mkdir, readdir, readlink, rename, rm, stat, symlink } from "node:fs/promises";
 import path from "node:path";
 import { ensureRoom } from "@lifer/core/lib/freeSpace.js";
 import { log } from "@lifer/core/lib/log.js";
 import { copyVerified } from "@lifer/core/lib/verifiedCopy.js";
+import { promisify } from "node:util";
 
 export { copyVerified as copyOriginal } from "@lifer/core/lib/verifiedCopy.js";
 
@@ -88,4 +90,43 @@ export async function copyOriginalsFolder(from: string, to: string): Promise<voi
     // The caller deletes `from` after this, so nothing may be skipped silently.
     else throw new Error(`Can't copy ${src}: it isn't a file or folder`);
   }
+}
+
+const run = promisify(execFile);
+
+/** Sends files to the system Trash (Recycle Bin on Windows), where the user can put them back.
+ *  Throws unless every file is gone from where it was afterwards. */
+export async function moveToSystemTrash(files: string[]): Promise<void> {
+  guard(...files);
+  if (files.length === 0) return;
+  if (process.platform === "darwin") {
+    // macOS 15 and later ship a trash command; older ones ask Finder.
+    if (existsSync("/usr/bin/trash")) await run("/usr/bin/trash", ["--", ...files]);
+    else
+      await run("osascript", [
+        "-e",
+        "on run argv",
+        "-e",
+        'repeat with f in argv\ntell application "Finder" to delete (POSIX file (f as text))\nend repeat',
+        "-e",
+        "end run",
+        ...files,
+      ]);
+  } else if (process.platform === "win32") {
+    // Paths go through the environment, so no quoting of them can break the command.
+    await run(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "Add-Type -AssemblyName Microsoft.VisualBasic; foreach ($f in $env:LIFER_TRASH -split \"`n\") { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($f, 'OnlyErrorDialogs', 'SendToRecycleBin') }",
+      ],
+      { env: { ...process.env, LIFER_TRASH: files.join("\n") } },
+    );
+  } else {
+    await run("gio", ["trash", "--", ...files]);
+  }
+  const left = files.filter((f) => existsSync(f));
+  if (left.length > 0) throw new Error(`Couldn't move ${left.length} file(s) to the Trash`);
 }

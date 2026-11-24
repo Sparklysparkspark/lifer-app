@@ -21551,6 +21551,22 @@ export interface paths {
               sha256: string;
               /** @description sha256 of the RAW sent with the photo, when one was */
               rawSha256?: string;
+              /** @description Desktop, with moveSourcePath: whether the original went to the Trash, and why not */
+              sourceMove?: {
+                moved: boolean;
+                reason:
+                  | (
+                      | "not_in_source_folder"
+                      | "in_library"
+                      | "unreadable"
+                      | "no_library_copy"
+                      | "partner_stays"
+                      | "trash_failed"
+                    )
+                  | null;
+              } & {
+                [key: string]: unknown;
+              };
             } & {
               [key: string]: unknown;
             };
@@ -40861,6 +40877,103 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/trips/import-suggestions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /trips/import-suggestions */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            groups: {
+              key: string;
+              times: string[];
+              points: {
+                lat: number;
+                lon: number;
+              }[];
+              regionIds: string[];
+            }[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              groups: ({
+                key: string;
+                /** @description One or two trips; none means no clear fit */
+                trips: ({
+                  /** Format: uuid */
+                  id: string;
+                  name: string;
+                  /** Format: date-time */
+                  from: string;
+                  /** Format: date-time */
+                  to: string;
+                } & {
+                  [key: string]: unknown;
+                })[];
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the trips.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/trips/matching": {
     parameters: {
       query?: never;
@@ -41308,6 +41421,22 @@ export interface paths {
               sha256: string;
               /** @description sha256 of the RAW sent with the photo, when one was */
               rawSha256?: string;
+              /** @description Desktop, with moveSourcePath: whether the original went to the Trash, and why not */
+              sourceMove?: {
+                moved: boolean;
+                reason:
+                  | (
+                      | "not_in_source_folder"
+                      | "in_library"
+                      | "unreadable"
+                      | "no_library_copy"
+                      | "partner_stays"
+                      | "trash_failed"
+                    )
+                  | null;
+              } & {
+                [key: string]: unknown;
+              };
             } & {
               [key: string]: unknown;
             };
@@ -41695,6 +41824,12 @@ export interface paths {
                 /** @enum {unknown} */
                 status: "imported" | "skipped";
                 reason: ("removed" | "not_wildlife" | "no_animal") | null;
+                match: {
+                  photoId: string | null;
+                  speciesId: string;
+                  commonName: string | null;
+                  scientificName: string;
+                } | null;
               }[];
             };
           };
@@ -42083,6 +42218,91 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/uploads/source-folders/clear": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /uploads/source-folders/clear */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            paths: string[];
+            dryRun?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              cleared: number;
+              /** @description Every file sent to the Trash, sidecars included */
+              trashed: string[];
+              kept: {
+                path: string;
+                /** @enum {unknown} */
+                reason:
+                  | "not_in_source_folder"
+                  | "in_library"
+                  | "unreadable"
+                  | "no_library_copy"
+                  | "partner_stays"
+                  | "trash_failed";
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/uploads/source-folders/file": {
     parameters: {
       query?: never;
@@ -42261,6 +42481,12 @@ export interface paths {
                 fingerprint: string | null;
                 /** @enum {unknown} */
                 status: "new" | "imported" | "skipped";
+                match: {
+                  photoId: string | null;
+                  speciesId: string;
+                  commonName: string | null;
+                  scientificName: string;
+                } | null;
                 /** @description Imported before at this path, changed since */
                 edited: boolean;
               }[];

@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastContext, type ToastApi } from "../hooks/useToast";
+import { ConfirmContext } from "../hooks/useConfirm";
 import { quickHash } from "../lib/knownFiles";
 import { resetAccountCaches } from "../lib/resource";
 import PhotoImportRows from "./PhotoImportRows";
@@ -35,6 +36,7 @@ vi.mock("../lib/localInference", () => ({
   useLocalInferenceReady: () => false,
 }));
 
+const confirm = vi.fn(async () => true);
 const toast: ToastApi = { success: vi.fn(), error: vi.fn(), info: vi.fn(), show: vi.fn(), dismiss: vi.fn() };
 const heron = {
   id: "sp-heron",
@@ -80,12 +82,64 @@ beforeEach(() => {
 function renderRows() {
   const { container } = render(
     <MemoryRouter>
-      <ToastContext.Provider value={toast}>
-        <PhotoImportRows />
-      </ToastContext.Provider>
+      <ConfirmContext.Provider value={confirm}>
+        <ToastContext.Provider value={toast}>
+          <PhotoImportRows />
+        </ToastContext.Provider>
+      </ConfirmContext.Provider>
     </MemoryRouter>,
   );
   return container.querySelector<HTMLInputElement>('input[type="file"][accept]')!;
+}
+
+// A desktop folder, imported from before, holding old.jpg (already in Lifer) and new.jpg.
+function desktopFolder(extra: (path: string, body: unknown) => Promise<unknown> | undefined = () => undefined) {
+  mode.value = "desktop";
+  const folder = "/Users/me/Pictures/Tofino";
+  get.mockImplementation((path: string) =>
+    path === "/uploads/source-folders"
+      ? Promise.resolve({ folders: [{ path: folder, lastImportedAt: "2026-11-01T00:00:00Z", photoCount: 1 }] })
+      : path === "/settings"
+        ? Promise.resolve({ deploymentMode: "desktop", dataDir: "/data", libraryRoots: [] })
+        : Promise.reject(new Error(`unexpected GET ${path}`)),
+  );
+  const base = post.getMockImplementation()!;
+  post.mockImplementation((path: string, body: unknown) => {
+    if (path === "/uploads/source-folders/new-count") return Promise.resolve({ available: true, newCount: 1 });
+    if (path === "/uploads/source-folders/scan")
+      return Promise.resolve({
+        files: [
+          {
+            path: `${folder}/old.jpg`,
+            name: "old.jpg",
+            size: 3,
+            mtimeMs: 1,
+            fingerprint: "a".repeat(40),
+            status: "imported",
+            edited: false,
+          },
+          {
+            path: `${folder}/new.jpg`,
+            name: "new.jpg",
+            size: 3,
+            mtimeMs: 2,
+            fingerprint: "b".repeat(40),
+            status: "new",
+            edited: true,
+          },
+        ],
+      });
+    return extra(path, body) ?? base(path, body);
+  });
+  const fetched: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      fetched.push(decodeURIComponent(url.split("path=")[1]));
+      return new Response("jpeg");
+    }),
+  );
+  return { folder, fetched };
 }
 
 describe("PhotoImportRows, picking a folder again", () => {
@@ -96,7 +150,7 @@ describe("PhotoImportRows, picking a folder again", () => {
     fireEvent.change(input, { target: { files } });
 
     expect(await screen.findByText("new.jpg")).toBeTruthy();
-    expect(screen.getByText("2 already imported or skipped before, 1 new")).toBeTruthy();
+    expect(screen.getByText("2 of 3 files are already in Lifer, 1 is new")).toBeTruthy();
     expect(screen.queryByText("old1.jpg")).toBeNull();
     await waitFor(() => expect(post.mock.calls.filter((c) => c[0] === "/uploads/inspect")).toHaveLength(1));
 
@@ -104,7 +158,7 @@ describe("PhotoImportRows, picking a folder again", () => {
     const list = screen.getByText("old1.jpg").closest("[data-known-row]") as HTMLElement;
     fireEvent.click(within(list).getByRole("button", { name: "Import anyway" }));
     await waitFor(() => expect(post.mock.calls.filter((c) => c[0] === "/uploads/inspect")).toHaveLength(2));
-    expect(screen.getByText("1 already imported or skipped before, 2 new")).toBeTruthy();
+    expect(screen.getByText("1 of 3 files is already in Lifer, 2 are new")).toBeTruthy();
   });
 
   it("remembers a removed photo once the import starts", async () => {
@@ -124,51 +178,7 @@ describe("PhotoImportRows, picking a folder again", () => {
   });
 
   it("imports a recent folder's new photos in one click (desktop)", async () => {
-    mode.value = "desktop";
-    const folder = "/Users/me/Pictures/Tofino";
-    get.mockImplementation((path: string) =>
-      path === "/uploads/source-folders"
-        ? Promise.resolve({ folders: [{ path: folder, lastImportedAt: "2026-11-01T00:00:00Z", photoCount: 1 }] })
-        : path === "/settings"
-          ? Promise.resolve({ deploymentMode: "desktop", dataDir: "/data", libraryRoots: [] })
-          : Promise.reject(new Error(`unexpected GET ${path}`)),
-    );
-    const base = post.getMockImplementation()!;
-    post.mockImplementation((path: string, body: unknown) => {
-      if (path === "/uploads/source-folders/new-count") return Promise.resolve({ available: true, newCount: 1 });
-      if (path === "/uploads/source-folders/scan")
-        return Promise.resolve({
-          files: [
-            {
-              path: `${folder}/old.jpg`,
-              name: "old.jpg",
-              size: 3,
-              mtimeMs: 1,
-              fingerprint: "a".repeat(40),
-              status: "imported",
-              edited: false,
-            },
-            {
-              path: `${folder}/new.jpg`,
-              name: "new.jpg",
-              size: 3,
-              mtimeMs: 2,
-              fingerprint: "b".repeat(40),
-              status: "new",
-              edited: true,
-            },
-          ],
-        });
-      return base(path, body);
-    });
-    const fetched: string[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        fetched.push(decodeURIComponent(url.split("path=")[1]));
-        return new Response("jpeg");
-      }),
-    );
+    const { folder, fetched } = desktopFolder();
     renderRows();
     const chip = await screen.findByRole("button", { name: "Import new photos from Tofino" });
     await waitFor(() => expect(chip.textContent).toContain("1 new photo"));
@@ -177,8 +187,90 @@ describe("PhotoImportRows, picking a folder again", () => {
     fireEvent.click(chip);
     expect(await screen.findByText("new.jpg")).toBeTruthy();
     expect(fetched).toEqual([`${folder}/new.jpg`]);
-    expect(screen.getByText("1 already imported or skipped before, 1 new")).toBeTruthy();
+    expect(screen.getByText("1 of 2 files is already in Lifer, 1 is new")).toBeTruthy();
     expect(screen.getByText("1 looks like an edited copy of a photo you imported")).toBeTruthy();
     vi.unstubAllGlobals();
+  });
+
+  it("offers Move photos only on the desktop, off by default", async () => {
+    renderRows();
+    expect(screen.queryByRole("switch", { name: "Move photos into my library" })).toBeNull();
+  });
+
+  it("with Move on, moves each imported file and clears the ones already in Lifer in one pass", async () => {
+    const { folder } = desktopFolder((path) => {
+      if (path === "/uploads")
+        return Promise.resolve({ captureId: "cap-1", sourceMove: { moved: true, reason: null } });
+      if (path === "/uploads/source-folders/clear")
+        return Promise.resolve({ cleared: 1, trashed: [`${folder}/old.jpg`], kept: [] });
+      return undefined;
+    });
+    renderRows();
+    const move = screen.getByRole("switch", { name: "Move photos into my library" });
+    expect(move.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(move);
+    expect(localStorage.getItem("lifer:import.moveOriginals")).toBe("1");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Import new photos from Tofino" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Great Blue Heron.*match/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 photo" }));
+
+    await waitFor(() => expect(toast.show).toHaveBeenCalled());
+    const upload = post.mock.calls.find((c) => c[0] === "/uploads")!;
+    expect((upload[1] as FormData).get("moveSourcePath")).toBe(`${folder}/new.jpg`);
+    expect(post.mock.calls.find((c) => c[0] === "/uploads/source-folders/clear")![1]).toEqual({
+      paths: [`${folder}/old.jpg`],
+    });
+    expect(vi.mocked(toast.show).mock.calls[0][0]).toBe(
+      "1 photo filed under 1 species. Moved 1 photo into your library. Cleared 1 already in Lifer.",
+    );
+  });
+
+  it("says in plain words why an original stayed, and counts it", async () => {
+    localStorage.setItem("lifer:import.moveOriginals", "1");
+    desktopFolder((path) =>
+      path === "/uploads"
+        ? Promise.resolve({ captureId: "cap-1", sourceMove: { moved: false, reason: "no_library_copy" } })
+        : path === "/uploads/source-folders/clear"
+          ? Promise.resolve({ cleared: 0, trashed: [], kept: [] })
+          : undefined,
+    );
+    renderRows();
+    fireEvent.click(await screen.findByRole("button", { name: "Import new photos from Tofino" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Great Blue Heron.*match/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 photo" }));
+    expect(
+      await screen.findByText(
+        "✓ Imported The original stays where it is: Lifer couldn't confirm its copy in your library.",
+      ),
+    ).toBeTruthy();
+    expect(vi.mocked(toast.show).mock.calls[0][0]).toBe(
+      "1 photo filed under 1 species. Moved 0 photos into your library. 1 skipped, still where it was.",
+    );
+  });
+
+  it("clears out the files already in Lifer after saying how many", async () => {
+    const { folder } = desktopFolder((path, body) =>
+      path === "/uploads/source-folders/clear"
+        ? Promise.resolve(
+            (body as { dryRun: boolean }).dryRun
+              ? { cleared: 1, trashed: [], kept: [] }
+              : { cleared: 1, trashed: [`${folder}/old.jpg`], kept: [] },
+          )
+        : undefined,
+    );
+    renderRows();
+    fireEvent.click(await screen.findByRole("button", { name: "Import new photos from Tofino" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Clear out the ones already in Lifer" }));
+    await waitFor(() =>
+      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ title: "Move 1 file to the Trash?" })),
+    );
+    await waitFor(() =>
+      expect(toast.show).toHaveBeenCalledWith(
+        "Moved 1 file to the Trash. It's still there if you need it.",
+        expect.anything(),
+      ),
+    );
+    expect(screen.queryByText(/already in Lifer, /)).toBeNull();
   });
 });

@@ -1262,15 +1262,26 @@
       "title": "Import photos"
     },
     "known": {
-      "summary": "{known} already imported or skipped before, {fresh} new",
-      "nothingNew": "{count, plural, one {This photo was already imported or skipped before} other {All {formatted} photos were already imported or skipped before}}",
       "edited": "{count, plural, one {{formatted} looks like an edited copy of a photo you imported} other {{formatted} look like edited copies of photos you imported}}",
       "show": "Show them",
       "hide": "Hide them",
-      "imported": "Already imported",
-      "skippedBefore": "Left out of an earlier import",
+      "imported": "Already in Lifer",
+      "skippedBefore": "Skipped before, not in your library",
       "more": "And {formatted} more",
-      "checking": "Checking {formatted} files against your library"
+      "checking": "Checking {formatted} files against your library",
+      "inLifer": "{count, plural, one {{formatted} of {total} files is already in Lifer} other {{formatted} of {total} files are already in Lifer}}",
+      "skippedCount": "{count, plural, one {{formatted} skipped before} other {{formatted} skipped before}}",
+      "newCount": "{count, plural, =0 {none are new} one {{formatted} is new} other {{formatted} are new}}",
+      "inLiferAs": "Already in Lifer as {species}",
+      "inLiferTitle": "{count, plural, one {Already in Lifer ({formatted})} other {Already in Lifer ({formatted})}}",
+      "skippedTitle": "{count, plural, one {Skipped before ({formatted})} other {Skipped before ({formatted})}}",
+      "clear": "Clear out the ones already in Lifer",
+      "clearNone": "None of these files could be cleared: Lifer couldn't confirm a matching copy in your library.",
+      "clearTitle": "{count, plural, one {Move {formatted} file to the Trash?} other {Move {formatted} files to the Trash?}}",
+      "clearMessage": "Each one is already in your library with exactly the same content. Files you skipped before stay where they are. Put them back from the Trash if you need them.",
+      "clearConfirm": "{count, plural, one {Move {formatted} file to the Trash} other {Move {formatted} files to the Trash}}",
+      "cleared": "{count, plural, one {Moved {formatted} file to the Trash. It's still there if you need it.} other {Moved {formatted} files to the Trash. They're still there if you need them.}}",
+      "clearFailed": "Couldn't clear out those files"
     },
     "recentFolders": {
       "title": "Recent folders",
@@ -1422,6 +1433,30 @@
       "dialogTitle": "Place for {count, plural, one {# photo} other {{formatted} photos}}",
       "remove": "Remove place",
       "photoPlace": "Set place for this photo"
+    },
+    "move": {
+      "label": "Move photos into my library",
+      "help": "The originals are removed from where they are once they are safely in your library. Works for folders you choose.",
+      "moved": "{count, plural, one {Moved {formatted} photo into your library.} other {Moved {formatted} photos into your library.}}",
+      "cleared": "{count, plural, one {Cleared {formatted} already in Lifer.} other {Cleared {formatted} already in Lifer.}}",
+      "stayed": "{count, plural, one {{formatted} skipped, still where it was.} other {{formatted} skipped, still where they were.}}",
+      "reasons": {
+        "notInSourceFolder": "The original stays where it is: it isn't in a folder you chose.",
+        "inLibrary": "The original stays where it is: it's in your library's own folders.",
+        "unreadable": "The original stays where it is: it changed or couldn't be read.",
+        "noLibraryCopy": "The original stays where it is: Lifer couldn't confirm its copy in your library.",
+        "partnerStays": "The original stays where it is, with its RAW or JPG partner.",
+        "trashFailed": "The original stays where it is: it couldn't be moved to the Trash."
+      }
+    },
+    "tripFit": {
+      "one": "{count, plural, one {This photo looks like part of {name} ({dates}). Add it to that trip?} other {These {formatted} photos look like part of {name} ({dates}). Add them to that trip?}}",
+      "several": "{count, plural, one {This photo looks like part of one of your trips. Add it to one?} other {These {formatted} photos look like part of one of your trips. Add them to one?}}",
+      "add": "Add to trip",
+      "addTo": "Add to {name} ({dates})",
+      "notNow": "Not now",
+      "added": "{count, plural, one {This photo goes into {name}.} other {These {formatted} photos go into {name}.}}",
+      "remove": "Remove from trip"
     }
   },
   "inaturalist": {

@@ -19655,6 +19655,30 @@
                     "rawSha256": {
                       "type": "string",
                       "description": "sha256 of the RAW sent with the photo, when one was"
+                    },
+                    "sourceMove": {
+                      "type": "object",
+                      "required": ["moved", "reason"],
+                      "properties": {
+                        "moved": { "type": "boolean" },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "not_in_source_folder",
+                                "in_library",
+                                "unreadable",
+                                "no_library_copy",
+                                "partner_stays",
+                                "trash_failed"
+                              ]
+                            },
+                            { "type": "null" }
+                          ]
+                        }
+                      },
+                      "additionalProperties": true,
+                      "description": "Desktop, with moveSourcePath: whether the original went to the Trash, and why not"
                     }
                   },
                   "additionalProperties": true
@@ -35979,6 +36003,119 @@
         }
       }
     },
+    "/trips/import-suggestions": {
+      "post": {
+        "summary": "POST /trips/import-suggestions",
+        "tags": ["trips"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "trips.read",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["groups"],
+                "properties": {
+                  "groups": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["key", "times", "points", "regionIds"],
+                      "properties": {
+                        "key": { "type": "string", "minLength": 1, "maxLength": 512 },
+                        "times": {
+                          "type": "array",
+                          "items": { "type": "string", "format": "date-time" },
+                          "minItems": 1,
+                          "maxItems": 10000
+                        },
+                        "points": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": ["lat", "lon"],
+                            "properties": {
+                              "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+                              "lon": { "type": "number", "minimum": -180, "maximum": 180 }
+                            },
+                            "additionalProperties": false
+                          },
+                          "maxItems": 10000
+                        },
+                        "regionIds": {
+                          "type": "array",
+                          "items": { "type": "string", "format": "uuid" },
+                          "maxItems": 1000
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "maxItems": 2000
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["groups"],
+                  "properties": {
+                    "groups": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["key", "trips"],
+                        "properties": {
+                          "key": { "type": "string" },
+                          "trips": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": ["id", "name", "from", "to"],
+                              "properties": {
+                                "id": { "type": "string", "format": "uuid" },
+                                "name": { "type": "string" },
+                                "from": { "type": "string", "format": "date-time" },
+                                "to": { "type": "string", "format": "date-time" }
+                              },
+                              "additionalProperties": true
+                            },
+                            "description": "One or two trips; none means no clear fit"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the trips.read scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
     "/trips/matching": {
       "post": {
         "summary": "Trips some of these photos were taken during",
@@ -36395,6 +36532,30 @@
                     "rawSha256": {
                       "type": "string",
                       "description": "sha256 of the RAW sent with the photo, when one was"
+                    },
+                    "sourceMove": {
+                      "type": "object",
+                      "required": ["moved", "reason"],
+                      "properties": {
+                        "moved": { "type": "boolean" },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "not_in_source_folder",
+                                "in_library",
+                                "unreadable",
+                                "no_library_copy",
+                                "partner_stays",
+                                "trash_failed"
+                              ]
+                            },
+                            { "type": "null" }
+                          ]
+                        }
+                      },
+                      "additionalProperties": true,
+                      "description": "Desktop, with moveSourcePath: whether the original went to the Trash, and why not"
                     }
                   },
                   "additionalProperties": true
@@ -36847,7 +37008,7 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "required": ["fingerprint", "status", "reason"],
+                        "required": ["fingerprint", "status", "reason", "match"],
                         "properties": {
                           "fingerprint": { "type": "string" },
                           "status": { "enum": ["imported", "skipped"] },
@@ -36856,6 +37017,22 @@
                               {
                                 "enum": ["removed", "not_wildlife", "no_animal"],
                                 "description": "Why it was left out: removed by hand, not wildlife, or marked No animal"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "match": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "required": ["photoId", "speciesId", "commonName", "scientificName"],
+                                "properties": {
+                                  "photoId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                  "speciesId": { "type": "string" },
+                                  "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                  "scientificName": { "type": "string" }
+                                },
+                                "description": "The library photo an imported file became"
                               },
                               { "type": "null" }
                             ]
@@ -37114,6 +37291,82 @@
         }
       }
     },
+    "/uploads/source-folders/clear": {
+      "post": {
+        "summary": "POST /uploads/source-folders/clear",
+        "tags": ["uploads"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["paths"],
+                "properties": {
+                  "paths": { "type": "array", "items": { "type": "string", "minLength": 1 }, "maxItems": 2000 },
+                  "dryRun": { "type": "boolean" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["cleared", "trashed", "kept"],
+                  "properties": {
+                    "cleared": { "type": "integer" },
+                    "trashed": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "description": "Every file sent to the Trash, sidecars included"
+                    },
+                    "kept": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["path", "reason"],
+                        "properties": {
+                          "path": { "type": "string" },
+                          "reason": {
+                            "enum": [
+                              "not_in_source_folder",
+                              "in_library",
+                              "unreadable",
+                              "no_library_copy",
+                              "partner_stays",
+                              "trash_failed"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
     "/uploads/source-folders/file": {
       "get": {
         "summary": "GET /uploads/source-folders/file",
@@ -37225,7 +37478,7 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "required": ["path", "name", "size", "mtimeMs", "fingerprint", "status", "edited"],
+                        "required": ["path", "name", "size", "mtimeMs", "fingerprint", "status", "match", "edited"],
                         "properties": {
                           "path": { "type": "string" },
                           "name": { "type": "string" },
@@ -37242,6 +37495,22 @@
                             ]
                           },
                           "status": { "enum": ["new", "imported", "skipped"] },
+                          "match": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "required": ["photoId", "speciesId", "commonName", "scientificName"],
+                                "properties": {
+                                  "photoId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                  "speciesId": { "type": "string" },
+                                  "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                                  "scientificName": { "type": "string" }
+                                },
+                                "description": "The library photo an imported file became"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
                           "edited": { "type": "boolean", "description": "Imported before at this path, changed since" }
                         }
                       }

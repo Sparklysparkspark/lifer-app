@@ -38,7 +38,13 @@ export function importFields(t: ImportTarget): Array<[string, string]> {
   return fields;
 }
 
-export type CommitOutcome = { kind: "imported"; captureId: string } | { kind: "rejected" };
+/** Desktop, "Move photos into my library": whether the original went to the Trash. */
+export interface SourceMove {
+  moved: boolean;
+  reason: string | null;
+}
+
+export type CommitOutcome = { kind: "imported"; captureId: string; sourceMove?: SourceMove } | { kind: "rejected" };
 
 /** Imports one row from its finished upload. A photo the server reads as a culling reject comes
  *  back without a capture: the import skips those. A RAW matching an imported JPEG is filed as
@@ -51,7 +57,7 @@ export async function commitImport(
       endpoint: "/uploads" | "/uploads/video",
       uploadId: string,
       addFields: (form: FormData) => void,
-    ) => Promise<{ captureId?: string; linkedExisting?: boolean; skipped?: "rejected" }>;
+    ) => Promise<{ captureId?: string; linkedExisting?: boolean; skipped?: "rejected"; sourceMove?: SourceMove }>;
   },
 ): Promise<CommitOutcome> {
   const fields = importFields(t);
@@ -62,7 +68,9 @@ export async function commitImport(
   // sent twice.
   const uploadId = await deps.ensureUploaded();
   const res = await deps.post(t.isVideo ? "/uploads/video" : "/uploads", uploadId, addFields);
-  return res.captureId ? { kind: "imported", captureId: res.captureId } : { kind: "rejected" };
+  return res.captureId
+    ? { kind: "imported", captureId: res.captureId, sourceMove: res.sourceMove }
+    : { kind: "rejected" };
 }
 
 export interface UndoResult {
