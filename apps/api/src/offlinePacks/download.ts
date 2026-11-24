@@ -22,6 +22,7 @@ import {
 } from "../species/catalogSeedUpdate.js";
 import { downloadResumable } from "@lifer/core/lib/resumableDownload.js";
 import { invalidateSuggestionCache } from "@lifer/core/species/embeddings.js";
+import { ensureRegionRollup } from "../regions/rollup.js";
 import { resolveSpeciesSplits } from "../species/speciesSplits.js";
 import {
   assertTrustedPackUrl,
@@ -429,6 +430,7 @@ async function runDownloadJob(
         { lockReferenceData: true },
       );
       invalidateSuggestionCache();
+      void ensureRegionRollup();
       packsApplied++;
       lanes.setup.processed++;
 

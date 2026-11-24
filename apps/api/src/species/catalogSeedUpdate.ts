@@ -28,6 +28,7 @@ import { log } from "@lifer/core/lib/log.js";
 import { normalizeIucnStatus, type LoadProgress } from "@lifer/shared";
 import { upgradeRegionLocalities } from "../places/gazetteer.js";
 import { ensureSpeciesSearchNames } from "./search.js";
+import { ensureRegionRollup } from "../regions/rollup.js";
 
 export { fetchCatalogManifest, type CatalogManifest };
 
@@ -784,13 +785,16 @@ export async function applyCatalogSeedFile(
 
     progress.throwIfCancelled();
     catalogLoad = { processed: total2, total: total2 };
-    // The fast path skipped the statement trigger that tells cached collection views to refresh.
-    if (filledEmpty) await client.query(`SELECT nextval('collection_data_version')`);
+    // The fast path skipped the statement triggers that tell cached collection views and the
+    // region rollup to refresh.
+    if (filledEmpty)
+      await client.query(`SELECT nextval('collection_data_version'), nextval('region_checklist_version')`);
     if (version != null && !onlyTables) await setInstallSetting(client, CATALOG_SEED_VERSION_KEY, version);
     await client.query("COMMIT");
     invalidateSuggestionCache();
     // In the background: search falls back to a plain scan until it's built.
     if (filledEmpty) void ensureSpeciesSearchNames(true);
+    void ensureRegionRollup();
     // Only after the rows are gone for good, so a rollback can't leave rows pointing at deleted files.
     for (const f of [...blockedFiles, ...borrowedFiles]) rmSync(f, { force: true });
     // Sidecars name the species, so a moved capture's are rewritten. Best-effort, in the background.

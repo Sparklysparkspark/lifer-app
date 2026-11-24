@@ -1,5 +1,6 @@
 // Runs only with TEST_DATABASE_URL pointing at a migrated, disposable database.
-// GET /collection/tree: totals match /collection/count, hand-added species group under Other, CSV export.
+// GET /collection/tree: totals match /collection/count, hand-added species group under Other, CSV export,
+// and the region filter through region_species_rollup, which checklist changes invalidate.
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import pg from "pg";
@@ -14,9 +15,15 @@ const SP_C = "eeeeeeee-0000-4000-8000-000000000b0c";
 // A seen-only order, so its groups have no photo of yours.
 const SP_D = "eeeeeeee-0000-4000-8000-000000000b0d";
 const SP_E = "eeeeeeee-0000-4000-8000-000000000b0e";
+// Listed by a downloaded pack's province, and added to a province by hand.
+const SP_F = "eeeeeeee-0000-4000-8000-000000000b0f";
+const SP_G = "eeeeeeee-0000-4000-8000-000000000b10";
+const PACK = "zztree-pack";
 const TOKEN = "lifer_test_collection_tree_b01";
 const COUNTRY = "eeeeeeee-0000-4000-8000-000000000b1a";
 const PROVINCE = "eeeeeeee-0000-4000-8000-000000000b1b";
+// With no checklist of its own, so its species come only from the rollup.
+const CONTINENT = "eeeeeeee-0000-4000-8000-000000000b1c";
 // A continent-sized checklist: more species than fit in work_mem below.
 const BIG = 20000;
 const BIG_GBIF = 92090000;
@@ -25,6 +32,8 @@ describe.skipIf(!url)("collection tree", () => {
   let app: FastifyInstance;
   let db: pg.Pool;
   let cookieName: string;
+  let ensureRegionRollup: () => Promise<void>;
+  let regionRollupFresh: () => Promise<boolean>;
 
   const get = (route: string) => app.inject({ method: "GET", url: route, cookies: { [cookieName]: TOKEN } });
 
@@ -32,9 +41,11 @@ describe.skipIf(!url)("collection tree", () => {
     await db.query(`DELETE FROM user_species WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
+    await db.query(`DELETE FROM downloaded_packs WHERE pack_id = $1`, [PACK]);
     await db.query(`DELETE FROM region_species WHERE region_id = ANY($1)`, [[COUNTRY, PROVINCE]]);
-    await db.query(`DELETE FROM regions WHERE id = ANY($1)`, [[PROVINCE, COUNTRY]]);
-    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SP_A, SP_B, SP_C, SP_D, SP_E]]);
+    await db.query(`DELETE FROM region_species_rollup WHERE region_id = ANY($1)`, [[CONTINENT, COUNTRY, PROVINCE]]);
+    await db.query(`DELETE FROM regions WHERE id = ANY($1)`, [[PROVINCE, COUNTRY, CONTINENT]]);
+    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SP_A, SP_B, SP_C, SP_D, SP_E, SP_F, SP_G]]);
     await db.query(`DELETE FROM species WHERE gbif_key >= $1 AND gbif_key < $1 + $2`, [BIG_GBIF, BIG]);
   }
 
@@ -48,6 +59,7 @@ describe.skipIf(!url)("collection tree", () => {
     ({ SESSION_COOKIE_NAME: cookieName } = await import("@lifer/core/config.js"));
     const { collectionRoutes } = await import("./routes.js");
     const { collectionTreeRoutes } = await import("./tree.js");
+    ({ ensureRegionRollup, regionRollupFresh } = await import("../regions/rollup.js"));
 
     await cleanup();
     await db.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'tree@test', 'x')`, [USER]);
@@ -61,19 +73,23 @@ describe.skipIf(!url)("collection tree", () => {
          ($2, 920802, 'Handus addedus', 'Hand Bird', 'aves', NULL, NULL),
          ($3, 920803, 'Treeus betus', 'Beta Tree Bird', 'aves', 'Passeriformes', 'Treeidae'),
          ($4, 920804, 'Rootus deltus', 'Delta Root Bird', 'aves', 'Rootiformes', 'Rootidae'),
-         ($5, 920805, 'Rootus epsilon', 'Epsilon Root Bird', 'aves', 'Rootiformes', 'Rootidae')`,
-      [SP_A, SP_B, SP_C, SP_D, SP_E],
+         ($5, 920805, 'Rootus epsilon', 'Epsilon Root Bird', 'aves', 'Rootiformes', 'Rootidae'),
+         ($6, 920806, 'Packus newus', 'Pack Bird', 'aves', 'Packiformes', 'Packidae'),
+         ($7, 920807, 'Handus secundus', 'Second Hand Bird', 'aves', NULL, NULL)`,
+      [SP_A, SP_B, SP_C, SP_D, SP_E, SP_F, SP_G],
     );
     await db.query(
       `UPDATE species SET reference_photo = 'https://example.org/' || gbif_key || '.jpg', reference_credit = 'x', reference_license = 'cc-by' WHERE id = ANY($1)`,
-      [[SP_A, SP_B, SP_C, SP_D, SP_E]],
+      [[SP_A, SP_B, SP_C, SP_D, SP_E, SP_F, SP_G]],
     );
     for (const sp of [SP_C, SP_D, SP_E])
       await db.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'seen')`, [USER, sp]);
-    // A country listing Alpha and Beta, with a province inside it where Hand Bird was photographed.
+    // A continent holding a country listing Alpha and Beta, with a province inside it where Hand
+    // Bird was photographed. The country code makes the province part of the country's pack.
     await db.query(
-      `INSERT INTO regions (id, name, parent_id) VALUES ($1, 'Zztree country', NULL), ($2, 'Zztree province', $1)`,
-      [COUNTRY, PROVINCE],
+      `INSERT INTO regions (id, name, parent_id, external_codes) VALUES
+         ($3, 'Zztree continent', NULL, '{}'), ($1, 'Zztree country', $3, '{ZZ}'), ($2, 'Zztree province', $1, '{}')`,
+      [COUNTRY, PROVINCE, CONTINENT],
     );
     await db.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2), ($1, $3)`, [
       COUNTRY,
@@ -182,6 +198,82 @@ describe.skipIf(!url)("collection tree", () => {
     const province = (await get(`/api/collection/tree?include=uncollected&regionId=${PROVINCE}`)).json();
     expect(leaves(province.tree)).toEqual(["Handus addedus"]);
     expect((await get("/api/collection/tree?regionId=nope")).statusCode).toBe(400);
+  });
+
+  it("filters by a continent through the rollup, rebuilt after a pack install or removal, with hides and additions at once", async () => {
+    type N = { name: string; children: N[] };
+    const leaves = (nodes: N[]): string[] => nodes.flatMap((n) => (n.children.length ? leaves(n.children) : [n.name]));
+    const leavesIn = async (regionId: string) => {
+      const res = await get(`/api/collection/tree?include=uncollected&regionId=${regionId}`);
+      expect(res.statusCode, res.body).toBe(200);
+      return leaves(res.json().tree).sort();
+    };
+    await ensureRegionRollup();
+    expect(await regionRollupFresh()).toBe(true);
+    expect(await leavesIn(CONTINENT)).toEqual(["Handus addedus", "Treeus alphus", "Treeus betus"]);
+
+    // A pack install: the country's pack is downloaded and its province lists a new species.
+    await db.query(`INSERT INTO downloaded_packs (pack_id, region) VALUES ($1, 'Zztree country')`, [PACK]);
+    await db.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2)`, [PROVINCE, SP_F]);
+    expect(await regionRollupFresh()).toBe(false);
+    // Read from the subtree until the rebuild lands, then from the rollup: the same answer.
+    expect(await leavesIn(CONTINENT)).toContain("Packus newus");
+    await ensureRegionRollup();
+    expect(await regionRollupFresh()).toBe(true);
+    expect(await leavesIn(CONTINENT)).toContain("Packus newus");
+
+    // Hidden on the continent: gone there at once, still on the country, and no rebuild needed.
+    await db.query(`INSERT INTO region_species_hidden (user_id, region_id, species_id) VALUES ($1, $2, $3)`, [
+      USER,
+      CONTINENT,
+      SP_F,
+    ]);
+    expect(await leavesIn(CONTINENT)).not.toContain("Packus newus");
+    expect(await leavesIn(COUNTRY)).toContain("Packus newus");
+    await db.query(`DELETE FROM region_species_hidden WHERE user_id = $1`, [USER]);
+
+    // Added to the province by hand: on the continent at once.
+    await db.query(`INSERT INTO region_species_user_added (user_id, region_id, species_id) VALUES ($1, $2, $3)`, [
+      USER,
+      PROVINCE,
+      SP_G,
+    ]);
+    expect(await regionRollupFresh()).toBe(true);
+    expect(await leavesIn(CONTINENT)).toContain("Handus secundus");
+    await db.query(`DELETE FROM region_species_user_added WHERE user_id = $1`, [USER]);
+
+    // The pack removed: its rows go, and the rebuilt rollup drops the species.
+    await db.query(`DELETE FROM region_species WHERE region_id = $1 AND species_id = $2`, [PROVINCE, SP_F]);
+    await db.query(`DELETE FROM downloaded_packs WHERE pack_id = $1`, [PACK]);
+    expect(await regionRollupFresh()).toBe(false);
+    await ensureRegionRollup();
+    const rollup = await db.query(`SELECT 1 FROM region_species_rollup WHERE region_id = $1 AND species_id = $2`, [
+      CONTINENT,
+      SP_F,
+    ]);
+    expect(rollup.rows).toHaveLength(0);
+    expect(await leavesIn(CONTINENT)).toEqual(["Handus addedus", "Treeus alphus", "Treeus betus"]);
+  });
+
+  it("waits for a checklist write still in flight before stamping the rollup current", async () => {
+    const writer = await db.connect();
+    try {
+      await writer.query("BEGIN");
+      await writer.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2)`, [PROVINCE, SP_F]);
+      const rebuilt = ensureRegionRollup();
+      await new Promise((r) => setTimeout(r, 300));
+      await writer.query("COMMIT");
+      await rebuilt;
+    } finally {
+      writer.release();
+    }
+    expect(await regionRollupFresh()).toBe(true);
+    const rollup = await db.query(`SELECT 1 FROM region_species_rollup WHERE region_id = $1 AND species_id = $2`, [
+      CONTINENT,
+      SP_F,
+    ]);
+    expect(rollup.rows).toHaveLength(1);
+    await db.query(`DELETE FROM region_species WHERE region_id = $1 AND species_id = $2`, [PROVINCE, SP_F]);
   });
 
   it("answers a region with a checklist larger than work_mem in seconds", async () => {

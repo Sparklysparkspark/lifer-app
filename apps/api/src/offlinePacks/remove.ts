@@ -9,6 +9,7 @@ import { subdivisionLabelFor } from "@lifer/shared";
 import { pool, withTransaction } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
 import { invalidateSuggestionCache } from "@lifer/core/species/embeddings.js";
+import { ensureRegionRollup } from "../regions/rollup.js";
 import { log } from "@lifer/core/lib/log.js";
 import { Uuid, replies, withSchemas } from "../lib/schema.js";
 import { createJob, type JobContext } from "../lib/job.js";
@@ -192,6 +193,7 @@ async function deletePack(
   );
   invalidateSuggestionCache();
   invalidatePackSizes();
+  void ensureRegionRollup();
   await deleteUnreferencedFiles([...filesToDelete]);
 
   return {
@@ -365,6 +367,7 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
         },
         { lockReferenceData: true },
       );
+      void ensureRegionRollup();
 
       return { ok: true, remainingApplied: remaining.length };
     },

@@ -9,6 +9,7 @@ import { Nullable, Open, Uuid, replies, withSchemas } from "../lib/schema.js";
 import { ALREADY_OWNED_SQL } from "../species/obscurity.js";
 import { capturedInTreeSql, regionTreeCte } from "../regions/checklist.js";
 import { userAddedInTreeSql } from "../regions/checklistAdditions.js";
+import { ensureRegionRollup, regionRollupFresh } from "../regions/rollup.js";
 import { COLLECTION_WHERE, UNLOCKED_SPECIES_CTE } from "./routes.js";
 
 const OTHER = "Other";
@@ -86,21 +87,37 @@ interface Row {
 
 // Same species set as GET /collection (its CTE, WHERE and joins); collected is state = 'collected',
 // as GET /collection/count counts it. Photos are visible captures (the `captures` view hides trash);
-// the best one uses the shared order. With a region ($4), only the species on its checklist or one
-// inside it, or that you photographed or added there, less those you hid there. The region is a
-// join, not an IN inside an OR, which Postgres rescans per species once a continent's rows outgrow
-// work_mem.
-const treeSql = (maxDepthM: number, inRegion: boolean) => `WITH RECURSIVE ${
-  inRegion
-    ? `${regionTreeCte("region_tree", "$4::uuid")},
+// the best one uses the shared order. It starts from the few species COLLECTION_WHERE can keep
+// rather than scanning the whole catalogue. With a region ($4), only the species on its checklist
+// or one inside it, or that you photographed or added there, less those you hid there. The ones
+// inside it are looked up per candidate in region_species_rollup, or while that's being rebuilt
+// read from every row of the region's subtree, which is correct but takes seconds for a continent.
+type RegionSource = "rollup" | "subtree" | null;
+const treeSql = (maxDepthM: number, region: RegionSource) => `WITH RECURSIVE ${
+  region ? `${regionTreeCte("region_tree", "$4::uuid")},` : ""
+}
+  ${UNLOCKED_SPECIES_CTE},
+  candidates AS (
+    SELECT species_id FROM unlocked
+    UNION SELECT species_id FROM user_species WHERE user_id = $1
+    UNION SELECT species_id FROM region_species_user_added WHERE user_id = $1
+    UNION SELECT species_id FROM sea_zone_species_user_added WHERE user_id = $1
+  )${
+    region
+      ? `,
   in_region AS (
-    SELECT species_id FROM region_species WHERE region_id IN (SELECT id FROM region_tree)
+    ${
+      region === "rollup"
+        ? `SELECT species_id FROM candidates c
+      WHERE EXISTS (SELECT 1 FROM region_species x WHERE x.region_id = $4 AND x.species_id = c.species_id)
+        OR EXISTS (SELECT 1 FROM region_species_rollup x WHERE x.region_id = $4 AND x.species_id = c.species_id)`
+        : "SELECT species_id FROM region_species WHERE region_id IN (SELECT id FROM region_tree)"
+    }
     UNION ${capturedInTreeSql("$1", "true")}
     UNION ${userAddedInTreeSql("$1")}
-  ),`
-    : ""
-}
-  ${UNLOCKED_SPECIES_CTE}
+  )`
+      : ""
+  }
   SELECT s.id AS species_id, s.scientific_name, s.common_name, s.taxon_class, s.taxon_order, s.family,
     COALESCE(us.state = 'collected', false) AS is_collected,
     COALESCE(uto.tier, r.tier) AS tier,
@@ -109,8 +126,9 @@ const treeSql = (maxDepthM: number, inRegion: boolean) => `WITH RECURSIVE ${
       THEN (SELECT count(*)::int FROM captures c WHERE c.user_id = $1 AND c.species_id = s.id) ELSE 0 END AS photos,
     us.first_collected AS first_photographed,
     best.photo_id AS best_photo_id, best.quality_rating AS best_rating, best.taken_at AS best_taken_at
-  FROM species s
-  ${inRegion ? "JOIN in_region ir ON ir.species_id = s.id" : ""}
+  FROM candidates cand
+  ${region ? "JOIN in_region ir ON ir.species_id = cand.species_id" : ""}
+  JOIN species s ON s.id = cand.species_id
   LEFT JOIN species_traits t ON t.species_id = s.id
   LEFT JOIN species_rarity r ON r.species_id = s.id
   LEFT JOIN user_tier_overrides uto ON uto.user_id = $1 AND uto.species_id = s.id AND uto.region_id IS NULL
@@ -123,7 +141,7 @@ const treeSql = (maxDepthM: number, inRegion: boolean) => `WITH RECURSIVE ${
   ) best ON true
   ${COLLECTION_WHERE(maxDepthM)}
     ${
-      inRegion
+      region
         ? `AND (${ALREADY_OWNED_SQL} OR NOT EXISTS (SELECT 1 FROM region_species_hidden h
         WHERE h.user_id = $1 AND h.species_id = s.id AND h.region_id = $4))`
         : ""
@@ -250,8 +268,13 @@ export async function collectionTreeRoutes(fastify: FastifyInstance): Promise<vo
       const userId = request.user!.id;
       const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
       const { regionId } = request.query;
+      let source: RegionSource = null;
+      if (regionId) {
+        source = (await regionRollupFresh()) ? "rollup" : "subtree";
+        if (source === "subtree") void ensureRegionRollup();
+      }
       const { rows } = await pool.query<Row>(
-        treeSql(maxDepthM, !!regionId),
+        treeSql(maxDepthM, source),
         regionId ? [userId, null, hideObscure, regionId] : [userId, null, hideObscure],
       );
       const collectedRows = rows.filter((r) => r.is_collected);

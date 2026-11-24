@@ -109,10 +109,10 @@ unlocked AS (
   SELECT rs2.species_id
   FROM region_species rs2
   JOIN pack_regions pr ON pr.region_id = rs2.region_id
-  JOIN species s2 ON s2.id = rs2.species_id
   -- The ANY(ARRAY(...)) is what makes the planner use the region_id index here.
   WHERE rs2.region_id = ANY (ARRAY(SELECT region_id FROM pack_regions))
-    AND (pr.taxon IS NULL OR pr.taxon = s2.taxon_class)
+    -- Only a one-taxon pack looks the species up; most packs cover every taxon.
+    AND (pr.taxon IS NULL OR EXISTS (SELECT 1 FROM species s2 WHERE s2.id = rs2.species_id AND s2.taxon_class = pr.taxon))
   UNION
   SELECT szs.species_id
   FROM sea_zone_species szs

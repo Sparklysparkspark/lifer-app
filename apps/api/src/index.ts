@@ -33,6 +33,7 @@ import { scheduleArchiveHealth } from "./originals/health.js";
 import { scheduleMovedPhotos } from "./movedPhotos/relink.js";
 import { scheduleVersionGrouping } from "./uploads/versionGrouping.js";
 import { seedCatalogIfEmpty } from "./species/catalogSeedUpdate.js";
+import { ensureRegionRollup } from "./regions/rollup.js";
 import { startAssetAutoDownloads } from "./settings/assets.js";
 import { relinkCachedReferenceFiles } from "./species/relinkReferenceFiles.js";
 import { ensureGalleryEmbeddingsOnStartup } from "./species/galleryEmbeddingsAsset.js";
@@ -304,6 +305,8 @@ seedCatalogIfEmpty(pool)
       startWithheldPhotoFetch("startup");
       // Lists eggs, nests, maps and the like after the photos of the animal itself.
       startReferencePhotoScoring();
+      // Builds the Tree of life's region rollup after an update or a catalog change (regions/rollup.ts).
+      void ensureRegionRollup();
       // Finishes packs whose hotspots never landed (the app quit between a pack's two steps).
       resumePendingPackHotspots().catch((err) => app.log.warn({ err }, "Couldn't resume pending pack hotspots"));
       // Carries on moving a trip's files when the app quit partway through.
