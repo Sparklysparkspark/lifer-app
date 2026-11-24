@@ -164,9 +164,12 @@ test("adds a species to a sea zone from the species page, and shows it with that
   await robinCard.getByRole("button", { name: "More options" }).click();
   await page.getByRole("menuitem", { name: "Remove from this list" }).click();
   await expect(page.getByText(`Removed ${robin} from the ${SEA_ZONE.name} species list.`)).toBeVisible();
-  // Nothing of yours is left in that water, so it's no longer offered, and Canada's own list,
-  // robin included, comes back.
-  await expect(page.getByRole("checkbox", { name: SEA_ZONE.name })).toHaveCount(0);
+  // Nothing of yours is left in that water, so it's no longer ticked (it may still be offered, as
+  // the water near any region with a sea-life pack is), and Canada's own list, robin included, comes back.
+  const zone = page.getByRole("checkbox", { name: SEA_ZONE.name });
+  await expect(async () => {
+    if ((await zone.count()) > 0) await expect(zone).not.toBeChecked();
+  }).toPass({ timeout: 10_000 });
   await expect(robinCard).toBeVisible();
   await expect(page.locator("main").getByText("Added by you")).toHaveCount(0);
 });
