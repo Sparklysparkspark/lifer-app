@@ -496,7 +496,8 @@
       "edited": "New photos whose file changed since an earlier import, probably edited in another app.",
       "inLifer": "First line after a folder or files are picked. {total} is every picked file, formatted with digit grouping; joined to skippedCount and newCount with commas.",
       "newCount": "Ends the line started by inLifer, e.g. \"42 of 50 files are already in Lifer, 8 are new\".",
-      "clear": "Link that sends picked files whose exact content is already in the library to the system Trash, after a confirmation."
+      "clear": "Link that sends picked files whose exact content is already in the library to the system Trash, after a confirmation.",
+      "cleared": "Toast after Clear out. {count} is files moved to the Trash; {sidecars} is the .xmp sidecar files (metadata files other photo apps keep beside a photo) that went with them."
     },
     "recentFolders": {
       "title": "Label before buttons for folders the user imported from before (desktop app).",
@@ -564,7 +565,14 @@
     },
     "move": {
       "label": "A switch beside the Import drop area, desktop app only. On: originals are moved to the system Trash after they're safely copied into the library.",
-      "stayed": "Ends the import summary, after moved and cleared, e.g. \"Moved 42 photos into your library. Cleared 3 already in Lifer. 3 skipped, still where they were.\""
+      "stayed": "Ends the import summary, after moved and cleared, e.g. \"Moved 42 photos into your library. Cleared 3 already in Lifer. 3 skipped, still where they were.\"",
+      "moved": "Starts the import summary. {sidecars} is how many .xmp sidecar files (metadata files other photo apps keep beside a photo) went to the Trash with the photos, e.g. \"Moved 8 photos and 6 sidecar files into your library.\"",
+      "cleared": "After moved in the import summary: files the library already had, sent to the Trash, with their .xmp sidecar files."
+    },
+    "space": {
+      "tight": "Calm note on the Import page when the computer's disk is nearly full; importing still works, only slower.",
+      "paused": "Shown when the import stopped because the disk is almost full. {free} and {toFree} are sizes like \"2.1 GB\"; {imported} of {total} photos made it in. Continue is the button beside it.",
+      "full": "Shown when the disk is too full to start importing. {free} and {toFree} are sizes like \"2.1 GB\"."
     },
     "tripFit": {
       "one": "Asked above a group of import photos taken during an existing trip. {dates} is the trip's date range, like \"May 3 – 10, 2026\".",
@@ -1637,6 +1645,11 @@
     "versions": {
       "title": "Last step of the guided tour, pointing at the Gallery item in the sidebar: photo versions (edits, prints and exports of one photo grouped as one).",
       "body": "Tour card text. The stack badge is the small \"N versions\" label on a photo thumbnail; \"Versions\" is the item in a photo's ⋯ (more) menu."
+    }
+  },
+  "status": {
+    "lowSpace": {
+      "message": "One line under the toolbar on every page when the disk holding Lifer's data is nearly full. {free} is a size like \"4.2 GB\"."
     }
   }
 }

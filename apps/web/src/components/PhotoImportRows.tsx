@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { api, apiPath, ApiError } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
 import { mapWithConcurrency } from "../lib/concurrency";
+import { checkImportSpace, isDiskFullError, type ImportSpace } from "../lib/importSpace";
+import ImportSpaceNotice from "./importReview/ImportSpaceNotice";
 import {
   postUploadedFile,
   registerExternalJob,
@@ -150,6 +152,8 @@ function pairFacts(r: ImportRow): PairFacts[] {
 const UPLOAD_CONCURRENCY = 2;
 // Inspect runs server-side inference, so a big drop shouldn't queue dozens at once.
 const INSPECT_CONCURRENCY = 2;
+// While importing, free space is checked again after this many photos.
+const SPACE_CHECK_EVERY = 10;
 
 /** The element that scrolls `el` (the page's own scroller in the sidebar layout), else the window. */
 function scrollParentOf(el: Element): Element | Window {
@@ -187,6 +191,12 @@ export default function PhotoImportRows({
   const rows = useMemo(() => joinPairs(rawRows, pairs, (r) => r.file.name), [rawRows, pairs]);
   const [importing, setImporting] = useState(false);
   const [lastBatch, setLastBatch] = useState<CommittedImport[]>([]);
+  // Free space on the drives an import writes to (lib/importSpace.ts): tight checks and imports
+  // one photo at a time, critical pauses until Continue finds room.
+  const [space, setSpace] = useState<ImportSpace | null>(null);
+  const [paused, setPaused] = useState<{ imported: number; total: number } | null>(null);
+  // Rows added while the drive was too full to check them, checked on Continue.
+  const uncheckedRef = useRef<ImportRow[]>([]);
   const toast = useToast();
   // The import's places are one step in the shared location history (POST /captures/location/undo).
   const undoPlaces = useUndoLocation(() => onImported?.());
@@ -274,6 +284,18 @@ export default function PhotoImportRows({
       }
     };
   }, [rowsRef]);
+
+  // For the photos not imported yet, plus `adding` (rows about to appear).
+  async function refreshSpace(adding: File[] = []): Promise<ImportSpace> {
+    const added = new Set(adding);
+    const left = [...rowsRef.current.flatMap((r) => (r.captureId || added.has(r.file) ? [] : [r.file])), ...adding];
+    const next = await checkImportSpace(
+      left.length,
+      left.reduce((n, f) => n + f.size, 0),
+    );
+    setSpace(next);
+    return next;
+  }
 
   // Suggestions are skipped entirely (not just hidden) unless the setting is on.
   const suggestEnabled = useSettings().settings?.speciesSuggestEnabled ?? false;
@@ -484,11 +506,37 @@ export default function PhotoImportRows({
       inspectedRegion: suggestEnabled ? regionId : null,
     }));
     setRows((prev) => [...prev, ...newRows]);
-    mapWithConcurrency(newRows, INSPECT_CONCURRENCY, async (row) =>
-      row.isVideo
-        ? inspectVideoFile(row.key, row.file, suggestEnabled ? regionId : null)
-        : inspectFile(row.key, row.file, suggestEnabled ? regionId : null, true),
+    void refreshSpace(files).then((next) => {
+      if (next.tier !== "critical") return inspectRows(newRows, next.tier === "ok");
+      uncheckedRef.current.push(...newRows);
+      const keys = new Set(newRows.map((r) => r.key));
+      setRows((prev) => prev.map((r) => (keys.has(r.key) ? { ...r, isInspecting: false } : r)));
+    });
+  }
+
+  function inspectRows(list: ImportRow[], roomy: boolean) {
+    const forRegion = suggestEnabled ? regionId : null;
+    const keys = new Set(list.map((r) => r.key));
+    setRows((prev) => prev.map((r) => (keys.has(r.key) && !r.isInspecting ? { ...r, isInspecting: true } : r)));
+    return mapWithConcurrency(list, roomy ? INSPECT_CONCURRENCY : 1, async (row) =>
+      row.isVideo ? inspectVideoFile(row.key, row.file, forRegion) : inspectFile(row.key, row.file, forRegion, true),
     );
+  }
+
+  // Continue after freeing space: checks again, then checks the rows left unchecked and carries on
+  // with a paused import.
+  const pauseBaseRef = useRef<{ imported: number } | null>(null);
+  async function continueAfterSpace() {
+    const next = await refreshSpace();
+    if (next.tier === "critical") return;
+    const present = new Set(rowsRef.current.map((r) => r.key));
+    const unchecked = uncheckedRef.current.filter((r) => present.has(r.key));
+    uncheckedRef.current = [];
+    if (unchecked.length > 0) void inspectRows(unchecked, next.tier === "ok");
+    if (paused) {
+      setPaused(null);
+      void importAll();
+    }
   }
 
   // One /uploads/inspect call does the duplicate check and, given a region, suggestions, so the
@@ -794,6 +842,9 @@ export default function PhotoImportRows({
       (r) => r.speciesId && (r.status === "ready" || r.status === "error") && !skipsRow(r) && !skipKind(r),
     );
     if (toImport.length === 0) return;
+    // Too full to start: the notice says how much to free.
+    const before = await refreshSpace();
+    if (before.tier === "critical") return;
     rememberLeftOut();
     setImporting(true);
     for (const row of toImport) importingKeysRef.current.add(row.key);
@@ -820,15 +871,28 @@ export default function PhotoImportRows({
 
     const committed: CommittedImport[] = [];
     let movedCount = 0;
+    let sidecarCount = 0;
+    // Set when the drive fills: rows not started stay ready for Continue.
+    let stop = false;
+    let sinceCheck = 0;
+    const holdBack = (keys: string[], jobId: string) => {
+      setRows((prev) =>
+        prev.map((r) =>
+          keys.includes(r.key) ? { ...r, status: "ready", uploadProgress: null, uploadError: undefined } : r,
+        ),
+      );
+      settleExternalJob(jobId, undefined, true);
+    };
     // Every file joins the global upload banner now, so its count is the whole import from the
     // start (not just the ones begun); the uploads keep going if this screen unmounts.
     for (const row of requests) rowJobsRef.current.set(row.key, registerExternalJob(row.speciesId!, row.file.name));
-    await mapWithConcurrency(requests, UPLOAD_CONCURRENCY, async (row) => {
+    await mapWithConcurrency(requests, before.tier === "ok" ? UPLOAD_CONCURRENCY : 1, async (row) => {
       const jobId = rowJobsRef.current.get(row.key)!;
       const onProgress = (sent: number, total: number) => setRowProgress(row.key, sent, total);
       const raw = rawWith.get(row.key);
       const keys = raw ? [row.key, raw.key] : [row.key];
       try {
+        if (stop) return holdBack(keys, jobId);
         const outcome = await commitImport(
           {
             speciesId: row.speciesId!,
@@ -880,13 +944,19 @@ export default function PhotoImportRows({
         const captureId = outcome.captureId;
         for (const key of keys) committed.push({ key, captureId });
         if (outcome.sourceMove?.moved) movedCount++;
+        sidecarCount += outcome.sourceMove?.sidecars ?? 0;
         const stayedWhy = outcome.sourceMove && !outcome.sourceMove.moved ? outcome.sourceMove.reason : null;
         const moveNote = stayedWhy
           ? t(STAYED_WHY[stayedWhy as keyof typeof STAYED_WHY] ?? STAYED_WHY.trash_failed)
           : undefined;
         setRows((prev) => prev.map((r) => (keys.includes(r.key) ? { ...r, status: "done", captureId, moveNote } : r)));
         settleExternalJob(jobId);
+        if (++sinceCheck % SPACE_CHECK_EVERY === 0 && (await refreshSpace()).tier === "critical") stop = true;
       } catch (err) {
+        if (isDiskFullError(err)) {
+          stop = true;
+          return holdBack(keys, jobId);
+        }
         const message = err instanceof Error ? err.message : t("import.rows.uploadFailed");
         setRows((prev) =>
           prev.map((r) => (keys.includes(r.key) ? { ...r, status: "error", error: message, uploadProgress: null } : r)),
@@ -902,8 +972,14 @@ export default function PhotoImportRows({
 
     setLastBatch(committed);
     setImporting(false);
+    const imported = uniqueCaptures(committed).length + (pauseBaseRef.current?.imported ?? 0);
+    if (stop) {
+      await refreshSpace();
+      pauseBaseRef.current = { imported };
+      setPaused({ imported, total: imported + requests.length - uniqueCaptures(committed).length });
+    } else pauseBaseRef.current = null;
     // With Move on, files the library already has go to the Trash in the same pass.
-    const cleared = moving ? await clearAlreadyImported() : 0;
+    const { cleared, sidecars: clearedSidecars } = moving ? await clearAlreadyImported() : { cleared: 0, sidecars: 0 };
     if (committed.length === 0) return;
     // The staged places, read as they are now (they can change while files upload), in one step.
     const latest = new Map(rowsRef.current.map((r) => [r.key, r]));
@@ -931,8 +1007,14 @@ export default function PhotoImportRows({
     const stayed = requests.length - movedCount;
     const moveSummary = moving
       ? [
-          t("import.move.moved", { count: movedCount, formatted: formatNumber(movedCount) }),
-          cleared > 0 ? t("import.move.cleared", { count: cleared, formatted: formatNumber(cleared) }) : "",
+          t("import.move.moved", {
+            count: movedCount,
+            formatted: formatNumber(movedCount),
+            sidecars: sidecarCount,
+          }),
+          cleared > 0
+            ? t("import.move.cleared", { count: cleared, formatted: formatNumber(cleared), sidecars: clearedSidecars })
+            : "",
           stayed > 0 ? t("import.move.stayed", { count: stayed, formatted: formatNumber(stayed) }) : "",
         ]
           .filter(Boolean)
@@ -968,10 +1050,11 @@ export default function PhotoImportRows({
   }
 
   // Known files from a folder on this computer whose exact bytes the library holds, sent to the
-  // Trash (the server checks each again). Returns how many went.
-  async function clearAlreadyImported(): Promise<number> {
+  // Trash (the server checks each again). Returns how many went, and their sidecars.
+  async function clearAlreadyImported(): Promise<{ cleared: number; sidecars: number }> {
     const paths = known.flatMap((k) => (k.status === "imported" && k.path ? [k.path] : []));
     let cleared = 0;
+    let sidecars = 0;
     const gone = new Set<string>();
     for (let i = 0; i < paths.length; i += 2000) {
       const res = await api
@@ -979,10 +1062,11 @@ export default function PhotoImportRows({
         .catch(() => null);
       if (!res) break;
       cleared += res.cleared;
+      sidecars += res.sidecars;
       for (const p of res.trashed) gone.add(p);
     }
     if (gone.size > 0) setKnown((prev) => prev.filter((k) => !k.path || !gone.has(k.path)));
-    return cleared;
+    return { cleared, sidecars };
   }
 
   // A capture that couldn't be deleted is still on the server, so its row stays imported (and
@@ -1135,6 +1219,7 @@ export default function PhotoImportRows({
             </div>
           </div>
 
+          <ImportSpaceNotice space={space} paused={paused} onContinue={continueAfterSpace} />
           <Tip id="import-keys" when={rows.some((r) => r.suggestions.length > 0)} className="mb-2" />
           <ImportPlaceGroups
             groups={groups}

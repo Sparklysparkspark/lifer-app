@@ -220,9 +220,18 @@ On the desktop app, the **Move photos into my library** switch beside the drop a
 - It works for folders you pick with **Choose a folder** (or a recent folder). Files you drag in or pick with **Choose files** are copied and left where they are, since Lifer can't see where they came from.
 - A file goes only after its photo is saved and Lifer has checked its copy. If anything fails, the original stays where it is and its row says why.
 - Skipped photos, duplicates and files already in Lifer aren't moved by the import. With the switch on, the files already in Lifer from that folder are cleared in the same pass.
-- A RAW and its JPG go together or not at all, with their XMP sidecars. Files inside your library's own folders are never touched.
+- A RAW and its JPG go together or not at all. Files inside your library's own folders are never touched.
+- Each photo's `.xmp` sidecar goes with it, after the photo, whichever name it has (`IMG_1234.xmp`, `IMG_1234.CR3.xmp` or `IMG_1234.jpg.xmp`). A sidecar of a photo that stays, or of another file, stays too.
 
-When it's done, the import's note says what happened, like "Moved 8 photos into your library. Cleared 42 already in Lifer. 3 skipped, still where they were."
+When it's done, the import's note says what happened, like "Moved 8 photos and 6 sidecar files into your library. Cleared 42 already in Lifer. 3 skipped, still where they were."
+
+## When your disk is nearly full {#low-disk}
+
+Checking and importing photos needs room for previews and Lifer's database, on top of the photos themselves. Lifer checks the free space when you add photos and as it imports:
+
+- When space is tight, a note says so, and Lifer checks and imports one photo at a time, without keeping extra copies while you pick species. It's slower, but works the same.
+- Before the disk is full, Lifer pauses the import so your library and its database aren't harmed. Photos already imported stay imported, and the rest stay where they were. The note says how much to free; free it and press **Continue** to import the rest.
+- When the disk holding Lifer's data is nearly full, a line under the toolbar says so on every page.
 
 ## Importing a folder again {#folder-again}
 

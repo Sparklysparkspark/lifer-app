@@ -396,6 +396,13 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
       }),
     },
   },
+  "/uploads/space": {
+    post: {
+      summary: "Check free disk space for an import",
+      description:
+        "Send `files` (photos still to check or import) and `bytes` (their total size). `tier` is `ok`, `tight` (the batch plus a reserve of 5 GB or 5 percent doesn't fit: import one photo at a time) or `critical` (under 3 GB free: imports, checks and new uploads answer 507 `disk_full` until space is freed). `free` is the bytes free on the fullest drive the server writes to, null when unknown; `toFree` is how much to free so the rest of the batch fits.",
+    },
+  },
   "/uploads/tus": {
     post: {
       summary: "Start a resumable upload (tus 1.0)",

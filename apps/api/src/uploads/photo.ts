@@ -10,6 +10,7 @@ import { pool } from "@lifer/core/db.js";
 import { requireScope } from "../auth/session.js";
 import { ORIGINALS_DIR, SINGLE_USER_MODE } from "@lifer/core/config.js";
 import { trashSourceGroup, type TrashOutcome } from "./sourceTrash.js";
+import { assertImportRoom } from "../lib/importSpace.js";
 import { generateDerivatives } from "@lifer/core/uploads/image.js";
 import { settlePreparedAhead, takePreparedAhead, whileImporting, type PreparedAhead } from "./preparedAhead.js";
 import {
@@ -91,6 +92,7 @@ export async function photoUploadRoutes(fastify: FastifyInstance): Promise<void>
     async (request, reply) => {
       // Each file part is streamed to its own temp file as it arrives (busboy needs every part
       // drained before it reads the next), so parts and fields can come in any order.
+      await assertImportRoom(0);
       const fields: Record<string, string> = {};
       const sources: ReceivedFile[] = [];
       let photo: ReceivedFile | null = null;
@@ -140,8 +142,10 @@ async function moveSourceAway(
     moved: false,
     reason: "trash_failed",
     trashed: [],
+    sidecars: 0,
   }));
-  return { ...outcome, body: { ...body, sourceMove: { moved: moved.moved, reason: moved.reason ?? null } } };
+  const sourceMove = { moved: moved.moved, reason: moved.reason ?? null, sidecars: moved.sidecars };
+  return { ...outcome, body: { ...body, sourceMove } };
 }
 const result = (code: number, body: unknown): ImportResult => ({ code, body });
 

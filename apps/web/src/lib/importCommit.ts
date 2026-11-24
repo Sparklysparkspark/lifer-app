@@ -42,6 +42,8 @@ export function importFields(t: ImportTarget): Array<[string, string]> {
 export interface SourceMove {
   moved: boolean;
   reason: string | null;
+  /** XMP sidecars that went to the Trash with it. */
+  sidecars?: number;
 }
 
 export type CommitOutcome = { kind: "imported"; captureId: string; sourceMove?: SourceMove } | { kind: "rejected" };

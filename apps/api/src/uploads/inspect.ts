@@ -28,7 +28,8 @@ import {
 } from "@lifer/core/uploads/formats.js";
 import { stagedPath, stageUpload, sweepStagedUploads } from "../lib/stagedUploads.js";
 import { prepareAhead, whileImporting } from "./preparedAhead.js";
-import { finishedTusUpload } from "../lib/tusUploads.js";
+import { finishedTusUpload, removeTusUpload } from "../lib/tusUploads.js";
+import { assertImportRoom, currentImportTier } from "../lib/importSpace.js";
 import { originalSharpOptions } from "@lifer/core/lib/imageLimits.js";
 import {
   findNearDuplicate,
@@ -95,6 +96,7 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
     // Background previews (preparedAhead.ts) wait while photos are being checked.
     async (request, reply) =>
       whileImporting(async () => {
+        await assertImportRoom(0);
         const userId = request.user!.id;
         let received: ReceivedFile | null = null;
         // Optional: with the batch's region, the same request also returns species suggestions from
@@ -441,13 +443,16 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
           // A multipart file is kept so the import can refer to it instead of sending it again
           // (lib/stagedUploads.ts). A resumable upload is already kept under its uploadId.
           void sweepStagedUploads();
+          // A nearly full drive keeps no copy of a checked photo: the import sends it again.
+          const roomy = (await currentImportTier()) === "ok";
           let stagedId: string | null = null;
-          if (received) {
+          if (received && roomy) {
             kept = await stageUpload(userId, fingerprint, received.path);
             stagedId = kept ? fingerprint : null;
           }
+          if (!received && uploadId && !roomy) await removeTusUpload(uploadId).catch(() => {});
           // A photo headed for import gets its previews and card crop made while the user picks.
-          const keptPath = received ? (kept ? stagedPath(userId, fingerprint) : null) : file.path;
+          const keptPath = received ? (kept ? stagedPath(userId, fingerprint) : null) : roomy ? file.path : null;
           if (keptPath && format && !possibleDuplicate) prepareAhead(userId, fingerprint, keptPath, format);
 
           return {
@@ -462,7 +467,7 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
             matchingMs,
             previewDataUrl,
             stagedId,
-            uploadId: received ? null : uploadId,
+            uploadId: received || !roomy ? null : uploadId,
             notWildlife,
             maybeNotWildlife: maybeNotWildlife ?? null,
             invertebrate,

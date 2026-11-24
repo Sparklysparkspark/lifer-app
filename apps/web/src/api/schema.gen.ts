@@ -21564,6 +21564,8 @@ export interface paths {
                       | "trash_failed"
                     )
                   | null;
+                /** @description XMP sidecars that went to the Trash with it */
+                sidecars: number;
               } & {
                 [key: string]: unknown;
               };
@@ -40886,7 +40888,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** POST /trips/import-suggestions */
+    /**
+     * Trips a batch of photos about to be imported may belong to
+     * @description Body: `{ groups }`, one entry per day's photos: `key`, their capture `times`, their GPS `points` and the `regionIds` they fall in. Returns the trips each group clearly fits, by date and place; nothing is changed.
+     */
     post: {
       parameters: {
         query?: never;
@@ -41434,6 +41439,8 @@ export interface paths {
                       | "trash_failed"
                     )
                   | null;
+                /** @description XMP sidecars that went to the Trash with it */
+                sidecars: number;
               } & {
                 [key: string]: unknown;
               };
@@ -42252,6 +42259,8 @@ export interface paths {
           content: {
             "application/json": {
               cleared: number;
+              /** @description XMP sidecars that went (or would go) with them */
+              sidecars: number;
               /** @description Every file sent to the Trash, sidecars included */
               trashed: string[];
               kept: {
@@ -42503,6 +42512,87 @@ export interface paths {
           };
         };
         /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/uploads/space": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Check free disk space for an import
+     * @description Send `files` (photos still to check or import) and `bytes` (their total size). `tier` is `ok`, `tight` (the batch plus a reserve of 5 GB or 5 percent doesn't fit: import one photo at a time) or `critical` (under 3 GB free: imports, checks and new uploads answer 507 `disk_full` until space is freed). `free` is the bytes free on the fullest drive the server writes to, null when unknown; `toFree` is how much to free so the rest of the batch fits.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @description Photos still to check or import */
+            files: number;
+            /** @description Their total size */
+            bytes: number;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @enum {unknown} */
+              tier: "ok" | "tight" | "critical";
+              free: number | null;
+              /** @description Bytes to free so the rest of the batch fits */
+              toFree: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
         401: {
           headers: {
             [name: string]: unknown;

@@ -347,11 +347,13 @@ export function registerExternalJob(speciesId: string, fileName: string): string
   return job.id;
 }
 
-export function settleExternalJob(jobId: string, error?: string): void {
+/** `skipped`: the job never ran (an import paused before reaching it). */
+export function settleExternalJob(jobId: string, error?: string, skipped = false): void {
   const job = state.jobs.find((j) => j.id === jobId);
   if (job) {
     job.done = true;
     if (error) job.error = error;
+    if (skipped) job.skipped = true;
   }
   settleIfDone();
   setState({ jobs: [...state.jobs] });

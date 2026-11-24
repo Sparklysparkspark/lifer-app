@@ -1280,7 +1280,7 @@
       "clearTitle": "{count, plural, one {Move {formatted} file to the Trash?} other {Move {formatted} files to the Trash?}}",
       "clearMessage": "Each one is already in your library with exactly the same content. Files you skipped before stay where they are. Put them back from the Trash if you need them.",
       "clearConfirm": "{count, plural, one {Move {formatted} file to the Trash} other {Move {formatted} files to the Trash}}",
-      "cleared": "{count, plural, one {Moved {formatted} file to the Trash. It's still there if you need it.} other {Moved {formatted} files to the Trash. They're still there if you need them.}}",
+      "cleared": "{count, plural, one {Moved {formatted} file} other {Moved {formatted} files}}{sidecars, plural, =0 {} one { and # sidecar file} other { and # sidecar files}} to the Trash. {count, plural, one {It's still there if you need it.} other {They're still there if you need them.}}",
       "clearFailed": "Couldn't clear out those files"
     },
     "recentFolders": {
@@ -1434,11 +1434,17 @@
       "remove": "Remove place",
       "photoPlace": "Set place for this photo"
     },
+    "space": {
+      "tight": "Your disk is nearly full, so Lifer will match photos in smaller batches and keep fewer temporary files. Free some space to speed this up.",
+      "paused": "Lifer paused the import with {free} free so your library isn't harmed. {imported, number} of {total, plural, one {# photo was imported} other {# photos were imported}}; the rest are still where they were. Free at least {toFree} and press Continue.",
+      "full": "Your disk is too full to import with {free} free. Free at least {toFree} and press Continue.",
+      "continue": "Continue"
+    },
     "move": {
       "label": "Move photos into my library",
-      "help": "The originals are removed from where they are once they are safely in your library. Works for folders you choose.",
-      "moved": "{count, plural, one {Moved {formatted} photo into your library.} other {Moved {formatted} photos into your library.}}",
-      "cleared": "{count, plural, one {Cleared {formatted} already in Lifer.} other {Cleared {formatted} already in Lifer.}}",
+      "help": "Photos and their .xmp sidecar files are moved to the Trash once they are safely in your library.",
+      "moved": "{count, plural, one {Moved {formatted} photo} other {Moved {formatted} photos}}{sidecars, plural, =0 { into your library.} one { and # sidecar file into your library.} other { and # sidecar files into your library.}}",
+      "cleared": "{count, plural, one {Cleared {formatted} already in Lifer} other {Cleared {formatted} already in Lifer}}{sidecars, plural, =0 {.} one {, with # sidecar file.} other {, with # sidecar files.}}",
       "stayed": "{count, plural, one {{formatted} skipped, still where it was.} other {{formatted} skipped, still where they were.}}",
       "reasons": {
         "notInSourceFolder": "The original stays where it is: it isn't in a folder you chose.",
@@ -3724,6 +3730,10 @@
   "status": {
     "offline": {
       "message": "You're offline. Installed species and your photos still work.",
+      "dismiss": "Hide until next launch"
+    },
+    "lowSpace": {
+      "message": "Your disk is nearly full ({free} free). Free some space so Lifer can keep importing and saving.",
       "dismiss": "Hide until next launch"
     },
     "libraryFolder": {

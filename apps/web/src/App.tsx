@@ -7,6 +7,7 @@ import LoginPage from "./pages/LoginPage";
 import CollectionPage from "./pages/CollectionPage";
 import StatusTray from "./components/StatusTray";
 import LibraryFolderBanner from "./components/LibraryFolderBanner";
+import LowSpaceBanner from "./components/LowSpaceBanner";
 import OfflineBanner from "./components/OfflineBanner";
 import TitleBarDragRegion from "./components/TitleBarDragRegion";
 import AppNav from "./components/AppNav";
@@ -226,6 +227,7 @@ function AppLayout() {
             {/* Docked in the layout, so it never covers page controls, onboarding or viewers. */}
             <OfflineBanner />
             <LibraryFolderBanner />
+            <LowSpaceBanner />
             {page}
             {/* Started apps' frames live here, not in their page, so they survive navigation. */}
             <PluginFrames />

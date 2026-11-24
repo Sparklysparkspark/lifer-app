@@ -19658,7 +19658,7 @@
                     },
                     "sourceMove": {
                       "type": "object",
-                      "required": ["moved", "reason"],
+                      "required": ["moved", "reason", "sidecars"],
                       "properties": {
                         "moved": { "type": "boolean" },
                         "reason": {
@@ -19675,7 +19675,8 @@
                             },
                             { "type": "null" }
                           ]
-                        }
+                        },
+                        "sidecars": { "type": "integer", "description": "XMP sidecars that went to the Trash with it" }
                       },
                       "additionalProperties": true,
                       "description": "Desktop, with moveSourcePath: whether the original went to the Trash, and why not"
@@ -36005,7 +36006,8 @@
     },
     "/trips/import-suggestions": {
       "post": {
-        "summary": "POST /trips/import-suggestions",
+        "summary": "Trips a batch of photos about to be imported may belong to",
+        "description": "Body: `{ groups }`, one entry per day's photos: `key`, their capture `times`, their GPS `points` and the `regionIds` they fall in. Returns the trips each group clearly fits, by date and place; nothing is changed.",
         "tags": ["trips"],
         "security": [{ "apiKey": [] }],
         "x-required-scope": "trips.read",
@@ -36535,7 +36537,7 @@
                     },
                     "sourceMove": {
                       "type": "object",
-                      "required": ["moved", "reason"],
+                      "required": ["moved", "reason", "sidecars"],
                       "properties": {
                         "moved": { "type": "boolean" },
                         "reason": {
@@ -36552,7 +36554,8 @@
                             },
                             { "type": "null" }
                           ]
-                        }
+                        },
+                        "sidecars": { "type": "integer", "description": "XMP sidecars that went to the Trash with it" }
                       },
                       "additionalProperties": true,
                       "description": "Desktop, with moveSourcePath: whether the original went to the Trash, and why not"
@@ -37319,9 +37322,10 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["cleared", "trashed", "kept"],
+                  "required": ["cleared", "sidecars", "trashed", "kept"],
                   "properties": {
                     "cleared": { "type": "integer" },
+                    "sidecars": { "type": "integer", "description": "XMP sidecars that went (or would go) with them" },
                     "trashed": {
                       "type": "array",
                       "items": { "type": "string" },
@@ -37526,6 +37530,67 @@
           },
           "401": {
             "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/uploads/space": {
+      "post": {
+        "summary": "Check free disk space for an import",
+        "description": "Send `files` (photos still to check or import) and `bytes` (their total size). `tier` is `ok`, `tight` (the batch plus a reserve of 5 GB or 5 percent doesn't fit: import one photo at a time) or `critical` (under 3 GB free: imports, checks and new uploads answer 507 `disk_full` until space is freed). `free` is the bytes free on the fullest drive the server writes to, null when unknown; `toFree` is how much to free so the rest of the batch fits.",
+        "tags": ["photos"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "photos.write",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["files", "bytes"],
+                "properties": {
+                  "files": { "type": "integer", "minimum": 0, "description": "Photos still to check or import" },
+                  "bytes": { "type": "number", "minimum": 0, "description": "Their total size" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["tier", "free", "toFree"],
+                  "properties": {
+                    "tier": { "enum": ["ok", "tight", "critical"] },
+                    "free": {
+                      "anyOf": [
+                        { "type": "number", "description": "Bytes free on the fullest drive involved" },
+                        { "type": "null" }
+                      ]
+                    },
+                    "toFree": { "type": "number", "description": "Bytes to free so the rest of the batch fits" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the photos.write scope",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           },
           "default": {

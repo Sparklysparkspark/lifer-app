@@ -45,7 +45,7 @@ import { startAccelerationSelection } from "./species/accelerationSetup.js";
 import { pool, warmPool } from "@lifer/core/db.js";
 import { stopInference } from "@lifer/core/species/inference.js";
 import { closeExiftool } from "./uploads/exif.js";
-import { DiskFullError } from "@lifer/core/lib/freeSpace.js";
+import { diskFullBody } from "./lib/importSpace.js";
 import { cspDirectives } from "./csp.js";
 import { friendlyFsErrorMessage } from "./lib/friendlyFsError.js";
 import { registerRateLimit } from "./lib/rateLimit.js";
@@ -169,12 +169,8 @@ app.setErrorHandler((err, request, reply) => {
   if (replyToValidationError(err as FastifyError, request, reply)) return;
   const code = (err as NodeJS.ErrnoException).code;
   const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
-  if (err instanceof DiskFullError || code === "ENOSPC") {
-    const full = err instanceof DiskFullError ? err : new DiskFullError(0, 0, "");
-    return reply
-      .code(507)
-      .send({ error: full.message, code: full.code, needed: full.needed, free: full.free, path: full.path });
-  }
+  const full = diskFullBody(err);
+  if (full) return reply.code(507).send(full);
   // Says which folder is gone and what to do; the code lets the app bring its banner back.
   if (err instanceof LibraryFolderUnavailableError) {
     return reply.code(503).send({ error: err.message, code: "library_folder_unavailable" });

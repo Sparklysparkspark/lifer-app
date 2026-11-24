@@ -1,7 +1,7 @@
 // Resumable uploads (tus, /api/uploads/tus) for every imported file, so large files pass reverse
 // proxies and dropped connections resume. The finished upload's id then goes to /uploads/*.
 import { Upload, type DetailedError, type PreviousUpload } from "tus-js-client";
-import { CLIENT_HEADER } from "../api/client";
+import { ApiError, CLIENT_HEADER } from "../api/client";
 import { formatBytes } from "./format";
 import { ignore } from "./ignore";
 import { MAX_RATE_LIMIT_WAITS, waitForRateLimit } from "./rateLimitWait";
@@ -155,7 +155,8 @@ export function uploadFile(
         // long as the server's Retry-After asks rather than these short fixed delays.
         onShouldRetry: (err) => {
           const status = err.originalResponse?.getStatus() ?? 0;
-          if (status === 413 || status === 429) return false;
+          // 507: the drive is nearly full, which retrying can't fix.
+          if (status === 413 || status === 429 || status === 507) return false;
           const retryable = status < 400 || status >= 500 || status === 409 || status === 423;
           return retryable && (typeof navigator === "undefined" || navigator.onLine !== false);
         },
@@ -218,7 +219,7 @@ export function uploadFile(
       }
       const message =
         responseError(err) ?? (status ? `Upload failed (${status})` : "Upload failed: the connection dropped");
-      settle(() => reject(new Error(message)));
+      settle(() => reject(status === 507 ? new ApiError(507, message, "disk_full") : new Error(message)));
     };
 
     void start(null, true).catch((err) =>

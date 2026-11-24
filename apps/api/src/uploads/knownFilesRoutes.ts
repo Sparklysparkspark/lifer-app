@@ -292,6 +292,7 @@ export async function knownFilesRoutes(fastify: FastifyInstance): Promise<void> 
         response: replies(
           Type.Object({
             cleared: Type.Integer(),
+            sidecars: Type.Integer({ description: "XMP sidecars that went (or would go) with them" }),
             trashed: Type.Array(Type.String(), { description: "Every file sent to the Trash, sidecars included" }),
             kept: Type.Array(Type.Object({ path: Type.String(), reason: TrashReason })),
           }),

@@ -147,7 +147,11 @@ export const UploadResponses = {
     rawSha256: Type.Optional(Type.String({ description: "sha256 of the RAW sent with the photo, when one was" })),
     sourceMove: Type.Optional(
       Type.Object(
-        { moved: Type.Boolean(), reason: Nullable(TrashReason) },
+        {
+          moved: Type.Boolean(),
+          reason: Nullable(TrashReason),
+          sidecars: Type.Integer({ description: "XMP sidecars that went to the Trash with it" }),
+        },
         {
           additionalProperties: true,
           description: "Desktop, with moveSourcePath: whether the original went to the Trash, and why not",
