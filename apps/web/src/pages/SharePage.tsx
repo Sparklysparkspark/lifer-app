@@ -161,6 +161,10 @@ export default function SharePage() {
 
   const slides: LightboxSlide[] = content.items.map((item) => ({
     url: `/api/share/${token}/photos/${item.photoId}/display`,
+    // The grid's copy shows at once while the full photo decodes, as in the owner's viewer.
+    thumbUrl: `/api/share/${token}/photos/${item.photoId}/thumb`,
+    width: item.width ?? null,
+    height: item.height ?? null,
     caption: [speciesName(item), placeText(item)].filter(Boolean).join(" · "),
     download: downloadFor(item),
     info: {

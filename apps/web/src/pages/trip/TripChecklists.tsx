@@ -10,7 +10,7 @@ import { useDeploymentMode } from "../../hooks/useDeploymentMode";
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
-import { formatDate, formatNumber } from "../../lib/format";
+import { formatDate } from "../../lib/format";
 import { openExternal } from "../../lib/openExternal";
 import { pickFolderNative } from "../../lib/pickFolderNative";
 import { useApiRoute } from "../../lib/resource";
@@ -118,10 +118,7 @@ export default function TripChecklists({ tripId }: { tripId: string }) {
                   size="sm"
                   disabled={busy}
                   onClick={() =>
-                    void run(
-                      () => confirmLinks(c.subId),
-                      t("trips.checklists.confirmedToast", { count: formatNumber(c.suggested) }),
-                    )
+                    void run(() => confirmLinks(c.subId), t("trips.checklists.confirmedToast", { count: c.suggested }))
                   }
                 >
                   {t("trips.checklists.confirm", { count: c.suggested })}

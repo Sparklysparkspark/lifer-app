@@ -3,8 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { dateOnlyToTakenAt } from "@lifer/shared";
 import type { useGoBack } from "../../hooks/useGoBack";
-import { api, apiPath, ApiError } from "../../api/client";
-import { useEnterToConfirm } from "../../hooks/useEnterToConfirm";
+import { api, apiPath } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import type { useSelectMode } from "../../hooks/useSelectMode";
 import { errorMessage } from "../../lib/errorMessage";
@@ -59,18 +58,9 @@ export function useGalleryEdits({
   const navigate = useNavigate();
   const speciesName = useSpeciesName();
   const { selectMode, selectedIds: selectedCaptureIds, exit: exitSelectModeBase } = select;
-  const [confirmingDeleteKey, setConfirmingDeleteKey] = useState<string | null>(null);
   const [addingToAlbumCaptureId, setAddingToAlbumCaptureId] = useState<string | null>(null);
   // A photo menu's Location: the coordinates dialog, as on the map.
   const [placingCaptureId, setPlacingCaptureId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [confirmingBatchDelete, setConfirmingBatchDelete] = useState(false);
-  const [deleteRawToo, setDeleteRawToo] = useState(false);
-  useEnterToConfirm(
-    () => confirmingDeleteKey && void confirmDelete(confirmingDeleteKey),
-    !!confirmingDeleteKey && !deleting,
-  );
-  useEnterToConfirm(() => void confirmDeleteSelected(), confirmingBatchDelete && !deleting);
   // A photo menu's edit open in its dialog.
   const [editing, setEditing] = useState<{ captureId: string; edit: CaptureEdit } | null>(null);
   const [bulkTags, setBulkTags] = useState<string[]>([]);
@@ -90,12 +80,12 @@ export function useGalleryEdits({
         setItems((prev) => prev?.filter((it) => it.captureId !== captureId) ?? prev);
         setTotal((t) => (t === null ? t : Math.max(0, t - 1)));
       } catch (err) {
-        toast.error(errorMessage(err, "Couldn't save that date"));
+        toast.error(errorMessage(err, t("gallery.edits.dateFailed")));
       } finally {
         setSavingDateCaptureId(null);
       }
     },
-    [toast, setItems, setTotal],
+    [toast, setItems, setTotal, t],
   );
 
   const rateCapture = useCallback(
@@ -106,11 +96,11 @@ export function useGalleryEdits({
       try {
         await api.patch(apiPath("/captures/{id}/rating", { id: captureId }), { rating });
       } catch (err) {
-        toast.error(errorMessage(err, "Couldn't save that rating"));
+        toast.error(errorMessage(err, t("gallery.edits.ratingFailed")));
         loadRef.current({ keepLoaded: true });
       }
     },
-    [toast, loadRef, setItems],
+    [toast, loadRef, setItems, t],
   );
 
   // Marks a photo as also showing another species; it then shows on that species' page too.
@@ -129,11 +119,11 @@ export function useGalleryEdits({
       try {
         await api.patch(apiPath("/captures/{id}/tags", { id: captureId }), { tags });
       } catch (err) {
-        toast.error(errorMessage(err, "Couldn't save those tags"));
+        toast.error(errorMessage(err, t("gallery.edits.tagsFailed")));
         loadRef.current({ keepLoaded: true });
       }
     },
-    [toast, loadRef, setItems, setTagOptions],
+    [toast, loadRef, setItems, setTagOptions, t],
   );
 
   // shortcut: one PATCH per photo, fine for an interactive selection; add a batch endpoint if it's slow.
@@ -148,9 +138,9 @@ export function useGalleryEdits({
     );
     const failed = results.filter((r) => r.status === "rejected").length;
     if (failed > 0) {
-      toast.error(`${failed} of ${pluralize(ids.length, "photo")} couldn't be rated`);
+      toast.error(t("gallery.edits.rateSomeFailed", { failed, count: ids.length }));
       loadRef.current({ keepLoaded: true });
-    } else toast.success(`Rated ${pluralize(ids.length, "photo")}`);
+    } else toast.success(t("gallery.edits.rated", { count: ids.length }));
   }
 
   async function hide(captureIds: string[]) {
@@ -163,14 +153,12 @@ export function useGalleryEdits({
       if (selectMode) exitSelectMode();
       refreshHiddenCount();
       toast.show(
-        captureIds.length === 1
-          ? "Hidden. Find it under Hidden in the Gallery's filters"
-          : `${pluralize(res.hidden, "photo")} hidden. Find them under Hidden in the Gallery's filters`,
+        captureIds.length === 1 ? t("gallery.edits.hiddenOne") : t("gallery.edits.hiddenMany", { count: res.hidden }),
         {
           tone: "success",
           actions: [
             {
-              label: "Undo",
+              label: t("common.undo"),
               onClick: () =>
                 void api
                   .post("/captures/unhide", { captureIds })
@@ -186,13 +174,13 @@ export function useGalleryEdits({
                     refreshHiddenCount();
                     loadRef.current({ keepLoaded: true });
                   })
-                  .catch((err) => toast.error(errorMessage(err, "Couldn't unhide those photos"))),
+                  .catch((err) => toast.error(errorMessage(err, t("gallery.edits.unhideFailed")))),
             },
           ],
         },
       );
     } catch (err) {
-      toast.error(errorMessage(err, "Couldn't hide that photo"));
+      toast.error(errorMessage(err, t("gallery.edits.hideFailed")));
     }
   }
 
@@ -208,17 +196,17 @@ export function useGalleryEdits({
         const rest = await fetchOriginals();
         chosen.push(...rest.filter((o) => selectedCaptureIds.has(o.captureId) && !loadedIds.has(o.captureId)));
       } catch (err) {
-        toast.error(errorMessage(err, "Couldn't find the selected originals"));
+        toast.error(errorMessage(err, t("gallery.edits.originalsFailed")));
         return;
       }
     }
     if (chosen.length === 0) {
-      toast.info("None of the selected photos has an original to download");
+      toast.info(t("gallery.edits.noOriginals"));
       return;
     }
     const folder = await pickDownloadFolder();
     if (folder === null) return;
-    const id = toast.show(`Preparing ${pluralize(chosen.length, "download")}...`, { durationMs: null });
+    const id = toast.show(t("gallery.edits.preparingDownloads", { count: chosen.length }), { durationMs: null });
     let failed = 0;
     for (const it of chosen) {
       const raw = it.kind === "raw";
@@ -233,32 +221,32 @@ export function useGalleryEdits({
       }
     }
     toast.dismiss(id);
-    if (failed > 0) toast.error(`${failed} of ${pluralize(chosen.length, "original")} couldn't be downloaded`);
+    if (failed > 0) toast.error(t("gallery.edits.downloadsFailed", { failed, count: chosen.length }));
   }
 
   // A correction can be undone by moving the photos back to the species they came from.
   function showMoved(moved: Array<{ captureId: string; from: string | undefined }>, to: SpeciesResult) {
     const undo = moved.every((m) => m.from)
       ? {
-          label: "Undo",
+          label: t("common.undo"),
           onClick: () =>
             void Promise.allSettled(
               moved.map((m) =>
                 api.patch(apiPath("/captures/{id}/reassign", { id: m.captureId }), { speciesId: m.from! }),
               ),
             ).then((results) => {
-              if (results.some((r) => r.status === "rejected")) toast.error("Couldn't move every photo back");
+              if (results.some((r) => r.status === "rejected")) toast.error(t("gallery.edits.moveBackFailed"));
               loadRef.current({ keepLoaded: true });
             }),
         }
       : null;
     toast.show(
       moved.length === 1
-        ? `Moved to ${speciesName(to)}`
-        : `Moved ${pluralize(moved.length, "photo")} to ${speciesName(to)}`,
+        ? t("gallery.edits.movedOne", { species: speciesName(to) })
+        : t("gallery.edits.movedMany", { count: moved.length, species: speciesName(to) }),
       {
         tone: "success",
-        actions: [{ label: "View", onClick: () => navigate(`/species/${to.id}`) }, ...(undo ? [undo] : [])],
+        actions: [{ label: t("common.view"), onClick: () => navigate(`/species/${to.id}`) }, ...(undo ? [undo] : [])],
       },
     );
   }
@@ -271,23 +259,43 @@ export function useGalleryEdits({
         photoId: featuring ? item.photoId : null,
       });
     } catch (err) {
-      toast.error(errorMessage(err, "Couldn't change the featured photo"));
+      toast.error(errorMessage(err, t("gallery.edits.featuredFailed")));
       loadRef.current({ keepLoaded: true });
     }
   }
 
-  async function confirmDelete(captureId: string) {
-    setDeleting(true);
+  // Trash keeps them, so deleting needs no confirm: the toast's Undo restores them.
+  function showTrashed(captureIds: string[]) {
+    toast.show(t("gallery.edits.trashed", { count: captureIds.length }), {
+      tone: "success",
+      actions: [
+        { label: t("common.view"), onClick: () => navigate("/trash") },
+        {
+          label: t("common.undo"),
+          onClick: () =>
+            void Promise.allSettled(
+              captureIds.map((captureId) => api.post(apiPath("/trash/{id}/restore", { id: captureId }), {})),
+            ).then((results) => {
+              const failed = results.filter((r) => r.status === "rejected").length;
+              if (failed > 0) toast.error(t("trash.restoreManyFailed", { count: failed }));
+              photosDeleted();
+              loadRef.current({ keepLoaded: true });
+            }),
+        },
+      ],
+    });
+  }
+
+  async function deletePhoto(captureId: string) {
+    closeMenu();
     try {
       await api.delete(apiPath("/captures/{id}", { id: captureId }));
       photosDeleted();
-      setConfirmingDeleteKey(null);
       setItems((prev) => prev?.filter((it) => it.captureId !== captureId) ?? prev);
-      setTotal((t) => (t === null ? t : Math.max(0, t - 1)));
+      setTotal((n) => (n === null ? n : Math.max(0, n - 1)));
+      showTrashed([captureId]);
     } catch (err) {
-      toast.error(errorMessage(err, "Couldn't delete that photo"));
-    } finally {
-      setDeleting(false);
+      toast.error(errorMessage(err, t("gallery.edits.deleteFailed")));
     }
   }
 
@@ -302,10 +310,6 @@ export function useGalleryEdits({
     exitSelectModeBase();
   }
 
-  function requestBatchDelete() {
-    if (selectMode && selectedCaptureIds.size > 0) setConfirmingBatchDelete(true);
-  }
-
   const [addingToTargetAlbum, setAddingToTargetAlbum] = useState(false);
   async function addSelectedToTargetAlbum() {
     if (!targetAlbumId) return;
@@ -314,31 +318,25 @@ export function useGalleryEdits({
       await api.post(apiPath("/albums/{id}/captures", { id: targetAlbumId }), { captureIds: [...selectedCaptureIds] });
       goBack(`/albums/${targetAlbumId}`, { replace: true });
     } catch (err) {
-      toast.error(errorMessage(err, "Couldn't add those photos to the album"));
+      toast.error(errorMessage(err, t("gallery.edits.addToAlbumFailed")));
     } finally {
       setAddingToTargetAlbum(false);
     }
   }
 
-  function closeBatchDelete() {
-    setConfirmingBatchDelete(false);
-    setDeleteRawToo(false);
-  }
-
-  async function confirmDeleteSelected() {
-    setDeleting(true);
+  /** `deleteRaw` also deletes each RAW beside an edited original once Trash purges it. */
+  async function deleteSelected(deleteRaw = false) {
+    if (!selectMode || selectedCaptureIds.size === 0) return;
     const ids = new Set(selectedCaptureIds);
     try {
-      await api.post("/captures/batch-delete", { captureIds: [...ids], deleteRaw: deleteRawToo });
+      await api.post("/captures/batch-delete", { captureIds: [...ids], deleteRaw });
       photosDeleted();
-      closeBatchDelete();
       exitSelectMode();
       setItems((prev) => prev?.filter((it) => !ids.has(it.captureId)) ?? prev);
-      setTotal((t) => (t === null ? t : Math.max(0, t - ids.size)));
+      setTotal((n) => (n === null ? n : Math.max(0, n - ids.size)));
+      showTrashed([...ids]);
     } catch (err) {
-      toast.error(errorMessage(err, "Couldn't delete those photos"));
-    } finally {
-      setDeleting(false);
+      toast.error(errorMessage(err, t("gallery.edits.deleteManyFailed")));
     }
   }
 
@@ -352,7 +350,7 @@ export function useGalleryEdits({
       load({ keepLoaded: true });
       showMoved([{ captureId, from }], to);
     } catch (err) {
-      setReassignError(err instanceof ApiError ? err.message : "Couldn't reassign this photo");
+      setReassignError(errorMessage(err, t("gallery.edits.reassignFailed")));
     }
   }
 
@@ -367,7 +365,7 @@ export function useGalleryEdits({
         ids.map((captureId) => api.patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: to.id })),
       );
       const failed = results.filter((r) => r.status === "rejected").length;
-      if (failed > 0) setReassignError(`${failed} of ${results.length} photos couldn't be reassigned`);
+      if (failed > 0) setReassignError(t("gallery.edits.reassignSomeFailed", { failed, count: results.length }));
       exitSelectMode();
       load({ keepLoaded: true });
       const moved = ids.filter((_, i) => results[i].status === "fulfilled");
@@ -466,7 +464,8 @@ export function useGalleryEdits({
     exitSelectMode,
     /** Reloads the photos in place, e.g. after their dates moved. */
     reload: () => loadRef.current({ keepLoaded: true }),
-    requestBatchDelete,
+    deletePhoto,
+    deleteSelected,
     addingToTargetAlbum,
     addSelectedToTargetAlbum,
     bulk: {
@@ -481,16 +480,6 @@ export function useGalleryEdits({
     },
     reassignError,
     bulkTagError,
-    deleting,
-    single: { captureId: confirmingDeleteKey, request: setConfirmingDeleteKey, confirm: confirmDelete },
-    batch: {
-      open: confirmingBatchDelete,
-      setOpen: setConfirmingBatchDelete,
-      close: closeBatchDelete,
-      confirm: confirmDeleteSelected,
-      deleteRawToo,
-      setDeleteRawToo,
-    },
   };
 }
 

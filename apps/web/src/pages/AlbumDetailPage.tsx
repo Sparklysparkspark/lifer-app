@@ -1,16 +1,23 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { LoadingScreen, Spinner } from "../components/LoadingScreen";
 import PageHeader from "../components/PageHeader";
 import PhotoImportRows from "../components/PhotoImportRows";
-import SpeciesCard from "../components/SpeciesCard";
+import GroupedSpeciesGrid from "../components/GroupedSpeciesGrid";
+import CollectionToolbar from "./collection/CollectionToolbar";
+import { useCollectionUrlState } from "./collection/useCollectionUrlState";
+import { useCollectionDisplayPrefs } from "./collection/useCollectionDisplayPrefs";
+import { filterCollectionItems, searchHaystack, searchRanks } from "./collection/filterItems";
+import { tripTaxonFilters } from "./trip/tripFilters";
+import { useSettings } from "../hooks/useSettings";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
-import { photoFilePaths } from "../lib/photoFilePaths";
+import { photoSlide } from "../lib/photoSlide";
 import CardCropEditor from "../components/CardCropEditor";
 import { NAME_MAX_LENGTH } from "@lifer/shared";
 import EditableTextField from "../components/EditableTextField";
 import EmptyState from "../components/EmptyState";
+import SearchInput from "../components/SearchInput";
 import PhotosIcon from "../components/PhotosIcon";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
@@ -26,6 +33,9 @@ import { GRID_PHOTO_FILTER_SECTIONS, PHOTO_SORTS } from "../lib/photoGridSection
 import SelectModeToggle from "../components/SelectModeToggle";
 import { useSelectMode } from "../hooks/useSelectMode";
 import Button, { IconButton } from "../components/Button";
+import AddToAlbumModal from "../components/AddToAlbumModal";
+import { SelectionBar, type BarAction } from "../components/SelectionActionRow";
+import { COMPARE_MAX, COMPARE_MIN } from "../lib/compareZoom";
 import { matchesMediaFilter, matchesPhotoFilters, sortPhotos } from "../lib/photoListFilters";
 import { useGalleryFilters } from "./gallery/useGalleryFilters";
 import { useGalleryFacets } from "./gallery/useGalleryFacets";
@@ -51,6 +61,8 @@ import type { ComparePhoto } from "../components/CompareView";
 import { api, apiPath } from "../api/client";
 import Tip from "../components/Tip";
 import { errorMessage } from "../lib/errorMessage";
+
+const albumPhotoId = (item: { captureId: string }) => item.captureId;
 
 // Loaded when photos are first compared.
 const CompareView = lazy(() => import("../components/CompareView"));
@@ -93,7 +105,14 @@ const SHARE_ICON = (
   </svg>
 );
 
+// Keyed by album, so opening another album straight from this one starts fresh: no selection,
+// edit mode, filter or viewer carries over.
 export default function AlbumDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  return <AlbumDetail key={id} />;
+}
+
+function AlbumDetail() {
   const speciesName = useSpeciesName();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -106,7 +125,13 @@ export default function AlbumDetailPage() {
   // The Gallery's filters. The whole album loads at once, so sorting and most filters run here;
   // the rest ask the Gallery's own query for the matching photos. Unrated sorts as 3.
   const [searchParams, setSearchParams] = useSearchParamsKeepingState();
-  const filters = useGalleryFilters(searchParams, setSearchParams, undefined, {
+  // ?taxon= is the species view's Animals choice (the Collection's toolbar), not the photo filter's.
+  const photoFilterParams = useMemo(() => {
+    const params = new URLSearchParams(searchParams);
+    params.delete("taxon");
+    return params;
+  }, [searchParams]);
+  const filters = useGalleryFilters(photoFilterParams, setSearchParams, undefined, {
     keys: ALBUM_PRESET_KEYS,
     search: false,
   });
@@ -139,27 +164,62 @@ export default function AlbumDetailPage() {
   const shares = useAlbumShares(id);
   const detail = useAlbumDetail(id, view);
   const { album } = detail;
+  // The species view is the Collection's, toolbar and all, as on a trip.
+  const url = useCollectionUrlState();
+  const prefs = useCollectionDisplayPrefs();
+  const namingStyles = useSettings().settings?.speciesNamingStyles ?? [];
+  const [gridWidth, setGridWidth] = useState<number | null>(null);
+  const [isGroupingPending, startGroupingTransition] = useTransition();
+  // Each view has its own toolbar, so the page holds the View menu open across a switch.
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const show = { value: view, onChange: setView, menuOpen: viewMenuOpen, onMenuOpenChange: setViewMenuOpen };
+  const speciesItems = detail.speciesItems;
+  const haystacks = useMemo(
+    () => new Map((speciesItems ?? []).map((i) => [i.speciesId, searchHaystack(i)])),
+    [speciesItems],
+  );
+  const { itemFilters, taxonFilters } = url;
+  const visibleSpecies = useMemo(
+    () => filterCollectionItems(speciesItems ?? [], { ...itemFilters, taxa: taxonFilters }, haystacks),
+    [speciesItems, itemFilters, taxonFilters, haystacks],
+  );
+  const speciesRanks = useMemo(
+    () => searchRanks(visibleSpecies, itemFilters.search, haystacks),
+    [visibleSpecies, itemFilters.search, haystacks],
+  );
+  const taxonChoices = useMemo(() => tripTaxonFilters(speciesItems ?? []), [speciesItems]);
+  const { reloadSpecies } = detail;
+  const onSpeciesChanged = useCallback(() => void reloadSpecies(), [reloadSpecies]);
   // A smart album's rules choose its photos: edited in the rule builder, with hand exclusions.
-  const [editingRules, setEditingRules] = useState(false);
+  // "Edit rules" from the album's card opens straight into the rule builder.
+  const [editingRules, setEditingRules] = useState(
+    () => !!(location.state as { editRules?: boolean } | null)?.editRules,
+  );
   const [showingExcluded, setShowingExcluded] = useState(false);
+  const [addingSelection, setAddingSelection] = useState(false);
   const rulesSummary = useRulesSummary(album?.rules);
   // Arriving from New album opens with its name selected, once: the flag is cleared from history
   // so a reload or a later visit back doesn't do it again.
   const [justCreated] = useState(() => !!(location.state as { justCreated?: boolean } | null)?.justCreated);
   useEffect(() => {
-    if (!justCreated) return;
+    if (!justCreated && !editingRules) return;
     navigate(
       { pathname: location.pathname, search: location.search },
-      { replace: true, state: { ...(location.state as object), justCreated: false } },
+      { replace: true, state: { ...(location.state as object), justCreated: false, editRules: false } },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- on arrival only
   }, []);
 
   // Slides and the grid both derive from this array so the shared lightbox index stays correct.
+  // The search box is one URL param in both views, as on a trip.
+  const search = url.search.trim().toLowerCase();
   const sortedItems = useMemo(() => {
     if (!album) return [];
     return sortPhotos(album.items, sortBy).filter(
       (item) =>
+        (!search ||
+          (item.commonName ?? "").toLowerCase().includes(search) ||
+          (item.scientificName ?? "").toLowerCase().includes(search)) &&
         (!serverMatches || serverMatches.has(item.captureId)) &&
         matchesMediaFilter(item.kind, mediaFilter) &&
         matchesPhotoFilters(
@@ -170,6 +230,7 @@ export default function AlbumDetailPage() {
     );
   }, [
     album,
+    search,
     serverMatches,
     sortBy,
     mediaFilter,
@@ -182,7 +243,7 @@ export default function AlbumDetailPage() {
     dateFrom,
     dateTo,
   ]);
-  const select = useSelectMode(sortedItems, (item) => item.captureId);
+  const select = useSelectMode(sortedItems, albumPhotoId, false, { pruneToItems: true });
   function stopEditing() {
     setEditMode(false);
     setPickingQuadSlot(null);
@@ -226,36 +287,38 @@ export default function AlbumDetailPage() {
 
   if (detail.loadError) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3">
-        <p className="text-muted">{t("albums.detail.loadFailed")}</p>
-        <Button variant="secondary" size="sm" onClick={detail.load}>
-          {t("common.retry")}
-        </Button>
-      </div>
+      <EmptyState title={t("albums.detail.loadFailed")} action={{ label: t("common.retry"), onClick: detail.load }} />
     );
   }
   if (!album) return <LoadingScreen />;
 
   const hasVideoInAlbum = album.items.some((i) => i.kind !== "image");
 
-  const slides: LightboxSlide[] = sortedItems.map((item) => ({
-    url: `/api/photos/${item.photoId}/display`,
-    videoUrl: item.kind === "video" ? `/api/photos/${item.photoId}/video` : null,
-    audioUrl: item.kind === "audio" ? `/api/photos/${item.photoId}/audio` : null,
-    frameUrl: item.kind === "video" ? `/photos/${item.photoId}/frame` : null,
-    caption: speciesName(item),
-    speciesId: item.speciesId,
-    info: {
-      cameraModel: item.cameraModel,
-      lens: item.lens,
-      focalLengthMm: item.focalLengthMm,
-      aperture: item.aperture,
-      shutter: item.shutter,
-      iso: item.iso,
-      durationSeconds: item.durationSeconds,
-      files: photoFilePaths(item.originalRef, item.rawRef),
+  const slides: LightboxSlide[] = sortedItems.map((item) =>
+    photoSlide(item, {
+      frameUrl: item.kind === "video" ? `/photos/${item.photoId}/frame` : null,
+      caption: speciesName(item),
+      rating: item.qualityRating ?? null,
+      onRate: (rating: number | null) => void detail.rateCapture(item.captureId, rating),
+    }),
+  );
+  const selectedCount = select.selectedIds.size;
+  const selectionActions: BarAction[] = [
+    ...(selectedCount >= COMPARE_MIN && selectedCount <= COMPARE_MAX
+      ? [{ key: "compare", label: t("gallery.select.compare"), onClick: () => setCompareIds([...select.selectedIds]) }]
+      : []),
+    { key: "album", label: t("albums.addTo.button"), onClick: () => setAddingSelection(true) },
+    {
+      key: "remove",
+      label: album.rules ? t("albums.smart.exclude") : t("albums.photos.removeFromAlbum"),
+      variant: "danger",
+      onClick: () => {
+        const ids = [...select.selectedIds];
+        select.clear();
+        void detail.removeFromAlbum(ids);
+      },
     },
-  }));
+  ];
   // The Gallery picker and species pages opened from here name the album on their back link.
   const backState = backStateFor(location, t, album.name);
   const croppingSlot = croppingQuadSlot != null ? album.quadSlots[croppingQuadSlot] : null;
@@ -284,14 +347,43 @@ export default function AlbumDetailPage() {
                 {t("albums.detail.doneEditing")}
               </Button>
             )}
-            <PhotoViewMenu
-              sections={view === "gallery" ? ["show", "sort", "size", "captions"] : ["show"]}
-              activeCount={view === "gallery" && sortBy !== "newest" ? 1 : 0}
-              show={{ value: view, onChange: setView }}
-              sort={{ value: sortBy, options: PHOTO_SORTS, onChange: filters.setSortBy }}
-              size={{ value: thumbSizePx, onChange: setThumbSizePx }}
-              captions={captions}
-            />
+            {view === "species" && speciesItems && speciesItems.length > 0 ? (
+              <CollectionToolbar
+                bare
+                url={url}
+                prefs={prefs}
+                startTransition={startGroupingTransition}
+                availableTaxonFilters={taxonChoices}
+                namingStyles={namingStyles}
+                hasGhost={speciesItems.some((i) => i.isGhost)}
+                hasLost={speciesItems.some((i) => i.isLost)}
+                hasNeedsBetter={speciesItems.some((i) => i.needsBetterPhoto)}
+                shownCount={visibleSpecies.length}
+                totalLoaded={speciesItems.length}
+                gridWidth={gridWidth}
+                show={show}
+              />
+            ) : (
+              <>
+                {view === "gallery" && album.items.length > 0 && (
+                  <SearchInput
+                    value={url.search}
+                    onChange={url.setSearch}
+                    placeholder={t("albums.detail.searchPlaceholder")}
+                    aria-label={t("albums.detail.searchPlaceholder")}
+                    className="w-full sm:w-56"
+                  />
+                )}
+                <PhotoViewMenu
+                  sections={view === "gallery" ? ["show", "sort", "size", "captions"] : ["show"]}
+                  activeCount={view === "gallery" && sortBy !== "newest" ? 1 : 0}
+                  show={show}
+                  sort={{ value: sortBy, options: PHOTO_SORTS, onChange: filters.setSortBy }}
+                  size={{ value: thumbSizePx, onChange: setThumbSizePx }}
+                  captions={captions}
+                />
+              </>
+            )}
             {/* Filters and Select act on photos, so the species view has neither. */}
             {view === "gallery" && album.items.length > 0 && (
               <>
@@ -458,6 +550,25 @@ export default function AlbumDetailPage() {
         <AlbumExclusionsModal albumId={album.id} onClose={() => setShowingExcluded(false)} onRestored={detail.load} />
       )}
 
+      {selectMode && view === "gallery" && (
+        <SelectionBar
+          count={select.selectedIds.size}
+          total={sortedItems.length}
+          onSelectAll={() => select.setSelectedIds(new Set(sortedItems.map(albumPhotoId)))}
+          onDeselectAll={select.clear}
+          emptyText={t("gallery.select.none")}
+          actions={selectionActions}
+        >
+          {addingSelection && (
+            <AddToAlbumModal
+              captureIds={[...select.selectedIds]}
+              onClose={() => setAddingSelection(false)}
+              onAdded={select.exit}
+            />
+          )}
+        </SelectionBar>
+      )}
+
       <main className="p-page">
         {album.items.length === 0 && album.rules ? (
           <EmptyState
@@ -486,27 +597,55 @@ export default function AlbumDetailPage() {
             }
           />
         ) : view === "species" ? (
-          detail.speciesItems == null ? (
+          speciesItems == null ? (
             <Spinner />
-          ) : detail.speciesItems.length === 0 ? (
+          ) : speciesItems.length === 0 ? (
             <EmptyState
               icon={SPECIES_ICON}
               title={t("albums.detail.noSpecies.title")}
               description={t("albums.detail.noSpecies.description")}
             />
+          ) : visibleSpecies.length === 0 ? (
+            <EmptyState
+              compact
+              title={t("collection.noFilterMatch.title", { count: speciesItems.length })}
+              action={{ label: t("gallery.empty.clearFilters"), onClick: () => url.clearFilters({ taxon: null }) }}
+            />
           ) : (
-            <div className="grid grid-cols-2 gap-item sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-              {detail.speciesItems.map((item) => (
-                <SpeciesCard key={item.speciesId} item={item} backLabel={album.name} />
-              ))}
+            <div
+              // The one switch the cards' CSS reads (theme.css), as on the Collection.
+              data-uncollected-colour={prefs.uncollectedColour || undefined}
+              className={isGroupingPending ? "opacity-60 transition-opacity" : "transition-opacity"}
+            >
+              <GroupedSpeciesGrid
+                items={visibleSpecies}
+                groupBy={url.groupBy}
+                sortBy={url.sortBy}
+                searchRanks={speciesRanks}
+                collectedFirst={url.collectedFirst}
+                seenFirst={url.seenFirst}
+                targetFirst={url.targetFirst}
+                cardMinWidth={prefs.cardMinWidth}
+                hideLabels={prefs.hideLabels}
+                hideNames={prefs.hideNames}
+                onWidthChange={setGridWidth}
+                onChanged={onSpeciesChanged}
+                backLabel={album.name}
+              />
             </div>
           )
         ) : sortedItems.length === 0 ? (
           <EmptyState
             compact
-            title={t("gallery.empty.noFilterMatch")}
-            description={t("gallery.empty.filtersBody")}
-            action={{ label: t("gallery.empty.clearFilters"), onClick: filters.clearFilters }}
+            title={
+              url.search ? t("gallery.empty.noSearchMatch", { query: url.search }) : t("gallery.empty.noFilterMatch")
+            }
+            description={url.search ? undefined : t("gallery.empty.filtersBody")}
+            action={
+              url.search
+                ? { label: t("gallery.empty.clearSearch"), onClick: () => url.setSearch("") }
+                : { label: t("gallery.empty.clearFilters"), onClick: filters.clearFilters }
+            }
           />
         ) : (
           <>
@@ -528,7 +667,6 @@ export default function AlbumDetailPage() {
                 return detail.setQuadSlotPhoto(slot, photoId);
               }}
               onSetCover={chooseCover}
-              onCompare={setCompareIds}
               onAdjustCover={setCroppingCoverPhotoUrl}
               onRemove={detail.removeFromAlbum}
               onReload={detail.load}

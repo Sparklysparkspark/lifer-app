@@ -28,7 +28,7 @@ const edits = {
     settingRegion: false,
     download: vi.fn(),
   },
-  batch: { setOpen: vi.fn() },
+  deleteSelected: vi.fn(),
   hide: vi.fn(),
   tagOptions: [],
   exitSelectMode: vi.fn(),
@@ -36,7 +36,7 @@ const edits = {
   addingToTargetAlbum: false,
 } as unknown as GalleryEdits;
 
-function renderBar(count: number, regionFirst = false) {
+function renderBar(count: number, regionFirst = false, selectedHaveRaw = false) {
   return render(
     <MemoryRouter>
       <ToastContext.Provider value={toast}>
@@ -47,6 +47,7 @@ function renderBar(count: number, regionFirst = false) {
           edits={edits}
           suggestedRegionIds={[]}
           regionFirst={regionFirst}
+          selectedHaveRaw={selectedHaveRaw}
         />
       </ToastContext.Provider>
     </MemoryRouter>,
@@ -87,8 +88,18 @@ describe("GallerySelectBar", () => {
       "Adjust date and time",
       "Delete selected",
     ]);
+    // Deletes at once, without a confirm: Trash and the toast's Undo bring them back.
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete selected" }));
-    expect(edits.batch.setOpen).toHaveBeenCalledWith(true);
+    expect(edits.deleteSelected).toHaveBeenCalledWith();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("offers deleting the RAW files too only when the selection has some", () => {
+    layout(5000, 100);
+    renderBar(2, false, true);
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete with RAW files" }));
+    expect(edits.deleteSelected).toHaveBeenCalledWith(true);
   });
 
   it("keeps Add coordinates, Set appearance and Adjust date and time in More even when the row has room", () => {

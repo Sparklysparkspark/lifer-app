@@ -1,17 +1,23 @@
 import { useState } from "react";
-import ProgressiveImg from "../../components/ProgressiveImg";
 import { useTranslation } from "react-i18next";
 import { api, apiPath } from "../../api/client";
 import Button from "../../components/Button";
-import Checkbox from "../../components/Checkbox";
+import Lightbox from "../../components/Lightbox";
 import Modal from "../../components/Modal";
+import PhotoGrid from "../../components/PhotoGrid";
+import { SelectAllLinks } from "../../components/SelectionActionRow";
+import { useSelectMode } from "../../hooks/useSelectMode";
 import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
-import { formatDate } from "../../lib/format";
+import { formatDate, metaLine } from "../../lib/format";
+import { photoSlide } from "../../lib/photoSlide";
 import { useApiRoute } from "../../lib/resource";
 import { useSpeciesName } from "../../lib/speciesName";
 import { useTripDates } from "../../lib/tripDates";
 import type { TripDetail } from "./types";
+
+const EMPTY: never[] = [];
+const suggestionId = (item: { captureId: string }) => item.captureId;
 
 // Photos taken during the trip that are in no trip: suggested, never added on their own. The user
 // adds some or all, or dismisses them, and a dismissed photo isn't suggested for this trip again.
@@ -23,9 +29,12 @@ export default function TripSuggestions({ trip, onChanged }: { trip: TripDetail;
   // The page remounts this when the trip's dates change, so it asks again.
   const suggestions = useApiRoute(trip.startDate ? apiPath("/trips/{id}/suggestions", { id: trip.id }) : null);
   const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
-  const items = suggestions.data?.items ?? [];
+  const [viewing, setViewing] = useState<number | null>(null);
+  const items = suggestions.data?.items ?? EMPTY;
+  // Always selecting: ticking is what this list is for. A reload drops ids no longer suggested.
+  const select = useSelectMode(items, suggestionId, true, { pruneToItems: true });
+  const selected = select.selectedIds;
   if (!trip.startDate || items.length === 0) return null;
 
   async function act(add: boolean) {
@@ -34,7 +43,7 @@ export default function TripSuggestions({ trip, onChanged }: { trip: TripDetail;
     try {
       if (add) await api.post(apiPath("/trips/{id}/captures", { id: trip.id }), { captureIds });
       else await api.post(apiPath("/trips/{id}/suggestions/dismiss", { id: trip.id }), { captureIds });
-      setSelected(new Set());
+      select.clear();
       await suggestions.reload();
       if (add) onChanged();
       toast.success(
@@ -51,7 +60,7 @@ export default function TripSuggestions({ trip, onChanged }: { trip: TripDetail;
     }
   }
 
-  const allSelected = selected.size === items.length;
+  const withPhoto = items.filter((i) => i.photoId);
   return (
     <>
       <p role="status" className="text-callout text-ink">
@@ -69,10 +78,15 @@ export default function TripSuggestions({ trip, onChanged }: { trip: TripDetail;
         onClose={() => !busy && setOpen(false)}
         size="lg"
         title={t("trips.suggestions.title", { name: trip.name })}
+        footerStart={
+          <Button variant="secondary" disabled={busy || selected.size === 0} onClick={() => void act(false)}>
+            {t("trips.suggestions.dismiss", { count: selected.size })}
+          </Button>
+        }
         footer={
           <>
-            <Button variant="secondary" disabled={busy || selected.size === 0} onClick={() => void act(false)}>
-              {t("trips.suggestions.dismiss", { count: selected.size })}
+            <Button variant="secondary" disabled={busy} onClick={() => setOpen(false)}>
+              {t("common.cancel")}
             </Button>
             <Button loading={busy} disabled={selected.size === 0} onClick={() => void act(true)}>
               {t("trips.suggestions.add", { count: selected.size })}
@@ -80,52 +94,46 @@ export default function TripSuggestions({ trip, onChanged }: { trip: TripDetail;
           </>
         }
       >
-        <Checkbox
-          checked={allSelected}
-          indeterminate={selected.size > 0 && !allSelected}
-          onChange={() => setSelected(allSelected ? new Set() : new Set(items.map((i) => i.captureId)))}
-          className="mb-3"
-        >
-          {t("trips.suggestions.selectAll")}
-        </Checkbox>
-        <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-          {items.map((item) => {
-            const checked = selected.has(item.captureId);
-            return (
-              <li key={item.captureId}>
-                <label className="block cursor-pointer text-footnote">
-                  <span className="relative block aspect-square overflow-hidden rounded-control bg-surface-muted">
-                    {item.photoId && (
-                      <ProgressiveImg
-                        thumbSrc={`/api/photos/${item.photoId}/thumb`}
-                        fullSrc={`/api/photos/${item.photoId}/thumb`}
-                        alt=""
-                        className="h-full w-full object-cover"
-                      />
-                    )}
-                    {/* raw-control: the photo tile is this checkbox's label, so it sits over the photo */}
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() =>
-                        setSelected((prev) => {
-                          const next = new Set(prev);
-                          if (checked) next.delete(item.captureId);
-                          else next.add(item.captureId);
-                          return next;
-                        })
-                      }
-                      className="absolute left-1.5 top-1.5 h-4 w-4"
-                    />
-                  </span>
-                  <span className="mt-1 block truncate text-ink">{speciesName(item)}</span>
-                  {item.takenAt && <span className="block text-muted">{formatDate(item.takenAt)}</span>}
-                </label>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="mb-3 flex gap-3">
+          <SelectAllLinks
+            count={selected.size}
+            total={items.length}
+            onSelectAll={() => select.setSelectedIds(new Set(items.map(suggestionId)))}
+            onDeselectAll={select.clear}
+          />
+        </div>
+        <PhotoGrid
+          items={items}
+          idFor={suggestionId}
+          tileFor={(item) => ({ photoId: item.photoId, alt: speciesName(item) })}
+          columnWidth={160}
+          select={select}
+          onOpen={() => {}}
+          // One line per tile, so rows stay even; View opens the photo full size before adding it.
+          renderLabel={(item) => (
+            <div className="mt-1 flex items-baseline gap-2 text-footnote">
+              <span className="min-w-0 flex-1 truncate text-muted">
+                {metaLine([speciesName(item), item.takenAt && formatDate(item.takenAt)])}
+              </span>
+              {item.photoId && (
+                <Button variant="link" size="sm" onClick={() => setViewing(withPhoto.indexOf(item))}>
+                  {t("common.view")}
+                </Button>
+              )}
+            </div>
+          )}
+        />
       </Modal>
+      {viewing !== null && (
+        <Lightbox
+          slides={withPhoto.map((item) =>
+            photoSlide({ photoId: item.photoId!, captureId: null }, { caption: speciesName(item) }),
+          )}
+          index={viewing}
+          onIndexChange={setViewing}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </>
   );
 }

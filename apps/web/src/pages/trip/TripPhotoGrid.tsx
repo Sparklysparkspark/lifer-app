@@ -84,7 +84,7 @@ export default function TripPhotoGrid({
             onAddToAlbum={() => setAddingCaptureId(photo.captureId)}
             {...photoEdits.menuActions(photo.captureId)}
             location={photo.locationLabel}
-            onDelete={() => edits.setConfirmingDeleteCaptureId(photo.captureId)}
+            onDelete={() => void edits.deletePhoto(photo.captureId)}
           />
         )}
         renderLabel={(photo) => (

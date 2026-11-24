@@ -1,6 +1,16 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// jsdom has neither; the photo grid only needs them to exist.
+class NoopObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+vi.stubGlobal("ResizeObserver", NoopObserver);
+vi.stubGlobal("IntersectionObserver", NoopObserver);
 
 const get = vi.fn();
 const post = vi.fn();
@@ -45,7 +55,12 @@ const item = (captureId: string) => ({
   scientificName: "Pharomachrus mocinno",
   commonName: "Resplendent Quetzal",
 });
-const wrap = (ui: React.ReactNode) => render(<ToastContext.Provider value={toast}>{ui}</ToastContext.Provider>);
+const wrap = (ui: React.ReactNode) =>
+  render(
+    <MemoryRouter>
+      <ToastContext.Provider value={toast}>{ui}</ToastContext.Provider>
+    </MemoryRouter>,
+  );
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -61,7 +76,7 @@ describe("TripSuggestions", () => {
     expect(await screen.findByText(/2 photos taken during Costa Rica 2026 .* aren't in this trip/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Review" }));
-    fireEvent.click(screen.getAllByRole("checkbox")[1]);
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
     fireEvent.click(screen.getByRole("button", { name: "Add 1 to trip" }));
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
     expect(post).toHaveBeenCalledWith("/trips/t1/captures", { captureIds: ["c1"] });
@@ -71,9 +86,23 @@ describe("TripSuggestions", () => {
     get.mockResolvedValueOnce({ items: [item("c1")] }).mockResolvedValue({ items: [] });
     wrap(<TripSuggestions trip={trip} onChanged={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Review" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
     fireEvent.click(screen.getByRole("button", { name: "Dismiss 1" }));
     await waitFor(() => expect(post).toHaveBeenCalledWith("/trips/t1/suggestions/dismiss", { captureIds: ["c1"] }));
+  });
+});
+
+describe("TripSuggestions review", () => {
+  it("opens a suggestion full size before adding it, and closes with Cancel", async () => {
+    get.mockResolvedValue({ items: [item("c1"), item("c2")] });
+    wrap(<TripSuggestions trip={trip} onChanged={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "View" })[1]);
+    expect(await screen.findByRole("dialog", { name: /Resplendent Quetzal|Photo viewer/ })).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Add .* to trip/ })).toBeNull());
+    expect(post).not.toHaveBeenCalled();
   });
 });
 

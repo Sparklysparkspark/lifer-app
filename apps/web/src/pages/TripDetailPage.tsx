@@ -9,6 +9,9 @@ import { useSettings } from "../hooks/useSettings";
 import GroupedSpeciesGrid from "../components/GroupedSpeciesGrid";
 import SearchInput from "../components/SearchInput";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
+import { photoSlide } from "../lib/photoSlide";
+import AddToAlbumModal from "../components/AddToAlbumModal";
+import { SelectionBar } from "../components/SelectionActionRow";
 import EmptyState from "../components/EmptyState";
 import CardCropEditor from "../components/CardCropEditor";
 import { ALL_TAXON_CLASSES, NAME_MAX_LENGTH } from "@lifer/shared";
@@ -18,7 +21,6 @@ import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
 import { usePhotoCaptionPrefs } from "../hooks/usePhotoCaptionPrefs";
 import { useConfirm } from "../hooks/useConfirm";
 import Menu, { MenuItem, MenuPanel, MenuSeparator } from "../components/Menu";
-import Checkbox from "../components/Checkbox";
 import Panel from "../components/Panel";
 import { usePersistedState } from "../hooks/usePersistedState";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
@@ -28,9 +30,6 @@ import { PhotoViewMenu } from "../components/PhotoGridControls";
 import PhotoFiltersMenu from "../components/PhotoFiltersMenu";
 import { GRID_PHOTO_FILTER_SECTIONS, PHOTO_SORTS } from "../lib/photoGridSections";
 import SelectModeToggle from "../components/SelectModeToggle";
-import Button from "../components/Button";
-import ConfirmDialog from "../components/ConfirmDialog";
-import Modal from "../components/Modal";
 import { formatDate } from "../lib/format";
 import { DEFAULT_RAW_FILES } from "../lib/photoListFilters";
 import { useSpeciesName } from "../lib/speciesName";
@@ -153,7 +152,6 @@ function TripDetail() {
   const facets = useGalleryFacets();
   const tagOptions = useApiResource<{ tags: string[] }>("/captures/tags").data?.tags ?? [];
   const serverMatches = useScopedFilterIds(id ? { tripId: id } : null, { ...query, mediaFilter: "both" });
-  const batchDeleteRef = useRef<HTMLButtonElement>(null);
   const menu = useDropdownMenu<string>();
   const moreMenu = useDropdownMenu();
   const confirm = useConfirm();
@@ -161,6 +159,7 @@ function TripDetail() {
   const jobs = useTripScanImport({ id, load, suggestEnabled });
   const toast = useToast();
   const [filesDialog, setFilesDialog] = useState<TripFilesMode | null>(null);
+  const [addingSelection, setAddingSelection] = useState(false);
   // Opening a trip quietly looks for its photos if any have gone missing (the server checks).
   useEffect(() => {
     if (id) api.post("/moved-photos/look", { tripId: id }).catch(ignore("Couldn't look for moved photos"));
@@ -187,13 +186,28 @@ function TripDetail() {
     window.addEventListener(TRIP_FILES_MOVED, reload);
     return () => window.removeEventListener(TRIP_FILES_MOVED, reload);
   }, [id, load]);
-  // Takes the selected photos out of the trip; their files move out of its folder.
+  // Takes the selected photos out of the trip; their files move out of its folder, and Undo moves
+  // them back in.
   async function removeSelected() {
     if (!id) return;
+    const captureIds = [...edits.selectedCaptureIds];
     try {
-      await api.post(apiPath("/trips/{id}/captures/remove", { id }), { captureIds: [...edits.selectedCaptureIds] });
+      await api.post(apiPath("/trips/{id}/captures/remove", { id }), { captureIds });
       edits.exitSelectMode();
       void load();
+      toast.show(t("trips.detail.removed", { count: captureIds.length }), {
+        tone: "success",
+        actions: [
+          {
+            label: t("common.undo"),
+            onClick: () =>
+              void api
+                .post(apiPath("/trips/{id}/captures", { id }), { captureIds })
+                .catch((err) => toast.error(errorMessage(err, t("trips.detail.addBackFailed"))))
+                .finally(() => void load()),
+          },
+        ],
+      });
     } catch (err) {
       toast.error(errorMessage(err, t("trips.detail.removeFailed")));
     }
@@ -304,7 +318,7 @@ function TripDetail() {
   // A card's own changes (target, seen, archive) show at once.
   const reloadSpecies = useCallback(() => void load(), [load]);
   // Indices are positions in the grid, so Shift ranges and drag select follow what's shown.
-  const select = useSelectMode(visiblePhotos, tripPhotoId);
+  const select = useSelectMode(visiblePhotos, tripPhotoId, false, { pruneToItems: true });
   const edits = useTripEdits({ id, load, photos, select, closeMenu: () => menu.setOpenKey(null) });
   // As in the Gallery; off while the lightbox owns the keyboard.
   useKeyboardShortcuts(
@@ -319,7 +333,7 @@ function TripDetail() {
         select.setSelectedIds(new Set(visiblePhotos.map(tripPhotoId)));
       },
       trash: () => {
-        if (select.selectMode && select.selectedIds.size > 0) edits.setConfirmingBatchDelete(true);
+        if (select.selectMode) void edits.deleteSelected();
       },
     },
     { enabled: lightboxIndex === null },
@@ -328,22 +342,13 @@ function TripDetail() {
   const { rateCapture } = edits;
   const slides = useMemo<LightboxSlide[]>(
     () =>
-      visiblePhotos.map((p) => ({
-        url: `/api/photos/${p.photoId}/display`,
-        caption: `${speciesName(p)}${p.takenAt ? ` · ${formatDate(p.takenAt)}` : ""}`,
-        speciesId: p.speciesId,
-        rating: p.qualityRating,
-        onRate: (rating: number | null) => void rateCapture(p.captureId, rating),
-        info: {
-          cameraModel: p.cameraModel,
-          lens: p.lens,
-          focalLengthMm: p.focalLengthMm,
-          aperture: p.aperture,
-          shutter: p.shutter,
-          iso: p.iso,
-          takenAt: p.takenAt,
-        },
-      })),
+      visiblePhotos.map((p) =>
+        photoSlide(p, {
+          caption: `${speciesName(p)}${p.takenAt ? ` · ${formatDate(p.takenAt)}` : ""}`,
+          rating: p.qualityRating,
+          onRate: (rating: number | null) => void rateCapture(p.captureId, rating),
+        }),
+      ),
     [visiblePhotos, speciesName, rateCapture],
   );
 
@@ -501,30 +506,44 @@ function TripDetail() {
         </div>
       )}
 
-      {edits.selectMode && (
-        <div className="flex items-center justify-between border-b border-line bg-surface-muted px-page py-2 text-footnote">
-          <span className="text-muted">
-            {t("trips.detail.selectedCount", { count: edits.selectedCaptureIds.size })}
-          </span>
-          <span className="flex gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => void removeSelected()}
-              disabled={edits.selectedCaptureIds.size === 0}
-            >
-              {t("trips.detail.removeSelected")}
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => edits.setConfirmingBatchDelete(true)}
-              disabled={edits.selectedCaptureIds.size === 0}
-            >
-              {t("trips.detail.deleteSelected")}
-            </Button>
-          </span>
-        </div>
+      {edits.selectMode && view === "gallery" && (
+        <SelectionBar
+          count={edits.selectedCaptureIds.size}
+          total={visiblePhotos.length}
+          onSelectAll={() => select.setSelectedIds(new Set(visiblePhotos.map(tripPhotoId)))}
+          onDeselectAll={select.clear}
+          emptyText={t("gallery.select.none")}
+          actions={[
+            { key: "album", label: t("albums.addTo.button"), onClick: () => setAddingSelection(true) },
+            { key: "remove", label: t("trips.detail.removeSelected"), onClick: () => void removeSelected() },
+            // Trash keeps a RAW deleted with its photo too, so neither needs a confirm.
+            ...(edits.selectedHaveRaw
+              ? [
+                  {
+                    key: "deleteWithRaw",
+                    label: t("gallery.select.deleteWithRaw"),
+                    onClick: () => void edits.deleteSelected(true),
+                    variant: "danger" as const,
+                    menuOnly: true,
+                  },
+                ]
+              : []),
+            {
+              key: "delete",
+              label: t("trips.detail.deleteSelected"),
+              onClick: () => void edits.deleteSelected(),
+              variant: "danger",
+            },
+          ]}
+        >
+          {addingSelection && (
+            <AddToAlbumModal
+              captureIds={[...edits.selectedCaptureIds]}
+              onClose={() => setAddingSelection(false)}
+              onAdded={edits.exitSelectMode}
+            />
+          )}
+        </SelectionBar>
       )}
 
       <main className="space-y-section p-page">
@@ -655,52 +674,6 @@ function TripDetail() {
           onReset={edits.resetCoverCrop}
         />
       )}
-
-      <ConfirmDialog
-        open={!!edits.confirmingDeleteCaptureId}
-        title={t("trips.detail.deletePhoto.title")}
-        message={t("trips.detail.trashMessage", { noun: "photo" })}
-        confirmLabel={t("common.delete")}
-        danger
-        busy={edits.deleting}
-        onConfirm={() =>
-          edits.confirmingDeleteCaptureId && void edits.confirmDeletePhoto(edits.confirmingDeleteCaptureId)
-        }
-        onCancel={() => edits.setConfirmingDeleteCaptureId(null)}
-      />
-
-      <Modal
-        open={edits.confirmingBatchDelete}
-        onClose={() => {
-          if (edits.deleting) return;
-          edits.closeBatchDelete();
-        }}
-        title={t("trips.detail.deleteSelectedTitle", { count: edits.selectedCaptureIds.size })}
-        size="sm"
-        initialFocusRef={batchDeleteRef}
-        footer={
-          <>
-            <Button variant="secondary" disabled={edits.deleting} onClick={edits.closeBatchDelete}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              ref={batchDeleteRef}
-              variant="danger"
-              onClick={edits.confirmDeleteSelected}
-              loading={edits.deleting}
-            >
-              {t("common.delete")}
-            </Button>
-          </>
-        }
-      >
-        <p className="text-callout text-muted">{t("trips.detail.trashMessage", { noun: "photo" })}</p>
-        {edits.selectedHaveRaw && (
-          <Checkbox checked={edits.deleteRawToo} onChange={edits.setDeleteRawToo} className="mt-3">
-            {t("trips.detail.deleteRawToo")}
-          </Checkbox>
-        )}
-      </Modal>
     </div>
   );
 }

@@ -1,4 +1,6 @@
 import { useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { api, apiPath } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
 import type { useSelectMode } from "../../hooks/useSelectMode";
@@ -22,14 +24,12 @@ export function useTripEdits({
   select: ReturnType<typeof useSelectMode<TripPhoto>>;
   closeMenu: () => void;
 }) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
   const toast = useToast();
   const [settingCover, setSettingCover] = useState<string | null>(null);
   const [croppingCoverPhotoUrl, setCroppingCoverPhotoUrl] = useState<string | null>(null);
   const { selectMode, setSelectMode, selectedIds: selectedCaptureIds, exit: exitSelectMode } = select;
-  const [confirmingDeleteCaptureId, setConfirmingDeleteCaptureId] = useState<string | null>(null);
-  const [confirmingBatchDelete, setConfirmingBatchDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteRawToo, setDeleteRawToo] = useState(false);
 
   async function setCover(captureId: string | null) {
     if (!id) return;
@@ -73,17 +73,36 @@ export function useTripEdits({
     void load();
   }
 
-  async function confirmDeletePhoto(captureId: string) {
-    setDeleting(true);
+  // Trash keeps them, so deleting needs no confirm: the toast's Undo restores them.
+  function showTrashed(captureIds: string[]) {
+    toast.show(t("gallery.edits.trashed", { count: captureIds.length }), {
+      tone: "success",
+      actions: [
+        { label: t("common.view"), onClick: () => navigate("/trash") },
+        {
+          label: t("common.undo"),
+          onClick: () =>
+            void Promise.allSettled(
+              captureIds.map((captureId) => api.post(apiPath("/trash/{id}/restore", { id: captureId }), {})),
+            ).then((results) => {
+              const failed = results.filter((r) => r.status === "rejected").length;
+              if (failed > 0) toast.error(t("trash.restoreManyFailed", { count: failed }));
+              photosDeleted();
+              void load();
+            }),
+        },
+      ],
+    });
+  }
+
+  async function deletePhoto(captureId: string) {
     try {
       await api.delete(apiPath("/captures/{id}", { id: captureId }));
       photosDeleted();
-      setConfirmingDeleteCaptureId(null);
       void load();
+      showTrashed([captureId]);
     } catch (err) {
-      toast.error(errorMessage(err, "Couldn't delete that photo"));
-    } finally {
-      setDeleting(false);
+      toast.error(errorMessage(err, t("gallery.edits.deleteFailed")));
     }
   }
 
@@ -105,27 +124,18 @@ export function useTripEdits({
     (p) => selectedCaptureIds.has(p.captureId) && p.hasRaw && p.originalKind !== "raw",
   );
 
-  function closeBatchDelete() {
-    setConfirmingBatchDelete(false);
-    setDeleteRawToo(false);
-  }
-
-  async function confirmDeleteSelected() {
-    setDeleting(true);
+  /** `deleteRaw` also deletes each RAW beside an edited original once Trash purges it. */
+  async function deleteSelected(deleteRaw = false) {
+    const captureIds = [...selectedCaptureIds];
+    if (captureIds.length === 0) return;
     try {
-      await api.post("/captures/batch-delete", {
-        captureIds: [...selectedCaptureIds],
-        deleteRaw: deleteRawToo,
-      });
+      await api.post("/captures/batch-delete", { captureIds, deleteRaw });
       photosDeleted();
-      setConfirmingBatchDelete(false);
-      setDeleteRawToo(false);
       exitSelectMode();
       void load();
+      showTrashed(captureIds);
     } catch (err) {
-      toast.error(errorMessage(err, "Couldn't delete those photos"));
-    } finally {
-      setDeleting(false);
+      toast.error(errorMessage(err, t("gallery.edits.deleteManyFailed")));
     }
   }
 
@@ -168,16 +178,8 @@ export function useTripEdits({
     selectedCaptureIds,
     exitSelectMode,
     selectedHaveRaw,
-    confirmingDeleteCaptureId,
-    setConfirmingDeleteCaptureId,
-    confirmDeletePhoto,
-    confirmingBatchDelete,
-    setConfirmingBatchDelete,
-    closeBatchDelete,
-    confirmDeleteSelected,
-    deleting,
-    deleteRawToo,
-    setDeleteRawToo,
+    deletePhoto,
+    deleteSelected,
   };
 }
 

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useOpenInEditors } from "../../hooks/useOpenInEditors";
 import { useInatStatus } from "../../hooks/useInatStatus";
@@ -8,24 +8,16 @@ import PlaceNameInput from "../../components/PlaceNameInput";
 import SpeciesPicker from "../../components/SpeciesPicker";
 import TagEditor from "../../components/TagEditor";
 import AddToAlbumModal from "../../components/AddToAlbumModal";
-import InlineSpinner from "../../components/InlineSpinner";
 import Modal from "../../components/Modal";
 import Button from "../../components/Button";
 import StarRating from "../../components/StarRating";
 import type { GalleryEdits } from "./useGalleryEdits";
-import { formatNumber } from "../../lib/format";
-import Checkbox from "../../components/Checkbox";
 import AdjustTimeDialog from "./AdjustTimeDialog";
 import CoordinatesModal from "../../components/CoordinatesModal";
 import type { Appearance } from "@lifer/shared";
 import { AppearanceModal } from "../../components/Appearance";
 import { SelectionBar, type BarAction } from "../../components/SelectionActionRow";
 import { COMPARE_MAX, COMPARE_MIN } from "../../lib/compareZoom";
-
-function TrashNote({ noun }: { noun: string }) {
-  const { t } = useTranslation();
-  return <p className="text-callout text-muted">{t("gallery.select.trashNote", { noun })}</p>;
-}
 
 // Same region picker as a photo's location editor, for the whole selection.
 function SetRegionDialog({
@@ -101,6 +93,10 @@ export function GallerySelectBar({
   onCompare,
   compareFirst = false,
   onPlaceOnMap,
+  selectedHaveRaw = false,
+  total,
+  onSelectAll,
+  onDeselectAll,
 }: {
   selectedIds: ReadonlySet<string>;
   selectingAll: boolean;
@@ -127,6 +123,12 @@ export function GallerySelectBar({
   compareFirst?: boolean;
   /** Opens the map to place the selected photos by clicking a point or a saved spot. */
   onPlaceOnMap?: () => void;
+  /** Some selected photos have a RAW beside an edited original, so Delete can take it too. */
+  selectedHaveRaw?: boolean;
+  /** How many photos match, for Select all. */
+  total?: number;
+  onSelectAll?: () => void;
+  onDeselectAll?: () => void;
 }) {
   const { t } = useTranslation();
   const { bulk } = edits;
@@ -149,12 +151,26 @@ export function GallerySelectBar({
     variant: regionFirst ? "primary" : "secondary",
     loading: bulk.settingRegion,
   };
-  const deleteAction: BarAction = {
-    key: "delete",
-    label: t("gallery.select.deleteSelected"),
-    onClick: () => edits.batch.setOpen(true),
-    variant: "danger",
-  };
+  // Trash keeps a RAW deleted with its photo too, so neither needs a confirm.
+  const deleteActions: BarAction[] = [
+    ...(selectedHaveRaw
+      ? [
+          {
+            key: "deleteWithRaw",
+            label: t("gallery.select.deleteWithRaw"),
+            onClick: () => void edits.deleteSelected(true),
+            variant: "danger" as const,
+            menuOnly: true,
+          },
+        ]
+      : []),
+    {
+      key: "delete",
+      label: t("gallery.select.deleteSelected"),
+      onClick: () => void edits.deleteSelected(),
+      variant: "danger",
+    },
+  ];
   const actions: BarAction[] = targetAlbumId
     ? [
         {
@@ -164,7 +180,7 @@ export function GallerySelectBar({
           variant: "primary",
           loading: edits.addingToTargetAlbum,
         },
-        deleteAction,
+        ...deleteActions,
       ]
     : [
         ...(onCompare && count >= COMPARE_MIN && count <= COMPARE_MAX
@@ -226,12 +242,15 @@ export function GallerySelectBar({
           onClick: () => setDialog("adjustTime"),
           menuOnly: true,
         },
-        deleteAction,
+        ...deleteActions,
       ];
 
   return (
     <SelectionBar
       count={count}
+      total={total}
+      onSelectAll={onSelectAll}
+      onDeselectAll={onDeselectAll}
       busyLabel={selectingAll ? t("gallery.select.selectingAll") : null}
       emptyText={t("gallery.select.none")}
       actions={actions}
@@ -338,82 +357,6 @@ export function GallerySelectBar({
   );
 }
 
-// "Delete this photo?" from a tile's menu, and "Delete N photos?" for the selection.
-export function GalleryDeleteDialogs({
-  edits,
-  singleNoun,
-  selectedCount,
-  batchNoun,
-  selectedHaveRaw,
-  deleteButtonRef,
-  batchDeleteButtonRef,
-}: {
-  edits: GalleryEdits;
-  /** "photo", "video" or "RAW" for the one being deleted. */
-  singleNoun: string;
-  selectedCount: number;
-  batchNoun: string;
-  selectedHaveRaw: boolean;
-  deleteButtonRef: RefObject<HTMLButtonElement | null>;
-  batchDeleteButtonRef: RefObject<HTMLButtonElement | null>;
-}) {
-  const { t } = useTranslation();
-  const { single, batch, deleting } = edits;
-  return (
-    <>
-      <Modal
-        open={!!single.captureId}
-        onClose={() => single.request(null)}
-        title={t("gallery.select.deleteOne", { noun: singleNoun })}
-        size="sm"
-        initialFocusRef={deleteButtonRef}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => single.request(null)}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              ref={deleteButtonRef}
-              variant="danger"
-              loading={deleting}
-              onClick={() => single.captureId && single.confirm(single.captureId)}
-            >
-              {deleting ? t("common.deleting") : t("common.delete")}
-            </Button>
-          </>
-        }
-      >
-        <TrashNote noun={singleNoun} />
-      </Modal>
-
-      <Modal
-        open={batch.open}
-        onClose={batch.close}
-        title={t("gallery.select.deleteMany", { noun: batchNoun, count: selectedCount })}
-        size="sm"
-        initialFocusRef={batchDeleteButtonRef}
-        footer={
-          <>
-            <Button variant="secondary" onClick={batch.close}>
-              {t("common.cancel")}
-            </Button>
-            <Button ref={batchDeleteButtonRef} variant="danger" loading={deleting} onClick={batch.confirm}>
-              {deleting ? t("common.deleting") : t("common.delete")}
-            </Button>
-          </>
-        }
-      >
-        <TrashNote noun={batchNoun} />
-        {selectedHaveRaw && (
-          <Checkbox checked={batch.deleteRawToo} onChange={batch.setDeleteRawToo} className="mt-3">
-            {t("gallery.select.deleteRawToo")}
-          </Checkbox>
-        )}
-      </Modal>
-    </>
-  );
-}
-
 // Select mode's bar under the "Hidden" filter: photos hidden from a menu, or rejected in a culling app.
 // Unhiding is the one thing to do with them; everything else waits until they're back.
 export function HiddenSelectBar({
@@ -421,23 +364,36 @@ export function HiddenSelectBar({
   selectingAll,
   unhiding,
   onUnhide,
+  total,
+  onSelectAll,
+  onDeselectAll,
 }: {
   selectedIds: ReadonlySet<string>;
   selectingAll: boolean;
   unhiding: boolean;
   onUnhide: () => void;
+  total?: number;
+  onSelectAll?: () => void;
+  onDeselectAll?: () => void;
 }) {
   const { t } = useTranslation();
   return (
-    <div className="flex items-center gap-3 border-b border-line bg-surface-muted px-page py-2 text-footnote">
-      <span className="shrink-0 text-muted">
-        {t("gallery.select.selected", { count: formatNumber(selectedIds.size) })}
-      </span>
-      {selectingAll && <InlineSpinner size="xs" label={t("gallery.select.selectingAll")} />}
-      <span className="min-w-0 flex-1 text-muted">{t("gallery.select.hiddenNote")}</span>
-      <Button size="sm" onClick={onUnhide} disabled={selectedIds.size === 0} loading={unhiding} className="shrink-0">
-        {unhiding ? t("gallery.select.unhiding") : t("gallery.select.unhideSelected")}
-      </Button>
-    </div>
+    <SelectionBar
+      count={selectedIds.size}
+      total={total}
+      onSelectAll={onSelectAll}
+      onDeselectAll={onDeselectAll}
+      busyLabel={selectingAll ? t("gallery.select.selectingAll") : null}
+      emptyText={t("gallery.select.hiddenNote")}
+      actions={[
+        {
+          key: "unhide",
+          label: unhiding ? t("gallery.select.unhiding") : t("gallery.select.unhideSelected"),
+          onClick: onUnhide,
+          variant: "primary",
+          loading: unhiding,
+        },
+      ]}
+    />
   );
 }

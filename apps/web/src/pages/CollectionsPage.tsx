@@ -4,6 +4,8 @@ import { useScrollMemory } from "../hooks/useScrollMemory";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import type { TripSummary, QuadSlot } from "@lifer/shared";
 import { api, apiPath, ApiError } from "../api/client";
+import { useConfirm } from "../hooks/useConfirm";
+import { errorMessage } from "../lib/errorMessage";
 import { Spinner } from "../components/LoadingScreen";
 import PageHeader from "../components/PageHeader";
 import { PhotoViewMenu } from "../components/PhotoGridControls";
@@ -19,9 +21,7 @@ import StartTripForm from "./trip/StartTripForm";
 import ImportTripForm from "./trip/ImportTripForm";
 import InfoTip from "../components/InfoTip";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
-import { useEnterToConfirm } from "../hooks/useEnterToConfirm";
 import { useToast } from "../hooks/useToast";
-import Modal from "../components/Modal";
 import Button from "../components/Button";
 import SearchInput from "../components/SearchInput";
 import SegmentedControl from "../components/SegmentedControl";
@@ -253,10 +253,8 @@ function AlbumsSection({ switcher }: { switcher: ReactNode }) {
   const [renamingAlbum, setRenamingAlbum] = useState<Album | null>(null);
   const [exportingAlbum, setExportingAlbum] = useState<Album | null>(null);
   const [buildingSmart, setBuildingSmart] = useState(false);
-  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const confirm = useConfirm();
   const { openKey: openMenuId, setOpenKey: setOpenMenuId, ref: openMenuRef } = useDropdownMenu<string>();
-  useEnterToConfirm(() => void deleteAlbum(), !!confirmingDeleteId && !deleting);
   useReadyMarker(albums !== null);
   useScrollMemory(albums !== null);
   const [cardSize, setCardSize] = useListCardSize("albumCardMinWidth");
@@ -305,18 +303,21 @@ function AlbumsSection({ switcher }: { switcher: ReactNode }) {
     load();
   }
 
-  async function deleteAlbum() {
-    if (!confirmingDeleteId) return;
-    setDeleting(true);
+  // The same confirm as the album's own page.
+  async function deleteAlbum(id: string) {
+    const ok = await confirm({
+      title: t("albums.delete.title"),
+      message: t("albums.delete.body"),
+      confirmLabel: t("common.delete"),
+      danger: true,
+    });
+    if (!ok) return;
     try {
-      await api.delete(apiPath("/albums/{id}", { id: confirmingDeleteId }));
-      setConfirmingDeleteId(null);
+      await api.delete(apiPath("/albums/{id}", { id }));
       toast.success(t("albums.delete.done"));
       load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : t("albums.delete.failed"));
-    } finally {
-      setDeleting(false);
+      toast.error(errorMessage(err, t("albums.delete.failed")));
     }
   }
 
@@ -411,12 +412,24 @@ function AlbumsSection({ switcher }: { switcher: ReactNode }) {
                       >
                         {t("albums.export.action")}
                       </MenuItem>
+                      {album.rules && (
+                        <MenuItem
+                          onSelect={() => {
+                            setOpenMenuId(null);
+                            navigate(`/albums/${album.id}`, {
+                              state: { ...backStateFor(location, t), editRules: true },
+                            });
+                          }}
+                        >
+                          {t("albums.smart.editRules")}
+                        </MenuItem>
+                      )}
                       <MenuSeparator />
                       <MenuItem
                         danger
                         onSelect={() => {
                           setOpenMenuId(null);
-                          setConfirmingDeleteId(album.id);
+                          void deleteAlbum(album.id);
                         }}
                       >
                         {t("common.delete")}
@@ -457,25 +470,6 @@ function AlbumsSection({ switcher }: { switcher: ReactNode }) {
           onSave={renameAlbum}
         />
       )}
-
-      <Modal
-        open={!!confirmingDeleteId}
-        onClose={() => setConfirmingDeleteId(null)}
-        size="sm"
-        title={t("albums.delete.title")}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setConfirmingDeleteId(null)}>
-              {t("common.cancel")}
-            </Button>
-            <Button variant="danger" onClick={deleteAlbum} loading={deleting}>
-              {deleting ? t("common.deleting") : t("common.delete")}
-            </Button>
-          </>
-        }
-      >
-        <p className="text-callout text-muted">{t("albums.delete.body")}</p>
-      </Modal>
     </>
   );
 }
@@ -487,10 +481,8 @@ function TripsSection({ switcher }: { switcher: ReactNode }) {
   const [creating, setCreating] = useState(false);
   const [starting, setStarting] = useState(false);
   const [renamingTrip, setRenamingTrip] = useState<TripSummary | null>(null);
-  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const confirm = useConfirm();
   const { openKey: openMenuId, setOpenKey: setOpenMenuId, ref: openMenuRef } = useDropdownMenu<string>();
-  useEnterToConfirm(() => void deleteTrip(), !!confirmingDeleteId && !deleting);
   useReadyMarker(trips !== null);
   useScrollMemory(trips !== null);
   const [cardSize, setCardSize] = useListCardSize("tripCardMinWidth");
@@ -551,18 +543,21 @@ function TripsSection({ switcher }: { switcher: ReactNode }) {
     load();
   }
 
-  async function deleteTrip() {
-    if (!confirmingDeleteId) return;
-    setDeleting(true);
+  // The same confirm as the trip's own page.
+  async function deleteTrip(id: string) {
+    const ok = await confirm({
+      title: t("trips.delete.title"),
+      message: t("trips.delete.body"),
+      confirmLabel: t("common.delete"),
+      danger: true,
+    });
+    if (!ok) return;
     try {
-      await api.delete(apiPath("/trips/{id}", { id: confirmingDeleteId }));
-      setConfirmingDeleteId(null);
+      await api.delete(apiPath("/trips/{id}", { id }));
       toast.success(t("trips.delete.done"));
       load();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : t("trips.delete.failed"));
-    } finally {
-      setDeleting(false);
+      toast.error(errorMessage(err, t("trips.delete.failed")));
     }
   }
 
@@ -638,7 +633,7 @@ function TripsSection({ switcher }: { switcher: ReactNode }) {
                 onToggleMenu={() => setOpenMenuId(openMenuId === trip.id ? null : trip.id)}
                 menuRef={openMenuRef}
                 onRename={() => setRenamingTrip(trip)}
-                onDelete={() => setConfirmingDeleteId(trip.id)}
+                onDelete={() => void deleteTrip(trip.id)}
                 linkState={backStateFor(location, t, t("nav.trips"))}
               />
             )}
@@ -654,25 +649,6 @@ function TripsSection({ switcher }: { switcher: ReactNode }) {
           onSave={renameTrip}
         />
       )}
-
-      <Modal
-        open={!!confirmingDeleteId}
-        onClose={() => setConfirmingDeleteId(null)}
-        size="sm"
-        title={t("trips.delete.title")}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setConfirmingDeleteId(null)}>
-              {t("common.cancel")}
-            </Button>
-            <Button variant="danger" onClick={deleteTrip} loading={deleting}>
-              {deleting ? t("common.deleting") : t("common.delete")}
-            </Button>
-          </>
-        }
-      >
-        <p className="text-callout text-muted">{t("trips.delete.body")}</p>
-      </Modal>
     </>
   );
 }

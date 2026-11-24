@@ -67,4 +67,21 @@ describe("AlbumSharePanel", () => {
     fireEvent.click(toggles[0]);
     expect(s.setExactLocations).toHaveBeenCalledWith("s1", true);
   });
+
+  it("folds revoked and expired links away under one link, live ones first", () => {
+    const s = shares([
+      link({ allowDownload: true, hasPassword: true }),
+      link({ id: "s2", token: "dead", revoked: true }),
+      link({ id: "s3", token: "old", expiresAt: "2020-01-01T00:00:00.000Z" }),
+    ]);
+    render(<AlbumSharePanel shares={s.value} />);
+    expect(screen.queryByText("Revoked")).toBeNull();
+    // One line of notes, joined by the locale, with no leading separator.
+    expect(screen.getByText(/^Password-protected.+Downloads allowed$/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show 2 revoked or expired links" }));
+    expect(screen.getByText("Revoked")).toBeTruthy();
+    expect(screen.getByText("Expired")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Hide revoked and expired links" }));
+    expect(screen.queryByText("Revoked")).toBeNull();
+  });
 });

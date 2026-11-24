@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { api, apiPath, type ApiResponse } from "../api/client";
 import i18n from "../i18n";
 import ManageListPage from "../components/ManageListPage";
@@ -7,7 +8,12 @@ import { docsUrl } from "../lib/docs";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import PhotoGrid, { type PhotoGridTileData } from "../components/PhotoGrid";
 import SegmentedControl from "../components/SegmentedControl";
-import { useShowLabels } from "../hooks/useShowLabels";
+import { usePhotoCaptionPrefs } from "../hooks/usePhotoCaptionPrefs";
+import { usePhotoGridSize } from "../hooks/usePhotoGridSize";
+import { PhotoViewMenu } from "../components/PhotoGridControls";
+import { SelectionBar } from "../components/SelectionActionRow";
+import { photoSlide } from "../lib/photoSlide";
+import { metaLine } from "../lib/format";
 import Button from "../components/Button";
 import ConfirmDialog from "../components/ConfirmDialog";
 import SelectModeToggle from "../components/SelectModeToggle";
@@ -15,7 +21,6 @@ import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { useSelectMode } from "../hooks/useSelectMode";
 import { useToast } from "../hooks/useToast";
 import { MenuItem, MenuPanel } from "../components/Menu";
-import Checkbox from "../components/Checkbox";
 
 type TrashResponse = ApiResponse<"/trash">;
 type TrashItem = TrashResponse["items"][number];
@@ -39,7 +44,9 @@ export default function TrashedPhotosPage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const menu = useDropdownMenu<string>();
   const toast = useToast();
-  const [showLabels, setShowLabels] = useShowLabels();
+  const captions = usePhotoCaptionPrefs();
+  const [thumbSizePx, setThumbSizePx] = usePhotoGridSize();
+  const navigate = useNavigate();
   const [photoFilter, setPhotoFilter] = useState<"all" | "edited" | "raw" | "video">("all");
 
   function load() {
@@ -51,11 +58,20 @@ export default function TrashedPhotosPage() {
 
   useEffect(load, []);
 
+  // Says where restored photos went, with a way there.
+  function showRestored(count: number) {
+    toast.show(t("trash.restored", { count }), {
+      tone: "success",
+      actions: [{ label: t("common.view"), onClick: () => navigate("/gallery") }],
+    });
+  }
+
   async function restore(captureId: string) {
     setBusyId(captureId);
     try {
       await api.post(apiPath("/trash/{id}/restore", { id: captureId }), {});
       load();
+      showRestored(1);
     } catch {
       toast.error(t("trash.restoreFailed"));
     } finally {
@@ -63,12 +79,14 @@ export default function TrashedPhotosPage() {
     }
   }
 
+  // shortcut: one request per photo, as the API has no batch restore; add one if big restores are slow.
   async function restoreSelected() {
     const ids = [...select.selectedIds];
     select.exit();
     const results = await Promise.allSettled(ids.map((id) => api.post(apiPath("/trash/{id}/restore", { id }), {})));
     const failed = results.filter((r) => r.status === "rejected").length;
     if (failed > 0) toast.error(t("trash.restoreManyFailed", { count: failed }));
+    if (failed < ids.length) showRestored(ids.length - failed);
     load();
   }
 
@@ -100,16 +118,13 @@ export default function TrashedPhotosPage() {
       }),
     [data, photoFilter],
   );
-  const select = useSelectMode(visibleItems, (it) => it.captureId);
+  const select = useSelectMode(visibleItems, trashId, false, { pruneToItems: true });
   const { selectMode, selectedIds } = select;
   const itemsWithPhoto = visibleItems.filter((it) => it.photoId);
-  const slides: LightboxSlide[] = itemsWithPhoto.map((it) => ({
-    url: `/api/photos/${it.photoId}/display`,
-    videoUrl: it.kind === "video" ? `/api/photos/${it.photoId}/video` : null,
-    audioUrl: it.kind === "audio" ? `/api/photos/${it.photoId}/audio` : null,
-    caption: it.speciesName,
-    info: it.kind === "video" ? { durationSeconds: it.durationSeconds } : null,
-  }));
+  // No captureId: a trashed photo has no versions or editors to open.
+  const slides: LightboxSlide[] = itemsWithPhoto.map((it) =>
+    photoSlide({ ...it, photoId: it.photoId!, captureId: null }, { caption: it.speciesName }),
+  );
 
   return (
     <>
@@ -138,9 +153,12 @@ export default function TrashedPhotosPage() {
                 ]}
               />
             )}
-            <Checkbox size="sm" checked={showLabels} onChange={setShowLabels} labelClassName="h-8 text-muted">
-              {t("trash.labels")}
-            </Checkbox>
+            <PhotoViewMenu
+              sections={["size", "captions"]}
+              activeCount={0}
+              size={{ value: thumbSizePx, onChange: setThumbSizePx }}
+              captions={captions}
+            />
             <SelectModeToggle active={selectMode} onEnter={() => select.setSelectMode(true)} onExit={select.exit} />
             <Button
               variant="secondary"
@@ -154,12 +172,21 @@ export default function TrashedPhotosPage() {
         }
         banner={
           selectMode && (
-            <div className="flex items-center justify-between border-b border-line bg-surface-muted px-6 py-2 text-footnote">
-              <span className="text-muted">{t("trash.selectedCount", { count: selectedIds.size })}</span>
-              <Button size="sm" onClick={restoreSelected} disabled={selectedIds.size === 0}>
-                {t("trash.restoreSelected")}
-              </Button>
-            </div>
+            <SelectionBar
+              count={selectedIds.size}
+              total={visibleItems.length}
+              onSelectAll={() => select.setSelectedIds(new Set(visibleItems.map(trashId)))}
+              onDeselectAll={select.clear}
+              emptyText={t("trash.selectToRestore")}
+              actions={[
+                {
+                  key: "restore",
+                  label: t("trash.restoreSelected"),
+                  onClick: () => void restoreSelected(),
+                  variant: "primary",
+                },
+              ]}
+            />
           )
         }
         loading={!data}
@@ -193,12 +220,14 @@ export default function TrashedPhotosPage() {
           items={visibleItems}
           idFor={trashId}
           tileFor={trashTile}
-          columnWidth={220}
+          columnWidth={thumbSizePx}
           select={select}
           menu={menu}
+          // With no photo file there's nothing to show full size, so its menu (Restore) opens instead.
           onOpen={(i) => {
             const photoIndex = itemsWithPhoto.indexOf(visibleItems[i]);
             if (photoIndex >= 0) setLightboxIndex(photoIndex);
+            else menu.setOpenKey(visibleItems[i].captureId);
           }}
           renderMenu={(item) => (
             <MenuPanel className="w-36">
@@ -208,12 +237,14 @@ export default function TrashedPhotosPage() {
             </MenuPanel>
           )}
           renderLabel={(item) =>
-            showLabels && (
+            captions.showLabels && (
               <>
                 <p className="mt-1 truncate text-footnote text-muted">{item.speciesName}</p>
                 <p className="truncate text-footnote text-muted">
-                  {t("trash.daysLeft", { count: daysLeft(item.purgesAt) })}
-                  {item.hasRawOriginal && (item.pendingDeleteRaw ? t("trash.rawDeletedToo") : t("trash.rawKept"))}
+                  {metaLine([
+                    t("trash.daysLeft", { count: daysLeft(item.purgesAt) }),
+                    item.hasRawOriginal && (item.pendingDeleteRaw ? t("trash.raw.deletedToo") : t("trash.raw.kept")),
+                  ])}
                 </p>
               </>
             )

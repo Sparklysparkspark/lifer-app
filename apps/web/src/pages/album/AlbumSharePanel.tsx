@@ -1,9 +1,10 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import PasswordInput from "../../components/PasswordInput";
 import Select from "../../components/Select";
 import Button from "../../components/Button";
 import FormMessage from "../../components/FormMessage";
-import { formatDate } from "../../lib/format";
+import { formatDate, metaLine } from "../../lib/format";
 import { SHARE_EXPIRY_OPTIONS, type AlbumShares, type ShareExpiry } from "./useAlbumShares";
 import Panel from "../../components/Panel";
 import Checkbox from "../../components/Checkbox";
@@ -13,6 +14,13 @@ import Switch from "../../components/Switch";
 export default function AlbumSharePanel({ shares, smart = false }: { shares: AlbumShares; smart?: boolean }) {
   const { t } = useTranslation();
   const { form, now } = shares;
+  // Dead links fold away so live ones stay on top however many were made over the years.
+  const [showInactive, setShowInactive] = useState(false);
+  const isLive = (share: NonNullable<AlbumShares["shares"]>[number]) =>
+    !share.revoked && !(share.expiresAt && new Date(share.expiresAt).getTime() < now);
+  const all = shares.shares ?? [];
+  const inactiveCount = all.filter((s) => !isLive(s)).length;
+  const listed = showInactive ? all : all.filter(isLive);
   return (
     <div className="border-b border-line bg-surface-muted px-page py-4">
       <div className="max-w-lg space-y-3">
@@ -62,9 +70,9 @@ export default function AlbumSharePanel({ shares, smart = false }: { shares: Alb
           </Button>
         </Panel>
 
-        {shares.shares && shares.shares.length > 0 && (
+        {listed.length > 0 && (
           <ul className="divide-y divide-line border-t border-line">
-            {shares.shares.map((share) => {
+            {listed.map((share) => {
               const url = share.token ? `${window.location.origin}/share/${share.token}` : null;
               const expired = !!share.expiresAt && new Date(share.expiresAt).getTime() < now;
               return (
@@ -83,11 +91,13 @@ export default function AlbumSharePanel({ shares, smart = false }: { shares: Alb
                           : (url ?? t("albums.share.hiddenLink"))}
                     </p>
                     <p className="text-footnote text-muted">
-                      {share.hasPassword ? t("albums.share.hasPassword") : t("albums.share.noPassword")}
-                      {share.allowDownload ? t("albums.share.downloadsAllowed") : ""}
-                      {share.expiresAt && !expired
-                        ? t("albums.share.expiresOn", { date: formatDate(share.expiresAt, "medium") })
-                        : ""}
+                      {metaLine([
+                        share.hasPassword ? t("albums.share.hasPassword") : t("albums.share.noPassword"),
+                        share.allowDownload && t("albums.share.meta.downloadsAllowed"),
+                        share.expiresAt &&
+                          !expired &&
+                          t("albums.share.meta.expiresOn", { date: formatDate(share.expiresAt, "medium") }),
+                      ])}
                     </p>
                   </div>
                   {!share.revoked && !expired && (
@@ -114,6 +124,11 @@ export default function AlbumSharePanel({ shares, smart = false }: { shares: Alb
               );
             })}
           </ul>
+        )}
+        {inactiveCount > 0 && (
+          <Button variant="link" size="sm" onClick={() => setShowInactive((v) => !v)}>
+            {showInactive ? t("albums.share.hideInactive") : t("albums.share.showInactive", { count: inactiveCount })}
+          </Button>
         )}
       </div>
     </div>

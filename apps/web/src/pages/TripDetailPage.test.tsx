@@ -225,6 +225,43 @@ describe("TripDetailPage", () => {
     expect(screen.queryByText("2 selected")).toBeNull();
   });
 
+  it("keeps only visible photos selected, and Remove from trip says so with an Undo", async () => {
+    post.mockResolvedValue({});
+    renderAt("/trips/t1?view=gallery");
+    await screen.findAllByRole("img");
+    fireEvent.keyDown(window, { key: "a", ctrlKey: true });
+    expect(await screen.findByText("2 selected")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Species" })).getByRole("checkbox", { name: /Ridge Jay/ }),
+    );
+    expect(await screen.findByText("1 selected")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove from trip" }));
+    await waitFor(() => expect(toast.show).toHaveBeenCalled());
+    expect(post).toHaveBeenCalledWith("/trips/t1/captures/remove", { captureIds: ["c2"] });
+    const [message, opts] = toast.show.mock.calls[0] as [
+      string,
+      { actions: Array<{ label: string; onClick: () => void }> },
+    ];
+    expect(message).toBe("Removed 1 photo from the trip. Its file is moving out of the trip folder.");
+    opts.actions[0].onClick();
+    expect(post).toHaveBeenLastCalledWith("/trips/t1/captures", { captureIds: ["c2"] });
+  });
+
+  it("deletes the selection at once with an Undo toast, asking nothing", async () => {
+    post.mockResolvedValue({});
+    renderAt("/trips/t1?view=gallery");
+    await screen.findAllByRole("img");
+    fireEvent.keyDown(window, { key: "a", ctrlKey: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Delete selected" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(toast.show).toHaveBeenCalled());
+    expect(post).toHaveBeenCalledWith("/captures/batch-delete", { captureIds: ["c1", "c2"], deleteRaw: false });
+    const [message, opts] = toast.show.mock.calls[0] as [string, { actions: Array<{ label: string }> }];
+    expect(message).toBe("Moved 2 to Trash");
+    expect(opts.actions.map((a) => a.label)).toEqual(["View", "Undo"]);
+  });
+
   it("starts a folder scan from an empty trip", async () => {
     serve({ empty: true });
     renderAt("/trips/t1");

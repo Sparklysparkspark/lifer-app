@@ -257,6 +257,25 @@ describe("GalleryPage Filters from Stats", () => {
     expect(lastListing().get("ratingMin")).toBeNull();
   });
 
+  it("keeps rating, Animals and dates in the address, so Back returns to the same view", async () => {
+    renderGallery();
+    await screen.findByRole("img", { name: "Mallard" });
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Unrated" }));
+    await vi.waitFor(() => expect(screen.getByTestId("url").textContent).toBe("?unrated=1"));
+    cleanup();
+
+    renderGallery("/gallery?ratingMin=4&taxa=aves,mammalia&dateFrom=2025-06-01&dateTo=2025-06-30");
+    await screen.findByRole("img", { name: "Mallard" });
+    const last = lastListing();
+    expect([last.get("ratingMin"), last.get("taxa"), last.get("dateFrom"), last.get("dateTo")]).toEqual([
+      "4",
+      "aves,mammalia",
+      "2025-06-01",
+      "2025-06-30",
+    ]);
+  });
+
   it("sets a shot type that a search narrows within", async () => {
     renderGallery();
     await screen.findByRole("img", { name: "Mallard" });
@@ -329,5 +348,59 @@ describe("GalleryPage fixing photos missing a region", () => {
     expect(opts.actions.map((a) => a.label)).toEqual(["Undo"]);
     opts.actions[0].onClick();
     expect(post).toHaveBeenLastCalledWith("/captures/location", { captureIds: ["c-a", "c-b"], regionId: null });
+  });
+});
+
+describe("GalleryPage selection and deleting", () => {
+  beforeEach(() => {
+    toast.show.mockReset();
+    routeGets({
+      "/gallery": () => ({ items: [item("a", "Mallard"), item("b", "Snowy Owl")], nextCursor: null, total: 2 }),
+      "/gallery/search": () => ({ items: [], pending: false, interpretation: null }),
+    });
+  });
+
+  it("deletes the selection at once, with a toast that can undo it, and no confirm", async () => {
+    post.mockResolvedValue({});
+    renderGallery("/gallery?regionId=uncategorized&fix=region");
+    await screen.findByRole("img", { name: "Mallard" });
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete selected" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await vi.waitFor(() => expect(toast.show).toHaveBeenCalled());
+    expect(post).toHaveBeenCalledWith("/captures/batch-delete", { captureIds: ["c-a", "c-b"], deleteRaw: false });
+    const [message, opts] = toast.show.mock.calls[0] as [
+      string,
+      { actions: Array<{ label: string; onClick: () => void }> },
+    ];
+    expect(message).toBe("Moved 2 to Trash");
+    expect(opts.actions.map((a) => a.label)).toEqual(["View", "Undo"]);
+    opts.actions[1].onClick();
+    expect(post).toHaveBeenCalledWith("/trash/c-a/restore", {});
+    expect(post).toHaveBeenCalledWith("/trash/c-b/restore", {});
+  });
+
+  it("clears the selection when the search or filters change, so nothing unseen is acted on", async () => {
+    routeGets({
+      "/gallery": () => ({ items: [item("a", "Mallard"), item("b", "Snowy Owl")], nextCursor: null, total: 2 }),
+      "/gallery/search": () => ({ items: [item("b", "Snowy Owl")], pending: false, interpretation: null }),
+    });
+    renderGallery("/gallery?regionId=uncategorized&fix=region");
+    await screen.findByRole("img", { name: "Mallard" });
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    expect(screen.getByText("2 selected")).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search your photos by what's in them" }), {
+      target: { value: "owl" },
+    });
+    await vi.waitFor(() => expect(screen.getByText("0 selected")).toBeTruthy());
+  });
+
+  it("Clear search clears the search alone, keeping the filters", async () => {
+    renderGallery("/gallery?q=zzz&tag=a");
+    await screen.findByText('No photos match "zzz"');
+    expect(screen.getByRole("button", { name: "Clear filters" })).toBeTruthy();
+    // The last one is the empty state's; the first is the search box's own.
+    fireEvent.click(screen.getAllByRole("button", { name: "Clear search" }).at(-1)!);
+    await vi.waitFor(() => expect(screen.getByTestId("url").textContent).toBe("?tag=a"));
   });
 });

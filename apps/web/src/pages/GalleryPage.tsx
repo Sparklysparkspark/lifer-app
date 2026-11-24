@@ -32,7 +32,6 @@ import {
   soleRegionId,
   selectionHasRaw,
   selectionLocated,
-  selectionNoun,
   UNCATEGORIZED_REGION_ID,
 } from "./gallery/galleryHelpers";
 import { useGalleryDisplayPrefs } from "./gallery/useGalleryDisplayPrefs";
@@ -46,7 +45,7 @@ import { ManagePinsModal, PinFilterModal, PinnedFilters } from "./gallery/Pinned
 import { usePinnedFilters } from "./gallery/usePinnedFilters";
 import GalleryGrid, { GalleryEmptyState } from "./gallery/GalleryGrid";
 import { GalleryPhotoMenu, HiddenTileMenu } from "./gallery/GalleryPhotoMenu";
-import { GalleryDeleteDialogs, GallerySelectBar, HiddenSelectBar } from "./gallery/GallerySelection";
+import { GallerySelectBar, HiddenSelectBar } from "./gallery/GallerySelection";
 import { useToast } from "../hooks/useToast";
 import { errorMessage } from "../lib/errorMessage";
 import { cullInfo } from "../lib/cullInfo";
@@ -59,6 +58,8 @@ import { VersionTileMenu } from "../components/PhotoVersions";
 import { openPhotoVersions, versionName } from "../lib/photoVersions";
 import type { ComparePhoto } from "../components/CompareView";
 import type { Placing } from "../components/PhotoMap";
+
+const galleryItemId = (item: GalleryItem) => item.captureId;
 
 // Loaded when photos are first compared.
 const CompareView = lazy(() => import("../components/CompareView"));
@@ -142,7 +143,10 @@ export default function GalleryPage() {
     if (toFixCount > 0) hadPhotosToFix.current = true;
     else if (hadPhotosToFix.current) goBack("/stats");
   }, [toFixCount, goBack]);
-  const select = useSelectMode(items, (item) => item.captureId, startInSelectMode);
+  // Select all can take photos not loaded yet, so the selection clears when the query changes
+  // rather than being pruned to what's loaded.
+  const queryKey = galleryParams(query).toString();
+  const select = useSelectMode(items, galleryItemId, startInSelectMode, { resetKey: queryKey });
   const { selectMode, setSelectMode, selectedIds, setSelectedIds, dragPreviewIds, dragProps } = select;
   const edits = useGalleryEdits({
     items,
@@ -181,8 +185,6 @@ export default function GalleryPage() {
       setUnhiding(false);
     }
   }
-  const deleteButtonRef = useRef<HTMLButtonElement>(null);
-  const batchDeleteButtonRef = useRef<HTMLButtonElement>(null);
 
   function selectAllPhotos() {
     return selectAll((captureIds) => {
@@ -200,10 +202,7 @@ export default function GalleryPage() {
     setView("map");
   }
 
-  const requestBatchDeleteRef = useRef(edits.requestBatchDelete);
-  useEffect(() => {
-    requestBatchDeleteRef.current = edits.requestBatchDelete;
-  });
+  const deleteSelectedRef = useLatest(() => void edits.deleteSelected());
 
   // Off while the lightbox is open; it owns the keyboard then.
   useKeyboardShortcuts(
@@ -215,7 +214,7 @@ export default function GalleryPage() {
         e.preventDefault();
         void selectAllPhotos();
       },
-      trash: edits.requestBatchDelete,
+      trash: () => void edits.deleteSelected(),
     },
     // Showing every version: selection would mix photos and their versions, so it's off.
     { enabled: lightboxIndex === null && !compareIds && !allVersions },
@@ -227,7 +226,7 @@ export default function GalleryPage() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     import("@tauri-apps/api/event")
-      .then(({ listen }) => listen("menu:delete-selected", () => requestBatchDeleteRef.current()))
+      .then(({ listen }) => listen("menu:delete-selected", () => deleteSelectedRef.current()))
       .then((fn) => {
         // listen() resolves async: if cleanup already ran, drop the listener right away.
         if (cancelled) fn();
@@ -238,7 +237,7 @@ export default function GalleryPage() {
       cancelled = true;
       unlisten?.();
     };
-  }, [lightboxIndex]);
+  }, [lightboxIndex, deleteSelectedRef]);
 
   const { rateCapture, tagCapture } = edits;
   // Changes every render; the ref keeps the slides memoized.
@@ -374,10 +373,6 @@ export default function GalleryPage() {
     () => selectionHasRaw(items ?? [], selectedIds, selectAllMeta?.raw),
     [items, selectedIds, selectAllMeta],
   );
-  const batchNoun = useMemo(
-    () => selectionNoun(items ?? [], selectedIds, selectAllMeta?.video ?? []),
-    [items, selectedIds, selectAllMeta],
-  );
 
   // A version's link back to its photo: opened here when it's loaded, else its Versions panel.
   const showPhoto = (groupId: string) => {
@@ -472,6 +467,9 @@ export default function GalleryPage() {
       <div className="sticky top-[52px] z-20">
         {selectMode && hiddenView && (
           <HiddenSelectBar
+            total={total ?? undefined}
+            onSelectAll={() => void selectAllPhotos()}
+            onDeselectAll={select.clear}
             selectedIds={selectedIds}
             selectingAll={selectingAll}
             unhiding={unhiding}
@@ -480,6 +478,10 @@ export default function GalleryPage() {
         )}
         {selectMode && !hiddenView && (
           <GallerySelectBar
+            total={total ?? undefined}
+            onSelectAll={() => void selectAllPhotos()}
+            onDeselectAll={select.clear}
+            selectedHaveRaw={selectedHaveRaw}
             selectedIds={selectedIds}
             selectingAll={selectingAll}
             targetAlbumId={targetAlbumId}
@@ -515,12 +517,8 @@ export default function GalleryPage() {
         <Tip id="photo-versions" when={!!items && items.length > 0 && !versionNotice.visible && layout === "grid"} />
         <Tip id="first-map" when={!!items && items.length > 0 && layout === "map"} />
         {fixingRegionView && selectMode && !!items && items.length > 0 && (
-          <div className="flex items-center gap-3 text-callout text-muted">
-            <p>{t("gallery.fixRegion.note")}</p>
-            <Button variant="secondary" size="sm" onClick={() => void selectAllPhotos()}>
-              {t("gallery.fixRegion.selectAll")}
-            </Button>
-          </div>
+          // Select all is in the selection bar above.
+          <p className="text-callout text-muted">{t("gallery.fixRegion.note")}</p>
         )}
         {loadError && (
           <div className="flex items-center gap-3">
@@ -539,6 +537,7 @@ export default function GalleryPage() {
             searchQuery={query.searchQuery}
             activeFilterCount={filters.activeFilterCount}
             onClearFilters={filters.clearFilters}
+            onClearSearch={() => filters.setSearchInput("")}
           />
         ) : layout === "map" ? (
           <>
@@ -666,16 +665,6 @@ export default function GalleryPage() {
           onClose={() => edits.setAddingToAlbumCaptureId(null)}
         />
       )}
-
-      <GalleryDeleteDialogs
-        edits={edits}
-        singleNoun={selectionNoun(items ?? [], new Set(edits.single.captureId ? [edits.single.captureId] : []))}
-        selectedCount={selectedIds.size}
-        batchNoun={batchNoun}
-        selectedHaveRaw={selectedHaveRaw}
-        deleteButtonRef={deleteButtonRef}
-        batchDeleteButtonRef={batchDeleteButtonRef}
-      />
     </div>
   );
 }

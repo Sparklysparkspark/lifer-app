@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import type { AlbumPhoto, CollectionItem } from "@lifer/shared";
 import { api, apiPath } from "../../api/client";
 import { useToast } from "../../hooks/useToast";
@@ -12,6 +13,7 @@ export const albumPreviewPath = (id: string) => `/albums/${id}?limit=${FIRST_PHO
 // The album, its species (loaded once the species view opens), and every edit to them. Edits
 // reload the album afterwards, since the server resolves covers and quad slots.
 export function useAlbumDetail(id: string | undefined, view: AlbumView) {
+  const { t } = useTranslation();
   const toast = useToast();
   // The first photos arrive in a fraction of a second, while a smart album matching most of the
   // library takes seconds in full; both load at once and the page draws whichever it has.
@@ -40,8 +42,8 @@ export function useAlbumDetail(id: string | undefined, view: AlbumView) {
   );
   const speciesItems = species.data?.items ?? (species.error ? [] : null);
   useEffect(() => {
-    if (species.error) toast.error("Couldn't load this album's species.");
-  }, [species.error, toast]);
+    if (species.error) toast.error(t("albums.detail.speciesLoadFailed"));
+  }, [species.error, toast, t]);
 
   // Runs an album PATCH, toasts on failure, then reloads. Crop saves skip this so CardCropEditor
   // can show the error and stay open.
@@ -54,26 +56,47 @@ export function useAlbumDetail(id: string | undefined, view: AlbumView) {
     load();
   }
 
-  // A smart album's rules chose the photo, so taking it out records an exclusion instead.
-  async function removeFromAlbum(captureId: string) {
-    if (!id) return;
+  // A smart album's rules chose the photos, so taking them out records exclusions instead.
+  // Either way the toast's Undo puts them back.
+  async function removeFromAlbum(captureIds: string[]) {
+    if (!id || captureIds.length === 0) return;
     const smart = !!album?.rules;
+    const gone = new Set(captureIds);
     setAlbum((a) =>
       a
         ? {
             ...a,
-            items: a.items.filter((i) => i.captureId !== captureId),
-            excludedCount: a.excludedCount + (smart ? 1 : 0),
+            items: a.items.filter((i) => !gone.has(i.captureId)),
+            excludedCount: a.excludedCount + (smart ? captureIds.length : 0),
           }
         : a,
     );
     try {
-      if (smart) await api.post(apiPath("/albums/{id}/exclusions", { id }), { captureIds: [captureId] });
-      else await api.delete(apiPath("/albums/{id}/captures/{captureId}", { id, captureId }));
+      if (smart) await api.post(apiPath("/albums/{id}/exclusions", { id }), { captureIds });
+      else {
+        // shortcut: one DELETE per photo, as the API has no batch remove; add one if big albums are slow.
+        const results = await Promise.allSettled(
+          captureIds.map((captureId) => api.delete(apiPath("/albums/{id}/captures/{captureId}", { id, captureId }))),
+        );
+        if (results.some((r) => r.status === "rejected")) throw new Error("remove failed");
+      }
     } catch {
-      toast.error(smart ? "Couldn't exclude this photo from the album." : "Couldn't remove this photo from the album.");
+      toast.error(t(smart ? "albums.detail.excludeFailed" : "albums.detail.removeFailed"));
       load();
+      return;
     }
+    const undo = () =>
+      void (
+        smart
+          ? api.post(apiPath("/albums/{id}/exclusions/restore", { id }), { captureIds })
+          : api.post(apiPath("/albums/{id}/captures", { id }), { captureIds })
+      )
+        .catch(() => toast.error(t("albums.smart.restoreFailed")))
+        .finally(load);
+    toast.show(t(smart ? "albums.detail.excluded" : "albums.detail.removed", { count: captureIds.length }), {
+      tone: "success",
+      actions: [{ label: t("common.undo"), onClick: undo }],
+    });
   }
 
   // A photo menu edit, shown at once; the reload that follows brings what the server works out.
@@ -90,7 +113,7 @@ export function useAlbumDetail(id: string | undefined, view: AlbumView) {
     try {
       await api.patch(apiPath("/captures/{id}/rating", { id: captureId }), { rating });
     } catch {
-      toast.error("Couldn't save that rating.");
+      toast.error(t("albums.detail.ratingFailed"));
       load();
     }
   }
@@ -101,21 +124,21 @@ export function useAlbumDetail(id: string | undefined, view: AlbumView) {
       await api.delete(apiPath("/albums/{id}", { id }));
       return true;
     } catch {
-      toast.error("Couldn't delete this album");
+      toast.error(t("albums.detail.deleteFailed"));
       return false;
     }
   }
 
   async function saveName(name: string) {
     if (!id || !name) return;
-    await saveAndReload(() => api.patch(apiPath("/albums/{id}", { id }), { name }), "Couldn't rename this album.");
+    await saveAndReload(() => api.patch(apiPath("/albums/{id}", { id }), { name }), t("albums.detail.renameFailed"));
   }
 
   async function saveDescription(description: string) {
     if (!id) return;
     await saveAndReload(
       () => api.patch(apiPath("/albums/{id}", { id }), { description }),
-      "Couldn't save the description.",
+      t("albums.detail.descriptionFailed"),
     );
   }
 
@@ -123,7 +146,7 @@ export function useAlbumDetail(id: string | undefined, view: AlbumView) {
     if (!id) return;
     await saveAndReload(
       () => api.patch(apiPath("/albums/{id}", { id }), { coverLayout }),
-      "Couldn't change the cover style.",
+      t("albums.detail.coverStyleFailed"),
     );
   }
 
@@ -132,7 +155,7 @@ export function useAlbumDetail(id: string | undefined, view: AlbumView) {
     if (!id) return;
     await saveAndReload(
       () => api.patch(apiPath("/albums/{id}", { id }), { coverPhotoId: photoId }),
-      "Couldn't set the album cover.",
+      t("albums.detail.coverFailed"),
     );
   }
 
@@ -152,7 +175,7 @@ export function useAlbumDetail(id: string | undefined, view: AlbumView) {
     if (!id) return;
     await saveAndReload(
       () => api.patch(apiPath("/albums/{id}/quad-slot", { id }), { slot, photoId }),
-      "Couldn't change this cover tile.",
+      t("albums.detail.coverTileFailed"),
     );
   }
 
@@ -176,6 +199,7 @@ export function useAlbumDetail(id: string | undefined, view: AlbumView) {
     loadError,
     load,
     speciesItems,
+    reloadSpecies: species.reload,
     removeFromAlbum,
     rateCapture,
     updateItem,

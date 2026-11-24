@@ -24,6 +24,12 @@ import { ignore } from "../../lib/ignore";
 
 type Scope = { id: string; name: string | null };
 
+// A whole number from the URL, or null.
+function intParam(params: URLSearchParams, name: string): number | null {
+  const n = Number(params.get(name));
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 /** Where a page saves its browsing presets. */
 export interface PresetKeys {
   rawFiles: string;
@@ -61,14 +67,26 @@ export function useGalleryFilters(
     alsoClear = [],
   }: { keys?: PresetKeys; search?: boolean; alsoClear?: readonly string[] } = {},
 ) {
-  const [ratingMin, setRatingMin] = useState<number | null>(seed?.ratingMin ?? null);
-  const [ratingMax, setRatingMax] = useState<number | null>(seed?.ratingMax ?? null);
-  const [unrated, setUnrated] = useState(seed?.unrated ?? false);
-  const [animalsMin, setAnimalsMin] = useState<number | null>(seed?.animalsMin ?? null);
-  const [animalsMax, setAnimalsMax] = useState<number | null>(seed?.animalsMax ?? null);
-  const [onlyHidden, setOnlyHidden] = useState(seed?.onlyHidden ?? false);
-  const [onlyFeatured, setOnlyFeatured] = useState(seed?.onlyFeatured ?? false);
-  const [notOnInat, setNotOnInat] = useState(seed?.notOnInat ?? false);
+  // Every filter is in the URL too, so Back returns to exactly this view.
+  const fromUrl = !seed;
+  const [ratingMin, setRatingMin] = useState<number | null>(() =>
+    fromUrl ? intParam(searchParams, "ratingMin") : seed.ratingMin,
+  );
+  const [ratingMax, setRatingMax] = useState<number | null>(() =>
+    fromUrl ? intParam(searchParams, "ratingMax") : seed.ratingMax,
+  );
+  const [unrated, setUnrated] = useState(() => (fromUrl ? searchParams.get("unrated") === "1" : seed.unrated));
+  const [animalsMin, setAnimalsMin] = useState<number | null>(() =>
+    fromUrl ? intParam(searchParams, "animalsMin") : seed.animalsMin,
+  );
+  const [animalsMax, setAnimalsMax] = useState<number | null>(() =>
+    fromUrl ? intParam(searchParams, "animalsMax") : seed.animalsMax,
+  );
+  const [onlyHidden, setOnlyHidden] = useState(() => (fromUrl ? searchParams.get("hidden") === "1" : seed.onlyHidden));
+  const [onlyFeatured, setOnlyFeatured] = useState(() =>
+    fromUrl ? searchParams.get("onlyFeatured") === "1" : seed.onlyFeatured,
+  );
+  const [notOnInat, setNotOnInat] = useState(() => (fromUrl ? searchParams.get("notOnInat") === "1" : seed.notOnInat));
   // From Stats' "Missing date" row too. Fixing a date drops the item locally, not by refetching.
   const [missingDate, setMissingDateState] = useState(
     () => seed?.missingDate ?? searchParams.get("missingDate") === "1",
@@ -76,10 +94,11 @@ export function useGalleryFilters(
   const [missingCoordinates, setMissingCoordinatesState] = useState(
     () => seed?.missingCoordinates ?? searchParams.get("missingCoordinates") === "1",
   );
+  // ?taxa=a,b, or Stats' single ?taxon=. Not ?taxon= itself: a trip's or album's species view owns that.
   const [selectedTaxa, setSelectedTaxa] = useState<Set<string>>(() => {
     if (seed) return seed.selectedTaxa;
-    const taxon = searchParams.get("taxon");
-    return new Set(taxon ? [taxon] : []);
+    const taxa = (searchParams.get("taxa") ?? searchParams.get("taxon") ?? "").split(",").filter(Boolean);
+    return new Set(taxa);
   });
   // From the URL: the two axes, plus an old link's single ?shotKind=.
   const [urlShotType] = useState(() => {
@@ -103,9 +122,9 @@ export function useGalleryFilters(
   const [editedRaw, setEditedRaw] = usePreset<EditedRawFilter>(keys.editedRaw, "any", seed?.editedRaw);
   const [mediaFilter, setMediaFilter] = usePreset<MediaFilter>(keys.media, "photos", seed?.mediaFilter);
   // YYYY-MM-DD; the server treats dateTo as inclusive.
-  const [dateFrom, setDateFrom] = useState(seed?.dateFrom ?? "");
-  const [dateTo, setDateTo] = useState(seed?.dateTo ?? "");
-  const [dateRangeOpen, setDateRangeOpen] = useState(!!(seed?.dateFrom || seed?.dateTo));
+  const [dateFrom, setDateFrom] = useState(() => (fromUrl ? (searchParams.get("dateFrom") ?? "") : seed.dateFrom));
+  const [dateTo, setDateTo] = useState(() => (fromUrl ? (searchParams.get("dateTo") ?? "") : seed.dateTo));
+  const [dateRangeOpen, setDateRangeOpen] = useState(() => !!(dateFrom || dateTo));
   // Each takes several values, repeated in the URL (?regionId=a&regionId=b): any one matches.
   const [regionIds, setRegionIdsState] = useState<readonly string[]>(() =>
     seed ? seed.regionIds : searchParams.getAll("regionId"),
@@ -227,6 +246,30 @@ export function useGalleryFilters(
     setAnimalsMin(min);
     setAnimalsMax(exact ? min : null);
   }
+  // The filters kept as plain state, mirrored into the URL after each change so Back restores
+  // them. One write per commit: two writes in one click would each start from the same params.
+  const urlValues: Record<string, string | null> = {
+    ratingMin: ratingMin ? String(ratingMin) : null,
+    ratingMax: ratingMax ? String(ratingMax) : null,
+    unrated: unrated ? "1" : null,
+    animalsMin: animalsMin ? String(animalsMin) : null,
+    animalsMax: animalsMax ? String(animalsMax) : null,
+    hidden: onlyHidden ? "1" : null,
+    onlyFeatured: onlyFeatured ? "1" : null,
+    notOnInat: notOnInat ? "1" : null,
+    taxa: [...selectedTaxa].join(",") || null,
+    dateFrom: dateFrom || null,
+    dateTo: dateTo || null,
+  };
+  const urlKey = JSON.stringify(urlValues);
+  useEffect(() => {
+    if (seed) return;
+    const values: Record<string, string | null> = JSON.parse(urlKey);
+    const stale = Object.entries(values).some(([name, value]) => searchParams.get(name) !== value);
+    // In the Gallery, Stats' one-off ?taxon= gives way to ?taxa=; elsewhere ?taxon= is the species view's.
+    if (stale) writeParams(search ? { ...values, taxon: null } : values);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mirrors these filters only; other params change the other way
+  }, [urlKey]);
   function setPlaces(value: readonly string[]) {
     setPlacesState(value);
     writeParams({ place: value });

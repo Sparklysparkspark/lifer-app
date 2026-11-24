@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { api, apiPath, ApiError } from "../../api/client";
+import { api, apiPath } from "../../api/client";
+import { errorMessage } from "../../lib/errorMessage";
 import { useNow } from "../../hooks/useNow";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useToast } from "../../hooks/useToast";
@@ -37,7 +38,7 @@ export function useAlbumShares(albumId: string | undefined) {
     api
       .get(apiPath("/albums/{id}/shares", { id: albumId }))
       .then((res) => setShares(res.shares))
-      .catch(() => toast.error("Couldn't load share links."));
+      .catch(() => toast.error(i18n.t("albums.share.loadFailed")));
   }
 
   // The links load the first time the panel opens.
@@ -64,11 +65,11 @@ export function useAlbumShares(albumId: string | undefined) {
       loadShares();
       // The clipboard can refuse once the request has used up the click, so failing isn't an error here.
       (navigator.clipboard?.writeText(`${window.location.origin}/share/${created.token}`) ?? Promise.reject()).then(
-        () => toast.success("Link created and copied"),
-        () => toast.success("Link created. Copy it from the list below."),
+        () => toast.success(i18n.t("albums.share.createdCopied")),
+        () => toast.success(i18n.t("albums.share.createdNotCopied")),
       );
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't create this share link");
+      setError(errorMessage(err, i18n.t("albums.share.createFailed")));
     } finally {
       setCreating(false);
     }
@@ -76,16 +77,16 @@ export function useAlbumShares(albumId: string | undefined) {
 
   async function revokeShare(shareId: string) {
     const ok = await confirm({
-      title: "Revoke this share link?",
-      message: "Anyone with this link loses access.",
-      confirmLabel: "Revoke",
+      title: i18n.t("albums.share.revokeConfirm.title"),
+      message: i18n.t("albums.share.revokeConfirm.message"),
+      confirmLabel: i18n.t("albums.share.revokeConfirm.confirm"),
       danger: true,
     });
     if (!ok) return;
     try {
       await api.delete(apiPath("/shares/{id}", { id: shareId }));
     } catch {
-      toast.error("Couldn't revoke this share link.");
+      toast.error(i18n.t("albums.share.revokeFailed"));
     }
     loadShares();
   }
@@ -102,8 +103,8 @@ export function useAlbumShares(albumId: string | undefined) {
   function copyShareUrl(url: string) {
     // navigator.clipboard is missing on plain-http origins, e.g. a server reached over the LAN.
     (navigator.clipboard?.writeText(url) ?? Promise.reject()).then(
-      () => toast.success("Link copied"),
-      () => toast.error("Couldn't copy the link."),
+      () => toast.success(i18n.t("albums.share.copied")),
+      () => toast.error(i18n.t("albums.share.copyFailed")),
     );
   }
 

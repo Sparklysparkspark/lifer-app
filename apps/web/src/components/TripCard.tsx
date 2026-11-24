@@ -69,6 +69,7 @@ export default function TripCard({
       }
       title={<span title={trip.name}>{trip.name}</span>}
       titleClassName="line-clamp-2"
+      titleLines={2}
       lines={[
         (dateRange || active) && (
           <p key="dates" className="truncate text-footnote text-muted">
@@ -80,8 +81,13 @@ export default function TripCard({
             {dateRange}
           </p>
         ),
-        t("trips.card.counts", { species: trip.speciesCount, photos: trip.captureCount }),
       ]}
+      // Pinned to the bottom, so the counts line up across a row with or without a dates line.
+      footer={
+        <p className="truncate text-footnote text-muted">
+          {t("trips.card.counts", { species: trip.speciesCount, photos: trip.captureCount })}
+        </p>
+      }
       actions={
         onToggleMenu && (
           <Menu open={!!menuOpen} onToggle={onToggleMenu} menuRef={menuRef} className="relative">

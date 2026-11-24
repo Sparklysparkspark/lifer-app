@@ -27,6 +27,7 @@ vi.stubGlobal("ResizeObserver", NoopObserver);
 
 const { default: CollectionsPage, sortItems } = await import("./CollectionsPage");
 const { ToastContext } = await import("../hooks/useToast");
+const { ConfirmProvider } = await import("../components/ConfirmProvider");
 const { default: i18n } = await import("../i18n");
 const { resetAccountCaches } = await import("../lib/resource");
 
@@ -73,19 +74,26 @@ let suggestions: ReturnType<typeof suggestion>[] = [];
 const toast = { success: vi.fn(), error: vi.fn(), info: vi.fn(), show: vi.fn(), dismiss: vi.fn() };
 
 function AlbumStub() {
-  const state = useLocation().state as { justCreated?: boolean } | null;
-  return <p>album page {state?.justCreated ? "just created" : ""}</p>;
+  const state = useLocation().state as { justCreated?: boolean; editRules?: boolean } | null;
+  return (
+    <p>
+      album page {state?.justCreated ? "just created" : ""}
+      {state?.editRules ? "editing rules" : ""}
+    </p>
+  );
 }
 
 function renderAt(path: string) {
   return render(
     <ToastContext.Provider value={toast}>
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/albums/:id" element={<AlbumStub />} />
-          <Route path="*" element={<CollectionsPage />} />
-        </Routes>
-      </MemoryRouter>
+      <ConfirmProvider>
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/albums/:id" element={<AlbumStub />} />
+            <Route path="*" element={<CollectionsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </ConfirmProvider>
     </ToastContext.Provider>,
   );
 }
@@ -238,6 +246,17 @@ describe("CollectionsPage", () => {
 
     await waitFor(() => expect(del).toHaveBeenCalledWith("/albums/a1"));
     await screen.findByText(i18n.t("albums.empty.title"));
+  });
+
+  it("offers Edit rules on a smart album's card, opening its rule builder", async () => {
+    get.mockImplementation((path: string) =>
+      Promise.resolve(path === "/albums" ? { albums: [{ ...album, rules: { query: {} } }] } : { suggestions: [] }),
+    );
+    renderAt("/albums");
+    await screen.findByText("Spring Marsh");
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("ui.moreOptions") }));
+    fireEvent.click(screen.getByRole("menuitem", { name: i18n.t("albums.smart.editRules") }));
+    expect(await screen.findByText(/editing rules/)).toBeTruthy();
   });
 
   it("keeps suggestions off the Albums page, empty or not", async () => {

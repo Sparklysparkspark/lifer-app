@@ -145,12 +145,15 @@ export function GalleryEmptyState({
   searchQuery,
   activeFilterCount,
   onClearFilters,
+  onClearSearch,
 }: {
   missingDate: boolean;
   libraryEmpty: boolean;
   searchQuery: string;
   activeFilterCount: number;
   onClearFilters: () => void;
+  /** Clears the search alone; the filters stay. */
+  onClearSearch: () => void;
 }) {
   const { t } = useTranslation();
   const goBack = useGoBack();
@@ -180,7 +183,10 @@ export function GalleryEmptyState({
         icon={<PhotosIcon />}
         title={t("gallery.empty.noSearchMatch", { query: searchQuery })}
         description={t("gallery.empty.noSearchMatchBody")}
-        action={{ label: t("gallery.empty.clearSearch"), onClick: onClearFilters }}
+        action={{ label: t("gallery.empty.clearSearch"), onClick: onClearSearch }}
+        secondaryAction={
+          activeFilterCount > 0 ? { label: t("gallery.empty.clearFilters"), onClick: onClearFilters } : undefined
+        }
       />
     );
   }

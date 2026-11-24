@@ -9,14 +9,12 @@ import type { PhotoCaptionPrefs } from "../../hooks/usePhotoCaptionPrefs";
 import { itemShotData } from "../gallery/galleryHelpers";
 import type { useSelectMode } from "../../hooks/useSelectMode";
 import { MenuItem } from "../../components/Menu";
-import Button from "../../components/Button";
-import { COMPARE_MAX, COMPARE_MIN } from "../../lib/compareZoom";
 import { useSpeciesName } from "../../lib/speciesName";
 import { usePhotoEdits, type PhotoEditPatch } from "../../hooks/usePhotoEdits";
 
 const albumPhotoId = (p: AlbumPhoto) => p.captureId;
 
-// The album's photos, with the remove-selected bar above them in select mode. A tile click opens
+// The album's photos. A tile click opens
 // the lightbox, or fills the quad cover tile being picked.
 export default function AlbumPhotoGrid({
   items,
@@ -35,7 +33,6 @@ export default function AlbumPhotoGrid({
   onAdjustCover,
   onRemove,
   onRate,
-  onCompare,
   onReload,
   onUpdateItem,
   smart = false,
@@ -59,44 +56,20 @@ export default function AlbumPhotoGrid({
   /** Null goes back to the automatic cover. */
   onSetCover: (photoId: string | null) => void;
   onAdjustCover: (photoUrl: string) => void;
-  onRemove: (captureId: string) => Promise<void>;
+  onRemove: (captureIds: string[]) => Promise<void>;
   onRate: (captureId: string, rating: number | null) => void;
-  /** Opens these photos side by side. */
-  onCompare?: (captureIds: string[]) => void;
   /** After an edit the server works something out for (names, covers, counts). */
   onReload: () => void;
   onUpdateItem: (captureId: string, patch: PhotoEditPatch) => void;
 }) {
   const { t } = useTranslation();
   const speciesName = useSpeciesName();
-  const { selectMode, selectedIds } = select;
   const closeMenu = () => menu.setOpenKey(null);
   const [addingCaptureId, setAddingCaptureId] = useState<string | null>(null);
   const edits = usePhotoEdits({ reload: onReload, update: onUpdateItem });
 
   return (
     <>
-      {selectMode && selectedIds.size > 0 && (
-        <div className="mb-3 flex items-center gap-3 rounded-control border border-line bg-surface-muted p-2 text-callout">
-          <span className="text-muted">{t("albums.photos.selected", { count: selectedIds.size })}</span>
-          {onCompare && selectedIds.size >= COMPARE_MIN && selectedIds.size <= COMPARE_MAX && (
-            <Button variant="secondary" size="sm" onClick={() => onCompare([...selectedIds])}>
-              {t("gallery.select.compare")}
-            </Button>
-          )}
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={async () => {
-              const ids = [...selectedIds];
-              select.clear();
-              for (const captureId of ids) await onRemove(captureId);
-            }}
-          >
-            {smart ? t("albums.smart.exclude") : t("albums.photos.removeFromAlbum")}
-          </Button>
-        </div>
-      )}
       <PhotoGrid
         items={items}
         idFor={albumPhotoId}
@@ -143,7 +116,7 @@ export default function AlbumPhotoGrid({
                 <MenuItem
                   danger
                   onSelect={() => {
-                    void onRemove(item.captureId);
+                    void onRemove([item.captureId]);
                     closeMenu();
                   }}
                 >

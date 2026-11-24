@@ -47,7 +47,7 @@ export function GalleryPhotoMenu({
       onInatSent={edits.reload}
       onVersionsChange={edits.reload}
       onHide={() => void edits.hide([item.captureId])}
-      onDelete={() => edits.single.request(item.captureId)}
+      onDelete={() => void edits.deletePhoto(item.captureId)}
     />
   );
 }
