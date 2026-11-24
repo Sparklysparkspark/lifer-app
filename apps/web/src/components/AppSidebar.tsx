@@ -1,10 +1,11 @@
 // The desktop app's Mac-style chrome: a sidebar with the main areas, and a toolbar level with the
 // window controls holding the page's title, search and Import. Used instead of AppNav's top bar
 // in the desktop app when the window is wide enough (useSidebarLayout); the browser keeps AppNav.
-import { useCallback, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useId, useState, useSyncExternalStore, type ReactNode } from "react";
 import { shortcutLabel } from "../lib/keymap";
 import { useTooltip } from "./Tooltip";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useCommandPalette } from "../hooks/useCommandPalette";
@@ -153,6 +154,7 @@ function SidebarLink({
   title,
   iconColor,
   count,
+  description,
 }: {
   to: string;
   /** A line icon's path; or iconSrc, a picture such as a partner's logo, which keeps its own colours. */
@@ -168,6 +170,8 @@ function SidebarLink({
   tour?: string;
   /** Full text for a label that may be cut short. */
   title?: string;
+  /** Read after the label by screen readers, e.g. the app's own name behind a short label. */
+  description?: string;
   iconColor?: string;
   /** A trailing count, as Mail shows unread mail; hidden when 0. */
   count?: number;
@@ -175,10 +179,12 @@ function SidebarLink({
   const location = useLocation();
   const { t } = useTranslation();
   const tip = useTooltip(title ? { label: title } : undefined);
+  const descriptionId = useId();
   return (
     <>
       <NavLink
         {...tip.props}
+        aria-describedby={description ? descriptionId : (tip.props["aria-describedby"] as string | undefined)}
         to={to}
         end={end}
         state={backStateFor(location, t)}
@@ -195,6 +201,11 @@ function SidebarLink({
           {iconSrc ? <AppLogo src={iconSrc} srcDark={iconSrcDark} /> : <Icon d={icon ?? ""} />}
         </span>
         <span className="min-w-0 truncate">{label}</span>
+        {description && (
+          <span id={descriptionId} hidden>
+            {description}
+          </span>
+        )}
         {!!count && (
           <span className="ml-auto shrink-0 text-footnote tabular-nums text-muted">{formatNumber(count)}</span>
         )}
@@ -235,7 +246,7 @@ function PluginLinks() {
               iconSrcDark={logo?.iconSrcDark}
               iconColor={safeAccent(p.page.accent) ?? undefined}
               label={appNavLabel(p)}
-              title={appNavLabel(p)}
+              {...appLinkNames(t, p)}
             />
           </div>
         );
@@ -261,8 +272,18 @@ function PluginLinks() {
   );
 }
 
+/** The tooltip and description "<label> with <name>", so someone looking for the app's name finds it. */
+function appLinkNames(t: TFunction, app: Parameters<typeof appName>[0]) {
+  const label = appNavLabel(app);
+  const name = appName(app);
+  if (label === name) return { title: label };
+  const both = t("nav.appWith", { label, name });
+  return { title: both, description: both };
+}
+
 /** Apps Lifer suggests, shown only while Show suggested apps is on and they aren't installed. */
-function SuggestedLinks() {
+export function SuggestedLinks() {
+  const { t } = useTranslation();
   const apps = useSuggestedApps();
   if (apps.length === 0) return null;
   return (
@@ -275,7 +296,7 @@ function SuggestedLinks() {
           iconSrc={a.iconSrc}
           iconSrcDark={a.iconSrcDark}
           label={appNavLabel(a)}
-          title={appNavLabel(a)}
+          {...appLinkNames(t, a)}
         />
       ))}
     </>

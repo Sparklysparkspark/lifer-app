@@ -10,7 +10,7 @@ import { openExternal } from "../../lib/openExternal";
 import { useSpeciesName } from "../../lib/speciesName";
 import { CardGrid, PhotoWindow, SelectionBar, SpeciesTrail, type CardPhoto, type GridCard } from "./CardGrid";
 import { speciesCard, useLeaveEmptySpecies, useSpeciesView } from "./speciesLevel";
-import { sortCards, useCardSelection } from "./cardSelection";
+import { sortCards, useCardSelection, useNextWhenGone } from "./cardSelection";
 import { FilterSelect, InatToolbar, TaxonFilter } from "./Toolbar";
 import { taxaIn, useInatView } from "./viewPrefs";
 import { previewSlides, usePhotoPreview, type PreviewPhoto } from "./photoPreview";
@@ -217,6 +217,8 @@ export default function ObservationsTab({
     pending ? visibleKeys : [],
     detailId !== null || preview.isOpen,
   );
+  // Sent, ignored or finished, the open card hands its panel to the next one.
+  useNextWhenGone(detailId, setDetailId, bySpecies ? [] : visibleKeys);
   // A selected species stands for all its listed observations. A reload drops ones that moved on.
   const chosen = bySpecies
     ? items.filter((o) => selected.has(o.speciesId))
@@ -391,7 +393,8 @@ export default function ObservationsTab({
 
   return (
     <div
-      className="space-y-item"
+      // The open side panel covers the right; the grid reflows beside it.
+      className={`space-y-item ${detail ? "sm:pr-(--container-md)" : ""}`}
       onClick={(e) => {
         // A click on the tab's own background clears the selection, like Finder.
         if (e.target === e.currentTarget) clear();
@@ -506,6 +509,7 @@ export default function ObservationsTab({
           selecting={selecting}
           clickOpens={bySpecies}
           cardWidth={viewPrefs.cardSize}
+          activeKey={detailId}
         />
       )}
 

@@ -82,3 +82,13 @@ export function useCardSelection(visibleKeys: string[], paused = false) {
     },
   };
 }
+
+/** Keeps an open card's side panel going: when that card leaves the list (sent, ignored, moved
+ *  on), the one that took its place opens instead, so working down the list needs no click back. */
+export function useNextWhenGone(key: string | null, setKey: (key: string | null) => void, keys: string[]) {
+  const [at, setAt] = useState(-1);
+  const i = key === null ? -1 : keys.indexOf(key);
+  // Adjusted while rendering, so the panel never shows a card that's gone for a frame.
+  if (i >= 0 && i !== at) setAt(i);
+  if (key !== null && i < 0) setKey(at >= 0 ? (keys[Math.min(at, keys.length - 1)] ?? null) : null);
+}

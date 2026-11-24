@@ -78,7 +78,7 @@ const menuOf = (name: string) => {
 };
 const openWindow = async (name: string) => {
   fireEvent.keyDown(screen.getByRole("option", { name }), { key: "Enter" });
-  return screen.findByRole("dialog");
+  return screen.findByRole("complementary");
 };
 
 beforeEach(() => {

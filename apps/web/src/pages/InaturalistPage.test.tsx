@@ -206,7 +206,7 @@ describe("InaturalistPage", () => {
     lists.sightings = [sighting("Osprey", [capture("c1"), capture("c2"), capture("c3")])];
     renderPage("/inaturalist?tab=import");
     fireEvent.keyDown(await screen.findByRole("option", { name: "Osprey" }), { key: "Enter" });
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("complementary");
     expect(
       within(dialog).getByText(
         "These photos have no location. Choose a place, or add it on iNaturalist after sending.",
@@ -228,7 +228,7 @@ describe("InaturalistPage", () => {
     lists.sightings = [sighting("Osprey", [capture("c1"), capture("c2")])];
     renderPage("/inaturalist?tab=import");
     fireEvent.keyDown(await screen.findByRole("option", { name: "Osprey" }), { key: "Enter" });
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("complementary");
     fireEvent.click(within(dialog).getByRole("checkbox", { name: "Include photo 1 of 2" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Ignore 1 left-out photo" }));
     await waitFor(() =>
@@ -246,7 +246,7 @@ describe("InaturalistPage", () => {
       lists.sightings = [sighting("Iguana", captures, extra)];
       renderPage("/inaturalist?tab=import");
       fireEvent.click(await screen.findByRole("option", { name: "Iguana" }));
-      return screen.findByRole("dialog");
+      return screen.findByRole("complementary");
     }
 
     it("says the photo's own location will be sent, with Change place for a named one", async () => {
@@ -306,8 +306,8 @@ describe("InaturalistPage", () => {
       fireEvent.keyDown(document, { key: "ArrowRight" });
       await waitFor(() => expect(shownImage()).toBe("/api/photos/p3/display"));
       fireEvent.keyDown(document, { key: "Escape" });
-      await waitFor(() => expect(screen.getAllByRole("dialog")).toHaveLength(1));
-      expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Send 3 photos" })).toBeTruthy();
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(within(screen.getByRole("complementary")).getByRole("button", { name: "Send 3 photos" })).toBeTruthy();
       expect(document.activeElement).toBe(thumb);
     });
   });
@@ -345,7 +345,7 @@ describe("InaturalistPage", () => {
     openFilters();
     fireEvent.change(screen.getByRole("combobox", { name: "Show" }), { target: { value: "ignored" } });
     fireEvent.keyDown(await screen.findByRole("option", { name: "Gull" }), { key: "Enter" });
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("complementary");
     fireEvent.click(within(dialog).getByRole("checkbox", { name: "Include photo 2 of 2" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Send 1 photo" }));
     await waitFor(() =>
@@ -453,7 +453,7 @@ describe("InaturalistPage", () => {
       fireEvent.click(osprey, { detail: 1 });
       fireEvent.click(osprey, { detail: 2 });
       fireEvent.doubleClick(osprey, { detail: 2 });
-      expect(await screen.findByRole("dialog")).toBeTruthy();
+      expect(await screen.findByRole("complementary")).toBeTruthy();
       expect(isSelected("Osprey")).toBe(false);
     });
 
@@ -486,7 +486,7 @@ describe("InaturalistPage", () => {
       expect(isSelected("Osprey")).toBe(false);
       fireEvent.click(screen.getByRole("option", { name: "Loon" }));
       fireEvent.keyDown(screen.getByRole("option", { name: "Loon" }), { key: "Enter" });
-      await screen.findByRole("dialog");
+      await screen.findByRole("complementary");
       fireEvent.keyDown(document, { key: "Escape" });
       expect(isSelected("Loon")).toBe(true);
     });
@@ -567,9 +567,31 @@ describe("InaturalistPage", () => {
       fireEvent.click(await screen.findByRole("option", { name: "Osprey" }));
       expect(await screen.findByRole("button", { name: "Send 2 photos" })).toBeTruthy();
       fireEvent.keyDown(document, { key: "Escape" });
-      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      await waitFor(() => expect(screen.queryByRole("complementary")).toBeNull());
       fireEvent.keyDown(screen.getByRole("option", { name: "Osprey" }), { key: "Enter" });
       expect(await screen.findByRole("button", { name: "Send 2 photos" })).toBeTruthy();
+    });
+
+    it("swaps the side panel to another card, and moves it on to the next card after a send", async () => {
+      const [osprey, loon, merlin] = [
+        sighting("Osprey", [capture("c1")]),
+        sighting("Loon", [capture("c2")]),
+        sighting("Merlin", [capture("c3")]),
+      ];
+      lists.sightings = [osprey, loon, merlin];
+      renderPage("/inaturalist?tab=import");
+      fireEvent.click(await screen.findByRole("option", { name: "Osprey" }));
+      const panel = await screen.findByRole("complementary");
+      // The grid stays usable beside it: another card swaps the panel instead of closing it.
+      fireEvent.click(screen.getByRole("option", { name: "Loon" }));
+      expect(within(panel).getByRole("heading", { name: "Loon" })).toBeTruthy();
+      expect(screen.getByRole("option", { name: "Loon" }).getAttribute("aria-current")).toBe("true");
+      expect(screen.getByRole("option", { name: "Loon" }).getAttribute("aria-selected")).toBe("false");
+      lists.sightings = [osprey, merlin];
+      fireEvent.click(within(panel).getByRole("button", { name: "Send 1 photo" }));
+      await waitFor(() =>
+        expect(within(screen.getByRole("complementary")).getByRole("heading", { name: "Merlin" })).toBeTruthy(),
+      );
     });
 
     it("stretches cards to one row height and clamps long text to two lines", async () => {
@@ -590,7 +612,7 @@ describe("InaturalistPage", () => {
       expect(screen.getAllByRole("button", { name: /^Show all/ })).toHaveLength(1);
       const tile = screen.getByRole("button", { name: "Show all 8 photos" });
       fireEvent.click(tile);
-      const grid = await screen.findByRole("dialog");
+      const grid = await screen.findByRole("complementary");
       // The same window a click on the card opens, never a second one with only Done (INAT-3).
       expect(within(grid).getByRole("button", { name: "Send 8 photos" })).toBeTruthy();
       const thumbs = within(grid).getAllByRole("button", { name: /^View photo/ });
@@ -605,9 +627,9 @@ describe("InaturalistPage", () => {
       fireEvent.click(within(grid).getByRole("button", { name: "View photo 3 of 8" }));
       await waitFor(() => expect(shownImage()).toBe("/api/photos/p3/display"));
       fireEvent.keyDown(document, { key: "Escape" });
-      await waitFor(() => expect(screen.getAllByRole("dialog")).toHaveLength(1));
-      fireEvent.keyDown(document, { key: "Escape" });
       await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      fireEvent.keyDown(document, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByRole("complementary")).toBeNull());
       expect(document.activeElement).toBe(tile);
     });
 
@@ -616,7 +638,7 @@ describe("InaturalistPage", () => {
       renderPage("/inaturalist?tab=import");
       await selectMode();
       fireEvent.click(await screen.findByRole("button", { name: "Show all 5 photos" }));
-      expect(await screen.findByRole("dialog")).toBeTruthy();
+      expect(await screen.findByRole("complementary")).toBeTruthy();
       expect(screen.getByRole("option", { name: "Osprey" }).getAttribute("aria-selected")).toBe("false");
     });
 
@@ -721,7 +743,7 @@ describe("InaturalistPage", () => {
     lists.completed = [observation("1", "Merlin", { sentLocation: true, placeName: "Belize", photoCount: 1 })];
     renderPage("/inaturalist?tab=completed");
     fireEvent.keyDown(await screen.findByRole("option", { name: "Merlin" }), { key: "Enter" });
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("complementary");
     // The place is named once, in the source line.
     expect(within(dialog).getByText("Location: from your photo, near Belize")).toBeTruthy();
     expect(within(dialog).queryByText("Belize")).toBeNull();
@@ -760,7 +782,7 @@ describe("InaturalistPage", () => {
       lists.sightings = [sighting("Osprey", [capture("c1"), capture("c2")])];
       renderPage("/inaturalist?tab=import");
       fireEvent.keyDown(await screen.findByRole("option", { name: "Osprey" }), { key: "Enter" });
-      const dialog = await screen.findByRole("dialog");
+      const dialog = await screen.findByRole("complementary");
       const names = within(dialog)
         .getAllByRole("button")
         .map((b) => b.textContent);
@@ -823,7 +845,7 @@ describe("InaturalistPage", () => {
       lists.pending = [observation("1", "Merlin")];
       renderPage("/inaturalist?tab=pending");
       fireEvent.keyDown(await screen.findByRole("option", { name: "Merlin" }), { key: "Enter" });
-      const dialog = await screen.findByRole("dialog");
+      const dialog = await screen.findByRole("complementary");
       fireEvent.click(within(dialog).getByRole("button", { name: "View photo 2 of 2" }));
       await waitFor(() =>
         expect(

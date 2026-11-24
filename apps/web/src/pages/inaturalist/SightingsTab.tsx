@@ -12,7 +12,7 @@ import SegmentedControl from "../../components/SegmentedControl";
 import type { BarAction } from "../../components/SelectionActionRow";
 import { CardGrid, PhotoWindow, SelectionBar, SpeciesTrail, type GridCard } from "./CardGrid";
 import { speciesCard, useLeaveEmptySpecies, useSpeciesView } from "./speciesLevel";
-import { sortCards, useCardSelection } from "./cardSelection";
+import { sortCards, useCardSelection, useNextWhenGone } from "./cardSelection";
 import { FilterSelect, InatToolbar, TaxonFilter } from "./Toolbar";
 import { taxaIn, useInatView } from "./viewPrefs";
 import { previewSlides, usePhotoPreview, type PreviewPhoto } from "./photoPreview";
@@ -218,6 +218,8 @@ export default function SightingsTab({
     visibleKeys,
     detailKey !== null || preview.isOpen,
   );
+  // Sent, ignored or finished, the open card hands its panel to the next one.
+  useNextWhenGone(detailKey, setDetailKey, bySpecies ? [] : visibleKeys);
 
   // A reload can drop sightings that were selected; only the ones still listed count.
   const byKey = useMemo(() => new Map(source.map((s) => [sightingKey(s), s])), [source]);
@@ -242,7 +244,6 @@ export default function SightingsTab({
     if (groups.length === 0) return;
     setSending(true);
     setSelected(new Set());
-    setDetailKey(null);
     setHeld([]);
     // Each group goes as exactly the photos ticked here, one observation each.
     await sendBatch({ groups }, { onMaybeOnInat: setHeld, ignoreExistingGuard: anyway });
@@ -292,8 +293,8 @@ export default function SightingsTab({
       toast.error(t("inaturalist.import.ignoreFailed"));
       return;
     }
+    // An open panel stays; useNextWhenGone moves it on when its sighting leaves the list.
     setSelected(new Set());
-    setDetailKey(null);
     const message = ignore
       ? t("inaturalist.import.ignored", { count: captureIds.length })
       : t("inaturalist.import.restored", { count: captureIds.length });
@@ -510,7 +511,8 @@ export default function SightingsTab({
 
   return (
     <div
-      className="space-y-item"
+      // The open side panel covers the right; the grid reflows beside it.
+      className={`space-y-item ${detail ? "sm:pr-(--container-md)" : ""}`}
       onClick={(e) => {
         // A click on the tab's own background clears the selection, like Finder.
         if (e.target === e.currentTarget) clear();
@@ -673,8 +675,9 @@ export default function SightingsTab({
           onOpen={bySpecies ? speciesView.drill.open : setDetailKey}
           onPreview={showPreview}
           selecting={selecting}
-          // A click opens the sighting's window, the same as Enter; the magnifier and Space preview.
+          // A click opens the sighting's side panel, the same as Enter; the magnifier and Space preview.
           clickOpens
+          activeKey={detailKey}
           cardWidth={viewPrefs.cardSize}
         />
       )}
@@ -781,7 +784,12 @@ function SightingDetail({
         sentPrivacyLine(t, sighting.geoprivacy),
         sightingNote(t, sighting, kept, false, kept.length > 0),
       ]}
-      extra={kept.length > 0 && <SightingPlace sighting={sighting} kept={kept} onPlaced={onPlaced} />}
+      extra={
+        kept.length > 0 && (
+          // Keyed so a half-done Change place doesn't carry over when another card swaps in.
+          <SightingPlace key={sightingKey(sighting)} sighting={sighting} kept={kept} onPlaced={onPlaced} />
+        )
+      }
       photos={sighting.captures.map((c) => ({ id: c.id, photoId: c.currentPhotoId }))}
       onPhotoOpen={onPhotoOpen}
       excludedIds={excludedIds}

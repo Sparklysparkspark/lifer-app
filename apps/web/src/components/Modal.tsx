@@ -12,6 +12,8 @@ import { matches } from "../lib/keymap";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { markDragBlocked } from "../lib/modalDragBlock";
 import { primaryButtonFirst } from "../lib/platform";
+import { useTranslation } from "react-i18next";
+import { IconButton } from "./Button";
 
 // sm: alerts and confirms. md: forms and pickers (the default). lg: maps, photo grids, long lists.
 export type ModalSize = "sm" | "md" | "lg";
@@ -41,6 +43,10 @@ export interface ModalProps {
 
 // Below the sm breakpoint every size is a full-width sheet from the bottom.
 const WIDTH: Record<ModalSize, string> = { sm: "sm:max-w-md", md: "sm:max-w-xl", lg: "sm:max-w-3xl" };
+// design-token: the scrim is black in both themes, like the system sheet backdrop
+const SCRIM = "bg-black/40";
+// design-token: the panel only takes focus as a fallback target, so it shows no ring
+const SURFACE = "flex-col overflow-hidden bg-surface pb-[env(safe-area-inset-bottom)] text-ink shadow-lg outline-none";
 const ENTER_MS = 160;
 const EXIT_MS = 120;
 
@@ -93,7 +99,9 @@ export default function Modal(props: ModalProps) {
   return createPortal(<ModalPanel {...props} />, document.body);
 }
 
-function ModalPanel({
+/** SidePanel's layout on the same behaviour: `side` docks it right with a close button, and
+ *  `backdrop={false}` drops the scrim and scroll lock so the page beside it stays usable. */
+export function ModalPanel({
   onClose,
   title,
   description,
@@ -106,7 +114,10 @@ function ModalPanel({
   dismissOnBackdrop = true,
   initialFocusRef,
   onKeyDown,
-}: ModalProps) {
+  side = false,
+  backdrop = true,
+}: ModalProps & { side?: boolean; backdrop?: boolean }) {
+  const { t } = useTranslation();
   const titleId = useId();
   const descriptionId = useId();
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -118,8 +129,8 @@ function ModalPanel({
   useEscapeToClose(onClose, true);
 
   useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    lockScroll();
+    let previouslyFocused = document.activeElement as HTMLElement | null;
+    if (backdrop) lockScroll();
     // The macOS title strip sits above everything and would draw over the dim backdrop.
     markDragBlocked(true);
 
@@ -131,7 +142,8 @@ function ModalPanel({
     }
     overlay?.animate?.([{ opacity: 0 }, { opacity: 1 }], { duration: ENTER_MS, easing: "ease-out" });
     if (!reducedMotion()) {
-      panel?.animate?.([{ transform: "translateY(0.75rem) scale(0.98)" }, { transform: "none" }], {
+      const from = side ? "translateX(1.5rem)" : "translateY(0.75rem) scale(0.98)";
+      panel?.animate?.([{ transform: from }, { transform: "none" }], {
         duration: ENTER_MS,
         easing: "cubic-bezier(0.2, 0.9, 0.3, 1)",
       });
@@ -158,13 +170,21 @@ function ModalPanel({
       }
     }
     panel?.addEventListener("keydown", onKeyDown);
+    // Without a backdrop the page stays usable, so focus goes back to the last thing used outside.
+    function onFocusIn(e: FocusEvent) {
+      // Not into a dialog or the viewer opened over it: those hand focus back themselves.
+      if (e.target instanceof HTMLElement && !e.target.closest("[data-modal], [aria-modal]"))
+        previouslyFocused = e.target;
+    }
+    if (!backdrop) document.addEventListener("focusin", onFocusIn);
 
     return () => {
       panel?.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("focusin", onFocusIn);
       // Still attached means React is re-running effects (StrictMode), not closing.
       if (overlay && !overlay.isConnected) fadeOut(overlay);
       markDragBlocked(false);
-      unlockScroll();
+      if (backdrop) unlockScroll();
       if (previouslyFocused?.isConnected) previouslyFocused.focus({ preventScroll: true });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: re-running would steal focus back on every parent render
@@ -175,14 +195,27 @@ function ModalPanel({
     <>
       {/* Only the body scrolls, so the title and the action buttons stay in view in a tall dialog. */}
       {title && (
-        <div className="shrink-0 px-5 pt-5">
-          <h2 id={titleId} className="text-title-3 font-semibold text-ink wrap-anywhere">
-            {title}
-          </h2>
-          {description && (
-            <p id={descriptionId} className="mt-1 text-callout text-muted wrap-anywhere">
-              {description}
-            </p>
+        <div className="flex shrink-0 items-start gap-2 px-5 pt-5">
+          <div className="min-w-0 flex-1">
+            <h2 id={titleId} className="text-title-3 font-semibold text-ink wrap-anywhere">
+              {title}
+            </h2>
+            {description && (
+              <p id={descriptionId} className="mt-1 text-callout text-muted wrap-anywhere">
+                {description}
+              </p>
+            )}
+          </div>
+          {/* A panel has no backdrop or Cancel to close it by, so it gets the map panel's close button. */}
+          {side && (
+            <IconButton
+              tone="plain"
+              onClick={onClose}
+              aria-label={t("common.close")}
+              className="-mt-1 -mr-2 text-title-3 leading-none hover:bg-surface-muted"
+            >
+              ×
+            </IconButton>
           )}
         </div>
       )}
@@ -209,8 +242,12 @@ function ModalPanel({
   return (
     <div
       ref={overlayRef}
-      // design-token: the scrim is black in both themes, like the system sheet backdrop
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4"
+      className={
+        side
+          ? // Under dialogs and the viewer (z-50), so those open above it.
+            `fixed inset-0 z-40 flex justify-end ${backdrop ? SCRIM : "pointer-events-none"}`
+          : `fixed inset-0 z-50 flex items-end justify-center ${SCRIM} sm:items-center sm:p-4`
+      }
       onMouseDown={(e) => {
         pressStartedOnBackdrop.current = e.target === e.currentTarget;
       }}
@@ -221,9 +258,10 @@ function ModalPanel({
     >
       <div
         ref={panelRef}
-        role="dialog"
+        // Without a backdrop it's a region beside the page, not a dialog that blocks it.
+        role={backdrop ? "dialog" : "complementary"}
         data-modal
-        aria-modal="true"
+        aria-modal={backdrop ? "true" : undefined}
         aria-labelledby={title ? titleId : undefined}
         aria-describedby={title && description ? descriptionId : undefined}
         aria-label={title ? undefined : ariaLabel}
@@ -238,8 +276,11 @@ function ModalPanel({
           e.preventDefault();
           primary.click();
         }}
-        // design-token: the panel only takes focus as a fallback target, so it shows no ring
-        className={`flex max-h-[calc(100dvh-2rem)] w-full ${WIDTH[size]} flex-col overflow-hidden rounded-t-panel border border-line bg-surface pb-[env(safe-area-inset-bottom)] text-ink shadow-lg outline-none sm:rounded-panel sm:pb-0`}
+        className={
+          side
+            ? `pointer-events-auto flex h-full w-full border-line sm:w-md sm:border-l ${SURFACE}`
+            : `flex max-h-[calc(100dvh-2rem)] w-full ${WIDTH[size]} rounded-t-panel border border-line sm:rounded-panel sm:pb-0 ${SURFACE}`
+        }
       >
         {onSubmit ? (
           <form

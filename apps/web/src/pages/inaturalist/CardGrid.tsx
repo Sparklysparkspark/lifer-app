@@ -1,6 +1,6 @@
 // The iNaturalist page's shared card grid: cards with photo previews, Photos-style selection
 // (click toggles, Shift for a range, Mod+A for all), a card menu, a selection bar in the sticky
-// header, and a window showing every photo. To send, To finish and Completed all use it.
+// header, and a side panel showing every photo. To send, To finish and Completed all use it.
 import SelectMark from "../../components/SelectMark";
 import MediaCard, { PhotoMosaic, SelectedRing, Thumb, type MosaicPhoto } from "../../components/MediaCard";
 import { useState, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
@@ -10,7 +10,7 @@ import MagnifierIcon from "../../components/MagnifierIcon";
 import Button, { IconButton } from "../../components/Button";
 import Menu, { MenuItems, MenuPanel, type MenuAction } from "../../components/Menu";
 import { OVERLAY_REVEAL } from "../../lib/buttonClasses";
-import Modal from "../../components/Modal";
+import SidePanel from "../../components/SidePanel";
 import { SelectionBar as SharedSelectionBar, type BarAction } from "../../components/SelectionActionRow";
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { matches } from "../../lib/keymap";
@@ -81,6 +81,7 @@ function Card({
   photos,
   lines,
   selected,
+  active,
   selecting,
   clickOpens,
   onClick,
@@ -98,6 +99,8 @@ function Card({
   /** Muted lines under the name; empty ones are skipped. */
   lines: ReactNode[];
   selected: boolean;
+  /** Its side panel is open: highlighted like a selection, without being selected. */
+  active: boolean;
   /** Select mode: the tick shows and a click toggles. */
   selecting: boolean;
   /** Outside select mode a click opens it (a species) rather than previewing its pictures. */
@@ -130,7 +133,7 @@ function Card({
       lines={lines.map((line) =>
         typeof line === "string" ? <Clamped className="text-footnote text-muted" text={line} /> : line,
       )}
-      selected={selected}
+      selected={selected || active}
       markLabel={selecting ? t("photoTile.select") : undefined}
       mediaOverlay={
         photos.length > MOSAIC_TILES && (
@@ -155,6 +158,7 @@ function Card({
         <div
           role="option"
           aria-selected={selected}
+          aria-current={active || undefined}
           aria-label={name}
           tabIndex={0}
           onClick={(e) => {
@@ -244,6 +248,7 @@ export function CardGrid({
   selecting,
   clickOpens = false,
   cardWidth = 150,
+  activeKey = null,
 }: {
   cards: GridCard[];
   label: string;
@@ -260,6 +265,8 @@ export function CardGrid({
   clickOpens?: boolean;
   /** The smallest card width, from the View menu's size. */
   cardWidth?: number;
+  /** The card whose side panel is open. */
+  activeKey?: string | null;
 }) {
   const { t } = useTranslation();
   const [shown, setShown] = useState(PAGE_SIZE);
@@ -293,6 +300,7 @@ export function CardGrid({
             photos={c.photos}
             lines={c.lines}
             selected={selected.has(c.key)}
+            active={c.key === activeKey}
             selecting={selecting}
             clickOpens={clickOpens}
             onClick={(e) => onToggle(c.key, e.shiftKey)}
@@ -385,7 +393,8 @@ export function SelectionBar({
   );
 }
 
-/** The window opened from a card: every photo, with optional click-to-toggle, and its actions. */
+/** The side panel opened from a card: every photo, with optional click-to-toggle, and its actions.
+ *  A panel rather than a dialog, so the grid stays usable beside it and another card swaps it. */
 export function PhotoWindow({
   name,
   info,
@@ -429,10 +438,9 @@ export function PhotoWindow({
   }
 
   return (
-    <Modal
+    <SidePanel
       open
       onClose={onClose}
-      size="lg"
       title={<span className="break-words">{name}</span>}
       footerStart={
         picking && (
@@ -522,6 +530,6 @@ export function PhotoWindow({
           </Button>
         )}
       </div>
-    </Modal>
+    </SidePanel>
   );
 }
