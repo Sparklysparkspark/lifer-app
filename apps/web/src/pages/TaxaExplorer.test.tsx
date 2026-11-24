@@ -186,6 +186,13 @@ describe("TaxaExplorer", () => {
     expect(item(/Testia/).getAttribute("aria-expanded")).toBe("true");
   });
 
+  it("names a class from another taxa group in words, not its raw lowercase name", () => {
+    treeData = { ...tree, tree: [{ ...tree.tree[0], name: "insecta" }] };
+    renderPage();
+    expect(item(/Insects/)).toBeTruthy();
+    expect(screen.queryByText("insecta")).toBeNull();
+  });
+
   it("hides genera unless the View option shows them", () => {
     localStorage.setItem("lifer:explorer.genus", "false");
     renderPage();

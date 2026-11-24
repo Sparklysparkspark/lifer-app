@@ -26,6 +26,7 @@ import AreaPills from "../components/AreaPills";
 import { Tooltip } from "../components/Tooltip";
 import { useWindowRange } from "../components/windowing";
 import { LoadingScreen } from "../components/LoadingScreen";
+import { taxonDisplayLabel } from "@lifer/shared";
 import { downloadWithToast } from "../lib/downloadFile";
 import { formatNumber } from "../lib/format";
 import { useApiResource } from "../lib/resource";
@@ -141,7 +142,7 @@ export default function TaxaExplorer() {
         : node.name === "Other"
           ? t("taxa.other")
           : node.rank === "class"
-            ? (taxonClassLabel(node.name) ?? node.name)
+            ? (taxonClassLabel(node.name) ?? taxonDisplayLabel(node.name, []))
             : node.rank === "family"
               ? speciesGroupLabel(familyClass.get(node) ?? null, node.name)
               : node.name,
