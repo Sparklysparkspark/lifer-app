@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // The check for photos already on iNaturalist (entry point, progress, quiet result) and the
 // review cards for possible matches.
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const get = vi.fn();
@@ -152,8 +153,8 @@ describe("MatchReview", () => {
     expect(screen.getByText("Looks the same")).toBeTruthy();
     expect(screen.getByText(/Same species, same time, cropped or resized/)).toBeTruthy();
     expect(screen.getByText("Your photo")).toBeTruthy();
-    const img = screen.getByRole("img", { name: "iNaturalist" }) as HTMLImageElement;
-    expect(img.getAttribute("src")).toBe("/api/inaturalist/observations/1/photos/759791188");
+    const half = screen.getByRole("button", { name: "iNaturalist" });
+    expect(half.querySelector("img")?.getAttribute("src")).toBe("/api/inaturalist/observations/1/photos/759791188");
     expect(document.body.textContent).not.toMatch(/0\.\d/);
   });
 
@@ -214,5 +215,27 @@ describe("MatchReview", () => {
     await act(async () => opts.actions[0].onClick());
     expect(post).toHaveBeenLastCalledWith("/inaturalist/matches/unlink", { captureIds: ["a"] });
     expect(await screen.findByText("Looks the same")).toBeTruthy();
+  });
+
+  it("opens both photos in one viewer to compare, with the actions pinned to the card's foot", async () => {
+    render(
+      <MemoryRouter>
+        <MatchReview matches={[match("c1", "1")]} onChanged={async () => {}} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("list").className).not.toContain("items-start");
+    expect(screen.getByRole("button", { name: "Link" }).closest(".mt-auto")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Your photo" }));
+    const viewer = await screen.findByRole("dialog");
+    expect(viewer.querySelector("img[src$='/display']")?.getAttribute("src")).toBe("/api/photos/p-c1/display");
+    expect(within(viewer).getByText("2 / 2")).toBeTruthy();
+  });
+
+  it("never shows the runtime's own error text", async () => {
+    post.mockRejectedValueOnce(new TypeError("x.map is not a function"));
+    render(<MatchReview matches={[match("c1", "1")]} onChanged={async () => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Link" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(toast.error.mock.calls[0][0]).not.toMatch(/not a function/);
   });
 });

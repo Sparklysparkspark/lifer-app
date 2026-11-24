@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { TFunction } from "i18next";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import type { MenuAction } from "../../components/Menu";
@@ -27,6 +27,18 @@ export function useSpeciesDrill() {
     setParams(next, { replace: true });
   }
   return { speciesId, open, back };
+}
+
+/** Goes back to the species list once the open species has nothing left (its last one sent,
+ *  ignored or finished), once per species: Back steps through history. */
+export function useLeaveEmptySpecies(speciesId: string | null, empty: boolean, back: () => void) {
+  const left = useRef<string | null>(null);
+  useEffect(() => {
+    if (!speciesId) left.current = null;
+    if (!speciesId || !empty || left.current === speciesId) return;
+    left.current = speciesId;
+    back();
+  });
 }
 
 export interface SpeciesGroup<T> {
@@ -114,5 +126,7 @@ export function speciesCard<T>(
       ...opts.status,
     ],
     menu: opts.menu,
+    // Its +N opens the species, as the card does: one tile per sighting isn't all its photos.
+    openLabel: t("inaturalist.species.open"),
   };
 }

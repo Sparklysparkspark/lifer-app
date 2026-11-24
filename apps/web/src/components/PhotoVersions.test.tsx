@@ -281,8 +281,11 @@ describe("the Versions dialog", () => {
   it("marks only the file that is the photo as shown", async () => {
     openDialog(PAIR);
     await screen.findByText("6F9A3556.cr3");
-    expect(screen.getAllByText(/^Shown/)).toHaveLength(1);
-    expect(screen.getByText(/^Shown · Export · JPG/)).toBeTruthy();
+    // One wording for it everywhere: "Used as the photo", as the viewer says (INAT-24).
+    expect(screen.getAllByText("Used as the photo")).toHaveLength(1);
+    expect(screen.getByText(/^Export · JPG/)).toBeTruthy();
+    // The full path shows in the shared tooltip, never a slow native title (INAT-25).
+    expect(screen.getByRole("dialog").querySelector("[title]")).toBeNull();
     expect(screen.getByText("Original · CR3 · 2560 × 1707 · 1 KB")).toBeTruthy();
     // Its own capture is already the photo, so the RAW isn't offered as one.
     fireEvent.click(screen.getAllByRole("button", { name: "More options" })[1]);
@@ -300,7 +303,7 @@ describe("the Versions dialog", () => {
     // Each tile: a thumbnail that opens it, its name and role, one Shown badge and its own menu.
     expect(screen.getAllByRole("button", { name: /^View f\d\.jpg full size$/ })).toHaveLength(7);
     expect(screen.getAllByText("Original · JPG · 1 KB")).toHaveLength(7);
-    expect(screen.getAllByText("Shown")).toHaveLength(1);
+    expect(screen.getAllByText("Used as the photo")).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "More options" })).toHaveLength(7);
     fireEvent.click(screen.getByRole("button", { name: "List" }));
     expect(localStorage.getItem("lifer:versions.view")).toBe('"list"');

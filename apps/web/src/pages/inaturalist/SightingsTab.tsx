@@ -11,7 +11,7 @@ import EmptyState from "../../components/EmptyState";
 import SegmentedControl from "../../components/SegmentedControl";
 import type { BarAction } from "../../components/SelectionActionRow";
 import { CardGrid, PhotoWindow, SelectionBar, SpeciesTrail, type GridCard } from "./CardGrid";
-import { speciesCard, useSpeciesView } from "./speciesLevel";
+import { speciesCard, useLeaveEmptySpecies, useSpeciesView } from "./speciesLevel";
 import { sortCards, useCardSelection } from "./cardSelection";
 import { FilterSelect, InatToolbar, TaxonFilter } from "./Toolbar";
 import { taxaIn, useInatView } from "./viewPrefs";
@@ -252,16 +252,19 @@ export default function SightingsTab({
 
   const needsPlace = (s: Sighting) => included(s).length > 0 && !included(s).some((c) => c.hasLocation);
 
-  /** Files the sightings' ticked photos under a chosen place, then optionally sends them. */
+  /** Files the ticked photos of the sightings with no location under a chosen place, then
+   *  optionally sends the whole list; located sightings keep their own place (A5). */
   async function setPlace(list: Sighting[], thenSend: boolean) {
-    const captureIds = list.flatMap((s) => included(s).map((c) => c.id));
+    // A sighting that has one is changed only when it's the one asked about.
+    const unplaced = list.some(needsPlace) ? list.filter(needsPlace) : list;
+    const captureIds = unplaced.flatMap((s) => included(s).map((c) => c.id));
     if (!placeStep || captureIds.length === 0) return;
-    const offers = new Set(list.map((s) => s.looksLike?.id ?? ""));
+    const offers = new Set(unplaced.map((s) => s.looksLike?.id ?? ""));
     const chosen = await placeStep({
       captureIds,
-      near: list.find((s) => s.point)?.point ?? null,
+      near: unplaced.find((s) => s.point)?.point ?? null,
       // Offered only when every sighting looks like the same place.
-      looksLike: offers.size === 1 ? (list[0].looksLike ?? null) : null,
+      looksLike: offers.size === 1 ? (unplaced[0].looksLike ?? null) : null,
       send: thenSend,
     });
     if (chosen !== "placed") return;
@@ -308,14 +311,19 @@ export default function SightingsTab({
   const toRestore = chosen.filter(isIgnored);
 
   // Ignored sightings can still be sent on purpose; sending clears their ignore mark.
+  // Send is left out while none of the selection can go (A6).
   const actions: BarAction[] = [
-    {
-      key: "send",
-      label: t("inaturalist.import.sendSelected", { count: sendable(chosen).length }),
-      variant: "primary",
-      loading: sending,
-      onClick: () => void send(chosen),
-    },
+    ...(sendable(chosen).length > 0
+      ? [
+          {
+            key: "send",
+            label: t("inaturalist.import.sendSelected", { count: sendable(chosen).length }),
+            variant: "primary" as const,
+            loading: sending,
+            onClick: () => void send(chosen),
+          },
+        ]
+      : []),
     ...(sendable(chosen).some(needsPlace)
       ? [
           {
@@ -376,7 +384,8 @@ export default function SightingsTab({
     const key = sightingKey(s);
     const photos = s.captures.map((c) => c.id);
     const setPlaceItem = {
-      label: t("sendPlace.setPlace"),
+      // With a location already, the window's word: Change place (A1).
+      label: needsPlace(s) ? t("sendPlace.setPlace") : t("inaturalist.import.changePlace"),
       onSelect: () => void setPlace([s], false),
       disabled: included(s).length === 0,
     };
@@ -478,8 +487,11 @@ export default function SightingsTab({
   const openSpecies = speciesView.drill.speciesId
     ? source.find((s) => s.speciesId === speciesView.drill.speciesId)
     : undefined;
+  // A species whose last sighting was sent or ignored goes back to the species list.
+  const { speciesId: drilledId, back: drillBack } = speciesView.drill;
+  const loadingIgnored = show !== "waiting" && ignored === null;
+  useLeaveEmptySpecies(drilledId, !openSpecies && !loadingIgnored, drillBack);
   const shownCount = bySpecies ? speciesView.groups.length : visible.length;
-  const selectAllLabel = bySpecies ? t("inaturalist.species.selectAll") : t("inaturalist.import.selectAll");
   const filtered = query !== "" || filterCount > 0;
   const available = taxaIn([...sightings, ...(ignored ?? [])].map((s) => s.taxonClass));
 
@@ -527,10 +539,6 @@ export default function SightingsTab({
             search={query}
             onSearch={setQuery}
             shownCount={shownCount}
-            selectedCount={chosen.length}
-            selectAllLabel={selectAllLabel}
-            onSelectAll={() => setSelected(new Set(visibleKeys))}
-            onSelectNone={clear}
             selecting={selecting}
             onSelecting={setSelecting}
             view={viewPrefs}
@@ -611,26 +619,20 @@ export default function SightingsTab({
       {view === "list" && shownCount > 0 && (
         <SelectionBar
           slot={barSlot}
+          selecting={selecting}
           selectedCount={chosen.length}
-          selectedLabel={
-            bySpecies
-              ? t("inaturalist.species.selected", {
-                  species: selected.size,
-                  items: t("inaturalist.import.shownCount", { count: chosen.length }),
-                })
-              : undefined
-          }
-          // The tab already counts every sighting; this only says how many a filter or a species leaves.
+          total={bySpecies ? items.length : visible.length}
+          onSelectAll={() => setSelected(new Set(visibleKeys))}
+          onClear={clear}
+          emptyText={t("inaturalist.import.selectHint")}
+          // The tab counts sightings; this says how many species they make, or how many a filter or a species leaves.
           shownLabel={
             bySpecies
-              ? filtered
-                ? t("inaturalist.species.count", { count: shownCount })
-                : null
+              ? t("inaturalist.species.count", { count: shownCount })
               : filtered || speciesView.drill.speciesId
                 ? t("inaturalist.import.shownCount", { count: visible.length })
                 : null
           }
-          onClear={clear}
           actions={actions}
           idle={
             sendable(visible.filter((s) => !isIgnored(s))).length > 1 && (
@@ -645,8 +647,17 @@ export default function SightingsTab({
       {view === "matches" ? null : show !== "waiting" && ignored === null ? (
         <Spinner />
       ) : shownCount === 0 ? (
-        query || filterCount > 0 ? (
-          <p className="py-8 text-body text-muted">{t("inaturalist.import.noMatch")}</p>
+        filtered ? (
+          <EmptyState
+            title={t("inaturalist.import.noMatch")}
+            action={{
+              label: t("inaturalist.toolbar.clearFilters"),
+              onClick: () => {
+                setQuery("");
+                clearFilters();
+              },
+            }}
+          />
         ) : (
           <EmptyState icon={sendIcon} title={empty.title} description={empty.description} />
         )
@@ -776,14 +787,12 @@ function SightingDetail({
       excludedIds={excludedIds}
       onExcludedChange={onExcludedChange}
       onClose={onClose}
+      primary={sendButton}
       footer={
         ignoredView ? (
-          <>
-            <Button variant="secondary" onClick={onRestore}>
-              {t("inaturalist.import.restoreSighting")}
-            </Button>
-            {sendButton}
-          </>
+          <Button variant="secondary" onClick={onRestore}>
+            {t("inaturalist.import.restoreSighting")}
+          </Button>
         ) : (
           <>
             {leftOut.length > 0 && (
@@ -794,7 +803,6 @@ function SightingDetail({
             <Button variant="secondary" onClick={() => onIgnore(sighting.captures.map((c) => c.id))}>
               {t("inaturalist.import.ignoreSighting")}
             </Button>
-            {sendButton}
           </>
         )
       }

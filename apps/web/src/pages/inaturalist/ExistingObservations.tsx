@@ -1,13 +1,16 @@
 // Photos the user already added to iNaturalist themselves: the check that finds them (on To send,
 // with progress and Cancel), its quiet result, and the review cards for possible matches.
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
-import { api, ApiError } from "../../api/client";
+import { api } from "../../api/client";
 import Button from "../../components/Button";
+import EmptyState from "../../components/EmptyState";
+import { useLightbox } from "../../components/Lightbox";
 import JobProgress from "../../components/JobProgress";
 import MediaCard, { Thumb } from "../../components/MediaCard";
 import { useToast } from "../../hooks/useToast";
+import { errorMessage } from "../../lib/errorMessage";
 import { formatDate } from "../../lib/format";
 import { openExternal } from "../../lib/openExternal";
 import { useSpeciesName } from "../../lib/speciesName";
@@ -93,6 +96,7 @@ export function MatchReview({ matches, onChanged }: { matches: PossibleMatch[]; 
   const [busy, setBusy] = useState<string | null>(null);
   const [gone, setGone] = useState<Set<string>>(new Set());
   const [shown, setShown] = useState(PAGE_SIZE);
+  const viewer = useLightbox();
   const key = (m: PossibleMatch) => `${m.captureId}:${m.observationId}`;
   const list = matches
     .filter((m) => !gone.has(key(m)))
@@ -106,7 +110,7 @@ export function MatchReview({ matches, onChanged }: { matches: PossibleMatch[]; 
         observationId: m.observationId,
       });
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : t("inaturalist.existing.failed"));
+      toast.error(errorMessage(err, t("inaturalist.existing.failed")));
       setBusy(null);
       return;
     }
@@ -132,7 +136,7 @@ export function MatchReview({ matches, onChanged }: { matches: PossibleMatch[]; 
     try {
       await api.post("/inaturalist/matches/unlink", { captureIds: [m.captureId] });
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : t("inaturalist.existing.failed"));
+      toast.error(errorMessage(err, t("inaturalist.existing.failed")));
       return;
     }
     // The card and its other suggestions come back.
@@ -148,20 +152,53 @@ export function MatchReview({ matches, onChanged }: { matches: PossibleMatch[]; 
         undo: true,
       });
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : t("inaturalist.existing.failed"));
+      toast.error(errorMessage(err, t("inaturalist.existing.failed")));
       return;
     }
     setGone((prev) => new Set([...prev].filter((k) => k !== key(m))));
     await onChanged();
   }
 
-  if (list.length === 0) return <p className="py-8 text-body text-muted">{t("inaturalist.matches.empty")}</p>;
+  if (list.length === 0) return <EmptyState title={t("inaturalist.matches.empty")} />;
+  const inatSrc = (m: PossibleMatch) =>
+    m.inatPhotoId ? `/api/inaturalist/observations/${m.observationId}/photos/${m.inatPhotoId}` : null;
+  // Both halves open one viewer, the iNaturalist photo then yours, to tell whether they're the same.
+  const compare = (m: PossibleMatch, index: number) => {
+    const src = inatSrc(m);
+    viewer.open(
+      [
+        src ? { url: src, caption: t("inaturalist.matches.onInat") } : null,
+        m.photoId ? { url: `/api/photos/${m.photoId}/display`, caption: t("inaturalist.matches.yourPhoto") } : null,
+      ].filter((x) => x !== null),
+      src ? index : 0,
+    );
+  };
+  const half = (m: PossibleMatch, index: number, label: string, thumb: ReactNode, enabled: boolean) => (
+    <figure className="relative">
+      {enabled ? (
+        // raw-control: the whole half is the button that opens it full size.
+        <button
+          type="button"
+          aria-label={label}
+          onClick={() => compare(m, index)}
+          className="absolute inset-0 cursor-pointer transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+        >
+          {thumb}
+        </button>
+      ) : (
+        thumb
+      )}
+      <figcaption className="pointer-events-none absolute inset-x-0 bottom-0 bg-surface/90 py-0.5 text-center text-caption font-medium text-ink">
+        {label}
+      </figcaption>
+    </figure>
+  );
   return (
     <div className="space-y-item">
       <p className="text-subheadline text-muted">{t("inaturalist.matches.summary")}</p>
       <ul
         aria-label={t("inaturalist.matches.view")}
-        className="grid items-start gap-3"
+        className="grid gap-3"
         style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}
       >
         {list.slice(0, shown).map((m) => (
@@ -171,34 +208,40 @@ export function MatchReview({ matches, onChanged }: { matches: PossibleMatch[]; 
             mediaClassName="aspect-[2/1]"
             media={
               <div className="grid h-full w-full grid-cols-2 gap-0.5">
-                <figure className="relative">
-                  {m.inatPhotoId ? (
+                {half(
+                  m,
+                  0,
+                  t("inaturalist.matches.onInat"),
+                  inatSrc(m) ? (
                     <img
-                      src={`/api/inaturalist/observations/${m.observationId}/photos/${m.inatPhotoId}`}
-                      alt={t("inaturalist.matches.onInat")}
+                      src={inatSrc(m)!}
+                      alt=""
                       loading="lazy"
                       className="absolute inset-0 h-full w-full object-cover"
                     />
                   ) : (
                     <Thumb photoId={null} className="absolute inset-0" />
-                  )}
-                  <figcaption className="absolute inset-x-0 bottom-0 bg-surface/90 py-0.5 text-center text-caption font-medium text-ink">
-                    {t("inaturalist.matches.onInat")}
-                  </figcaption>
-                </figure>
-                <figure className="relative">
-                  <Thumb photoId={m.photoId} className="absolute inset-0" />
-                  <figcaption className="absolute inset-x-0 bottom-0 bg-surface/90 py-0.5 text-center text-caption font-medium text-ink">
-                    {t("inaturalist.matches.yourPhoto")}
-                  </figcaption>
-                </figure>
+                  ),
+                  !!inatSrc(m),
+                )}
+                {half(
+                  m,
+                  1,
+                  t("inaturalist.matches.yourPhoto"),
+                  <Thumb photoId={m.photoId} className="absolute inset-0" />,
+                  !!m.photoId,
+                )}
               </div>
             }
             title={speciesName(m)}
+            titleLines={2}
             lines={[
               m.likeness ? t(LIKENESS_KEYS[m.likeness]) : t("inaturalist.matches.likeness.unknown"),
               [evidenceLine(t, m), m.takenAt ? formatDate(m.takenAt) : null].filter(Boolean).join(", "),
-              <div key="actions" className="mt-2 flex flex-wrap items-center gap-2">
+            ]}
+            // Pinned to the bottom, so Link and Not a match line up across a row.
+            footer={
+              <div className="mt-1 flex flex-wrap items-center gap-2">
                 <Button
                   variant="secondary"
                   size="sm"
@@ -214,8 +257,8 @@ export function MatchReview({ matches, onChanged }: { matches: PossibleMatch[]; 
                 <Button variant="link" size="sm" onClick={() => openExternal(m.observationUrl)}>
                   {t("inaturalist.send.view")}
                 </Button>
-              </div>,
-            ]}
+              </div>
+            }
             renderBody={({ className, children }) => <div className={className}>{children}</div>}
           />
         ))}
@@ -225,6 +268,7 @@ export function MatchReview({ matches, onChanged }: { matches: PossibleMatch[]; 
           {t("manageList.showMore", { count: Math.min(PAGE_SIZE, list.length - shown) })}
         </Button>
       )}
+      {viewer.node}
     </div>
   );
 }

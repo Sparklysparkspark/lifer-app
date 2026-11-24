@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { Map as MapLibreMap, Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { addMapCredits } from "./map/MapCredits";
@@ -7,6 +8,8 @@ import { useTheme } from "../hooks/useTheme";
 import { useMapAvailable } from "../hooks/useMapAvailable";
 import { useLatest } from "../hooks/useLatest";
 import { ensurePmtilesProtocol, pmtilesStyle } from "../lib/pmtiles";
+import { SPECIES_DOWNLOADS_PATH } from "../lib/speciesDownloads";
+import Button from "./Button";
 
 const WORLD_VIEW = { center: [10, 25] as [number, number], zoom: 1 };
 /** About a town across: close enough to place a pin on a pond. */
@@ -23,6 +26,7 @@ export default function PointPickerMap({
 }) {
   const { t } = useTranslation();
   const { theme } = useTheme();
+  const navigate = useNavigate();
   const mapAvailable = useMapAvailable();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -31,13 +35,13 @@ export default function PointPickerMap({
   const pointRef = useLatest(point);
 
   useEffect(() => {
-    if (!containerRef.current || mapAvailable === null) return;
-    if (mapAvailable) ensurePmtilesProtocol();
+    if (!containerRef.current || !mapAvailable) return;
+    ensurePmtilesProtocol();
     const start = pointRef.current;
     const map = new MapLibreMap({
       container: containerRef.current,
       ...(start ? { center: [start.lon, start.lat] as [number, number], zoom: POINT_ZOOM } : WORLD_VIEW),
-      style: mapAvailable ? pmtilesStyle(theme === "dark" ? "dark" : "light") : { version: 8, sources: {}, layers: [] },
+      style: pmtilesStyle(theme === "dark" ? "dark" : "light"),
       attributionControl: false,
     });
     addMapCredits(map, { satellite: true, placeSearch: true });
@@ -75,6 +79,16 @@ export default function PointPickerMap({
       map.easeTo({ center: [point.lon, point.lat], zoom: Math.max(map.getZoom(), POINT_ZOOM) });
   }, [point, mapAvailable, theme, onPickRef]);
 
+  // Without the offline map there's nothing to click on but a blank box: say so instead.
+  if (mapAvailable === false)
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-panel border border-line bg-surface-muted p-3 text-callout text-muted">
+        <p className="min-w-0 flex-1">{t("coordinates.noMap")}</p>
+        <Button variant="secondary" size="sm" onClick={() => navigate(SPECIES_DOWNLOADS_PATH)}>
+          {t("gallery.map.downloadBasemap")}
+        </Button>
+      </div>
+    );
   return (
     <div
       ref={containerRef}

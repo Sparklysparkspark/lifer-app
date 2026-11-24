@@ -200,11 +200,8 @@ describe("many sightings at once", () => {
     const many = Array.from({ length: 200 }, (_, i) => observation(String(1000 + i)));
     get.mockResolvedValue(result({ updated: 196, waiting: 2, failed: 1, conflicts: 1, conflictIds: ["1007"] }));
     render(<Tab observations={many} />);
-    const select = await screen.findByRole("button", { name: "Select" });
-    await waitFor(() => expect((select as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(select);
-    fireEvent.click(screen.getByRole("button", { name: "Select" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /^Select every observation/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Select" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
     fireEvent.click(await screen.findByRole("button", { name: "Set location" }));
 
     await waitFor(() => expect(placeStep).toHaveBeenCalled());

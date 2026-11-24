@@ -325,15 +325,19 @@ function PhotoVersionsPanel({
                   {f.shown && (
                     // design-token: a scrim over the photo, as the version badge on photo tiles.
                     <span className="pointer-events-none absolute top-2 left-2 rounded-badge bg-black/60 px-1.5 py-0.5 text-caption text-white">
-                      {t("versions.shown")}
+                      {t("versions.shownEverywhere")}
                     </span>
                   )}
                 </div>
                 <div className="mt-1 flex items-start gap-1">
                   <div className="min-w-0 flex-1">
-                    <p className="text-footnote text-ink wrap-anywhere" title={f.ref}>
-                      {f.fileName}
-                    </p>
+                    <Tooltip content={{ label: f.ref }}>
+                      {(tip) => (
+                        <p {...tip} className="text-footnote text-ink wrap-anywhere">
+                          {f.fileName}
+                        </p>
+                      )}
+                    </Tooltip>
                     <p className="text-caption text-muted">{meta(f, false)}</p>
                   </div>
                   {fileMenu(f)}
@@ -347,12 +351,15 @@ function PhotoVersionsPanel({
               <li key={f.originalId} className="group flex items-center gap-3 py-3">
                 {thumb(f, ROW_THUMB)}
                 <div className="min-w-0 flex-1">
-                  <p className="text-callout text-ink wrap-anywhere" title={f.ref}>
-                    {f.fileName}
-                  </p>
-                  <p className="text-footnote text-muted">
-                    {f.shown ? `${t("versions.shown")} · ${meta(f, true)}` : meta(f, true)}
-                  </p>
+                  <Tooltip content={{ label: f.ref }}>
+                    {(tip) => (
+                      <p {...tip} className="text-callout text-ink wrap-anywhere">
+                        {f.fileName}
+                      </p>
+                    )}
+                  </Tooltip>
+                  {f.shown && <p className="text-footnote text-muted">{t("versions.shownEverywhere")}</p>}
+                  <p className="text-footnote text-muted">{meta(f, true)}</p>
                   {evidenceLabel(f) && <p className="text-footnote text-muted">{evidenceLabel(f)}</p>}
                 </div>
                 {fileMenu(f)}
@@ -454,7 +461,6 @@ function LinkPicker({
               type="button"
               onClick={() => onPick(n.captureId)}
               aria-label={t("versions.linkToPhoto", { name: n.fileName ?? n.speciesName ?? "" })}
-              title={n.fileName ?? undefined}
               className="block w-full min-w-0 rounded-control text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               <span className="relative block aspect-square overflow-hidden rounded-control bg-surface-muted">
@@ -465,9 +471,11 @@ function LinkPicker({
                   <VersionStackBadge label={t("versions.badge", { count: counts.get(n.captureId) })} />
                 )}
               </span>
-              {n.fileName && <span className="mt-1 block truncate text-footnote text-ink">{n.fileName}</span>}
-              <span className="block truncate text-caption text-muted">
-                {/* The date first: a long species name truncates, the date never does. */}
+              {n.fileName && (
+                <span className="mt-1 line-clamp-2 text-footnote text-ink wrap-anywhere">{n.fileName}</span>
+              )}
+              <span className="line-clamp-2 text-caption text-muted wrap-anywhere">
+                {/* The date first: a long species name is cut at two lines, the date never is. */}
                 {[formatDate(n.takenAt), n.speciesName].filter(Boolean).join(" · ")}
               </span>
             </button>
@@ -596,22 +604,25 @@ export function VersionStrip({
               className="w-48 rounded-full border border-white/40 bg-white/10 px-2.5 py-0.5 text-footnote text-white outline-none focus-visible:border-white"
             />
           ) : (
-            // raw-control: a switcher chip, light on the viewer's dark backdrop.
-            <button
-              key={v.captureId}
-              type="button"
-              role="radio"
-              aria-checked={v.captureId === activeId}
-              title={v.fileName}
-              onClick={() => onSelect(v)}
-              onDoubleClick={() => {
-                setDraft(versionName(t, v));
-                setRenaming(v.captureId);
-              }}
-              className={`${chip} ${v.captureId === activeId ? CHIP_ON : CHIP_OFF}`}
-            >
-              {versionName(t, v)}
-            </button>
+            <Tooltip key={v.captureId} content={v.fileName ? { label: v.fileName } : undefined}>
+              {(tip) => (
+                // raw-control: a switcher chip, light on the viewer's dark backdrop.
+                <button
+                  {...tip}
+                  type="button"
+                  role="radio"
+                  aria-checked={v.captureId === activeId}
+                  onClick={() => onSelect(v)}
+                  onDoubleClick={() => {
+                    setDraft(versionName(t, v));
+                    setRenaming(v.captureId);
+                  }}
+                  className={`${chip} ${v.captureId === activeId ? CHIP_ON : CHIP_OFF}`}
+                >
+                  {versionName(t, v)}
+                </button>
+              )}
+            </Tooltip>
           ),
         )}
       </div>

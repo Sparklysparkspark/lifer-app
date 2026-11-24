@@ -6,60 +6,76 @@ import Modal from "../../components/Modal";
 import Button from "../../components/Button";
 import Checkbox from "../../components/Checkbox";
 import StarRating from "../../components/StarRating";
+import { SelectionBar, type BarAction } from "../../components/SelectionActionRow";
 import type { CaptureEdits } from "./useCaptureEdits";
 
-// Select mode's bar: correct the ID, add tags or rate every selected photo, or hide or delete them.
-export function CaptureSelectBar({ selectedCount, edits }: { selectedCount: number; edits: CaptureEdits }) {
+// Select mode's bar, the shared one: correct the ID, add tags or rate every selected photo, or
+// hide or delete them.
+export function CaptureSelectBar({
+  selectedCount,
+  edits,
+  total,
+  onSelectAll,
+  onDeselectAll,
+}: {
+  selectedCount: number;
+  edits: CaptureEdits;
+  /** How many photos are listed, for Select all. */
+  total?: number;
+  onSelectAll?: () => void;
+  onDeselectAll?: () => void;
+}) {
   const { t } = useTranslation();
+  const actions: BarAction[] = [
+    { key: "hide", label: t("species.selection.hide"), onClick: () => void edits.hideSelected() },
+    {
+      key: "delete",
+      label: t("species.selection.deleteSelected"),
+      variant: "danger",
+      onClick: () => edits.deleteDialog.setOpen(true),
+    },
+  ];
   return (
-    <div className="mb-2 flex items-center justify-between gap-3 rounded-control border border-line bg-surface-muted px-3 py-2 text-footnote">
-      <span className="shrink-0 text-muted">{t("species.selection.selectedCount", { count: selectedCount })}</span>
-      {selectedCount > 0 && (
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="shrink-0 text-muted">{t("species.selection.correctIdTo")}</span>
-          <div className="w-56">
-            <SpeciesPicker
-              placeholder={t("species.selection.typeSpecies")}
-              onSelect={(s) => edits.reassignSelected(s)}
-            />
-          </div>
-          {edits.batchReassigning && <span className="shrink-0 text-muted">{t("species.selection.reassigning")}</span>}
-          <span className="shrink-0 text-muted">{t("species.selection.addTag")}</span>
-          <div className="w-48">
-            <TagEditor
-              tags={edits.bulkTags}
-              existingTags={edits.tagOptions}
-              compact
-              onChange={(tags) => void edits.addBulkTags(tags)}
-            />
-          </div>
-          {edits.bulkTags.length > 0 && (
-            <Button size="sm" className="shrink-0" onClick={edits.exitSelectMode}>
-              {t("common.done")}
-            </Button>
-          )}
-          <span className="shrink-0 text-muted">{t("species.selection.rate")}</span>
-          <StarRating rating={null} onRate={(rating) => void edits.rateSelected(rating)} />
-        </div>
-      )}
-      <Button
-        variant="secondary"
-        size="sm"
-        className="shrink-0"
-        onClick={() => void edits.hideSelected()}
-        disabled={selectedCount === 0}
-      >
-        {t("species.selection.hide")}
-      </Button>
-      <Button
-        variant="danger"
-        size="sm"
-        className="shrink-0"
-        onClick={() => edits.deleteDialog.setOpen(true)}
-        disabled={selectedCount === 0}
-      >
-        {t("species.selection.deleteSelected")}
-      </Button>
+    <div className="mb-2">
+      <SelectionBar
+        count={selectedCount}
+        total={total}
+        onSelectAll={onSelectAll}
+        onDeselectAll={onDeselectAll}
+        busyLabel={edits.batchReassigning ? t("species.selection.reassigning") : null}
+        emptyText={t("gallery.select.none")}
+        actions={actions}
+        links={
+          selectedCount > 0 && (
+            // Wraps in a narrow window rather than pushing the bar past its edge.
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="shrink-0 text-muted">{t("species.selection.correctIdTo")}</span>
+              <div className="w-56 max-w-full">
+                <SpeciesPicker
+                  placeholder={t("species.selection.typeSpecies")}
+                  onSelect={(s) => edits.reassignSelected(s)}
+                />
+              </div>
+              <span className="shrink-0 text-muted">{t("species.selection.addTag")}</span>
+              <div className="w-48 max-w-full">
+                <TagEditor
+                  tags={edits.bulkTags}
+                  existingTags={edits.tagOptions}
+                  compact
+                  onChange={(tags) => void edits.addBulkTags(tags)}
+                />
+              </div>
+              {edits.bulkTags.length > 0 && (
+                <Button size="sm" className="shrink-0" onClick={edits.exitSelectMode}>
+                  {t("common.done")}
+                </Button>
+              )}
+              <span className="shrink-0 text-muted">{t("species.selection.rate")}</span>
+              <StarRating rating={null} onRate={(rating) => void edits.rateSelected(rating)} />
+            </div>
+          )
+        }
+      />
     </div>
   );
 }

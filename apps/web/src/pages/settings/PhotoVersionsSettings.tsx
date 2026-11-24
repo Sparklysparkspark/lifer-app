@@ -1,6 +1,7 @@
 // Settings > Species and import > Photo versions: the folder names whose files are versions of
 // the original beside them, and looking again in one folder (apps/api/src/captures/versions.ts).
 import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { JobStatus } from "@lifer/shared";
 import { api, apiPath } from "../../api/client";
@@ -23,10 +24,12 @@ const SCAN = "/captures/versions/scan";
 
 export default function PhotoVersionsSettings() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const folders = useApiRoute(apiPath("/captures/versions/folders", {}));
   const [names, setNames] = useState<string[] | null>(null);
   const shown = names ?? folders.data?.names ?? null;
   const [draft, setDraft] = useState("");
+  const duplicate = !!shown?.some((n) => n.toLowerCase() === draft.trim().toLowerCase());
   const [error, setError] = useState<string | null>(null);
   const [browsing, setBrowsing] = useState(false);
   // The pass also runs after imports; only a look started here reports what it found.
@@ -53,9 +56,10 @@ export default function PhotoVersionsSettings() {
   function add(e: FormEvent) {
     e.preventDefault();
     const name = draft.trim();
-    if (!name || !shown) return;
+    // A name already listed stays in the field with a note, rather than vanishing (W9).
+    if (!name || !shown || duplicate) return;
     setDraft("");
-    if (!shown.some((n) => n.toLowerCase() === name.toLowerCase())) void save([...shown, name]);
+    void save([...shown, name]);
   }
 
   async function look(folder: string) {
@@ -117,10 +121,11 @@ export default function PhotoVersionsSettings() {
             aria-label={t("settings.versions.addLabel")}
             className="min-w-0 flex-1"
           />
-          <Button type="submit" variant="secondary" size="sm" disabled={!draft.trim()}>
+          <Button type="submit" variant="secondary" size="sm" disabled={!draft.trim() || duplicate}>
             {t("settings.versions.add")}
           </Button>
         </form>
+        {duplicate && <p className="text-footnote text-muted">{t("settings.versions.alreadyListed")}</p>}
       </SettingRow>
       <SettingRow
         label={t("settings.versions.lookLabel")}
@@ -150,6 +155,11 @@ export default function PhotoVersionsSettings() {
                 : t("settings.versions.found", { linked: result.linked, suggested: result.suggested })
             }
           />
+        )}
+        {result && result.suggested > 0 && (
+          <Button variant="link" size="sm" onClick={() => navigate("/import")}>
+            {t("settings.versions.review")}
+          </Button>
         )}
         <FormMessage error={error ?? scan.actionError} />
         {browsing && (

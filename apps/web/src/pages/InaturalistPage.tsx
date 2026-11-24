@@ -41,6 +41,8 @@ const linkIcon = icon(
 
 type Lists = {
   sightings: Sighting[];
+  /** Before the RAW filters, so a filter never changes the tab's count. */
+  sightingCount: number;
   ignoredCount: number;
   pending: ObservationSummary[];
   completed: ObservationSummary[];
@@ -92,6 +94,7 @@ export default function InaturalistPage() {
           setLists(
             (lastLists = {
               sightings: importRes.clusters,
+              sightingCount: importRes.totalCount,
               ignoredCount: importRes.ignoredCount,
               pending: pendingRes.observations,
               completed: completedRes.observations,
@@ -191,7 +194,7 @@ export default function InaturalistPage() {
   }, [tab, hasPending, check]);
 
   const counts: Record<Tab, number> = {
-    import: lists?.sightings.length ?? 0,
+    import: lists?.sightingCount ?? 0,
     pending: lists?.pending.length ?? 0,
     completed: lists?.completed.length ?? 0,
   };
@@ -208,12 +211,10 @@ export default function InaturalistPage() {
     );
   } else if (loadError && !lists) {
     body = (
-      <div className="flex flex-col items-center gap-3 py-24 text-center">
-        <p className="text-body text-muted">{t("inaturalist.loadFailed")}</p>
-        <Button variant="secondary" size="sm" onClick={() => void load()}>
-          {t("common.retry")}
-        </Button>
-      </div>
+      <EmptyState
+        title={t("inaturalist.loadFailed")}
+        action={{ label: t("common.retry"), onClick: () => void load() }}
+      />
     );
   } else if (!lists) {
     body = <Spinner />;

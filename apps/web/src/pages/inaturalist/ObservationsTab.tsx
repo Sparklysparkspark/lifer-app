@@ -8,8 +8,8 @@ import type { BarAction } from "../../components/SelectionActionRow";
 import { formatDate, formatDateSpan, formatRelativeTime } from "../../lib/format";
 import { openExternal } from "../../lib/openExternal";
 import { useSpeciesName } from "../../lib/speciesName";
-import { CardGrid, PhotoWindow, SelectionBar, SpeciesTrail, type GridCard } from "./CardGrid";
-import { speciesCard, useSpeciesView } from "./speciesLevel";
+import { CardGrid, PhotoWindow, SelectionBar, SpeciesTrail, type CardPhoto, type GridCard } from "./CardGrid";
+import { speciesCard, useLeaveEmptySpecies, useSpeciesView } from "./speciesLevel";
 import { sortCards, useCardSelection } from "./cardSelection";
 import { FilterSelect, InatToolbar, TaxonFilter } from "./Toolbar";
 import { taxaIn, useInatView } from "./viewPrefs";
@@ -79,6 +79,13 @@ const speciesOf = (o: ObservationSummary) => o.speciesId;
 function previewPhotos(o: ObservationSummary): PreviewPhoto[] {
   if (o.photoIds.length > 0) return o.photoIds.map((photoId) => ({ kind: "local", photoId }));
   return o.inatPhotoId ? [{ kind: "inat", observationId: o.observationId, photoId: o.inatPhotoId }] : [];
+}
+
+// Its photos here, or iNaturalist's own first photo when none is on this computer.
+function photosOf(o: ObservationSummary): CardPhoto[] {
+  if (o.photoIds.length > 0) return o.photoIds.map((id) => ({ id, photoId: id }));
+  const src = o.inatPhotoId ? `/api/inaturalist/observations/${o.observationId}/photos/${o.inatPhotoId}` : null;
+  return [{ id: o.observationId, photoId: o.currentPhotoId, src: o.currentPhotoId ? null : src }];
 }
 
 // What an observation still needs on iNaturalist, from what was sent.
@@ -204,8 +211,9 @@ export default function ObservationsTab({
     () => (bySpecies ? view.groups.map((g) => g.speciesId) : visible.map((o) => o.observationId)),
     [bySpecies, view.groups, visible],
   );
+  // Completed has nothing to do with a selection, so it has none (A1).
   const { selected, setSelected, toggle, clear, selecting, setSelecting } = useCardSelection(
-    visibleKeys,
+    pending ? visibleKeys : [],
     detailId !== null || preview.isOpen,
   );
   // A selected species stands for all its listed observations. A reload drops ones that moved on.
@@ -321,10 +329,7 @@ export default function ObservationsTab({
     key: o.observationId,
     // Inside a species its name would repeat on every card, so the date leads instead.
     name: view.drill.speciesId ? photoLine(t, o) : speciesName(o),
-    photos: (o.photoIds.length ? o.photoIds : [o.currentPhotoId]).map((id, i) => ({
-      id: id ?? String(i),
-      photoId: id,
-    })),
+    photos: photosOf(o),
     lines: [view.drill.speciesId ? null : photoLine(t, o), o.placeName ?? null, ...statusLines(o)],
     menu: cardMenu(o),
   }));
@@ -356,6 +361,10 @@ export default function ObservationsTab({
       ? [{ key: "open", label: openLabel, variant: "primary", onClick: () => open(chosen[0]) }]
       : [];
 
+  const openSpecies = view.drill.speciesId ? observations.find((o) => o.speciesId === view.drill.speciesId) : undefined;
+  // A species whose last observation finished goes back to the species list.
+  useLeaveEmptySpecies(view.drill.speciesId, !openSpecies, view.drill.back);
+
   if (observations.length === 0)
     return pending ? (
       <EmptyState
@@ -372,9 +381,7 @@ export default function ObservationsTab({
     );
   const detail = detailId ? observations.find((o) => o.observationId === detailId) : undefined;
   const label = pending ? t("inaturalist.tabs.pending") : t("inaturalist.tabs.completed");
-  const openSpecies = view.drill.speciesId ? observations.find((o) => o.speciesId === view.drill.speciesId) : undefined;
   const shownCount = bySpecies ? view.groups.length : visible.length;
-  const selectAllLabel = bySpecies ? t("inaturalist.species.selectAll") : t("inaturalist.selectAllObservations");
   const available = taxaIn(observations.map((o) => o.taxonClass));
   const sourceOptions = [
     { value: "all" as const, label: t("inaturalist.import.locationAll") },
@@ -397,12 +404,8 @@ export default function ObservationsTab({
         search={query}
         onSearch={setQuery}
         shownCount={shownCount}
-        selectedCount={chosen.length}
-        selectAllLabel={selectAllLabel}
-        onSelectAll={() => setSelected(new Set(visibleKeys))}
-        onSelectNone={clear}
         selecting={selecting}
-        onSelecting={setSelecting}
+        onSelecting={pending ? setSelecting : undefined}
         view={viewPrefs}
         filterCount={filterCount}
         onClearFilters={clearFilters}
@@ -453,25 +456,19 @@ export default function ObservationsTab({
       {shownCount > 0 && (
         <SelectionBar
           slot={barSlot}
+          selecting={selecting}
           selectedCount={chosen.length}
-          selectedLabel={
-            bySpecies
-              ? t("inaturalist.species.selected", {
-                  species: selected.size,
-                  items: t("inaturalist.observationCount", { count: chosen.length }),
-                })
-              : undefined
-          }
+          total={bySpecies ? items.length : visible.length}
+          onSelectAll={() => setSelected(new Set(visibleKeys))}
+          onClear={clear}
+          emptyText={t("inaturalist.pending.selectHint")}
           shownLabel={
             bySpecies
-              ? filtered
-                ? t("inaturalist.species.count", { count: shownCount })
-                : null
+              ? t("inaturalist.species.count", { count: shownCount })
               : filtered || view.drill.speciesId
                 ? t("inaturalist.observationCount", { count: shownCount })
                 : null
           }
-          onClear={clear}
           actions={actions}
           idle={
             pending && (
@@ -484,15 +481,24 @@ export default function ObservationsTab({
       )}
 
       {shownCount === 0 ? (
-        <p className="py-8 text-body text-muted">{t("inaturalist.import.noMatch")}</p>
+        <EmptyState
+          title={t("inaturalist.import.noMatch")}
+          action={{
+            label: t("inaturalist.toolbar.clearFilters"),
+            onClick: () => {
+              setQuery("");
+              clearFilters();
+            },
+          }}
+        />
       ) : (
         <CardGrid
           key={`${view.level}|${view.drill.speciesId}|${query}|${filterCount}|${sort}`}
           cards={bySpecies ? speciesCards : observationCards}
           label={label}
           selected={selected}
-          onToggle={toggle}
-          onSelectAll={() => setSelected(new Set(visibleKeys))}
+          onToggle={pending ? toggle : () => {}}
+          onSelectAll={() => pending && setSelected(new Set(visibleKeys))}
           onClearSelection={clear}
           onOpen={bySpecies ? view.drill.open : setDetailId}
           onPreview={showPreview}
@@ -513,8 +519,10 @@ export default function ObservationsTab({
             ...statusLines(detail),
             pending ? null : sourceLine(t, detail),
           ]}
-          photos={detail.photoIds.map((id) => ({ id, photoId: id }))}
+          photos={photosOf(detail)}
+          onPhotoOpen={(i) => preview.open(previewSlides(previewPhotos(detail), caption(detail)), i)}
           onClose={() => setDetailId(null)}
+          primary={<Button onClick={() => open(detail)}>{openLabel}</Button>}
           footer={
             <>
               {locationActions(detail).map((a) => (
@@ -532,7 +540,6 @@ export default function ObservationsTab({
                   {t("inaturalist.matches.unlink")}
                 </Button>
               )}
-              <Button onClick={() => open(detail)}>{openLabel}</Button>
             </>
           }
         />

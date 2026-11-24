@@ -208,6 +208,7 @@ const ObservationList = Open({
 });
 const ImportList = Open({
   ignoredCount: Type.Integer({ description: "Ignored sightings not on iNaturalist, shown under Ignored" }),
+  totalCount: Type.Integer({ description: "Sightings in this list before the RAW filters, for the tab's count" }),
   clusters: Type.Array(
     Open({
       speciesId: Uuid(),
@@ -530,10 +531,8 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
         takenAt: r.taken_at,
         ...clusterFields(r),
       }));
-      const clusters = keepPassing(
-        clusterForImport(captures),
-        new Set(res.rows.filter((r) => r.passes).map((r) => r.id)),
-      );
+      const all = clusterForImport(captures);
+      const clusters = keepPassing(all, new Set(res.rows.filter((r) => r.passes).map((r) => r.id)));
       // Counted as sightings, the way the Ignored view lists them.
       const ignoredCount = ignored
         ? clusters.length
@@ -568,6 +567,7 @@ export async function inaturalistRoutes(fastify: FastifyInstance): Promise<void>
       );
       return {
         ignoredCount,
+        totalCount: all.length,
         clusters: clusters.map((cluster, i) => ({
           ...hints[i],
           speciesId: cluster.speciesId,

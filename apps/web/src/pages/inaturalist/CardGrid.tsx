@@ -11,9 +11,9 @@ import Button, { IconButton } from "../../components/Button";
 import Menu, { MenuItems, MenuPanel, type MenuAction } from "../../components/Menu";
 import { OVERLAY_REVEAL } from "../../lib/buttonClasses";
 import Modal from "../../components/Modal";
-import ActionRow, { type BarAction } from "../../components/SelectionActionRow";
+import { SelectionBar as SharedSelectionBar, type BarAction } from "../../components/SelectionActionRow";
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
-import { matches, shortcutLabels } from "../../lib/keymap";
+import { matches } from "../../lib/keymap";
 import { useTooltip } from "../../components/Tooltip";
 
 // Cards render in pages so thousands stay quick; the photo window pages its photos too.
@@ -48,7 +48,7 @@ export function SpeciesTrail({ speciesName, onBack }: { speciesName: string; onB
 }
 
 export type CardPhoto = MosaicPhoto;
-// The mosaic's tile count: past it the last tile shows +N and opens every photo.
+// The mosaic's tile count: past it the last tile shows +N and opens the card, as a click does.
 const MOSAIC_TILES = 3;
 
 /** Two lines at most, so one long name can't stretch a whole row; the full text shows on hover. */
@@ -86,7 +86,7 @@ function Card({
   onClick,
   onOpen,
   onPreview,
-  onShowAll,
+  openLabel,
   menuItems,
   menuOpen,
   menuPoint,
@@ -105,8 +105,8 @@ function Card({
   onClick: (e: { shiftKey: boolean }) => void;
   onOpen: () => void;
   onPreview: () => void;
-  /** The +N tile: every photo in a window. */
-  onShowAll: () => void;
+  /** The +N tile's name; it opens the card. */
+  openLabel?: string;
   menuItems: MenuAction[];
   menuOpen: boolean;
   menuPoint: { x: number; y: number } | null;
@@ -139,11 +139,11 @@ function Card({
             {/* raw-control: the photo tile is the button; the mosaic draws the +N under it. */}
             <button
               type="button"
-              aria-label={t("inaturalist.import.showAllPhotos", { count: photos.length })}
+              aria-label={openLabel ?? t("inaturalist.import.showAllPhotos", { count: photos.length })}
               onClick={(e) => {
                 // WebKit doesn't focus a clicked button; the window hands focus back to this tile.
                 e.currentTarget.focus();
-                onShowAll();
+                onOpen();
               }}
               // design-token: a light wash over the photo scrim, as the overlay pills use.
               className="pointer-events-auto col-start-3 row-start-2 cursor-pointer transition-colors hover:bg-white/15 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
@@ -227,6 +227,8 @@ export interface GridCard {
   photos: CardPhoto[];
   lines: ReactNode[];
   menu: MenuAction[];
+  /** The +N tile's name when opening isn't "every photo", e.g. a species. */
+  openLabel?: string;
 }
 
 /** The grid of cards, paged, as a multi-select list. */
@@ -263,7 +265,6 @@ export function CardGrid({
   const [shown, setShown] = useState(PAGE_SIZE);
   // One card menu open at a time, from its ⋯ button or a right-click.
   const menu = useDropdownMenu<MenuState>();
-  const [allOf, setAllOf] = useState<GridCard | null>(null);
   return (
     <>
       <ul
@@ -297,7 +298,7 @@ export function CardGrid({
             onClick={(e) => onToggle(c.key, e.shiftKey)}
             onOpen={() => onOpen(c.key)}
             onPreview={() => onPreview(c.key)}
-            onShowAll={() => setAllOf(c)}
+            openLabel={c.openLabel}
             menuItems={c.menu}
             menuOpen={menu.openKey?.key === c.key}
             menuPoint={menu.openKey?.key === c.key ? menu.openKey.point : null}
@@ -310,17 +311,6 @@ export function CardGrid({
         <Button variant="secondary" size="sm" onClick={() => setShown((n) => n + PAGE_SIZE)}>
           {t("manageList.showMore", { count: Math.min(PAGE_SIZE, cards.length - shown) })}
         </Button>
-      )}
-      {allOf && (
-        <PhotoWindow
-          name={allOf.name}
-          info={[t("inaturalist.photoCount", { count: allOf.photos.length })]}
-          photos={allOf.photos}
-          // The Lightbox only has the photos that exist, so count those before the clicked one.
-          onPhotoOpen={(i) => onPreview(allOf.key, allOf.photos.slice(0, i).filter((p) => p.photoId).length)}
-          footer={null}
-          onClose={() => setAllOf(null)}
-        />
       )}
     </>
   );
@@ -339,64 +329,57 @@ function moveFocus(e: KeyboardEvent<HTMLUListElement>) {
   buttons[Math.max(0, Math.min(buttons.length - 1, next))]?.focus();
 }
 
-// Esc, or Select None's Mod+Shift+A, clears the selection (useCardSelection).
-const clearShortcuts = () => ["Escape", ...shortcutLabels("selectNone")].join(", ");
-
-/** The selection bar, rendered into the sticky page header so it stays in view. */
+/** The selection bar in the sticky page header: the shared select bar while selecting, else a
+ *  quiet line with how many a filter leaves and the tab's idle action (Send all, Check now). */
 export function SelectionBar({
   slot,
+  selecting,
   selectedCount,
-  selectedLabel,
-  shownLabel,
+  total,
+  onSelectAll,
   onClear,
+  emptyText,
+  shownLabel,
   actions,
   idle,
 }: {
   slot: HTMLElement | null;
+  selecting: boolean;
+  /** Sightings or observations selected; a selected species counts all of its own. */
   selectedCount: number;
-  /** Replaces "N selected", e.g. "3 species, 41 observations selected". */
-  selectedLabel?: string;
+  /** How many Select all would select, counted the same way. */
+  total: number;
+  onSelectAll: () => void;
+  onClear: () => void;
+  emptyText: string;
   /** "N sightings" when a filter hides some; null when the tab's own count already says it. */
   shownLabel: string | null;
-  onClear: () => void;
   /** Shown while something is selected. */
   actions: BarAction[];
   /** Shown while nothing is selected, e.g. Send all. */
   idle?: ReactNode;
 }) {
-  const { t } = useTranslation();
-  // Select all and none live in the toolbar's Select menu; the bar only appears with something to say.
-  if (!slot || (selectedCount === 0 && !shownLabel && !idle)) return null;
+  if (!slot) return null;
+  if (selecting || selectedCount > 0)
+    return createPortal(
+      // Full width at the header's foot, its border over the header's own.
+      <div className="-mx-6 mt-3 -mb-[17px]">
+        <SharedSelectionBar
+          count={selectedCount}
+          total={total}
+          onSelectAll={onSelectAll}
+          onDeselectAll={onClear}
+          emptyText={emptyText}
+          actions={actions}
+        />
+      </div>,
+      slot,
+    );
+  if (!shownLabel && !idle) return null;
   return createPortal(
     <div className="mt-3 flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2 text-footnote">
-      {(selectedCount > 0 || shownLabel) && (
-        <span className="shrink-0 text-muted">
-          {selectedCount > 0
-            ? (selectedLabel ?? t("inaturalist.import.selectedCount", { count: selectedCount }))
-            : shownLabel}
-        </span>
-      )}
-      {selectedCount > 0 && (
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onClear}
-          tooltip={{
-            label: t("inaturalist.import.clearSelection"),
-            shortcut: clearShortcuts(),
-          }}
-        >
-          {t("inaturalist.import.clearSelection")}
-        </Button>
-      )}
-      {selectedCount > 0 && actions.length > 0 ? (
-        // Wraps onto its own line before the main action would fold into More.
-        <div className="flex min-w-64 flex-1">
-          <ActionRow actions={actions} />
-        </div>
-      ) : (
-        idle && <div className="flex flex-1 justify-end">{idle}</div>
-      )}
+      {shownLabel && <span className="shrink-0 text-muted">{shownLabel}</span>}
+      {idle && <div className="flex flex-1 justify-end">{idle}</div>}
     </div>,
     slot,
   );
@@ -411,6 +394,7 @@ export function PhotoWindow({
   onExcludedChange,
   extra,
   footer,
+  primary,
   onPhotoOpen,
   onClose,
 }: {
@@ -419,11 +403,14 @@ export function PhotoWindow({
   info: Array<string | null>;
   /** Under the lines, e.g. the place picker. */
   extra?: ReactNode;
-  photos: Array<{ id: string; photoId: string | null }>;
+  photos: CardPhoto[];
   /** With these, each photo's corner tick leaves it out or puts it back. */
   excludedIds?: Set<string>;
   onExcludedChange?: (ids: Set<string>) => void;
-  footer: ReactNode;
+  /** Secondary actions, before Done. */
+  footer?: ReactNode;
+  /** The main action, last, after Done. */
+  primary?: ReactNode;
   /** A click on a photo opens it in the viewer at that index. */
   onPhotoOpen?: (index: number) => void;
   onClose: () => void;
@@ -447,12 +434,24 @@ export function PhotoWindow({
       onClose={onClose}
       size="lg"
       title={<span className="break-words">{name}</span>}
+      footerStart={
+        picking && (
+          <Button
+            variant="link"
+            size="sm"
+            onClick={() => onExcludedChange(leftOut === 0 ? new Set(photos.map((p) => p.id)) : new Set())}
+          >
+            {leftOut === 0 ? t("inaturalist.import.untickAll") : t("inaturalist.import.tickAll")}
+          </Button>
+        )
+      }
       footer={
         <>
+          {footer}
           <Button variant="secondary" onClick={onClose}>
             {t("common.done")}
           </Button>
-          {footer}
+          {primary}
         </>
       }
     >
@@ -468,18 +467,7 @@ export function PhotoWindow({
           )}
         </div>
         {extra}
-        {picking && (
-          <>
-            <p className="text-footnote text-muted">{t("inaturalist.import.windowHint")}</p>
-            <Button
-              variant="link"
-              size="sm"
-              onClick={() => onExcludedChange(leftOut === 0 ? new Set(photos.map((p) => p.id)) : new Set())}
-            >
-              {leftOut === 0 ? t("inaturalist.import.untickAll") : t("inaturalist.import.tickAll")}
-            </Button>
-          </>
-        )}
+        {picking && <p className="text-footnote text-muted">{t("inaturalist.import.windowHint")}</p>}
         <ul
           className="grid gap-1.5"
           style={{ gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))" }}
@@ -489,7 +477,7 @@ export function PhotoWindow({
             const on = !picking || !excludedIds.has(p.id);
             const thumb = (
               <>
-                <Thumb photoId={p.photoId} dim={!on} className="h-full w-full" />
+                <Thumb photoId={p.photoId} src={p.src} dim={!on} className="h-full w-full" />
                 {picking && on && <SelectedRing />}
                 {!on && (
                   <span className="absolute inset-x-0 bottom-0 bg-surface/90 py-0.5 text-center text-caption font-medium text-ink">

@@ -71,16 +71,14 @@ const observation = (id: string, name: string, extra: object = {}) => ({
   ...extra,
 });
 
-let lists: { sightings: unknown[]; ignored: unknown[]; pending: unknown[]; completed: unknown[] };
+let lists: { sightings: unknown[]; ignored: unknown[]; pending: unknown[]; completed: unknown[]; total?: number };
 // Most tests here are about the cards themselves, so they start from the flat list; the species
 // tests switch By species on.
 const groupBy = (mode: "species" | "none") =>
   localStorage.setItem("lifer:inaturalist-view-group", JSON.stringify(mode));
 // Select mode, as the toolbar's Select turns on: only then do clicks select cards.
 async function selectMode() {
-  const button = await screen.findByRole("button", { name: "Select" });
-  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
-  fireEvent.click(button);
+  fireEvent.click(await screen.findByRole("button", { name: "Select" }));
 }
 // The toolbar's Filters panel, where each tab's filters live.
 const openFilters = () => fireEvent.click(screen.getByRole("button", { name: /^Filters/ }));
@@ -92,7 +90,8 @@ beforeEach(() => {
   lists = { sightings: [], ignored: [], pending: [], completed: [] };
   get.mockReset().mockImplementation(async (url: string) => {
     if (url.startsWith("/inaturalist/import?ignored=true")) return { clusters: lists.ignored, ignoredCount: 4 };
-    if (url.startsWith("/inaturalist/import")) return { clusters: lists.sightings, ignoredCount: 4 };
+    if (url.startsWith("/inaturalist/import"))
+      return { clusters: lists.sightings, ignoredCount: 4, totalCount: lists.total ?? lists.sightings.length };
     if (url === "/inaturalist/pending") return { observations: lists.pending };
     return { observations: lists.completed };
   });
@@ -171,7 +170,7 @@ describe("InaturalistPage", () => {
     );
   });
 
-  it("sets a place for sightings without a location, then sends them, in one step", async () => {
+  it("sets a place for sightings without a location, then sends them all, in one step", async () => {
     const looksLike = { id: "p1", name: "King Fisher Pond", locality: null, geoprivacy: "obscured" };
     lists.sightings = [
       sighting("Osprey", [capture("c1"), capture("c2")], { looksLike, geoprivacy: "private" }),
@@ -187,11 +186,20 @@ describe("InaturalistPage", () => {
       within(screen.getByRole("option", { name: "Loon" })).queryByRole("button", { name: "Set place" }),
     ).toBeNull();
     fireEvent.click(osprey);
+    fireEvent.click(screen.getByRole("option", { name: "Loon" }));
     fireEvent.click(screen.getByRole("button", { name: "Set place and send" }));
-    await waitFor(() => expect(sendBatch).toHaveBeenCalledWith({ groups: [["c1", "c2"]] }, expect.anything()));
+    // Only the sighting with no location is filed under the place; Loon goes with its own (A5).
+    await waitFor(() => expect(sendBatch).toHaveBeenCalledWith({ groups: [["c1", "c2"], ["c3"]] }, expect.anything()));
     expect(placeStep).toHaveBeenCalledWith(
       expect.objectContaining({ captureIds: ["c1", "c2"], send: true, looksLike }),
     );
+    placeStep.mockClear();
+    fireEvent.click(await screen.findByRole("option", { name: "Osprey" }));
+    fireEvent.click(screen.getByRole("option", { name: "Loon" }));
+    // The bar's Set place, not the card's own quiet one.
+    const barSetPlace = screen.getAllByRole("button", { name: "Set place" }).find((b) => !b.closest("[role=option]"));
+    fireEvent.click(barSetPlace!);
+    await waitFor(() => expect(placeStep).toHaveBeenCalledWith(expect.objectContaining({ captureIds: ["c1", "c2"] })));
   });
 
   it("sends exactly the ticked photos from a sighting's own window", async () => {
@@ -310,7 +318,9 @@ describe("InaturalistPage", () => {
     await selectMode();
     expect(await screen.findByText("Can't be sent yet")).toBeTruthy();
     fireEvent.click(screen.getByRole("option", { name: "Loon" }));
-    expect(screen.getByRole("button", { name: "Send 0 sightings" })).toBeTruthy();
+    // Nothing selected can go, so there's no Send at all, never an enabled "Send 0" (A6).
+    expect(screen.getByText("1 selected")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Send/ })).toBeNull();
   });
 
   it("restores ignored sightings from the Ignored view", async () => {
@@ -447,9 +457,13 @@ describe("InaturalistPage", () => {
       expect(isSelected("Osprey")).toBe(false);
     });
 
-    it("clears with the Clear selection button", async () => {
+    it("clears with the bar's Deselect all, and Select all takes every card", async () => {
       await selectTwo();
-      fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+      fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+      expect(screen.getByText("3 selected")).toBeTruthy();
+      // Every card is selected, so Select all steps aside.
+      expect(screen.queryByRole("button", { name: "Select all" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Deselect all" }));
       expect(screen.queryByText("2 selected")).toBeNull();
       expect(isSelected("Osprey")).toBe(false);
     });
@@ -457,7 +471,7 @@ describe("InaturalistPage", () => {
     it("clears with a click on the grid's gaps or the page background", async () => {
       await selectTwo();
       fireEvent.click(screen.getByRole("listbox"));
-      expect(screen.queryByText(/selected/)).toBeNull();
+      expect(screen.getByText("0 selected")).toBeTruthy();
       fireEvent.click(screen.getByRole("option", { name: "Osprey" }));
       fireEvent.click(screen.getByRole("main"));
       expect(isSelected("Osprey")).toBe(false);
@@ -569,7 +583,7 @@ describe("InaturalistPage", () => {
       expect(within(card).getByText(/^A place/).className).toContain("line-clamp-2");
     });
 
-    it("shows only cards with more than three photos a +N tile, opening every photo", async () => {
+    it("shows only cards with more than three photos a +N tile, opening the sighting's own window", async () => {
       lists.sightings = [sighting("Osprey", photos(8)), sighting("Loon", photos(3))];
       renderPage("/inaturalist?tab=import");
       await screen.findByRole("option", { name: "Loon" });
@@ -577,11 +591,10 @@ describe("InaturalistPage", () => {
       const tile = screen.getByRole("button", { name: "Show all 8 photos" });
       fireEvent.click(tile);
       const grid = await screen.findByRole("dialog");
-      expect(within(grid).getByText("8 photos")).toBeTruthy();
+      // The same window a click on the card opens, never a second one with only Done (INAT-3).
+      expect(within(grid).getByRole("button", { name: "Send 8 photos" })).toBeTruthy();
       const thumbs = within(grid).getAllByRole("button", { name: /^View photo/ });
       expect(thumbs).toHaveLength(8);
-      // Not the card's own click: no sighting window opened.
-      expect(screen.queryByRole("button", { name: "Send 8 photos" })).toBeNull();
 
       // Arrows move between the photos.
       thumbs[0].focus();
@@ -636,16 +649,14 @@ describe("InaturalistPage", () => {
       observation("3", "Osprey", { dateFromInat: true }),
     ];
     renderPage("/inaturalist?tab=completed");
-    await selectMode();
     expect(await screen.findByText("Pigeon Lake, Alberta")).toBeTruthy();
     // Provenance is low-value on a card face.
     expect(screen.queryByText(/Location placed on iNaturalist|Location from the photo/)).toBeNull();
-    // One selected card can be opened on iNaturalist; nothing on Completed works in bulk.
-    fireEvent.click(screen.getByRole("option", { name: "Kestrel" }));
-    fireEvent.click(screen.getByRole("button", { name: "View on iNaturalist" }));
-    expect(opened).toHaveBeenCalledWith("https://www.inaturalist.org/observations/2");
-    fireEvent.click(screen.getByRole("option", { name: "Merlin" }));
-    expect(screen.queryByRole("button", { name: "View on iNaturalist" })).toBeNull();
+    // Nothing on Completed works on a selection, so there's no Select and Cmd-click selects nothing (A1).
+    expect(screen.queryByRole("button", { name: "Select" })).toBeNull();
+    fireEvent.click(screen.getByRole("option", { name: "Kestrel" }), { metaKey: true });
+    expect(screen.getByRole("option", { name: "Kestrel" }).getAttribute("aria-selected")).toBe("false");
+    expect(screen.queryByText(/selected/)).toBeNull();
     // The date filter keeps only the one dated from iNaturalist, and the button counts it.
     openFilters();
     fireEvent.change(screen.getByRole("combobox", { name: "Date" }), { target: { value: "inat" } });
@@ -656,21 +667,20 @@ describe("InaturalistPage", () => {
     expect(screen.getByRole("option", { name: "Kestrel" })).toBeTruthy();
   });
 
-  it("selects every card or none from the Select menu", async () => {
-    lists.completed = [observation("1", "Merlin"), observation("2", "Kestrel")];
-    renderPage("/inaturalist?tab=completed");
+  it("selects every card or none from the shared selection bar", async () => {
+    lists.pending = [observation("1", "Merlin"), observation("2", "Kestrel")];
+    renderPage("/inaturalist?tab=pending");
     await screen.findByRole("option", { name: "Merlin" });
     // No ticks until Select turns select mode on.
     expect(screen.queryByRole("checkbox", { name: "Select photo" })).toBeNull();
     await selectMode();
     expect(screen.getAllByRole("checkbox", { name: "Select photo" })).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "Select" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Select every observation (2)" }));
+    expect(screen.getByText("Select observations to check them")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
     expect(screen.getByText("2 selected")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Select" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Select none" }));
+    fireEvent.click(screen.getByRole("button", { name: "Deselect all" }));
     expect(screen.queryByText("2 selected")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("checkbox", { name: "Select photo" })).toBeNull();
   });
 
@@ -731,6 +741,113 @@ describe("InaturalistPage", () => {
     expect(within(screen.getByRole("listbox")).getAllByRole("option")).toHaveLength(2);
   });
 
+  describe("audit fixes", () => {
+    const photos = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ id: `c${i + 1}`, currentPhotoId: `p${i + 1}`, hasLocation: true }));
+
+    it("calls the menu's place item Change place when the sighting already has one", async () => {
+      lists.sightings = [sighting("Loon", [capture("c3", true)])];
+      renderPage("/inaturalist?tab=import");
+      fireEvent.contextMenu(await screen.findByRole("option", { name: "Loon" }), { clientX: 40, clientY: 40 });
+      const items = screen.getAllByRole("menuitem").map((i) => i.textContent);
+      expect(items).toContain("Change place");
+      expect(items).not.toContain("Set place");
+    });
+
+    it("puts Include all in the footer's start and Done just before the main action", async () => {
+      lists.sightings = [sighting("Osprey", [capture("c1"), capture("c2")])];
+      renderPage("/inaturalist?tab=import");
+      fireEvent.keyDown(await screen.findByRole("option", { name: "Osprey" }), { key: "Enter" });
+      const dialog = await screen.findByRole("dialog");
+      const names = within(dialog)
+        .getAllByRole("button")
+        .map((b) => b.textContent);
+      const at = (name: string) => names.indexOf(name);
+      expect(at("Leave all out")).toBeGreaterThan(-1);
+      // Leave all out, the secondaries, then Done, then Send.
+      expect(at("Done")).toBe(at("Send 2 photos") - 1);
+      expect(at("Leave all out")).toBeLessThan(at("Ignore sighting"));
+    });
+
+    it("offers Clear filters when nothing matches, and Retry when the lists didn't load", async () => {
+      lists.sightings = [sighting("Osprey", [capture("c1")])];
+      renderPage("/inaturalist?tab=import");
+      fireEvent.change(await screen.findByRole("textbox", { name: "Search species" }), { target: { value: "zzz" } });
+      expect(screen.getByText("No sightings match.")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+      expect(await screen.findByRole("option", { name: "Osprey" })).toBeTruthy();
+      cleanup();
+      resetAccountCaches();
+
+      get.mockRejectedValue(new Error("down"));
+      renderPage("/inaturalist?tab=import");
+      const retry = await screen.findByRole("button", { name: "Retry" });
+      const loads = () => get.mock.calls.filter(([u]) => String(u).startsWith("/inaturalist/import")).length;
+      const before = loads();
+      fireEvent.click(retry);
+      await waitFor(() => expect(loads()).toBe(before + 1));
+    });
+
+    it("counts To send before the RAW filters, and always says how many species when grouped", async () => {
+      lists.sightings = [sighting("Osprey", [capture("c1")]), sighting("Osprey", [capture("c2")])];
+      lists.total = 240;
+      groupBy("species");
+      renderPage("/inaturalist?tab=import");
+      expect(await screen.findByRole("button", { name: "To send 240" })).toBeTruthy();
+      expect(screen.getByText("1 species")).toBeTruthy();
+    });
+
+    it("opens a species from its +N tile, not a window of one photo per sighting", async () => {
+      lists.pending = ["1", "2", "3", "4"].map((id) => observation(id, "Merlin"));
+      groupBy("species");
+      renderPage("/inaturalist?tab=pending");
+      await screen.findByRole("option", { name: "Merlin" });
+      fireEvent.click(screen.getByRole("button", { name: "Open" }));
+      expect(address()).toContain("species=s-Merlin");
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    it("goes back to the species list once the open species' last sighting is sent", async () => {
+      lists.sightings = [sighting("Osprey", [capture("c1")]), sighting("Loon", [capture("c2")])];
+      renderPage("/inaturalist?tab=import&species=s-Loon");
+      fireEvent.contextMenu(await screen.findByRole("option", { name: /Jun 4, 2026/ }), { clientX: 9, clientY: 9 });
+      lists.sightings = [sighting("Osprey", [capture("c1")])];
+      fireEvent.click(screen.getByRole("menuitem", { name: "Send to iNaturalist" }));
+      await waitFor(() => expect(address()).not.toContain("species="));
+      expect(screen.getByRole("option", { name: "Osprey" })).toBeTruthy();
+    });
+
+    it("opens a To finish observation's photos full size from its window", async () => {
+      lists.pending = [observation("1", "Merlin")];
+      renderPage("/inaturalist?tab=pending");
+      fireEvent.keyDown(await screen.findByRole("option", { name: "Merlin" }), { key: "Enter" });
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "View photo 2 of 2" }));
+      await waitFor(() =>
+        expect(
+          screen
+            .getAllByRole("dialog")
+            .map((d) => d.querySelector("img[src$='/display']")?.getAttribute("src"))
+            .find(Boolean),
+        ).toBe("/api/photos/p-1b/display"),
+      );
+    });
+
+    it("shows iNaturalist's own photo on a card with none here", async () => {
+      lists.completed = [observation("7", "Merlin", { photoIds: [], inatPhotoId: "555" })];
+      renderPage("/inaturalist?tab=completed");
+      const card = await screen.findByRole("option", { name: "Merlin" });
+      expect(card.querySelector("img")?.getAttribute("src")).toBe("/api/inaturalist/observations/7/photos/555");
+    });
+
+    it("previews every photo of a big species, so the counter agrees with the card", async () => {
+      lists.sightings = [sighting("Osprey", photos(600))];
+      renderPage("/inaturalist?tab=import");
+      fireEvent.click((await screen.findAllByRole("button", { name: "Preview" }))[0]);
+      expect(await screen.findByText("1 / 600")).toBeTruthy();
+    });
+  });
+
   describe("by species", () => {
     beforeEach(() => groupBy("species"));
     // The card list's options, not the filter menus' ones.
@@ -760,7 +877,7 @@ describe("InaturalistPage", () => {
       expect(merlin.getAttribute("aria-selected")).toBe("true");
       expect(address()).not.toContain("species=");
       fireEvent.click(merlin);
-      fireEvent.click(screen.getByRole("button", { name: "Done" }));
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
       // Outside select mode a click goes into the species.
       fireEvent.click(merlin);
       expect(address()).toContain("species=s-Merlin");
@@ -785,14 +902,15 @@ describe("InaturalistPage", () => {
       renderPage("/inaturalist?tab=pending");
       fireEvent.click(await screen.findByRole("option", { name: "Merlin" }), { metaKey: true });
       fireEvent.click(screen.getByRole("option", { name: "Kestrel" }), { metaKey: true });
-      expect(screen.getByText("2 species, 3 observations selected")).toBeTruthy();
+      // The bar counts what the actions reach: the species' observations.
+      expect(screen.getByText("3 selected")).toBeTruthy();
       expect(address()).not.toContain("species=");
       fireEvent.click(screen.getByRole("button", { name: "Check 3 now" }));
       await waitFor(() =>
         expect(post).toHaveBeenCalledWith("/inaturalist/pending/check", { observationIds: ["1", "2", "3"] }),
       );
       fireEvent.keyDown(document, { key: "Escape" });
-      expect(screen.queryByText(/species, .* selected/)).toBeNull();
+      expect(screen.queryByText("3 selected")).toBeNull();
     });
 
     it("groups and sorts from the View menu and remembers the choices", async () => {
@@ -829,7 +947,7 @@ describe("InaturalistPage", () => {
       ];
       renderPage("/inaturalist?tab=import");
       fireEvent.click(await screen.findByRole("option", { name: "Osprey" }), { metaKey: true });
-      expect(screen.getByText("1 species, 2 sightings selected")).toBeTruthy();
+      expect(screen.getByText("2 selected")).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Send 2 sightings" }));
       await waitFor(() =>
         expect(sendBatch).toHaveBeenCalledWith(

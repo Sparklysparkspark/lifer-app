@@ -4,12 +4,11 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import Button from "../../components/Button";
 import FilterPopover, { FilterSectionHeading } from "../../components/FilterPopover";
-import Menu, { MenuItems, MenuPanel } from "../../components/Menu";
 import Pill from "../../components/Pill";
 import SearchInput from "../../components/SearchInput";
 import Select from "../../components/Select";
 import { PhotoViewMenu } from "../../components/PhotoGridControls";
-import { useDropdownMenu } from "../../hooks/useDropdownMenu";
+import SelectModeToggle from "../../components/SelectModeToggle";
 import { useSettings } from "../../hooks/useSettings";
 import { taxonFilterLabel } from "../collection/taxonLabels";
 import { CARD_MAX, CARD_MIN, GROUPS, SORTS, SORTS_GROUPED, type useInatView } from "./viewPrefs";
@@ -81,10 +80,6 @@ export function InatToolbar({
   search,
   onSearch,
   shownCount,
-  selectedCount,
-  selectAllLabel,
-  onSelectAll,
-  onSelectNone,
   selecting,
   onSelecting,
   view,
@@ -94,23 +89,18 @@ export function InatToolbar({
 }: {
   search: string;
   onSearch: (value: string) => void;
-  /** How many cards are listed, for Select all. */
+  /** How many cards are listed; Select waits for one. */
   shownCount: number;
-  selectedCount: number;
-  /** "Select every sighting", or the tab's own word. */
-  selectAllLabel: string;
-  onSelectAll: () => void;
-  onSelectNone: () => void;
   /** Select mode: cards show their tick and a click toggles them. */
   selecting: boolean;
-  onSelecting: (on: boolean) => void;
+  /** Left out where nothing could be done with a selection. */
+  onSelecting?: (on: boolean) => void;
   view: ReturnType<typeof useInatView>;
   filterCount: number;
   onClearFilters: () => void;
   filters: ReactNode;
 }) {
   const { t } = useTranslation();
-  const menu = useDropdownMenu();
   return (
     <div className="flex flex-wrap items-center gap-3 text-footnote">
       <SearchInput
@@ -120,37 +110,9 @@ export function InatToolbar({
         aria-label={t("inaturalist.import.search")}
         className="w-60 max-w-full"
       />
-      {/* Like the Gallery: Select enters select mode; there, this menu has select all and none. */}
-      {!selecting ? (
-        <Button variant="secondary" size="sm" disabled={shownCount === 0} onClick={() => onSelecting(true)}>
-          {t("ui.select")}
-        </Button>
-      ) : (
-        <>
-          <Menu
-            open={menu.openKey !== null}
-            onToggle={() => menu.setOpenKey(menu.openKey ? null : true)}
-            menuRef={menu.ref}
-            className="relative"
-            trigger={(props) => (
-              <Button {...props} variant="secondary" size="sm">
-                {t("ui.select")}
-              </Button>
-            )}
-          >
-            <MenuPanel>
-              <MenuItems
-                items={[
-                  { label: `${selectAllLabel} (${shownCount})`, onSelect: onSelectAll, disabled: shownCount === 0 },
-                  { label: t("inaturalist.toolbar.selectNone"), onSelect: onSelectNone, disabled: selectedCount === 0 },
-                ]}
-              />
-            </MenuPanel>
-          </Menu>
-          <Button variant="secondary" size="sm" onClick={() => onSelecting(false)}>
-            {t("common.done")}
-          </Button>
-        </>
+      {/* Like the Gallery: Select enters select mode; Select all and Deselect all are on its bar. */}
+      {onSelecting && (shownCount > 0 || selecting) && (
+        <SelectModeToggle active={selecting} onEnter={() => onSelecting(true)} onExit={() => onSelecting(false)} />
       )}
       <PhotoViewMenu
         sections={["group", "sort", "size"]}

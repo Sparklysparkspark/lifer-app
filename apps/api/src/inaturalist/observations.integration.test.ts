@@ -345,4 +345,14 @@ describe.skipIf(!url)("sending captures to iNaturalist", () => {
     expect(await listed("onlyRaw=1")).toEqual([]);
     expect(await listed("")).toEqual(expect.arrayContaining(Object.values(made)));
   });
+
+  it("counts every sighting in totalCount whatever the RAW filters leave", async () => {
+    const body = async (query: string) =>
+      (await app.inject({ url: `/api/inaturalist/import?${query}`, cookies: { [cookieName]: TOKEN } })).json();
+    const all = await body("");
+    const none = await body("onlyRaw=1");
+    expect(none.clusters).toEqual([]);
+    expect(all.totalCount).toBe(all.clusters.length);
+    expect(none.totalCount).toBe(all.totalCount);
+  });
 });
