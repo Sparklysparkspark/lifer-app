@@ -49,7 +49,10 @@ test("links a print from years later by search, then splits it out and undoes", 
   await expect(strip.getByRole("radio", { checked: true })).toHaveText("Print 16x20");
   await page.keyboard.press("Shift+U");
   await expect(notifications.getByText("Print 16x20 is now used as the photo")).toBeVisible();
-  await expect(page.getByText("Used as the photo", { exact: true })).toBeVisible();
+  // The viewer's caption, "Used as the photo · Rename", in place of the "Use as the photo" link.
+  const viewer = page.getByRole("dialog", { name: "Photo viewer" });
+  await expect(viewer.getByText(/^Used as the photo ·/)).toBeVisible();
+  await expect(viewer.getByRole("button", { name: "Use as the photo" })).toHaveCount(0);
 
   await page.keyboard.press("Control+Shift+g");
   await expect(notifications.getByText("Print 16x20 is a photo of its own again")).toBeVisible();

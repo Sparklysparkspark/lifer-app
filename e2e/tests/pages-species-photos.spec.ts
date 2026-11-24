@@ -120,23 +120,25 @@ test("rates, sorts, edits and deletes photos on a species page", async ({ page }
   await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByText(/^\d+ selected$/)).toHaveCount(0);
 
-  // Deleting from the select bar can be cancelled.
+  // Deleting from the select bar moves the photo to Trash at once, and Undo brings it back.
+  const notifications = page.getByRole("region", { name: "Notifications" });
   await page.getByRole("button", { name: "Select", exact: true }).click();
   await tiles.first().locator("img").first().click();
-  await page.getByRole("button", { name: "Delete selected" }).click();
-  await expect(page.getByRole("heading", { name: "Delete 1 photo?" })).toBeVisible();
-  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
-  await expect(page.getByRole("heading", { name: "Delete 1 photo?" })).toHaveCount(0);
   await expect(page.getByText("1 selected")).toBeVisible();
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "Delete selected" }).click();
+  await expect(notifications.getByText("Moved to Trash")).toBeVisible();
+  await expect(tiles).toHaveCount(1);
+  await expect(page.getByText(/^\d+ selected$/)).toHaveCount(0);
+  // The newest toast is last; an earlier edit's Undo may still be up.
+  await notifications.getByRole("button", { name: "Undo" }).last().click();
+  await expect(notifications.getByText("Moved to Trash")).toHaveCount(0);
   await expect(tiles).toHaveCount(2);
 
   // Delete the photo that isn't featured from its menu (species cards on later pages would
-  // otherwise ask for a trashed cover photo).
+  // otherwise ask for a trashed cover photo). Also instant, with its own toast.
   await tiles.last().getByRole("button", { name: "More options" }).click();
   await page.getByRole("menuitem", { name: "Delete photo" }).click();
-  await expect(page.getByRole("heading", { name: "Delete 1 photo?" })).toBeVisible();
-  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(notifications.getByText("Moved to Trash")).toBeVisible();
   await expect(tiles).toHaveCount(1);
 
   // Correcting the last photo's ID moves it off this species.
