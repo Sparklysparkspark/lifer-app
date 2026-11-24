@@ -57,6 +57,18 @@ export function pooledVectors(frame: BurstFrame, frames: BurstFrame[]): Float32A
   return [...frame.vectors, ...others.flatMap((f) => f.vectors)];
 }
 
+/** The other frames of a checked photo's burst, newest last, as many as a ranking pools. */
+export function burstMates(userId: string, uploadId: string): string[] {
+  const recent = recentByUser.get(userId) ?? [];
+  const own = recent.find((r) => r.uploadId === uploadId && Date.now() - r.seenAt < RECENT_TTL_MS);
+  if (!own) return [];
+  return recent
+    .filter((r) => r.burst === own.burst && r !== own && Date.now() - r.seenAt < RECENT_TTL_MS)
+    .sort((a, b) => a.takenAt - b.takenAt)
+    .slice(-(MAX_POOLED_FRAMES - 1))
+    .map((r) => r.uploadId);
+}
+
 /** For tests. */
 export function clearBursts(): void {
   recentByUser.clear();

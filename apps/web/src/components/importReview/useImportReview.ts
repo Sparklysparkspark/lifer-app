@@ -10,6 +10,9 @@ import { nextToConfirm } from "./compareQueue";
 
 // What every species-review row has, wherever its photo came from: a file dropped on the import
 // screen (PhotoImportRows) or one found by a trip scan (TripDetailPage).
+/** A box in percent of the shown photo. */
+export type PercentBox = { x: number; y: number; w: number; h: number };
+
 export interface ReviewRowBase {
   key: string;
   speciesId: string | null;
@@ -34,7 +37,11 @@ export interface ReviewRowBase {
   /** What a culling app marked the photo (CullMarksChoice). `undefined` = not read yet. */
   cull?: CullMarks | null;
   /** The animal's box in percent of the shown photo, which compare mode opens zoomed on. */
-  subject?: { x: number; y: number; w: number; h: number } | null;
+  subject?: PercentBox | null;
+  /** Every animal the detector found, in percent, the likeliest first: compare numbers them. */
+  subjectBoxes?: PercentBox[];
+  /** The animal the user chose to match on (compare's Choose the animal); its suggestions are for it. */
+  chosenBox?: PercentBox | null;
   /** Another file of this import that is the same photo (batchPairs.ts): one species, one tick. */
   partnerKey?: string;
   /** On the partner that follows the other: that file's name. */

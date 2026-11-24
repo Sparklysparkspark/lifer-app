@@ -216,6 +216,40 @@ describe("ImportCompareView", () => {
     expect(card().classList).toContain("w-32");
   });
 
+  it("labels a searched-for species Your pick, never with a made-up match", () => {
+    setup();
+    press("w");
+    fireEvent.click(screen.getByRole("button", { name: "pick typed" }));
+    expect(shown()).toContain("Your pick");
+    expect(shown()).not.toMatch(/%/);
+    const card = screen.getAllByTitle(/^Typed Wren/).find((el) => el.tagName === "BUTTON")!;
+    expect(card.textContent).toContain("Your pick");
+  });
+
+  it("looks for a photo of a species that has none, then says when there still isn't one", async () => {
+    const { api } = await import("../../api/client");
+    const get = vi.mocked(api.get);
+    let lookup!: () => void;
+    get.mockImplementation((async (path: string) =>
+      path === "/species/{id}" ? new Promise<null>((done) => (lookup = () => done(null))) : { photos: [] }) as never);
+    try {
+      setup();
+      expect(await screen.findByText("Looking for a photo...")).toBeTruthy();
+      await act(async () => lookup());
+      expect(await screen.findByText("No reference photo yet")).toBeTruthy();
+      // Confirm still works without a photo.
+      expect(screen.getByRole("button", { name: "Confirm" }).hasAttribute("disabled")).toBe(false);
+    } finally {
+      get.mockReset();
+      get.mockImplementation(async () => ({
+        photos: [
+          { url: "/r1/display", credit: "Ann" },
+          { url: "/r2/display", credit: null },
+        ],
+      }));
+    }
+  });
+
   it("puts its title in a title-bar row of its own, clear of the macOS window controls", () => {
     setup();
     const layer = screen.getByTestId("import-compare");
@@ -272,5 +306,118 @@ describe("compare helpers", () => {
     // A wide photo in a square frame covers half its height, so the same box is half as tall.
     expect(frameView({ x: 40, y: 40, w: 20, h: 20 }, 2).scale).toBeCloseTo(3);
     expect(frameView({ x: 0, y: 0, w: 100, h: 100 }, 1).scale).toBe(1);
+  });
+});
+
+describe("Choose the animal", () => {
+  const boxes = [
+    { x: 10, y: 10, w: 20, h: 20 },
+    { x: 60, y: 40, w: 30, h: 30 },
+  ];
+  function setupChooser() {
+    let finish!: () => void;
+    const identify = vi.fn((_row: ReviewRowBase, _box: unknown) => new Promise<void>((done) => (finish = done)));
+    function Harness() {
+      const [list, setList] = useState([row("p1", { subject: boxes[0], subjectBoxes: boxes }), row("p3")]);
+      return (
+        <ImportCompareView
+          rows={list}
+          target={{ key: "p1", group: null }}
+          regionId={null}
+          photoUrl={(r) => `/${r.key}.jpg`}
+          nameOf={(r) => `${r.key}.jpg`}
+          onConfirm={() => {}}
+          onNoAnimal={() => {}}
+          onClose={() => {}}
+          identifyAnimal={async (r, box) => {
+            await identify(r, box);
+            setList((prev) =>
+              prev.map((x) =>
+                x.key === r.key
+                  ? { ...x, chosenBox: box, suggestions: box ? [sp("chosen", 0.9)] : row("p1").suggestions }
+                  : x,
+              ),
+            );
+          }}
+        />
+      );
+    }
+    render(<Harness />);
+    return { identify, finish: () => act(async () => finish()) };
+  }
+  const editorBox = () => screen.getByTestId("box-editor-box") as HTMLElement;
+
+  it("numbers the detector's boxes, moves the box to one with its digit, and Enter matches it", async () => {
+    const { identify, finish } = setupChooser();
+    fireEvent.click(screen.getByRole("button", { name: "Choose the animal" }));
+    // Starts on the detected subject, with every animal found numbered.
+    expect(document.querySelectorAll("[data-shortcut]").length).toBe(2);
+    expect(editorBox().style.left).toBe("10%");
+    expect(screen.getByText("Drag a box around the animal, or press its number.")).toBeTruthy();
+    press("2", "Digit2");
+    expect(editorBox().style.left).toBe("60%");
+    // A letter doesn't open the search while choosing.
+    press("w");
+    expect(screen.queryByLabelText("species search")).toBeNull();
+    press("Enter");
+    expect(identify).toHaveBeenCalledWith(expect.objectContaining({ key: "p1" }), { x: 60, y: 40, w: 30, h: 30 });
+    // Never a dead spinner: it says what it's doing, and Confirm waits for the answer.
+    expect(screen.getByText("Matching the animal you chose")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Confirm" }).hasAttribute("disabled")).toBe(true);
+    await finish();
+    expect(screen.queryByText("Matching the animal you chose")).toBeNull();
+    expect(shown()).toContain("chosen bird");
+    expect(screen.getByTestId("chosen-animal")).toBeTruthy();
+  });
+
+  it("Reset goes back to the animal Lifer found, and Esc cancels choosing", async () => {
+    const { identify, finish } = setupChooser();
+    fireEvent.click(screen.getByRole("button", { name: "Choose the animal" }));
+    act(() => void fireEvent.keyDown(document, { key: "Escape" }));
+    expect(screen.queryByTestId("box-editor")).toBeNull();
+    // Esc peeled back only the choosing, not compare itself.
+    expect(screen.getByTestId("import-compare")).toBeTruthy();
+    expect(identify).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose the animal" }));
+    fireEvent.click(screen.getByRole("button", { name: /Identify this animal/ }));
+    await finish();
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(identify).toHaveBeenLastCalledWith(expect.objectContaining({ key: "p1" }), null);
+    await finish();
+    expect(shown()).toContain("p1a bird");
+    expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+  });
+
+  it("is offered only where the photo can be matched again", () => {
+    setup();
+    expect(screen.queryByRole("button", { name: "Choose the animal" })).toBeNull();
+  });
+
+  it("shows a plain message when matching fails", async () => {
+    let fail!: (e: Error) => void;
+    function Harness() {
+      return (
+        <ImportCompareView
+          rows={[row("p1")]}
+          target={{ key: "p1", group: null }}
+          regionId={null}
+          photoUrl={(r) => `/${r.key}.jpg`}
+          nameOf={(r) => r.key}
+          onConfirm={() => {}}
+          onNoAnimal={() => {}}
+          onClose={() => {}}
+          identifyAnimal={() => new Promise((_, reject) => (fail = reject))}
+        />
+      );
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Choose the animal" }));
+    // No detector boxes: the box starts in the middle.
+    expect(editorBox().style.left).toBe("35%");
+    press("Enter");
+    await act(async () => fail(new Error("Download the species-matching model in Settings to match an animal.")));
+    expect(screen.getByRole("alert").textContent).toContain("Download the species-matching model");
+    expect(shown()).toContain("p1a bird");
   });
 });

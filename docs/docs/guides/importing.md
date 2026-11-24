@@ -141,6 +141,23 @@ Compare mode puts your photo beside photos of the species Lifer suggests, so you
 | <kbd>+</kbd> <kbd>-</kbd>    | Zoom both photos in or out                    |
 | Any other letter             | Search for a species to compare               |
 
+#### Pick another species {#pick-another-species}
+
+When the right species isn't among the suggestions, click **Search species** at the end of the list, or just start typing. Type a common or scientific name, move through the results with <kbd>↑</kbd> <kbd>↓</kbd> and press <kbd>Enter</kbd> to pick one. If nothing matches and iNaturalist search is on, the last row searches iNaturalist, so you can pick a species Lifer's lists don't have yet.
+
+The species you pick joins the list as the card shown, labelled **Your pick** instead of a % match, since Lifer didn't suggest it. Its reference photos show beside yours. A species you've never opened may need a moment ("Looking for a photo..."), and one with no photo yet says so; you can still confirm it. Nothing is saved until you press **Confirm**.
+
+#### Choose the animal {#choose-the-animal}
+
+When a photo has several animals, or Lifer zoomed on the wrong one, click **Choose the animal**. Each animal Lifer found gets a numbered box, and a box sits on the one it matched.
+
+- Press a number, or click inside a numbered box, to move the box to that animal.
+- Drag the box or its corners to fit an animal Lifer missed, or drag across the photo to draw a new box.
+- Press <kbd>Enter</kbd> or click **Identify this animal**. Lifer says "Matching the animal you chose" while it looks, then the suggestions along the bottom are for that animal.
+- <kbd>Esc</kbd> or **Cancel** leaves the photo as it was. **Reset** goes back to the animal Lifer found.
+
+The animal you chose stays chosen for the rest of this import, and the other frames of the same burst follow it. It isn't offered for videos or in trip scan review.
+
 ### Searching by hand
 
 Click **Type a species…** on a row and type a common name, scientific name, or bird code (eBird or ABA).

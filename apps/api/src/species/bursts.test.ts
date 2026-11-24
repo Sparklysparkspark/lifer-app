@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { clearBursts, joinBurst, pooledVectors, type BurstFrame } from "./bursts.js";
+import { burstMates, clearBursts, joinBurst, pooledVectors, type BurstFrame } from "./bursts.js";
 
 const unit = (...xs: number[]) => {
   const v = new Float32Array(xs);
@@ -50,5 +50,18 @@ describe("pooledVectors", () => {
     const pooled = pooledVectors(own, frames);
     expect(pooled[0]).toBe(own.vectors[0]);
     expect(pooled).toHaveLength(8);
+  });
+});
+
+describe("burstMates", () => {
+  it("lists the other frames of a photo's burst, and none for a lone or unknown photo", () => {
+    const scene = unit(1, 0.05);
+    joinBurst("u", frame("a", 0, scene));
+    joinBurst("u", frame("b", 5, scene));
+    joinBurst("u", frame("lone", 6, unit(0, 1)));
+    expect(burstMates("u", "a")).toEqual(["b"]);
+    expect(burstMates("u", "lone")).toEqual([]);
+    expect(burstMates("u", "unknown")).toEqual([]);
+    expect(burstMates("v", "a")).toEqual([]);
   });
 });

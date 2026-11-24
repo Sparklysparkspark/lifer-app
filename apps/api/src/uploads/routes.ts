@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { inspectUploadRoutes } from "./inspect.js";
+import { identifyAnimalRoutes } from "./identifyAnimal.js";
 import { rawUploadRoutes } from "./raw.js";
 import { photoUploadRoutes } from "./photo.js";
 import { videoUploadRoutes } from "./video.js";
@@ -12,6 +13,7 @@ export { moveManagedOriginalToSpeciesFolder } from "./managedFolders.js";
 
 export async function uploadRoutes(app: FastifyInstance): Promise<void> {
   await inspectUploadRoutes(app);
+  await identifyAnimalRoutes(app);
   await rawUploadRoutes(app);
   await photoUploadRoutes(app);
   await videoUploadRoutes(app);

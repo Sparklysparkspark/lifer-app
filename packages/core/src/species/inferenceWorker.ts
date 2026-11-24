@@ -101,6 +101,8 @@ export interface SubjectPresence {
 export interface PhotoFrame {
   /** Best animal box [x1, y1, x2, y2] as fractions of the upright photo, or null. */
   box: [number, number, number, number] | null;
+  /** Every animal the detector found, the subject first, in the same form: the import screen numbers them. */
+  boxes: Array<[number, number, number, number]>;
   unsure: boolean;
   /** 0 to 1: how much to trust the box for framing (see SUBJECT_FRAMING_MIN). 0 with no box. */
   confidence: number;
@@ -624,6 +626,8 @@ function buildTiles(width: number, height: number): Rect[] {
 interface DetectionOutcome {
   /** Best subject box in the upright original photo's pixel space, or null. */
   box: [number, number, number, number] | null;
+  /** The whole-photo pass's candidates in the same space, `box` first. */
+  boxes: Array<[number, number, number, number]>;
   /** The detector wasn't sure the box is the animal: it came from the tile fallback or is tiny. */
   unsure: boolean;
   /** See PhotoFrame.confidence. */
@@ -906,8 +910,10 @@ async function detect(
     const box = picked?.subject.box ?? null;
     const boxShare = box ? ((box[2] - box[0]) * (box[3] - box[1])) / Math.max(1, size.width * size.height) : 0;
     const unsure = !box || fromTiles || boxShare < UNSURE_BOX_SHARE;
+    const rivals = whole.detections.map((d) => d.box).filter((b) => b !== box);
     return {
       box,
+      boxes: box ? [box, ...rivals] : rivals,
       unsure,
       confidence: picked?.confidence ?? 0,
       width: size.width,
@@ -1128,13 +1134,15 @@ async function photoFrame(bytes: ImageData, outcome: DetectionOutcome | null): P
     .toBuffer({ resolveWithObject: true });
   const box = outcome?.box ?? null;
   const frac = (v: number, side: number) => Math.round(Math.min(1, Math.max(0, v / side)) * 10000) / 10000;
+  const fractions = (b: [number, number, number, number]): [number, number, number, number] => [
+    frac(b[0], size.width),
+    frac(b[1], size.height),
+    frac(b[2], size.width),
+    frac(b[3], size.height),
+  ];
   return {
-    box: box && [
-      frac(box[0], size.width),
-      frac(box[1], size.height),
-      frac(box[2], size.width),
-      frac(box[3], size.height),
-    ],
+    box: box && fractions(box),
+    boxes: (outcome?.boxes ?? []).map(fractions),
     unsure: outcome?.unsure ?? true,
     confidence: Math.round((outcome?.confidence ?? 0) * 1000) / 1000,
     aspect: size.width / Math.max(1, size.height),

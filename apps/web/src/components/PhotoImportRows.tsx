@@ -25,7 +25,7 @@ import ImportPlaceGroups from "./importReview/ImportPlaceGroups";
 import { groupImportRows, groupPlace, photoCount, type StagedPlace } from "./importReview/importGroups";
 import { batchPairs, joinPairs, type PairFacts } from "./importReview/batchPairs";
 import Tip from "./Tip";
-import { useImportReview, type ReviewRowBase } from "./importReview/useImportReview";
+import { useImportReview, type PercentBox, type ReviewRowBase } from "./importReview/useImportReview";
 import ImportCompareView from "./importReview/ImportCompareView";
 import ImportSkipped from "./importReview/ImportSkipped";
 import KnownFiles from "./importReview/KnownFiles";
@@ -110,6 +110,10 @@ interface ImportRow extends ReviewRowBase {
   isVideo?: boolean;
   /** From /uploads/inspect: the animal's box in percent of the preview, when matching found it. */
   subject?: { x: number; y: number; w: number; h: number } | null;
+  /** The automatic suggestions, kept while the user's chosen animal (chosenBox) has its own. */
+  autoSuggestions?: SuggestedSpecies[];
+  /** The rows (this one and its burst) that took the same chosen animal, reset together. */
+  chosenWith?: string[];
   /** From /uploads/inspect: the camera's GPS point, the region holding it and the nearest town. */
   gps?: { lat: number; lon: number; regionId: string | null; town?: string | null } | null;
   /** From /uploads/inspect: the camera's own clock, for grouping. */
@@ -591,7 +595,7 @@ export default function PhotoImportRows({
       const known = res.rawMatch ?? res.editedVersionOf;
       setRows((prev) =>
         prev.map((r) =>
-          r.key !== key && r.uploadId && mates.has(r.uploadId) && !r.isInspecting
+          r.key !== key && r.uploadId && mates.has(r.uploadId) && !r.isInspecting && !r.chosenBox
             ? { ...r, suggestions: pooledFor(r.suggestions) }
             : r.key === key
               ? {
@@ -609,6 +613,8 @@ export default function PhotoImportRows({
                   ...(known && !r.speciesId ? { speciesId: known.speciesId, speciesLabel: speciesName(known) } : {}),
                   cull: res.cull ?? null,
                   subject: res.subject ?? null,
+                  subjectBoxes: res.subjectBoxes ?? [],
+                  autoSuggestions: undefined,
                   gps: res.gps ?? null,
                   cameraTime: res.cameraTime ?? null,
                   takenAt: res.takenAt ?? null,
@@ -619,9 +625,61 @@ export default function PhotoImportRows({
               : r,
         ),
       );
+      // A chosen animal stays chosen: ranked again for the new region.
+      const before = rowsRef.current.find((r) => r.key === key);
+      if (before?.chosenBox) {
+        const inspectedRegion = (forRegionId && cameraRegion && res.gps?.regionId) || forRegionId;
+        void identifyAnimal({ ...before, inspectedRegion }, before.chosenBox).catch(() => {});
+      }
     } catch {
       if (isLatest()) setRows((prev) => prev.map((r) => (r.key === key ? { ...r, isInspecting: false } : r)));
     }
+  }
+
+  // Compare's Choose the animal: species ranked on the chosen box, and on the same spot in the
+  // burst's other frames, keeping the automatic answer for Reset. Nothing is saved.
+  async function identifyAnimal(row: ImportRow, box: PercentBox | null) {
+    if (!box) {
+      const keys = new Set(row.chosenWith ?? [row.key]);
+      setRows((prev) =>
+        prev.map((r) =>
+          keys.has(r.key) && r.chosenBox
+            ? {
+                ...r,
+                suggestions: r.autoSuggestions ?? r.suggestions,
+                autoSuggestions: undefined,
+                chosenBox: null,
+                chosenWith: undefined,
+              }
+            : r,
+        ),
+      );
+      return;
+    }
+    if (!row.uploadId || !row.inspectedRegion) throw new Error(t("import.compare.animal.unavailable"));
+    const res = await api.post("/uploads/identify-animal", {
+      uploadId: row.uploadId,
+      regionId: row.inspectedRegion,
+      box,
+    });
+    const mates = new Set(res.burst?.uploadIds ?? []);
+    const together = rowsRef.current
+      .filter((r) => r.key === row.key || (r.uploadId && mates.has(r.uploadId)))
+      .map((r) => r.key);
+    const keys = new Set(together);
+    setRows((prev) =>
+      prev.map((r) =>
+        keys.has(r.key)
+          ? {
+              ...r,
+              autoSuggestions: r.autoSuggestions ?? r.suggestions,
+              suggestions: res.suggestions,
+              chosenBox: box,
+              chosenWith: together,
+            }
+          : r,
+      ),
+    );
   }
 
   // Video version: suggestions from frames sampled across the clip, no duplicate check. Sent
@@ -1410,6 +1468,7 @@ export default function PhotoImportRows({
           }
           onNoAnimal={review.markNoAnimal}
           onClose={review.closeCompare}
+          identifyAnimal={identifyAnimal}
         />
       )}
     </div>

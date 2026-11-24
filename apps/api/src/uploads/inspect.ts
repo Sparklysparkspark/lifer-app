@@ -381,12 +381,15 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
                   frame: true,
                   priority: "interactive",
                 }).then(
-                  // A doubtful box (a weak guess, a flock, no animal found) shows the whole photo
-                  // rather than zooming somewhere wrong.
-                  (r) => (r.frame && r.frame.confidence >= SUBJECT_FRAMING_MIN ? subjectPercent(r.frame.box) : null),
-                  () => null,
+                  (r) => ({
+                    // A doubtful box (a weak guess, a flock, no animal found) shows the whole photo
+                    // rather than zooming somewhere wrong.
+                    subject: r.frame && r.frame.confidence >= SUBJECT_FRAMING_MIN ? subjectPercent(r.frame.box) : null,
+                    boxes: (r.frame?.boxes ?? []).map(subjectPercent).filter((b) => b !== null),
+                  }),
+                  () => ({ subject: null, boxes: [] }),
                 )
-              : Promise.resolve(null);
+              : Promise.resolve({ subject: null, boxes: [] });
 
           // Keywords in the file that name exactly one species (common name, alias or synonym, the
           // same matching reimport.ts uses) are certain, so that species goes first with score 1.
@@ -438,7 +441,7 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
           // open file.path, and a moved file reads as no marks and no verdict rather than an error.
           const cull = await cullRead;
           // The frame job may read the working image, which `finally` releases.
-          const [subject, gps] = await Promise.all([subjectRead, gpsRead]);
+          const [{ subject, boxes: subjectBoxes }, gps] = await Promise.all([subjectRead, gpsRead]);
 
           // A multipart file is kept so the import can refer to it instead of sending it again
           // (lib/stagedUploads.ts). A resumable upload is already kept under its uploadId.
@@ -489,6 +492,7 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
             },
             versionEvidence,
             subject,
+            subjectBoxes,
             gps,
           };
         } finally {

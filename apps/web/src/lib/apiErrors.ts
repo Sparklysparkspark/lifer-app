@@ -18,6 +18,7 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<string, string>> = {
   library_folder_unavailable: "errors.api.library_folder_unavailable",
   maybe_on_inaturalist: "errors.api.maybe_on_inaturalist",
   model_mismatch: "errors.api.model_mismatch",
+  models_not_ready: "errors.api.models_not_ready",
   no_checklist: "errors.api.no_checklist",
   no_video_frames: "errors.api.no_video_frames",
   not_added: "errors.api.not_added",

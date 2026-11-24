@@ -46,6 +46,9 @@ export const MaybeNotWildlife = Nullable(Open({ looksLike: Type.String(), share:
 /** An insect, spider or the like, which regional checklists rarely cover, e.g. "a bee". */
 export const Invertebrate = Nullable(Open({ looksLike: Type.String() }));
 
+/** A box in percent of the upright photo. */
+export const PercentBox = Open({ x: Type.Number(), y: Type.Number(), w: Type.Number(), h: Type.Number() });
+
 export const UploadInspection = Open({
   takenAt: Nullable(DateTime()),
   cameraTime: Nullable(
@@ -107,7 +110,9 @@ export const UploadInspection = Open({
     }),
   ),
   /** The animal's box in percent of the upright photo (the preview shown), when matching located it. */
-  subject: Nullable(Open({ x: Type.Number(), y: Type.Number(), w: Type.Number(), h: Type.Number() })),
+  subject: Nullable(PercentBox),
+  /** Every animal the detector found, the likeliest subject first, for choosing which one to match. */
+  subjectBoxes: Type.Optional(Type.Array(PercentBox)),
   /** The camera's GPS point, with the most specific region holding it and the nearest town. */
   gps: Nullable(
     Open({
@@ -160,3 +165,9 @@ export const UploadResponses = {
     ),
   }),
 };
+
+/** Species ranked on one animal the user chose in a photo, and the other frames of its burst that took the same answer. */
+export const AnimalIdentification = Open({
+  suggestions: Type.Array(SpeciesSuggestion),
+  burst: Nullable(Open({ uploadIds: Type.Array(Type.String()) })),
+});

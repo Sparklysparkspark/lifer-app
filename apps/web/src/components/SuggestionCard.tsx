@@ -16,7 +16,10 @@ export default function SuggestionCard({
   highlighted,
   onSelect,
   onViewPhoto,
+  note,
 }: {
+  /** In place of the match for a card with none, e.g. "Your pick". */
+  note?: string;
   suggestion: SuggestedSpecies;
   /** From the caller, so a lone certain match can show 100% instead of its raw score. Null for a
    *  species the user typed, which has no match. */
@@ -56,7 +59,7 @@ export default function SuggestionCard({
         <p key="sci" className="line-clamp-2 min-h-[2lh] text-footnote italic text-muted wrap-anywhere">
           {suggestion.scientific_name}
         </p>,
-        matchPercent != null && t("species.suggestion.match", { percent: formatPercent(matchPercent / 100) }),
+        matchPercent != null ? t("species.suggestion.match", { percent: formatPercent(matchPercent / 100) }) : note,
       ]}
       compact
       selected={highlighted}

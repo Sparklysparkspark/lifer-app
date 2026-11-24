@@ -21,15 +21,33 @@ import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { useLatest } from "../../hooks/useLatest";
 import { isTypingTarget } from "../../hooks/useKeyboardShortcuts";
 import { matches, shortcutLabel } from "../../lib/keymap";
-import { FIT, frameView, zoomView, type View } from "../../lib/compareZoom";
+import { containFit, FIT, frameView, FULL, zoomView, type Fit, type View } from "../../lib/compareZoom";
 import { formatPercent, metaLine } from "../../lib/format";
 import { OVERLAY_REVEAL } from "../../lib/buttonClasses";
+import { errorMessage } from "../../lib/errorMessage";
 import { markDragBlocked } from "../../lib/modalDragBlock";
 import { useSpeciesName } from "../../lib/speciesName";
-import type { CompareTarget, ReviewRowBase } from "./useImportReview";
+import BoxEditor from "../BoxEditor";
+import { placeBox, type Box } from "../../lib/box";
+import FormMessage from "../FormMessage";
+import InlineSpinner from "../InlineSpinner";
+import type { CompareTarget, PercentBox, ReviewRowBase } from "./useImportReview";
 import { compareCandidates, nextToConfirm, percentOf, toConfirm } from "./compareQueue";
 
 type RefPhoto = { url: string; credit: string | null };
+/** A species' reference photos, or "looking" while a first lookup fetches some. */
+type Gallery = RefPhoto[] | "looking";
+
+const toBox = (p: PercentBox): Box => [p.x / 100, p.y / 100, (p.x + p.w) / 100, (p.y + p.h) / 100];
+const round1 = (v: number) => Math.round(v * 1000) / 10;
+const toPercent = (b: Box): PercentBox => ({
+  x: round1(b[0]),
+  y: round1(b[1]),
+  w: round1(b[2] - b[0]),
+  h: round1(b[3] - b[1]),
+});
+/** Where the box starts when the detector found no animal. */
+const CENTRED: Box = [0.35, 0.35, 0.65, 0.65];
 
 // Import compare mode: the user's photo, opened zoomed on the animal, beside the photos of a species
 // to check it against. Enter confirms the species shown and brings up the next photo to confirm; a
@@ -43,7 +61,11 @@ export default function ImportCompareView<R extends ReviewRowBase>({
   onConfirm,
   onNoAnimal,
   onClose,
+  identifyAnimal,
 }: {
+  /** Matches species again on one animal in the row's photo (and its burst), or with null goes back
+   *  to the automatic subject. Absent where the photo can't be matched again. */
+  identifyAnimal?: (row: R, box: PercentBox | null) => Promise<void>;
   rows: R[];
   target: CompareTarget;
   regionId: string | null;
@@ -61,7 +83,7 @@ export default function ImportCompareView<R extends ReviewRowBase>({
   const [group, setGroup] = useState(target.group);
   const [typed, setTyped] = useState<SuggestedSpecies[]>([]);
   const [activeId, setActiveId] = useState<string | null>(target.speciesId ?? null);
-  const [galleries, setGalleries] = useState<Record<string, RefPhoto[]>>({});
+  const [galleries, setGalleries] = useState<Record<string, Gallery>>({});
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [leftView, setLeftView] = useState<View>(FIT);
   const [rightView, setRightView] = useState<View>(FIT);
@@ -74,9 +96,18 @@ export default function ImportCompareView<R extends ReviewRowBase>({
   const [searching, setSearching] = useState(false);
   // A photo opened full screen in the Lightbox; compare keeps its state underneath.
   const [viewer, setViewer] = useState<"left" | "right" | null>(null);
+  // Choose the animal: the box being placed (null when not choosing), and the photo whose animal is
+  // being matched or failed to match, so moving to another photo meanwhile shows neither there.
+  const [draft, setDraft] = useState<Box | null>(null);
+  const [matchingKey, setMatchingKey] = useState<string | null>(null);
+  const [matchError, setMatchError] = useState<{ key: string; message: string } | null>(null);
+  // The share of the left frame the photo covers, so boxes sit on the photo, not its letterbox.
+  const leftImgRef = useRef<HTMLImageElement>(null);
+  const [photoFit, setPhotoFit] = useState<Fit>(FULL);
   useFocusTrap(dialogRef);
   useEscapeToClose(() => {
-    if (searching) setSearching(false);
+    if (draft) setDraft(null);
+    else if (searching) setSearching(false);
     else if (isTypingTarget(document.activeElement)) (document.activeElement as HTMLElement).blur();
     else onClose();
   });
@@ -100,7 +131,8 @@ export default function ImportCompareView<R extends ReviewRowBase>({
   const queue = group ?? rows.filter((r) => r.key === currentKey || toConfirm(r)).map((r) => r.key);
   const candidates = compareCandidates(rows, group ?? [currentKey], typed);
   const active = candidates.find((c) => c.id === activeId) ?? candidates[0];
-  const photos = active ? galleries[active.id] : undefined;
+  const gallery = active ? galleries[active.id] : undefined;
+  const photos = Array.isArray(gallery) ? gallery : undefined;
   const photo = photos?.[Math.min(galleryIndex, photos.length - 1)];
 
   // A new species starts on its first (featured) photo.
@@ -115,13 +147,22 @@ export default function ImportCompareView<R extends ReviewRowBase>({
   useEffect(() => {
     if (!activeSpeciesId || requested.current.has(activeSpeciesId)) return;
     requested.current.add(activeSpeciesId);
-    const single = [{ url: `/api/species/${activeSpeciesId}/reference-photo/display`, credit: null }];
-    api
-      .get(apiPath("/species/{id}/reference-photos", { id: activeSpeciesId }))
-      .then((res) => res.photos)
+    const id = activeSpeciesId;
+    const single = [{ url: `/api/species/${id}/reference-photo/display`, credit: null }];
+    const list = () => api.get(apiPath("/species/{id}/reference-photos", { id })).then((res) => res.photos);
+    const show = (g: Gallery) => setGalleries((all) => ({ ...all, [id]: g }));
+    list()
+      .then(async (found) => {
+        if (found.length > 0) return found;
+        // A species never opened before (one the user searched for) has had no photo lookup yet:
+        // its page's lookup fetches one, then the list is read again.
+        show("looking");
+        await api.get(apiPath("/species/{id}", { id })).catch(() => null);
+        return list().catch(() => []);
+      })
       // The card's own photo is there even when the list isn't.
-      .catch(() => [])
-      .then((list) => setGalleries((g) => ({ ...g, [activeSpeciesId]: list.length > 0 ? list : single })));
+      .catch(() => single)
+      .then(show);
   }, [activeSpeciesId]);
 
   // The open photo can leave the list (removed from the import): nothing left to compare.
@@ -138,15 +179,58 @@ export default function ImportCompareView<R extends ReviewRowBase>({
     setRightView(v);
     if (linked) setLeftView(v);
   };
-  function onPhotoLoad(e: SyntheticEvent<HTMLImageElement>) {
-    const img = e.currentTarget;
-    const framed =
-      row?.subject && img.naturalHeight && img.offsetHeight
-        ? frameView(row.subject, img.naturalWidth / img.naturalHeight / (img.offsetWidth / img.offsetHeight))
-        : FIT;
+  const aspectOf = (img: HTMLImageElement | null) =>
+    img?.naturalHeight && img.offsetHeight
+      ? img.naturalWidth / img.naturalHeight / (img.offsetWidth / img.offsetHeight)
+      : 0;
+  // Opens zoomed on the animal: the one the user chose, else the detector's.
+  function frameOn(box: PercentBox | null | undefined) {
+    const aspect = aspectOf(leftImgRef.current);
+    const framed = box && aspect ? frameView(box, aspect) : FIT;
     setSubjectView(framed);
     setLeft(framed);
   }
+  function onPhotoLoad(e: SyntheticEvent<HTMLImageElement>) {
+    setPhotoFit(containFit(aspectOf(e.currentTarget)));
+    frameOn(row?.chosenBox ?? row?.subject);
+  }
+  const leftSrcFor = row ? photoUrl(row) : null;
+  useEffect(() => {
+    const img = leftImgRef.current;
+    if (!img || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setPhotoFit(containFit(aspectOf(img))));
+    observer.observe(img);
+    return () => observer.disconnect();
+  }, [leftSrcFor]);
+
+  // Choose the animal: the boxes it numbers, and where the box starts.
+  const boxes = (row?.subjectBoxes ?? []).slice(0, 9).map(toBox);
+  const canChoose = !!identifyAnimal && !!leftSrcFor;
+  const matching = matchingKey === currentKey;
+  function startChoosing() {
+    if (!row) return;
+    setSearching(false);
+    setMatchError(null);
+    setLeft(FIT);
+    const from = row.chosenBox ?? row.subject;
+    setDraft(from ? toBox(from) : (boxes[0] ?? CENTRED));
+  }
+  function runIdentify(box: PercentBox | null) {
+    if (!row || !identifyAnimal) return;
+    const key = row.key;
+    setDraft(null);
+    setMatchError(null);
+    setMatchingKey(key);
+    identifyAnimal(row, box)
+      .then(() => {
+        if (latest.current.currentKey !== key) return;
+        setActiveId(null);
+        frameOn(box ?? row.subject);
+      })
+      .catch((err) => setMatchError({ key, message: errorMessage(err, t("import.compare.animal.failed")) }))
+      .finally(() => setMatchingKey((k) => (k === key ? null : k)));
+  }
+  const identify = () => draft && runIdentify(toPercent(draft));
   const zoomed = leftView.scale > 1 || rightView.scale > 1;
   const fitBoth = () => {
     setLeftView(FIT);
@@ -161,6 +245,7 @@ export default function ImportCompareView<R extends ReviewRowBase>({
   function showPhoto(key: string) {
     setCurrentKey(key);
     setActiveId(null);
+    setDraft(null);
   }
   // After a confirm or a skip: the next photo still to do, or out when there's none.
   function moveOn(keys: string[]) {
@@ -170,7 +255,7 @@ export default function ImportCompareView<R extends ReviewRowBase>({
     showPhoto(next);
   }
   function confirm() {
-    if (!active || !row) return;
+    if (!active || !row || matching) return;
     const keys = group ?? [row.key];
     onConfirm(keys, active);
     moveOn(keys);
@@ -212,6 +297,9 @@ export default function ImportCompareView<R extends ReviewRowBase>({
     showPhoto,
     startSearch,
     viewer,
+    draft,
+    boxes,
+    identify,
   });
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -219,6 +307,23 @@ export default function ImportCompareView<R extends ReviewRowBase>({
       // The Lightbox over compare has the keys.
       if (l.viewer || isTypingTarget(e.target) || e.defaultPrevented || e.altKey) return;
       const at = l.queue.indexOf(l.currentKey);
+      // Choosing the animal: a number moves the box to that animal, Enter matches it, and a letter
+      // doesn't start a search.
+      if (l.draft && !e.metaKey && !e.ctrlKey) {
+        if (/^Digit[1-9]$/.test(e.code)) {
+          const box = l.boxes[Number(e.code.slice(-1)) - 1];
+          if (box) setDraft(box);
+          e.preventDefault();
+          return;
+        }
+        if (matches(e, "confirm")) {
+          if (e.target instanceof Element && e.target.closest("button, a")) return;
+          l.identify();
+          e.preventDefault();
+          return;
+        }
+        if (/^\p{L}$/u.test(e.key)) return;
+      }
       if (matches(e, "importNoAnimal")) l.noAnimal();
       else if (matches(e, "zoomFit")) l.fitBoth();
       else if (matches(e, "zoomIn") || matches(e, "zoomOut")) l.zoomBoth(matches(e, "zoomIn") ? 1.5 : 1 / 1.5);
@@ -254,13 +359,21 @@ export default function ImportCompareView<R extends ReviewRowBase>({
   const runnerUp = candidates.find((c) => c !== active);
   const count = group?.length ?? 1;
   const probably = row.suggestions[0]?.probably;
-  const captionHeight = probably ? "h-20" : "h-14";
+  const captionHeight = probably || draft ? "h-20" : "h-14";
 
   const percent = active ? percentOf(active) : null;
+  // A species the user searched for has no match to show, so it says whose choice it is instead.
+  const isPick = (c: SuggestedSpecies) => typed.includes(c);
   const openLeft = () => setViewer("left");
   const openRight = () => setViewer("right");
+  const shownBox = draft ? null : row.chosenBox;
+  const failed = matchError?.key === currentKey ? matchError.message : null;
   const meta = metaLine([
-    percent != null ? t("species.suggestion.match", { percent: formatPercent(percent / 100) }) : null,
+    percent != null
+      ? t("species.suggestion.match", { percent: formatPercent(percent / 100) })
+      : active && isPick(active)
+        ? t("import.compare.yourPick")
+        : null,
     photos && photos.length > 1
       ? t("import.compare.referencePosition", {
           current: Math.min(galleryIndex, photos.length - 1) + 1,
@@ -296,7 +409,12 @@ export default function ImportCompareView<R extends ReviewRowBase>({
             </p>
           </div>
           <InfoTip
-            paragraphs={[t("import.compare.help.keys"), t("import.compare.help.zoom"), t("import.compare.help.search")]}
+            paragraphs={[
+              t("import.compare.help.keys"),
+              t("import.compare.help.zoom"),
+              t("import.compare.help.search"),
+              ...(canChoose ? [t("import.compare.animal.help")] : []),
+            ]}
           />
         </div>
         <div className="flex items-center gap-1">
@@ -317,6 +435,45 @@ export default function ImportCompareView<R extends ReviewRowBase>({
             </Button>
           )}
         </div>
+        {canChoose &&
+          (draft ? (
+            <div className="flex items-center gap-1">
+              <Button variant="secondary" size="sm" onClick={() => setDraft(null)}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={identify}
+                tooltip={{ label: t("import.compare.animal.identifyTip"), shortcut: shortcutLabel("confirm") }}
+              >
+                {t("import.compare.animal.identify")}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={startChoosing}
+                disabled={matching}
+                tooltip={{ label: t("import.compare.animal.chooseTip") }}
+              >
+                {t("import.compare.animal.choose")}
+              </Button>
+              {row.chosenBox && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => runIdentify(null)}
+                  disabled={matching}
+                  tooltip={{ label: t("import.compare.animal.resetTip") }}
+                >
+                  {t("import.compare.animal.reset")}
+                </Button>
+              )}
+            </div>
+          ))}
         <label className="flex items-center gap-2 text-callout text-ink">
           <Switch
             checked={linked}
@@ -338,12 +495,52 @@ export default function ImportCompareView<R extends ReviewRowBase>({
           <ZoomPane
             view={leftView}
             onViewChange={setLeft}
-            onOpen={leftSrc ? openLeft : undefined}
+            onOpen={leftSrc && !draft ? openLeft : undefined}
             openLabel={t("import.compare.openPhoto")}
             className="min-h-0 flex-1 bg-surface-muted"
           >
             {leftSrc ? (
-              <img src={leftSrc} alt={nameOf(row)} onLoad={onPhotoLoad} className="h-full w-full object-contain" />
+              <div className="relative h-full w-full">
+                <img
+                  ref={leftImgRef}
+                  src={leftSrc}
+                  alt={nameOf(row)}
+                  onLoad={onPhotoLoad}
+                  className="h-full w-full object-contain"
+                />
+                {(draft || shownBox) && (
+                  // Over the photo itself, inside its letterbox, so boxes move with the zoom.
+                  <div
+                    className="absolute"
+                    style={{
+                      left: `${((1 - photoFit.w) / 2) * 100}%`,
+                      top: `${((1 - photoFit.h) / 2) * 100}%`,
+                      width: `${photoFit.w * 100}%`,
+                      height: `${photoFit.h * 100}%`,
+                    }}
+                  >
+                    {draft ? (
+                      <BoxEditor
+                        box={draft}
+                        onChange={setDraft}
+                        shortcuts={boxes}
+                        zoom={leftView.scale}
+                        label={t("import.compare.animal.editorLabel")}
+                      />
+                    ) : (
+                      shownBox && (
+                        <div
+                          aria-hidden
+                          data-testid="chosen-animal"
+                          // design-token: white over any photo, like the box being placed.
+                          className="pointer-events-none absolute border-white"
+                          style={{ ...placeBox(toBox(shownBox)), borderWidth: `${2 / leftView.scale}px` }}
+                        />
+                      )
+                    )}
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="flex h-full w-full items-center justify-center text-callout text-muted">
                 {t("import.compare.noPreview")}
@@ -354,15 +551,21 @@ export default function ImportCompareView<R extends ReviewRowBase>({
               room for two lines so a long name wraps instead of ending in "...". */}
           <figcaption className={`${captionHeight} shrink-0 border-t border-line px-3 py-2`}>
             <p
-              className={`text-callout text-ink wrap-anywhere ${probably ? "truncate" : "line-clamp-2"}`}
+              className={`text-callout text-ink wrap-anywhere ${probably || draft ? "truncate" : "line-clamp-2"}`}
               title={nameOf(row)}
             >
               {t("import.compare.yourPhoto", { name: nameOf(row) })}
             </p>
-            {probably && (
-              <p className="line-clamp-2 text-footnote text-muted wrap-anywhere" title={probably.name}>
-                <ProbableGroupText group={probably} />
+            {draft ? (
+              <p role="status" className="line-clamp-2 text-footnote text-muted">
+                {t("import.compare.animal.hint", { count: boxes.length })}
               </p>
+            ) : (
+              probably && (
+                <p className="line-clamp-2 text-footnote text-muted wrap-anywhere" title={probably.name}>
+                  <ProbableGroupText group={probably} />
+                </p>
+              )
             )}
           </figcaption>
         </figure>
@@ -384,6 +587,18 @@ export default function ImportCompareView<R extends ReviewRowBase>({
                   alt={activeName ?? ""}
                   className="h-full w-full object-contain"
                 />
+              ) : gallery === "looking" ? (
+                <p
+                  role="status"
+                  className="flex h-full w-full items-center justify-center gap-2 p-4 text-center text-callout text-muted"
+                >
+                  <InlineSpinner size="sm" />
+                  {t("import.compare.lookingForPhoto")}
+                </p>
+              ) : photos ? (
+                <p className="flex h-full w-full items-center justify-center p-4 text-center text-callout text-muted">
+                  {t("import.compare.noReferencePhoto")}
+                </p>
               ) : active ? (
                 <PhotoPlaceholder className="h-full w-full" />
               ) : (
@@ -414,21 +629,31 @@ export default function ImportCompareView<R extends ReviewRowBase>({
       </div>
 
       <footer className="flex shrink-0 flex-wrap items-end gap-3 border-t border-line bg-surface px-page py-3">
+        {failed && <FormMessage error={failed} className="w-full" />}
         <div className="flex min-w-0 max-w-full gap-2">
-          {candidates.length > 0 && (
-            // p-1 -m-1 keeps overflow-x-auto from clipping the highlighted card's ring.
-            <div className="-m-1 flex min-w-0 gap-2 overflow-x-auto p-1">
-              {candidates.map((c) => (
-                <SuggestionCard
-                  key={c.id}
-                  suggestion={c}
-                  matchPercent={percentOf(c)}
-                  highlighted={c === active}
-                  onSelect={() => setActiveId(c.id)}
-                  onViewPhoto={() => setActiveId(c.id)}
-                />
-              ))}
-            </div>
+          {matching ? (
+            // In place of the cards, which are the other animal's answer until this one's comes.
+            <p role="status" className="flex h-32 items-center gap-2 text-callout text-muted">
+              <InlineSpinner size="sm" />
+              {t("import.compare.animal.matching")}
+            </p>
+          ) : (
+            candidates.length > 0 && (
+              // p-1 -m-1 keeps overflow-x-auto from clipping the highlighted card's ring.
+              <div className="-m-1 flex min-w-0 gap-2 overflow-x-auto p-1">
+                {candidates.map((c) => (
+                  <SuggestionCard
+                    key={c.id}
+                    suggestion={c}
+                    matchPercent={percentOf(c)}
+                    note={isPick(c) ? t("import.compare.yourPick") : undefined}
+                    highlighted={c === active}
+                    onSelect={() => setActiveId(c.id)}
+                    onViewPhoto={() => setActiveId(c.id)}
+                  />
+                ))}
+              </div>
+            )
           )}
           {/* Outside the scrolling strip, so the results list that opens above it isn't clipped. */}
           {/* The same card either way; searching, its hint line becomes the field. */}
@@ -513,7 +738,7 @@ export default function ImportCompareView<R extends ReviewRowBase>({
           <Button
             size="sm"
             onClick={confirm}
-            disabled={!active}
+            disabled={!active || matching}
             tooltip={{ label: t("shortcuts.action.confirm"), shortcut: shortcutLabel("confirm") }}
           >
             {t("import.compare.confirm", { count })}
