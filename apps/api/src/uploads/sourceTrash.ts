@@ -2,6 +2,7 @@
 // (the Import page's "Move photos into my library") or because the library already holds the same
 // bytes ("Clear out the ones already in Lifer"). Only files in a folder the user imported from on
 // this computer, never one the library itself uses, and only once the library's copy is proven.
+import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { DATA_DIR, ORIGINALS_DIR } from "@lifer/core/config.js";
@@ -11,7 +12,7 @@ import { hashFile } from "@lifer/core/lib/verifiedCopy.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { moveToSystemTrash } from "../lib/originalsWrite.js";
 import { imageDataHash } from "./exif.js";
-import { inSourceFolder } from "./knownFiles.js";
+import { inSourceFolder, isImportableName } from "./knownFiles.js";
 
 export type TrashBlock =
   "not_in_source_folder" | "in_library" | "unreadable" | "no_library_copy" | "partner_stays" | "trash_failed";
@@ -33,6 +34,27 @@ export function trashBlock(f: {
 
 const isXmp = (name: string) => path.extname(name).toLowerCase() === ".xmp";
 const stemOf = (name: string) => path.basename(name, path.extname(name)).toLowerCase();
+
+/** What goes with `members` (files in `dir`) from that folder's listing `names`: their XMP
+ *  sidecars, under any of the names other apps give them (IMG_1.xmp, IMG_1.CR3.xmp, IMG_1.jpg.xmp,
+ *  in any case, as a case-insensitive drive may list them). "partner_stays" when a photo or video
+ *  of the same name isn't among them, since its sidecar may be theirs too. */
+export function sidecarsIn(dir: string, names: string[], members: string[]): string[] | "partner_stays" {
+  const own = new Set(members.map((m) => path.basename(m).toLowerCase()));
+  const stems = new Set(members.map(stemOf));
+  const listed = new Set(names.map((n) => n.toLowerCase()));
+  const sidecars: string[] = [];
+  for (const name of names) {
+    const lower = name.toLowerCase();
+    if (own.has(lower)) continue;
+    if (isXmp(name)) {
+      const target = lower.slice(0, -".xmp".length);
+      // IMG_1.CR3.xmp names its file; IMG_1.xmp is the stem's unless a file is named exactly that.
+      if (own.has(target) || (stems.has(stemOf(name)) && !listed.has(target))) sidecars.push(path.join(dir, name));
+    } else if (stems.has(stemOf(name)) && isImportableName(name)) return "partner_stays";
+  }
+  return sidecars;
+}
 
 /** Inside Lifer's library folder, a trip's folders, or a file the library points at. */
 async function inLibrary(userId: string, file: string): Promise<boolean> {
@@ -77,6 +99,13 @@ export interface TrashOutcome {
   reason?: TrashBlock;
   /** Every file sent to the Trash, sidecars included. */
   trashed: string[];
+  /** How many of them were XMP sidecars. */
+  sidecars: number;
+}
+
+interface Plan {
+  files: string[];
+  sidecars: string[];
 }
 
 /** The files that would go with `members` (a photo, or a RAW and its JPG) to the Trash, XMP sidecars
@@ -84,7 +113,7 @@ export interface TrashOutcome {
 async function planGroup(
   userId: string,
   members: Array<{ path: string; expect?: string }>,
-): Promise<TrashBlock | string[]> {
+): Promise<TrashBlock | Plan> {
   for (const m of members) {
     if (!path.isAbsolute(m.path)) return "not_in_source_folder";
     const sourceHash = await hashFile(m.path).catch(() => null);
@@ -96,39 +125,41 @@ async function planGroup(
     });
     if (block) return block;
   }
-  // A same-named photo left behind (the RAW of a JPG, say) keeps the whole pair and its sidecar.
-  const files = new Set(members.map((m) => m.path));
+  const files = [...new Set(members.map((m) => m.path))];
   const sidecars: string[] = [];
-  for (const dir of new Set(members.map((m) => path.dirname(m.path)))) {
-    const names = await readdir(dir).catch(() => [] as string[]);
-    const stems = new Set(members.filter((m) => path.dirname(m.path) === dir).map((m) => stemOf(m.path)));
-    const ownNames = new Set(members.map((m) => path.basename(m.path).toLowerCase()));
-    for (const name of names) {
-      const full = path.join(dir, name);
-      if (files.has(full)) continue;
-      if (isXmp(name)) {
-        // IMG_1.xmp beside IMG_1.CR3, or IMG_1.CR3.xmp.
-        if (stems.has(stemOf(name)) || ownNames.has(name.toLowerCase().slice(0, -4))) sidecars.push(full);
-      } else if (stems.has(stemOf(name))) return "partner_stays";
-    }
+  for (const dir of new Set(files.map((f) => path.dirname(f)))) {
+    // A folder that can't be listed (a share that dropped) can't show what else is there.
+    const names = await readdir(dir).catch(() => null);
+    if (!names) return "unreadable";
+    const found = sidecarsIn(
+      dir,
+      names,
+      files.filter((f) => path.dirname(f) === dir),
+    );
+    if (found === "partner_stays") return found;
+    sidecars.push(...found);
   }
-  return [...files, ...sidecars];
+  return { files, sidecars };
 }
 
-/** Sends `members` to the Trash together, with their XMP sidecars, or none of them. */
+const gone = (files: string[]) => files.filter((f) => !existsSync(f));
+
+/** Sends `members` to the Trash together, then their XMP sidecars, or none of them. A sidecar the
+ *  Trash refuses stays where it was; it never goes before its photo. */
 export async function trashSourceGroup(
   userId: string,
   members: Array<{ path: string; expect?: string }>,
 ): Promise<TrashOutcome> {
-  const stay = (b: TrashBlock): TrashOutcome => ({ moved: false, reason: b, trashed: [] });
   const plan = await planGroup(userId, members);
-  if (!Array.isArray(plan)) return stay(plan);
+  if (typeof plan === "string") return { moved: false, reason: plan, trashed: [], sidecars: 0 };
   try {
-    await moveToSystemTrash(plan);
+    await moveToSystemTrash(plan.files);
   } catch {
-    return stay("trash_failed");
+    return { moved: false, reason: "trash_failed", trashed: gone(plan.files), sidecars: 0 };
   }
-  return { moved: true, trashed: plan };
+  await moveToSystemTrash(plan.sidecars).catch(() => {});
+  const sidecars = gone(plan.sidecars);
+  return { moved: true, trashed: [...plan.files, ...sidecars], sidecars: sidecars.length };
 }
 
 /** The files among `paths` the library already holds the same bytes of, grouped with their RAW or
@@ -137,26 +168,35 @@ export async function clearKnownSources(
   userId: string,
   paths: string[],
   dryRun: boolean,
-): Promise<{ cleared: number; trashed: string[]; kept: Array<{ path: string; reason: TrashBlock }> }> {
+): Promise<{
+  cleared: number;
+  sidecars: number;
+  trashed: string[];
+  kept: Array<{ path: string; reason: TrashBlock }>;
+}> {
   const groups = new Map<string, string[]>();
   for (const p of paths) {
     const key = path.join(path.dirname(p), stemOf(p));
     groups.set(key, [...(groups.get(key) ?? []), p]);
   }
   let cleared = 0;
+  let sidecars = 0;
   const trashed: string[] = [];
   const kept: Array<{ path: string; reason: TrashBlock }> = [];
   await mapWithConcurrency([...groups.values()], 4, async (members) => {
     const group = members.map((m) => ({ path: m }));
     const out: TrashOutcome = dryRun
       ? await planGroup(userId, group).then((plan) =>
-          Array.isArray(plan) ? { moved: true, trashed: [] } : { moved: false, reason: plan, trashed: [] },
+          typeof plan === "string"
+            ? { moved: false, reason: plan, trashed: [], sidecars: 0 }
+            : { moved: true, trashed: [], sidecars: plan.sidecars.length },
         )
       : await trashSourceGroup(userId, group);
+    trashed.push(...out.trashed);
     if (out.moved) {
       cleared += members.length;
-      trashed.push(...out.trashed);
+      sidecars += out.sidecars;
     } else for (const m of members) kept.push({ path: m, reason: out.reason! });
   });
-  return { cleared, trashed, kept };
+  return { cleared, sidecars, trashed, kept };
 }

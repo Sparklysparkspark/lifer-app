@@ -31,14 +31,22 @@ const fake = vi.hoisted(() => ({
   fail: false,
   /** Captures the user had at the moment each file went to the Trash. */
   capturesWhenTrashed: [] as number[],
+  /** Each call's file names, in order. */
+  calls: [] as string[][],
+  /** Names the Trash refuses (a locked file). */
+  refuse: new Set<string>(),
   countCaptures: async () => 0,
 }));
 vi.mock("../lib/originalsWrite.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/originalsWrite.js")>()),
   moveToSystemTrash: async (files: string[]) => {
     if (fake.fail) throw new Error("Trash refused");
+    if (files.length === 0) return;
     fake.capturesWhenTrashed.push(await fake.countCaptures());
-    for (const f of files) renameSync(f, path.join(fake.trash, path.basename(f)));
+    fake.calls.push(files.map((f) => path.basename(f)));
+    for (const f of files)
+      if (!fake.refuse.has(path.basename(f))) renameSync(f, path.join(fake.trash, path.basename(f)));
+    if (files.some((f) => fake.refuse.has(path.basename(f)))) throw new Error("Trash refused");
   },
 }));
 
@@ -130,6 +138,8 @@ describe.skipIf(!url)("moving imported originals to the Trash", () => {
   beforeEach(async () => {
     fake.fail = false;
     fake.capturesWhenTrashed = [];
+    fake.calls = [];
+    fake.refuse.clear();
     await clearLibrary();
   });
 
@@ -155,10 +165,12 @@ describe.skipIf(!url)("moving imported originals to the Trash", () => {
     writeFileSync(path.join(src, "a/IMG_1.jpg.xmp"), "<x/>");
     const res = await importFile(file, { moveSourcePath: file });
     expect(res.statusCode).toBe(201);
-    expect(res.json().sourceMove).toEqual({ moved: true, reason: null });
+    expect(res.json().sourceMove).toEqual({ moved: true, reason: null, sidecars: 1 });
     expect(existsSync(file)).toBe(false);
     expect(inTrash("IMG_1.jpg") && inTrash("IMG_1.jpg.xmp")).toBe(true);
-    expect(fake.capturesWhenTrashed).toEqual([1]);
+    // The photo first, its sidecar after, both once the capture is saved.
+    expect(fake.calls).toEqual([["IMG_1.jpg"], ["IMG_1.jpg.xmp"]]);
+    expect(fake.capturesWhenTrashed).toEqual([1, 1]);
   });
 
   it("leaves the original where it is when the Trash refuses, and the import still stands", async () => {
@@ -166,7 +178,7 @@ describe.skipIf(!url)("moving imported originals to the Trash", () => {
     fake.fail = true;
     const res = await importFile(file, { moveSourcePath: file });
     expect(res.statusCode).toBe(201);
-    expect(res.json().sourceMove).toEqual({ moved: false, reason: "trash_failed" });
+    expect(res.json().sourceMove).toEqual({ moved: false, reason: "trash_failed", sidecars: 0 });
     expect(existsSync(file)).toBe(true);
     expect(await fake.countCaptures()).toBe(1);
   });
@@ -175,7 +187,7 @@ describe.skipIf(!url)("moving imported originals to the Trash", () => {
     const jpg = await jpeg("c/IMG_3.jpg");
     writeFileSync(path.join(src, "c/IMG_3.CR3"), "raw bytes");
     const alone = await importFile(jpg, { moveSourcePath: jpg });
-    expect(alone.json().sourceMove).toEqual({ moved: false, reason: "partner_stays" });
+    expect(alone.json().sourceMove).toEqual({ moved: false, reason: "partner_stays", sidecars: 0 });
     expect(existsSync(jpg)).toBe(true);
 
     // Clearing the pair: both are in the library only once the RAW is too.
@@ -196,7 +208,7 @@ describe.skipIf(!url)("moving imported originals to the Trash", () => {
     });
     writeFileSync(path.join(src, "c/IMG_3.xmp"), "<x/>");
     const cleared = await call("/uploads/source-folders/clear", { paths: [jpg, path.join(src, "c/IMG_3.CR3")] });
-    expect(cleared.json()).toMatchObject({ cleared: 2, kept: [] });
+    expect(cleared.json()).toMatchObject({ cleared: 2, sidecars: 1, kept: [] });
     expect(inTrash("IMG_3.jpg") && inTrash("IMG_3.CR3") && inTrash("IMG_3.xmp")).toBe(true);
   });
 
@@ -209,7 +221,7 @@ describe.skipIf(!url)("moving imported originals to the Trash", () => {
     const outside = path.join(dir, "elsewhere.jpg");
     writeFileSync(outside, readFileSync(file));
     const moved = await importFile(outside, { moveSourcePath: outside });
-    expect(moved.json().sourceMove).toEqual({ moved: false, reason: "not_in_source_folder" });
+    expect(moved.json().sourceMove).toEqual({ moved: false, reason: "not_in_source_folder", sidecars: 0 });
     expect(existsSync(outside)).toBe(true);
   });
 
@@ -267,5 +279,49 @@ describe.skipIf(!url)("moving imported originals to the Trash", () => {
     expect(out.json().kept.map((k: { reason: string }) => k.reason)).toEqual(["in_library", "in_library"]);
     expect(existsSync(twin) && existsSync(libraryCopy)).toBe(true);
     await db.query(`DELETE FROM import_source_folders WHERE user_id = $1 AND path = $2`, [userId, dir]);
+  });
+
+  it("moves each sidecar convention with its photo and leaves other photos' sidecars", async () => {
+    const file = await jpeg("g/IMG_6.jpg");
+    for (const name of ["IMG_6.xmp", "IMG_6.JPG.XMP", "IMG_7.xmp", "IMG_7.jpg.xmp", "IMG_6.CR3.xmp", "notes.xmp"])
+      writeFileSync(path.join(src, "g", name), "<x/>");
+    writeFileSync(path.join(src, "g/IMG_7.jpg"), "another photo, not imported");
+    const res = await importFile(file, { moveSourcePath: file });
+    expect(res.json().sourceMove).toEqual({ moved: true, reason: null, sidecars: 2 });
+    expect(inTrash("IMG_6.xmp") && inTrash("IMG_6.JPG.XMP")).toBe(true);
+    for (const name of ["IMG_7.xmp", "IMG_7.jpg.xmp", "IMG_6.CR3.xmp", "notes.xmp", "IMG_7.jpg"])
+      expect(existsSync(path.join(src, "g", name))).toBe(true);
+  });
+
+  it("a sidecar the Trash refuses (a locked file) stays, and the photo still moves", async () => {
+    const file = await jpeg("h/IMG_8.jpg");
+    writeFileSync(path.join(src, "h/IMG_8.xmp"), "<x/>");
+    fake.refuse.add("IMG_8.xmp");
+    const res = await importFile(file, { moveSourcePath: file });
+    expect(res.json().sourceMove).toEqual({ moved: true, reason: null, sidecars: 0 });
+    expect(existsSync(file)).toBe(false);
+    expect(existsSync(path.join(src, "h/IMG_8.xmp"))).toBe(true);
+  });
+
+  it("a photo the Trash refuses keeps its sidecar too", async () => {
+    const file = await jpeg("i/IMG_9.jpg");
+    writeFileSync(path.join(src, "i/IMG_9.jpg.xmp"), "<x/>");
+    fake.refuse.add("IMG_9.jpg");
+    const res = await importFile(file, { moveSourcePath: file });
+    expect(res.json().sourceMove).toMatchObject({ moved: false, reason: "trash_failed" });
+    expect(existsSync(path.join(src, "i/IMG_9.jpg.xmp"))).toBe(true);
+    expect(fake.calls).toEqual([["IMG_9.jpg"]]);
+  });
+
+  it("clearing out files already in Lifer takes their sidecars and counts them", async () => {
+    const kept = await jpeg("j/IMG_11.jpg");
+    await importFile(kept);
+    writeFileSync(path.join(src, "j/IMG_11.jpg.xmp"), "<x/>");
+    writeFileSync(path.join(src, "j/IMG_11.xmp"), "<x/>");
+    const dry = await call("/uploads/source-folders/clear", { paths: [kept], dryRun: true });
+    expect(dry.json()).toMatchObject({ cleared: 1, sidecars: 2, trashed: [] });
+    const done = await call("/uploads/source-folders/clear", { paths: [kept] });
+    expect(done.json()).toMatchObject({ cleared: 1, sidecars: 2 });
+    expect(inTrash("IMG_11.jpg.xmp") && inTrash("IMG_11.xmp")).toBe(true);
   });
 });

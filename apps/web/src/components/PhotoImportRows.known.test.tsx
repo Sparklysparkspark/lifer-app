@@ -200,9 +200,14 @@ describe("PhotoImportRows, picking a folder again", () => {
   it("with Move on, moves each imported file and clears the ones already in Lifer in one pass", async () => {
     const { folder } = desktopFolder((path) => {
       if (path === "/uploads")
-        return Promise.resolve({ captureId: "cap-1", sourceMove: { moved: true, reason: null } });
+        return Promise.resolve({ captureId: "cap-1", sourceMove: { moved: true, reason: null, sidecars: 2 } });
       if (path === "/uploads/source-folders/clear")
-        return Promise.resolve({ cleared: 1, trashed: [`${folder}/old.jpg`], kept: [] });
+        return Promise.resolve({
+          cleared: 1,
+          sidecars: 1,
+          trashed: [`${folder}/old.jpg`, `${folder}/old.xmp`],
+          kept: [],
+        });
       return undefined;
     });
     renderRows();
@@ -222,7 +227,7 @@ describe("PhotoImportRows, picking a folder again", () => {
       paths: [`${folder}/old.jpg`],
     });
     expect(vi.mocked(toast.show).mock.calls[0][0]).toBe(
-      "1 photo filed under 1 species. Moved 1 photo into your library. Cleared 1 already in Lifer.",
+      "1 photo filed under 1 species. Moved 1 photo and 2 sidecar files into your library. Cleared 1 already in Lifer, with 1 sidecar file.",
     );
   });
 
@@ -230,9 +235,9 @@ describe("PhotoImportRows, picking a folder again", () => {
     localStorage.setItem("lifer:import.moveOriginals", "1");
     desktopFolder((path) =>
       path === "/uploads"
-        ? Promise.resolve({ captureId: "cap-1", sourceMove: { moved: false, reason: "no_library_copy" } })
+        ? Promise.resolve({ captureId: "cap-1", sourceMove: { moved: false, reason: "no_library_copy", sidecars: 0 } })
         : path === "/uploads/source-folders/clear"
-          ? Promise.resolve({ cleared: 0, trashed: [], kept: [] })
+          ? Promise.resolve({ cleared: 0, sidecars: 0, trashed: [], kept: [] })
           : undefined,
     );
     renderRows();
@@ -254,8 +259,8 @@ describe("PhotoImportRows, picking a folder again", () => {
       path === "/uploads/source-folders/clear"
         ? Promise.resolve(
             (body as { dryRun: boolean }).dryRun
-              ? { cleared: 1, trashed: [], kept: [] }
-              : { cleared: 1, trashed: [`${folder}/old.jpg`], kept: [] },
+              ? { cleared: 1, sidecars: 1, trashed: [], kept: [] }
+              : { cleared: 1, sidecars: 1, trashed: [`${folder}/old.jpg`, `${folder}/old.xmp`], kept: [] },
           )
         : undefined,
     );
@@ -267,7 +272,7 @@ describe("PhotoImportRows, picking a folder again", () => {
     );
     await waitFor(() =>
       expect(toast.show).toHaveBeenCalledWith(
-        "Moved 1 file to the Trash. It's still there if you need it.",
+        "Moved 1 file and 1 sidecar file to the Trash. It's still there if you need it.",
         expect.anything(),
       ),
     );

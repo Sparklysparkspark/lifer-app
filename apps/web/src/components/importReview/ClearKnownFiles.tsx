@@ -11,13 +11,15 @@ const BATCH = 2000;
 
 async function clearInBatches(paths: string[], dryRun: boolean) {
   let cleared = 0;
+  let sidecars = 0;
   const trashed: string[] = [];
   for (let i = 0; i < paths.length; i += BATCH) {
     const res = await api.post("/uploads/source-folders/clear", { paths: paths.slice(i, i + BATCH), dryRun });
     cleared += res.cleared;
+    sidecars += res.sidecars;
     trashed.push(...res.trashed);
   }
-  return { cleared, trashed };
+  return { cleared, sidecars, trashed };
 }
 
 // "Clear out the ones already in Lifer": files in a folder on this computer whose exact bytes the
@@ -54,7 +56,8 @@ export default function ClearKnownFiles({
       if (!ok) return;
       const done = await clearInBatches(paths, false);
       onCleared(new Set(done.trashed));
-      toast.show(t("import.known.cleared", { count: done.cleared, formatted: formatNumber(done.cleared) }), {
+      const counts = { count: done.cleared, formatted: formatNumber(done.cleared), sidecars: done.sidecars };
+      toast.show(t("import.known.cleared", counts), {
         tone: "success",
       });
     } catch (err) {
