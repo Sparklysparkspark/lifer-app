@@ -30,6 +30,23 @@ export type TaxonClass =
   | "crustacea"
   | "sponges_tunicates_other";
 
+/** Classes a sea zone's species list holds (fish, marine mammals and the other marine life), so
+ *  the ones "Include nearby water" can add to a region. */
+export const SEA_ZONE_TAXA: readonly TaxonClass[] = [
+  "actinopterygii",
+  "mammalia",
+  "nudibranchs",
+  "marine_mollusks",
+  "cephalopoda",
+  "corals",
+  "jellies_and_anemones",
+  "echinodermata",
+  "crustacea",
+  "sponges_tunicates_other",
+  "testudines",
+  "squamata",
+];
+
 export interface Species {
   id: string;
   gbifKey: number;

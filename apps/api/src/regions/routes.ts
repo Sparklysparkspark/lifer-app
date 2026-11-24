@@ -161,7 +161,7 @@ export async function regionRoutes(fastify: FastifyInstance): Promise<void> {
       }
       if (zoneIds.length === 0) return { zones: [] };
       // addedByYou: species you added to that zone yourself, so the page can offer the zone even
-      // where it otherwise wouldn't (no fish pack).
+      // where it otherwise wouldn't (no sea life pack).
       const namesRes = await pool.query<{ id: string; name: string; added_by_you: number }>(
         `SELECT z.id, z.name,
                 (SELECT count(*)::int FROM sea_zone_species_user_added a WHERE a.sea_zone_id = z.id AND a.user_id = $2) AS added_by_you

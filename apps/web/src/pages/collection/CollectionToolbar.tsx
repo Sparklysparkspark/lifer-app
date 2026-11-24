@@ -469,7 +469,7 @@ export default function CollectionToolbar({
               {z.name}
             </Checkbox>
           ))}
-          {/* With a zone checked, lets it show only that zone's fish instead of adding to the land list. */}
+          {/* With a zone checked, lets it show only that zone's sea life instead of adding to the land list. */}
           {seaZoneIds.length > 0 && (
             <Checkbox
               size="sm"

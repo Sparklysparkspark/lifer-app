@@ -41,7 +41,9 @@ const MISSING = "abcdabcd-0000-4000-8000-000000000b02";
 const HAND = "abcdabcd-0000-4000-8000-000000000b03";
 // A catalog bird only the seed in the catalog update test lists.
 const SEEDED = "abcdabcd-0000-4000-8000-000000000b04";
-const ALL_SPECIES = [LISTED, MISSING, HAND, SEEDED];
+// A nudibranch only the bight's catalog checklist lists: sea life beyond fish comes from sea zones too.
+const NUDI = "abcdabcd-0000-4000-8000-000000000b05";
+const ALL_SPECIES = [LISTED, MISSING, HAND, SEEDED, NUDI];
 const UNKNOWN = "abcdabcd-0000-4000-8000-000000000fff";
 const HUB = "Zzadd Continent";
 const COUNTRY = "Zzaddland";
@@ -139,15 +141,16 @@ describe.skipIf(!url)("checklist additions", () => {
          ($1, 930001, 'Zzaddus listed', 'Listed Bird', 'aves', false),
          ($2, 930002, 'Zzaddus missing', 'Missing Bird', 'aves', false),
          ($3, -930003, 'Zzaddus manualis', 'Hand Beetle', 'insecta', true),
-         ($4, 930004, 'Zzaddus seeded', 'Seeded Bird', 'aves', false)`,
+         ($4, 930004, 'Zzaddus seeded', 'Seeded Bird', 'aves', false),
+         ($5, 930005, 'Zzaddus nudus', 'Zzadd Nudibranch', 'nudibranchs', false)`,
       ALL_SPECIES,
     );
     // Well recorded, so "Hide obscure species" (on by default) leaves LISTED alone. MISSING is
     // obscure (almost no records): added by hand, it shows anyway.
     await db.query(
       `INSERT INTO species_traits (species_id, occurrence_count, last_occurrence_year, source_attribution)
-       VALUES ($1, 5000, 2025, 'test'), ($2, 5, 2025, 'test')`,
-      [LISTED, MISSING],
+       VALUES ($1, 5000, 2025, 'test'), ($2, 5, 2025, 'test'), ($3, 5000, 2025, 'test')`,
+      [LISTED, MISSING, NUDI],
     );
     const zone = async (name: string) =>
       (
@@ -159,10 +162,10 @@ describe.skipIf(!url)("checklist additions", () => {
       ).rows[0].id;
     seaId = await zone(SEA);
     bightId = await zone(BIGHT);
-    await db.query(`INSERT INTO sea_zone_species (sea_zone_id, species_id, record_count) VALUES ($1, $2, 10)`, [
-      bightId,
-      LISTED,
-    ]);
+    await db.query(
+      `INSERT INTO sea_zone_species (sea_zone_id, species_id, record_count) VALUES ($1, $2, 10), ($1, $3, 10)`,
+      [bightId, LISTED, NUDI],
+    );
     hubId = (await db.query<{ id: string }>(`INSERT INTO regions (name) VALUES ($1) RETURNING id`, [HUB])).rows[0].id;
     countryId = (
       await db.query<{ id: string }>(
@@ -551,6 +554,12 @@ describe.skipIf(!url)("checklist additions", () => {
           { id: bightId, name: BIGHT },
         ]),
       );
+    });
+
+    it("adds a zone's marine invertebrates under their own filter, only with the zone ticked", async () => {
+      expect(await ids(countryId, "?taxon=nudibranchs")).not.toContain(NUDI);
+      expect(await ids(countryId, `${zoneQuery([bightId])}&taxon=nudibranchs`)).toEqual([NUDI]);
+      expect(await ids(countryId, `${zoneQuery([bightId])}&taxon=aves`)).not.toContain(NUDI);
     });
 
     it("adds a species to a sea zone, shown on a region's checklist only with that zone ticked", async () => {

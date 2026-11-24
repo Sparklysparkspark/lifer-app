@@ -13,6 +13,7 @@ import JobProgress from "../../components/JobProgress";
 import Button from "../../components/Button";
 import { usePackDownloadJob } from "../../hooks/usePackDownloadStatus";
 import PackProgress from "../../components/PackProgress";
+import { SEA_ZONE_TAXA } from "@lifer/shared";
 import { isOtherTaxaFilter, taxonFilterLabel, type TaxonFilter } from "./taxonLabels";
 import Panel from "../../components/Panel";
 import { SPECIES_DOWNLOADS_PATH } from "../../lib/speciesDownloads";
@@ -165,11 +166,11 @@ export function TaxonPackPrompt({
 }) {
   const { t } = useTranslation();
   const otherTaxa = isOtherTaxaFilter(taxon);
-  // Fish can also come from a nearby sea zone's own pack. The zones are tagged with the region they
+  // Sea life can also come from a nearby sea zone's own pack. The zones are tagged with the region they
   // were looked up for, so another region reads as "checking" until its own answer arrives.
   const { packs, freeBytes, indexUnavailable, error: packsError } = usePackIndex();
   const connection = useConnection();
-  const wantsZones = taxon === "actinopterygii" && !otherTaxa;
+  const wantsZones = !otherTaxa && (SEA_ZONE_TAXA as readonly string[]).includes(taxon);
   const [zonesFor, setZonesFor] = useState<{ regionId: string; zones: Array<{ id: string; name: string }> } | null>(
     null,
   );
@@ -211,7 +212,9 @@ export function TaxonPackPrompt({
         .map((zone) => ({
           zoneId: zone.id,
           zoneName: zone.name,
-          pack: packs.find((p) => p.type === "seaZone" && p.seaZone === zone.name),
+          pack:
+            packs.find((p) => p.type === "seaZone" && p.seaZone === zone.name && p.taxon === taxon) ??
+            packs.find((p) => p.type === "seaZone" && p.seaZone === zone.name && !p.taxon),
         }))
         .filter((z): z is SeaZonePack => !!z.pack && !z.pack.downloaded && !downloadedZonePackIds.includes(z.pack.id)),
     };

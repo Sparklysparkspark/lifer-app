@@ -12,7 +12,7 @@ const NO_ZONES: NearbySeaZone[] = [];
 
 // The sea zones offered as "nearby water" on a region's checklist. Fetched apart from the list
 // itself because whether they're offered at all (and so whether the list asks for them) depends on
-// them: a zone you added species to is offered even where its fish wouldn't be. `known` is false
+// them: a zone you added species to is offered even where its sea life wouldn't be. `known` is false
 // until this region's answer is in.
 export function useNearbySeaZones(regionId: string | null, regionKnownHub: boolean) {
   const key = regionId && !regionKnownHub ? regionId : null;

@@ -1,19 +1,18 @@
 import { useEffect, useRef } from "react";
+import { SEA_ZONE_TAXA } from "@lifer/shared";
 import { useLatest } from "../../hooks/useLatest";
 import { api } from "../../api/client";
 import type { UpdateParams } from "./useCollectionUrlState";
 
-// Sea zones only add fish, so the control is pointless for a birds/mammals filter, and
-// confusing before the region's own fish pack is installed.
+// Sea zones add sea life only, so the control is pointless for a birds or amphibians filter, and
+// confusing before the region's own pack for one of the filtered sea classes is installed.
 export function seaZonesRelevantFor(
   taxonFilters: Set<string>,
   regionId: string | null,
   isTaxonPackDownloaded: (id: string | null, taxonClass: string) => boolean,
 ): boolean {
-  return (
-    (taxonFilters.size === 0 || taxonFilters.has("actinopterygii")) &&
-    (!regionId || isTaxonPackDownloaded(regionId, "actinopterygii"))
-  );
+  const taxa = taxonFilters.size === 0 ? SEA_ZONE_TAXA : SEA_ZONE_TAXA.filter((t) => taxonFilters.has(t));
+  return taxa.length > 0 && (!regionId || taxa.some((t) => isTaxonPackDownloaded(regionId, t)));
 }
 
 export function useSeaZoneFilter({
