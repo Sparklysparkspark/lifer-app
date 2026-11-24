@@ -37,6 +37,7 @@ import { useScrollMemory } from "../hooks/useScrollMemory";
 import { useSearchParamsKeepingState } from "../hooks/useSearchParamsKeepingState";
 import { useRegionsWithPhotos } from "../hooks/useRegionsWithPhotos";
 import { useRegionTree } from "./collection/useRegionTree";
+import { usePersistedFlag } from "./collection/useCollectionDisplayPrefs";
 import { matches } from "../lib/keymap";
 import ExplorerDetail from "./explorer/ExplorerDetail";
 import TreeCircle from "./explorer/TreeCircle";
@@ -123,6 +124,8 @@ export default function TaxaExplorer() {
   const [view, setView] = usePersistedState<"list" | "circle">("explorer.view", "list");
   // Most genera hold one species, so the simple shape skips them.
   const [genus, setGenus] = usePersistedState("explorer.genus", false);
+  // Same key as the Collection View menu, so the choice is shared.
+  const [uncollectedColour, setUncollectedColour] = usePersistedFlag("uncollectedColour");
 
   // Bird families have birding names ("Owls"); which list applies depends on the family's class.
   const familyClass = useMemo(() => {
@@ -386,7 +389,10 @@ export default function TaxaExplorer() {
           action={{ label: t("nav.importPhotos"), onClick: () => navigate("/import") }}
         />
       ) : (
-        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-8">
+        <div
+          className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-8"
+          data-uncollected-colour={uncollectedColour || undefined}
+        >
           <div className={`min-w-0 transition-opacity ${loading ? "opacity-60" : ""}`} aria-busy={loading}>
             <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
               <nav
@@ -517,6 +523,23 @@ export default function TaxaExplorer() {
                     <label {...tip} className="flex items-center justify-between gap-4 text-callout text-ink">
                       {t("explorer.showGenera")}
                       <Switch checked={genus} onChange={setGenus} label={t("explorer.showGenera")} />
+                    </label>
+                  )}
+                </Tooltip>
+                <Tooltip
+                  content={{
+                    label: t("collection.toolbar.uncollectedColour"),
+                    description: t("collection.toolbar.uncollectedColourTitle"),
+                  }}
+                >
+                  {(tip) => (
+                    <label {...tip} className="mt-3 flex items-center justify-between gap-4 text-callout text-ink">
+                      {t("collection.toolbar.uncollectedColour")}
+                      <Switch
+                        checked={uncollectedColour}
+                        onChange={setUncollectedColour}
+                        label={t("collection.toolbar.uncollectedColour")}
+                      />
                     </label>
                   )}
                 </Tooltip>

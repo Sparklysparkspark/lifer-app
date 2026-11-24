@@ -327,4 +327,14 @@ describe("TaxaExplorer layers, regions and genera", () => {
     fireEvent.focus(toggle);
     expect(await screen.findByText(/Most American orioles are in the genus Icterus/)).toBeTruthy();
   });
+
+  it("shares the Collection's colour switch for species you have not photographed", () => {
+    const { container } = renderPage();
+    const root = () => container.querySelector("[data-uncollected-colour]");
+    expect(root()).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Show uncollected species in colour" }));
+    expect(root()).not.toBeNull();
+    expect(localStorage.getItem("lifer:uncollectedColour")).not.toBeNull();
+  });
 });
