@@ -25,7 +25,7 @@ export interface ReviewRowBase {
   /** Probably not wildlife, short of the flag: the row asks, and is never left out on its own. */
   maybeNotWildlife?: { looksLike: string; share: number } | null;
   /** A RAW of a photo already imported: it's filed with that photo, so its species is set. */
-  rawMatch?: { captureId: string; speciesName: string } | null;
+  rawMatch?: { captureId: string; speciesId: string; speciesName: string } | null;
   /** An edited copy of a RAW already imported: it joins that photo as a version, so its species is set. */
   editedVersionOf?: { captureId: string; speciesName: string } | null;
   /** An insect, spider or the like (wildlifeCheck.ts), which the checklists rarely cover. */

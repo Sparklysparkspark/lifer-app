@@ -566,7 +566,9 @@
       },
       "duplicateExact": "{species} is the earlier photo's species; {date} is its formatted capture date, shown only when known (dated is yes or no).",
       "duplicateSimilar": "Same as duplicateExact, for a near-duplicate.",
-      "notWildlife": "{looksLike} is an English phrase from the image model, such as \"a car\"."
+      "notWildlife": "{looksLike} is an English phrase from the image model, such as \"a car\".",
+      "looksLike": "On an import row started from a species page: species matching thinks the photo shows {species}, a different species than the page's. Followed by the useSpecies button.",
+      "useSpecies": "Link button on an import row: change this photo's species to {species}, a species name."
     },
     "rows": {
       "filed": "Toast after importing: how many photos went to how many species.",
@@ -578,7 +580,9 @@
       "importPhotos": "Import button. With 0 it reads just \"Import photos\" (disabled).",
       "assignSelected": "Before a species picker: give the {count} selected rows that species.",
       "optional": "Hint next to the Location field label.",
-      "tripHint": "Notice after an import. {name} is a trip whose dates the photos fall in, though they weren't added to it."
+      "tripHint": "Notice after an import. {name} is a trip whose dates the photos fall in, though they weren't added to it.",
+      "unsupported": "Import screen, after picking or dropping files: some aren't a format Lifer imports (a GIF, a text file). {names} lists up to five file names, comma separated; {more} counts the rest.",
+      "reassignFailed": "Error toast after importing a RAW file that belongs to a photo already in the library, when the user had picked a different species for it."
     },
     "move": {
       "label": "A switch beside the Import drop area, desktop app only. On: originals are moved to the system Trash after they're safely copied into the library.",
@@ -1509,7 +1513,8 @@
       "collision": "Lower-case status after a RAW file's name. The camera fingerprint is the camera serial plus capture timestamp from EXIF.",
       "descriptionSpecies": "On a species page. RAW: a camera's unprocessed image file (CR3, NEF, ARW...). JPEG: the processed photo.",
       "duplicate": "Lower-case status after a RAW file's name.",
-      "filedUnder": "Lower-case status after a RAW file's name. {name} is a species name."
+      "filedUnder": "Lower-case status after a RAW file's name. {name} is a species name.",
+      "noMatch": "Lower-case status after a RAW file's name: no photo in the library matched it, so it was not copied and stays in its folder."
     }
   },
   "volumeDestination": {

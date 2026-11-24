@@ -10,7 +10,7 @@ There are four ways to get photos into Lifer:
 | Way                                   | Best for                                                        | Where                                     |
 | ------------------------------------- | --------------------------------------------------------------- | ----------------------------------------- |
 | [Batch import](#batch-import)         | A card or folder from a shoot, with a species for each photo    | **Import** in the top bar                 |
-| [From a species page](#species-page)  | A few photos of one species you already know                    | **Upload** on a species page              |
+| [From a species page](#species-page)  | A few photos of one species you already know                    | **Import** on a species page              |
 | [Trips](./trips.md)                   | A trip's folder you want to keep where it is                    | **Trips**                                 |
 | [Existing library](#existing-library) | Years of photos already tagged in Lightroom, digiKam or similar | **Settings > Library > Import a library** |
 
@@ -84,7 +84,7 @@ Click the button to **Choose a place**: your nearby, recent and other places, a 
 
 To give one photo a different place, move to its row with the arrow keys and click **Set place for this photo**. Lifer suggests; nothing is set until you choose. When the import finishes, Lifer files the photos under the places you chose, all at once: a saved place gives photos without a point its centre and its privacy radius, and photos with camera GPS keep their own point and take the place's name. A group you leave without a place keeps its camera location, or waits in the map's [Needs placing](./photo-map.md#needs-placing) list.
 
-The **Import photos** page saves into your main library, or into a trip's folder when you pick a trip under **Trip** (see [Importing during a trip](./trips.md#importing-during-a-trip)). To save to an external drive, [upload from a species page](#species-page).
+The **Import photos** page saves into your main library, or into a trip's folder when you pick a trip under **Trip** (see [Importing during a trip](./trips.md#importing-during-a-trip)). To save to an external drive, [import from a species page](#species-page).
 
 ## Choosing species quickly {#choosing-species}
 
@@ -205,7 +205,7 @@ Ways to add RAWs:
 
 - **Together with the JPEGs** in a batch import. RAW rows need a species like any other row, but a RAW that matches a JPEG already in your library joins that photo, under its species. A RAW with no match becomes its own photo, using the preview image inside the RAW.
 - **Later, in bulk:** on the **Import photos** page, open **Add RAWs to existing photos** and use **Choose RAW files…** or **Choose a folder…**. Each RAW is matched against photos already in your library and filed into that species' `RAW` folder, with no species picker needed. The list shows "N of N linked" and which species each RAW was filed under. RAWs that don't match anything, or match more than one photo, are left untouched on your drive.
-- **From a species page:** click **Upload**, then use the **Upload RAW files** section of the window. **Choose RAW files…** files an unmatched RAW under that species anyway. It shows in a **RAW gallery** section on the page. **Choose a folder…** only adds RAWs that match a photo you already have.
+- **From a species page:** click **Import** and add RAWs like any photo, or use the **Import RAW files** section of the window. There, **Choose RAW files** files an unmatched RAW under that species anyway, in a **RAW gallery** section on the page, and **Choose a folder** only adds RAWs that match a photo you already have. Each RAW in the list says what happened to it, like "filed under Moose" or "no matching photo, left where it is".
 
 It works the other way too: import a JPEG later and Lifer links it to a matching RAW it already has.
 
@@ -225,8 +225,6 @@ On the **Import photos** page, duplicates move to [Left out of this import](#lef
 ### Left out of this import {#left-out}
 
 Photos the import won't bring in wait in one folded section at the end of the list, so they never get in the way of the ones to name: **Not wildlife**, **Marked not wildlife** and **Already in your library**, each with its count. The groups above, their counts, the arrow keys, compare and **Import** only cover the photos that will be imported, and the line above the list counts each kind, like "339 files · 312 ready to import · 14 not wildlife · 3 already imported". Open the section to see each photo and why, and choose **Remove from this import** or **Import anyway** (back into the list), or **Remove all** / **Import all anyway**. A photo found to belong there while you work moves there without the photo you're on moving, and a photo you're previewing stays the one shown.
-
-From a species page, a **Possible duplicate** dialog appears instead, with **Skip** and **Import anyway**. With several, it shows "(1 of N)" and asks about each in turn. <kbd>Esc</kbd> means **Skip**.
 
 Videos aren't checked for duplicates.
 
@@ -293,15 +291,18 @@ JPEG, PNG, TIFF, DNG, WebP and HEIC files get this written inside the file. For 
 ## Import from a species page {#species-page}
 
 1. Open the species: press <kbd>Cmd</kbd>+<kbd>K</kbd> (<kbd>Ctrl</kbd>+<kbd>K</kbd>) and type its name, or click it on the Collection page.
-2. Click **Upload** in the **Your photos** section.
+2. Click **Import** in the **Your photos** section.
 3. If you have external drives connected, choose where to save under **Save these photos to**: **Main library** or one of your drives.
-4. Click **Choose photos or videos…** and pick photos or videos (see [Supported files](#supported-files)). They upload in the background and appear on the page as each one finishes.
+4. Drop photos, RAWs or videos in, or click **Choose files** (see [Supported files](#supported-files)). They're listed like on the **Import photos** page, each already set to this species.
+5. Click **Import**. The window closes and they upload in the background, appearing on the page as each one finishes.
 
-To add RAW files here, use the **Upload RAW files** section in the same window (see [RAW files](#raw-pairing)).
+You can change any photo's species in the list, the same way as on the **Import photos** page. When species recognition thinks a photo shows something else, its row says so, like "Looks like Black-collared Hawk", with **Use Black-collared Hawk** to switch it in one click. Nothing is switched unless you choose it.
+
+A RAW that belongs to a photo you already have joins that photo, under its species. Its row offers this page's species, and choosing it (or any other species) changes that photo too.
+
+Files Lifer can't import, duplicates and photos that aren't wildlife are named with the reason, as on the **Import photos** page (see [Duplicates](#duplicates)).
 
 A small banner in the bottom-left corner shows progress. When saving to an external drive, it says **Don't unplug the drive yet** until it's done.
-
-This page doesn't do drag and drop or suggestions, since you've already chosen the species.
 
 ## Import an existing library {#existing-library}
 

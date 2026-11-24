@@ -17,6 +17,8 @@ export interface RawUploadOutcome {
   filed?: boolean;
   /** Identical content already on file for this species, not re-added. */
   duplicate?: boolean;
+  /** Still uploading: a placeholder until its result replaces it. */
+  pending?: boolean;
   /** Routes a result back to its row when two files in a batch share a filename. Never rendered. */
   _key?: string;
 }
@@ -58,6 +60,7 @@ export default function RawUpload({
       filename: f.name,
       linked: false,
       collision: false,
+      pending: true,
       _key: `${batchId}-${i}`,
     }));
     setResults((prev) => [...(prev ?? []), ...placeholders]);
@@ -161,14 +164,13 @@ export default function RawUpload({
   );
 }
 
-/** What happened to each RAW, in a list that scrolls. A folder run can be hundreds of files, so
- *  plain "no match" rows are left out (the count above covers them). */
+/** What happened to each RAW once it's done, in a list that scrolls (a folder run can be hundreds). */
 export function RawResultList({ results }: { results: RawUploadOutcome[] }) {
   const { t } = useTranslation();
   const speciesName = useSpeciesName();
   const rowSpeciesName = (r: RawUploadOutcome) =>
     speciesName({ commonName: r.speciesCommonName, scientificName: r.speciesScientificName ?? "" });
-  const shown = results.filter((r) => r.linked || r.filed || r.duplicate || r.error || r.collision);
+  const shown = results.filter((r) => !r.pending);
   if (shown.length === 0) return null;
   return (
     <div className="max-h-80 space-y-1 overflow-y-auto">
@@ -184,6 +186,8 @@ export function RawResultList({ results }: { results: RawUploadOutcome[] }) {
             <span className="text-muted">{t("upload.raw.duplicate")}</span>
           ) : r.filed ? (
             <span className="text-emerald-700">{t("upload.raw.addedToFolder", { name: rowSpeciesName(r) })}</span>
+          ) : !r.linked ? (
+            <span className="text-muted">{t("upload.raw.noMatch")}</span>
           ) : (
             <span className="text-emerald-700">{t("upload.raw.filedUnder", { name: rowSpeciesName(r) })}</span>
           )}

@@ -16,6 +16,8 @@ export interface ImportTarget {
   cullOption: CullMarksOption;
   tripId?: string;
   albumId?: string;
+  /** A registered drive to save into (VolumeDestinationPicker); the main library when unset. */
+  volumeId?: string;
   regionId: string | null;
   locationLabel: string;
 }
@@ -31,6 +33,7 @@ export function importFields(t: ImportTarget): Array<[string, string]> {
   fields.push(["speciesId", t.speciesId]);
   if (t.tripId) fields.push(["tripId", t.tripId]);
   if (t.albumId) fields.push(["albumId", t.albumId]);
+  if (t.volumeId) fields.push(["volumeId", t.volumeId]);
   // Stored on the capture so Stats can count countries without relying on GPS EXIF.
   if (t.regionId) fields.push(["regionId", t.regionId]);
   const label = t.locationLabel.trim();

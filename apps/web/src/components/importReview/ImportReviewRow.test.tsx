@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ReviewRowBase } from "./useImportReview";
+import type { SpeciesResult } from "../SpeciesPicker";
 
 // The picker's own search is out of scope: Escape on it is its onCancel.
 vi.mock("../SpeciesPicker", () => ({
@@ -11,7 +12,8 @@ vi.mock("../SpeciesPicker", () => ({
   ),
 }));
 vi.mock("../../lib/speciesName", () => ({
-  useSpeciesName: () => (s: { commonName?: string | null }) => s.commonName ?? "",
+  useSpeciesName: () => (s: { commonName?: string | null; common_name?: string | null }) =>
+    s.commonName ?? s.common_name ?? "",
 }));
 
 const openViewer = vi.fn();
@@ -26,7 +28,15 @@ const base: ReviewRowBase = {
   suggestions: [{ id: "s1", commonName: "Osprey", scientificName: "Pandion haliaetus", score: 0.6 } as never],
 };
 
-function Row({ row }: { row: ReviewRowBase }) {
+function Row({
+  row,
+  onPick = () => {},
+  presetSpecies,
+}: {
+  row: ReviewRowBase;
+  onPick?: (s: SpeciesResult) => void;
+  presetSpecies?: SpeciesResult;
+}) {
   const [focused, setFocused] = useState(false);
   return (
     <ImportReviewRow
@@ -42,7 +52,8 @@ function Row({ row }: { row: ReviewRowBase }) {
       onFocus={() => setFocused(true)}
       onCancelPick={() => setFocused(false)}
       regionId={null}
-      onPick={() => {}}
+      onPick={onPick}
+      presetSpecies={presetSpecies}
       isActive={false}
       highlightIndex={0}
       onDismissWarning={() => {}}
@@ -92,5 +103,56 @@ describe("ImportReviewRow", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Your earlier photo of Osprey" }));
     expect(openViewer).toHaveBeenCalledWith([expect.objectContaining({ url: "/api/photos/p9/display" })]);
+  });
+
+  describe("started from a species page", () => {
+    const kingfisher = { id: "ak", common_name: "Amazon Kingfisher", scientific_name: "Chloroceryle amazona" };
+    const hawk = { id: "bch", commonName: "Black-collared Hawk", scientificName: "Busarellus nigricollis" };
+    const fromPage = { ...base, speciesId: "ak", speciesLabel: "Amazon Kingfisher" };
+
+    it("keeps the page's species and offers a disagreeing match in one click", () => {
+      const onPick = vi.fn();
+      render(
+        <Row
+          row={{ ...fromPage, suggestions: [{ ...hawk, score: 0.9, confident: true } as never] }}
+          presetSpecies={kingfisher}
+          onPick={onPick}
+        />,
+      );
+      expect(screen.getByRole("button", { name: "Amazon Kingfisher" })).toBeTruthy();
+      expect(screen.getByText("Looks like Black-collared Hawk")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Use Black-collared Hawk" }));
+      expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: "bch" }));
+    });
+
+    it("says nothing when the match agrees with the page", () => {
+      render(
+        <Row
+          row={{ ...fromPage, suggestions: [{ id: "ak", commonName: "Amazon Kingfisher", score: 0.9 } as never] }}
+          presetSpecies={kingfisher}
+        />,
+      );
+      expect(screen.queryByText(/Looks like/)).toBeNull();
+      expect(screen.queryByRole("button", { name: /^Use / })).toBeNull();
+    });
+
+    it("offers the page's species for a RAW that joined a photo filed as another", () => {
+      const onPick = vi.fn();
+      render(
+        <Row
+          row={{
+            ...base,
+            speciesId: "bch",
+            speciesLabel: "Black-collared Hawk",
+            suggestions: [],
+            rawMatch: { captureId: "c1", speciesId: "bch", speciesName: "Black-collared Hawk" },
+          }}
+          presetSpecies={kingfisher}
+          onPick={onPick}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Use Amazon Kingfisher" }));
+      expect(onPick).toHaveBeenCalledWith(kingfisher);
+    });
   });
 });

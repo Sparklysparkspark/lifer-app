@@ -1415,7 +1415,9 @@
         "rawMatch": "RAW for your photo already in Lifer",
         "editedVersion": "Edited version of the photo you already have",
         "samePhotoAs": "Same photo as {name}"
-      }
+      },
+      "looksLike": "Looks like {species}",
+      "useSpecies": "Use {species}"
     },
     "compare": {
       "title": "Compare",
@@ -1500,7 +1502,9 @@
       "removePhoto": "Remove this photo from the import list",
       "removeVideo": "Remove this video from the import list",
       "uploadFailed": "Upload failed",
-      "tripHint": "{count, plural, one {# photo was} other {# photos were}} taken during {name}."
+      "tripHint": "{count, plural, one {# photo was} other {# photos were}} taken during {name}.",
+      "unsupported": "Skipped {count, plural, one {a file that isn't} other {# files that aren't}} a photo, RAW or video Lifer can read: {names}{more, plural, =0 {} other {, and # more}}",
+      "reassignFailed": "The RAW was added, but its photo's species couldn't be changed. Change it on the photo."
     },
     "places": {
       "groupTitle": "{count, plural, one {# photo} other {{formatted} photos}}, {date}, {span}",
@@ -4428,7 +4432,6 @@
       "uploading": "Uploading… {done}/{total}{failed, plural, =0 {} other { (# failed)}}{skipped, plural, =0 {} other { (# skipped)}}",
       "waiting": "Server busy, uploads resume shortly"
     },
-    "choosePhotosOrVideos": "Choose photos or videos",
     "duplicate": {
       "importAnyway": "Import anyway",
       "skipAll": "Skip all ({count, number})",
@@ -4455,7 +4458,8 @@
       "duplicate": "already added, skipped",
       "filedUnder": "filed under {name}",
       "noneFound": "No supported RAW files found in that selection",
-      "title": "Import RAW files"
+      "title": "Import RAW files",
+      "noMatch": "no matching photo, left where it is"
     }
   },
   "volumeDestination": {

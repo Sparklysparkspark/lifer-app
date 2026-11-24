@@ -36,6 +36,7 @@ export default function ImportReviewRow({
   onDismissWarning,
   onCompare,
   onNoAnimal,
+  presetSpecies,
 }: {
   row: ReviewRowBase;
   name: string;
@@ -61,6 +62,8 @@ export default function ImportReviewRow({
   onCompare: (speciesId?: string) => void;
   /** Leaves the photo out as having no animal in it (Mod+Z takes it back). */
   onNoAnimal?: () => void;
+  /** The species page the import started from: kept as the pick, a different match offered. */
+  presetSpecies?: SpeciesResult;
 }) {
   const { t } = useTranslation();
   const speciesName = useSpeciesName();
@@ -72,6 +75,18 @@ export default function ImportReviewRow({
   const viewer = useLightbox();
   // Imported or importing: nothing here would change the photo in the library any more.
   const locked = !!row.locked;
+  // From a species page: offer the match when it disagrees, or the page's species for a RAW that
+  // joined a photo filed as another.
+  const offer =
+    !presetSpecies || locked || focused || row.possibleDuplicate || row.notWildlife
+      ? null
+      : row.speciesId === presetSpecies.id
+        ? shownSuggestions.some((s) => s.id === presetSpecies.id)
+          ? null
+          : (shownSuggestions[0] ?? null)
+        : row.rawMatch && row.speciesId === row.rawMatch.speciesId
+          ? presetSpecies
+          : null;
   // Escape puts focus back on the species link; a click elsewhere keeps it where it went.
   const speciesLinkRef = useRef<HTMLButtonElement>(null);
   const wasFocused = useRef(focused);
@@ -184,6 +199,18 @@ export default function ImportReviewRow({
           </IconButton>
         )}
       </div>
+      {offer && (
+        <div className="mt-1 ml-7 flex flex-wrap items-center gap-x-1.5 text-footnote text-muted">
+          {offer.id !== presetSpecies?.id && (
+            <span className="min-w-0 wrap-anywhere">
+              {t("import.review.looksLike", { species: speciesName(offer) })}
+            </span>
+          )}
+          <Button variant="link" size="sm" onClick={() => onPick(offer)}>
+            {t("import.review.useSpecies", { species: speciesName(offer) })}
+          </Button>
+        </div>
+      )}
       {row.possibleDuplicate && (
         <div className="mt-2 ml-7 flex items-center gap-2 rounded-control border border-amber-200 bg-amber-50 px-2 py-1.5 text-footnote text-amber-800">
           {/* The earlier photo, so the two can be compared before deciding. */}

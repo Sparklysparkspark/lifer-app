@@ -17,14 +17,16 @@ const url = process.env.TEST_DATABASE_URL;
 const USER = "dddddddd-0000-4000-8000-000000000109";
 const OTHER_USER = "dddddddd-0000-4000-8000-000000000110";
 const SPECIES = "dddddddd-0000-4000-8000-00000000000b";
+// The species page an import started from, when its RAW belongs to a photo filed as SPECIES.
+const PAGE_SPECIES = "dddddddd-0000-4000-8000-00000000000c";
 const TOKEN = "lifer_test_raw_upload_session_109";
 const TAKEN = "2024:05:01 10:00:00";
 let cookieName = "";
 
 // "tiff" is a sensor-data TIFF (Color Filter Array), the kind that counts as a RAW.
-async function shot(format: "jpeg" | "tiff", shade: number): Promise<Buffer> {
+async function shot(format: "jpeg" | "tiff", shade: number, taken = TAKEN): Promise<Buffer> {
   const img = sharp({ create: { width: 64, height: 48, channels: 3, background: { r: shade, g: 90, b: 40 } } });
-  const exif = { IFD0: { Make: "TestCam" }, IFD2: { DateTimeOriginal: TAKEN } };
+  const exif = { IFD0: { Make: "TestCam" }, IFD2: { DateTimeOriginal: taken } };
   return format === "jpeg"
     ? img.jpeg().withExif(exif).toBuffer()
     : setTiffPhotometric(await img.tiff().withExif(exif).toBuffer(), 32803);
@@ -71,6 +73,7 @@ describe.skipIf(!url)("RAW uploads", () => {
     const { hashToken } = await import("../auth/session.js");
     ({ SESSION_COOKIE_NAME: cookieName } = await import("@lifer/core/config.js"));
     const { uploadRoutes } = await import("./routes.js");
+    const { captureRoutes } = await import("../captures/routes.js");
     await cleanup();
     await db.query(
       `INSERT INTO users (id, email, password_hash) VALUES ($1, 'raw-uploads@test', 'x'), ($2, 'raw-other@test', 'x')`,
@@ -78,8 +81,9 @@ describe.skipIf(!url)("RAW uploads", () => {
     );
     await db.query(
       `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class)
-       VALUES ($1, 910802, 'Testus rawensis', 'Raw Test Warbler', 'aves') ON CONFLICT (id) DO NOTHING`,
-      [SPECIES],
+       VALUES ($1, 910802, 'Testus rawensis', 'Raw Test Warbler', 'aves'),
+              ($2, 910803, 'Testus paginae', 'Page Test Kingfisher', 'aves') ON CONFLICT (id) DO NOTHING`,
+      [SPECIES, PAGE_SPECIES],
     );
     await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day')`, [
       hashToken(TOKEN),
@@ -89,6 +93,7 @@ describe.skipIf(!url)("RAW uploads", () => {
     await app.register(cookie);
     await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024 } });
     await app.register(uploadRoutes, { prefix: "/api" });
+    await app.register(captureRoutes, { prefix: "/api" });
     await app.ready();
     tinyApp = Fastify();
     await tinyApp.register(cookie);
@@ -101,7 +106,7 @@ describe.skipIf(!url)("RAW uploads", () => {
     await app?.close();
     await tinyApp?.close();
     await cleanup();
-    await db.query(`DELETE FROM species WHERE id = $1`, [SPECIES]);
+    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SPECIES, PAGE_SPECIES]]);
     await db.end();
     const { closeExiftool } = await import("./exif.js");
     await closeExiftool();
@@ -180,4 +185,47 @@ describe.skipIf(!url)("RAW uploads", () => {
     const res = await app.inject({ method: "POST", url: "/api/uploads", ...body });
     expect(res.statusCode).toBe(400);
   });
+
+  // The species page's import: a RAW is never turned away for its species. One with no photo of
+  // its own becomes a photo of the page's species; one of a photo already filed as another species
+  // joins that photo, and the review then corrects the photo when the user picked the page's.
+  it("imports a RAW from a species page whatever photo it belongs to", async () => {
+    const lone = await multipartBody({ speciesId: PAGE_SPECIES, mode: "store" }, [
+      { field: "file", name: "6F9A8041.cr3", bytes: await shot("jpeg", 40, "2024:05:02 09:00:00"), type: "" },
+    ]);
+    const loneRes = await app.inject({ method: "POST", url: "/api/uploads", ...lone });
+    expect(loneRes.statusCode, loneRes.body).toBe(201);
+    expect(loneRes.json()).toMatchObject({ linkedExisting: false });
+    const loneSpecies = await db.query(`SELECT species_id FROM captures WHERE id = $1`, [loneRes.json().captureId]);
+    expect(loneSpecies.rows[0].species_id).toBe(PAGE_SPECIES);
+
+    const jpg = await multipartBody({ speciesId: SPECIES }, [
+      { field: "file", name: "6F9A8042.jpg", bytes: await shot("jpeg", 50, "2024:05:03 09:00:00"), type: "image/jpeg" },
+    ]);
+    const filed = await app.inject({ method: "POST", url: "/api/uploads", ...jpg });
+    expect(filed.statusCode, filed.body).toBe(201);
+    const captureId = filed.json().captureId as string;
+
+    const raw = await multipartBody({ speciesId: PAGE_SPECIES, mode: "store" }, [
+      { field: "file", name: "6F9A8042.cr3", bytes: await shot("jpeg", 51, "2024:05:03 09:00:00"), type: "" },
+    ]);
+    const linked = await app.inject({ method: "POST", url: "/api/uploads", ...raw });
+    expect(linked.statusCode, linked.body).toBe(201);
+    expect(linked.json()).toMatchObject({ captureId, linkedExisting: true });
+
+    const fix = await app.inject({
+      method: "PATCH",
+      url: `/api/captures/${captureId}/reassign`,
+      payload: { speciesId: PAGE_SPECIES },
+      cookies: { [cookieName]: TOKEN },
+    });
+    expect(fix.statusCode, fix.body).toBe(200);
+    const after = await db.query<{ species_id: string; kinds: string[] }>(
+      `SELECT c.species_id, array_agg(o.kind ORDER BY o.kind) AS kinds
+       FROM captures c JOIN originals o ON o.capture_id = c.id WHERE c.id = $1 GROUP BY c.species_id`,
+      [captureId],
+    );
+    expect(after.rows[0]).toEqual({ species_id: PAGE_SPECIES, kinds: ["jpeg", "raw"] });
+    expect(readdirSync(path.join(dataDir, "Birds", "Page Test Kingfisher", "RAW"))).toContain("6F9A8042.cr3");
+  }, 60_000);
 });

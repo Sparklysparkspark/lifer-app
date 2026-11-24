@@ -321,4 +321,98 @@ describe("PhotoImportRows", () => {
     expect(screen.getByText("Great Blue Heron")).toBeTruthy();
     expect((screen.getByRole("checkbox", { name: "6F9A8074.jpg" }) as HTMLInputElement).checked).toBe(true);
   });
+
+  describe("started from a species page", () => {
+    const kingfisher = { id: "sp-ak", scientific_name: "Chloroceryle amazona", common_name: "Amazon Kingfisher" };
+    const hawk = {
+      id: "sp-bch",
+      scientific_name: "Busarellus nigricollis",
+      common_name: "Black-collared Hawk",
+      score: 0.8,
+      matchPercent: 80,
+      confident: true,
+    };
+    const page = (props: Partial<Parameters<typeof PhotoImportRows>[0]> = {}) => (
+      <MemoryRouter>
+        <ToastContext.Provider value={toast}>
+          <PhotoImportRows presetSpecies={kingfisher} {...props} />
+        </ToastContext.Provider>
+      </MemoryRouter>
+    );
+    const drop = (container: HTMLElement, files: File[]) =>
+      fireEvent.change(container.querySelector<HTMLInputElement>('input[type="file"][accept]')!, {
+        target: { files },
+      });
+    const cr3 = () => new File(["raw"], "6F9A8042.CR3", { type: "" });
+
+    beforeEach(() => {
+      post.mockImplementation((path: string) => {
+        if (path === "/uploads/inspect")
+          return Promise.resolve({ possibleDuplicate: null, suggestions: [hawk], previewDataUrl: null });
+        if (path === "/uploads") return Promise.resolve({ captureId: "cap-1" });
+        return Promise.reject(new Error(`unexpected POST ${path}`));
+      });
+    });
+
+    it("imports a RAW the match disagrees with under the page's species, to the chosen drive", async () => {
+      const { container } = render(page({ volumeId: "vol-1" }));
+      drop(container, [cr3()]);
+      expect(await screen.findByText("Looks like Black-collared Hawk")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Amazon Kingfisher" })).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Import 1 photo" }));
+      expect(await screen.findByText("Imported")).toBeTruthy();
+      const commit = post.mock.calls.find((c) => c[0] === "/uploads")!;
+      expect(formFields(commit[1])).toMatchObject({ speciesId: "sp-ak", volumeId: "vol-1", fileName: "6F9A8042.CR3" });
+    });
+
+    it("switches to the match in one click", async () => {
+      const { container } = render(page());
+      drop(container, [cr3()]);
+      fireEvent.click(await screen.findByRole("button", { name: "Use Black-collared Hawk" }));
+      expect(screen.queryByText("Looks like Black-collared Hawk")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Import 1 photo" }));
+      expect(await screen.findByText("Imported")).toBeTruthy();
+      expect(formFields(post.mock.calls.find((c) => c[0] === "/uploads")![1]).speciesId).toBe("sp-bch");
+    });
+
+    it("names a file it can't import instead of dropping it silently", async () => {
+      const { container } = render(page());
+      drop(container, [new File(["x"], "notes.txt", { type: "text/plain" }), cr3()]);
+      expect((await screen.findByRole("alert")).textContent).toBe(
+        "Skipped a file that isn't a photo, RAW or video Lifer can read: notes.txt",
+      );
+      expect(await screen.findByText("6F9A8042.CR3")).toBeTruthy();
+    });
+
+    it("a RAW of a photo filed as another species shows it, and choosing the page's species corrects that photo", async () => {
+      post.mockImplementation((path: string) => {
+        if (path === "/uploads/inspect")
+          return Promise.resolve({
+            possibleDuplicate: null,
+            suggestions: [],
+            previewDataUrl: null,
+            rawMatch: {
+              captureId: "cap-hawk",
+              speciesId: "sp-bch",
+              speciesName: "Black-collared Hawk",
+              scientificName: "Busarellus nigricollis",
+              commonName: "Black-collared Hawk",
+            },
+          });
+        if (path === "/uploads") return Promise.resolve({ captureId: "cap-hawk", linkedExisting: true });
+        return Promise.reject(new Error(`unexpected POST ${path}`));
+      });
+      patch.mockResolvedValue({ ok: true });
+      const { container } = render(page());
+      drop(container, [cr3()]);
+      expect(await screen.findByText("RAW for your photo already in Lifer")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Black-collared Hawk" })).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Use Amazon Kingfisher" }));
+      fireEvent.click(screen.getByRole("button", { name: "Import 1 photo" }));
+      expect(await screen.findByText("Imported")).toBeTruthy();
+      expect(patch).toHaveBeenCalledWith("/captures/cap-hawk/reassign", { speciesId: "sp-ak" });
+    });
+  });
 });

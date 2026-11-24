@@ -87,7 +87,7 @@ Lifer recognizes the drive by its hardware ID, so it still works if the drive mo
 
 Each drive in the list shows whether it's **Connected** (or when it was last seen), with **Rename**, **Make default** and **Remove**. Removing a drive only stops Lifer checking for it. Photos already imported from it stay in your library.
 
-To save new photos to a drive, use the **Save these photos to** choice when you [upload from a species page](./importing.md#species-page). New files go in a `Lifer Originals` folder on that drive, with the same layout. Lifer picks the connected drive that already has most of that species' photos, then your default drive, then the main library. If most of that species' photos are on a drive that isn't plugged in, it says so, so you can plug it in and keep them together. The **Import photos** page always saves to the main library.
+To save new photos to a drive, use the **Save these photos to** choice when you [import from a species page](./importing.md#species-page). New files go in a `Lifer Originals` folder on that drive, with the same layout. Lifer picks the connected drive that already has most of that species' photos, then your default drive, then the main library. If most of that species' photos are on a drive that isn't plugged in, it says so, so you can plug it in and keep them together. The **Import photos** page always saves to the main library.
 
 ### Server
 

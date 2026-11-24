@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { api, apiPath } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
 import { formatBytes, formatDate } from "../lib/format";
-import UploadDropzone from "../components/UploadDropzone";
+import PhotoImportRows from "../components/PhotoImportRows";
 import RawUpload from "../components/RawUpload";
 import { VolumeDestinationPicker } from "../components/VolumeDestinationPicker";
 import { useVolumeDestination } from "../hooks/useVolumeDestination";
@@ -323,6 +323,7 @@ export default function SpeciesDetailPage() {
         open={showUploadDialog}
         onClose={() => setShowUploadDialog(false)}
         title={t("species.detail.upload")}
+        size="lg"
         footer={
           <Button variant="secondary" onClick={() => setShowUploadDialog(false)}>
             {t("common.done")}
@@ -331,11 +332,14 @@ export default function SpeciesDetailPage() {
       >
         <div className="space-y-4">
           <VolumeDestinationPicker {...volumeDestination} />
-          <UploadDropzone
-            speciesId={species.id}
-            volumeId={volumeDestination.volumeId}
-            onUploaded={load}
-            onClose={() => setShowUploadDialog(false)}
+          {/* The review keeps this species as each photo's pick and offers a disagreeing match. */}
+          <PhotoImportRows
+            presetSpecies={species}
+            volumeId={volumeDestination.volumeId || undefined}
+            suggestedRegionId={regionId}
+            onImported={load}
+            // Uploads carry on in the background, so the dialog closes once every photo is going.
+            onImportStarted={(everyRowIncluded) => everyRowIncluded && setShowUploadDialog(false)}
           />
           <div className="border-t border-line pt-4">
             <RawUpload speciesId={species.id} volumeId={volumeDestination.volumeId} onFiled={loadUnmatchedRaws} />

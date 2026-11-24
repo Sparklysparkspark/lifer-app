@@ -17,7 +17,7 @@ function defaultVolumeId(volumeUsage: VolumeUsage[], connectedVolumes: StorageVo
   return connectedVolumes.find((v) => v.isDefault)?.id ?? null;
 }
 
-/** One destination drive shared by UploadDropzone and RawUpload for files Lifer writes itself
+/** One destination drive shared by the species import (PhotoImportRows) and RawUpload for files Lifer writes itself
  *  (mode=store). Trip imports reference files in place and don't use this. */
 export function useVolumeDestination(speciesId: string) {
   const { volumes } = useStorageVolumes();

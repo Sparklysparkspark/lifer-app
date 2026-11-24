@@ -1,30 +1,39 @@
 # Next catalog republish: checklist
 
-## Decisions needed (2026-11-24)
+## Decisions needed
 
-1. **6c, iNaturalist membership: not applied.** The preview (all 242 countries, 4,284 regions)
-   adds 35,478 listings, removes 43,275 and flags 15,881 new vagrants, but removes too much:
-   30 countries lose over 15% of their birds (Iceland 60%, Luxembourg 47%, UAE 37%, Venezuela
-   36%, Netherlands 34%, Kenya 20%, US 17%). The removed birds are real strays and residents
-   with plenty of GBIF records (Venezuela: 432 of 504 have 10+); iNaturalist simply has no
-   photo of them there (its Venezuela list has 905 birds, Iceland's 158). The cause is the
-   absence rule: 20,000 research-grade bird observations (`WELL_OBSERVED_GROUP_OBS`) is far too
-   few to treat a missing species as absent. Options: drop removals and keep only additions and
-   vagrant flags; raise the bar a lot (and require no recent GBIF or eBird records); or flag
-   instead of remove. The flags look right (Great Kiskadee in Canada and Ontario: 46
-   observations, all in 2018, flagged vagrant). Every change: `data/review/inat-membership-changes.tsv`.
-   It also adds farm animals and pets iNaturalist accepts (Domestic Cattle in 103 countries,
-   Domestic Goat 100, Cat 88, Swan Goose 25, Zebra Finch 20); `--apply` reruns the escape pass
-   after it, which takes some of those off.
-2. **Gate: Coyote's anchor.** The United States now rates Coyote occasional (easiest in Wyoming),
-   the anchor says common. Change the anchor or the model.
-3. **Gate: _Milvus aegyptius_ and _Milvus migrans_** share one iNaturalist taxon. Apply the
-   merge in `species-merges.tsv` (751 lists) or unlink _M. aegyptius_'s iNaturalist id.
-4. **Worldwide tiers to look at** (unchanged by this run, not regressions): Wolverine is common
-   worldwide (Sweden, Norway and Finland rate it common from monitoring records), Tiger common
-   (Madhya Pradesh photos), Osprey common in the US. The tier philosophy says Wolverine is
-   legendary everywhere and Osprey uncommon.
-5. **Pack drift.** 308 packs moved more than 25% in species count (see the gate entry below).
+Decided by the maintainer 2026-11-24 and applied the same day:
+
+1. **6c membership: flag, don't remove.** A species iNaturalist lacks where it covers the group
+   is flagged vagrant (kept, hidden by default) instead of removed. Applied: +35,498 listings,
+   56,423 newly vagrant (16,140 country rows not on iNaturalist), 0 removed by the rule; the
+   escape and eBird-exotics passes after it took the Netherlands' birds from 793 to 767 at most.
+   Great Kiskadee is vagrant in Canada and Ontario. Side effect: the default view hides many
+   real strays, e.g. Iceland shows 97 of 377 birds, Venezuela 899 of 1,400.
+2. **Coyote occasional in the US:** anchor changed (`checklist-anchors.json`, with a note).
+3. **Follow iNaturalist's taxonomy:** _Milvus aegyptius_ merged into _M. migrans_, plus 124
+   pairs where iNaturalist files one name under the other's taxon (5,374 checklist rows carried
+   over, old names kept as synonyms; `species-merges.tsv`, 6b's merge list). Left alone: 12 pairs
+   that each have their own iNaturalist id (Trichiurus japonicus and lepturus, Coregonus
+   sardinella and albula, Pampus cinereus and argenteus...) and 3 bird pairs eBird keeps apart.
+4. **Pack drift, investigated** (see the status entry). Still open: restore the freshwater fish
+   lost on 2026-10-10 (below).
+5. **Zoo records and tiers, investigated** (see the status entry).
+
+Still to decide:
+
+6. **Restore the lost freshwater fish?** The 2026-10-10 province rebuild deleted thinly recorded
+   species iNaturalist lacks (now flagged instead, in `compute-provinces-bulk.ts` and
+   `occurrences.ts`). That took 744 freshwater fish off Colombia (238 now on no list anywhere),
+   about 2,840 across 42 packs, plus other thin species. The GBIF downloads are gone, so the only
+   copy is the published 2026-10-08 packs (1.4 GB from Lifer's own release). A restore would
+   re-add, flagged vagrant, the published province rows whose species still exist and that no
+   clean-up since removed on purpose.
+7. **Wolverine worldwide.** Now uncommon (was common): Finland's Kainuu photo hides find them
+   reliably, which the tier philosophy calls not legendary. Legendary in Canada, the US, Sweden,
+   Russia and Mongolia. Keep, or make an exception.
+8. **Accept the pack drift** (309 packs) at publish time with `--accept-all-drift` once 6 is
+   settled.
 
 ## Status (checked 2026-11-24 against the Docker `lifer` database)
 
@@ -106,27 +115,55 @@ Done and verified:
   MB each), sizes and sha256 match its manifest (`verifyCatalogSeed`), and it loads into a
   freshly migrated database (`catalogSeedLoad`, the CI job's check). Rebuild both after the
   gallery top-up and any 6c change; the seed is rebuilt by `refresh --publish` anyway.
-- **Gate (2026-11-24, with the packs):** 310 failures. Decisions 2 and 3, plus 308 packs whose
-  species count moved over 25% from the published one (245 up, 63 down; mostly fish 69 and
-  mammals 42). Biggest drops: Colombia fish 2,814 to 1,543, Japan fish 2,800 to 2,015,
-  Venezuela, Peru, Ecuador and Vietnam fish about a third down. Review the list in
-  `data/build/gate-2026-11-24.json`, then publish with `--accept-drift=...` or
-  `--accept-all-drift`. Warning: 18,457 listed species have no reference photo.
+- **6c applied 2026-11-24 (afternoon)**, flags instead of removals, with
+  `LIFER_INAT_OFFLINE=1` and `--no-followups`, then `remove-escapes --apply`,
+  `apply-ebird-exotics --apply --max-requests=0` (cache only: no eBird calls) and
+  `LIFER_INAT_OFFLINE=1 apply-introduced-flags --apply`. Escapes removed 7,933 province listings
+  (mostly farm animals and pets iNaturalist had just added), eBird exotics 2,848. 292 regions
+  still lack some yearly counts (iNaturalist throttling); their vagrant flags stay GBIF's until a
+  later preview fetches them. Backup:
+  `data/backups/lifer-catalog-before-6c-inat-membership-2026-11-24-tables.dump`.
+- **6b after 6c (2026-11-24):** 125 merges, 18 range rows, 1 extinct, 1 flag override, 1,068 bat
+  and rodent listings un-flagged by the resident rule; 6b and the tiers now count a child
+  region's iNaturalist confirmation for its parent too. Backup:
+  `data/backups/lifer-catalog-before-6b-merges-2026-11-24-tables.dump`.
+- **Tiers after 6c and 6b:** `refresh --stages=tiers` (76 listings off: 51 extinct, 24 birds,
+  1 never photographed). For a group rated on photos (mammals, herps, fish), a province rated
+  on GBIF records now counts for the country only when no province is rated on photos:
+  Norway's Wolverine monitoring records (DNA, tracks) had made it common. Every anchor passes.
+- **Zoo and captive records do not inflate tiers.** The tiers read research-grade iNaturalist
+  photos only, and captive observations never reach research grade (US Lion: 1,382 captive, 0
+  research; Giant Panda in China 365 captive, 32 research; Tiger in India 325 and 2,668). GBIF
+  inputs count human and machine observations only, never `LIVING_SPECIMEN`. Worldwide before
+  and after: Wolverine common to uncommon (Finland), Snow Leopard common to uncommon, Tiger
+  common (wild safari photos, Madhya Pradesh), Osprey common (eBird rate in Delaware; birds
+  unchanged), Lion common (Tanzania), African Elephant common (Kruger), Greater Flamingo common
+  (Spain), Polar Bear occasional (Greenland), Red Panda uncommon, Giant Panda legendary.
+- **Pack drift, why:** the drops happened on 2026-10-10, not in this work. Colombia fish 2,814 to
+  1,543: 461 marine fish moved to the sea zone packs the country depends on (correct), 744
+  freshwater fish deleted by the province rebuild's iNaturalist reconcile (a bug, decision 6),
+  about 66 others to clean-ups. Japan fish 2,800 to 2,015: 667 moved to sea zones, 33 freshwater
+  lost, about 129 to clean-ups. Of the 63 packs that shrank, 20 mostly lost fish to sea zones,
+  18 mostly lost freshwater fish, 23 lost listings to clean-ups (6b, escapes, tiers); most of the
+  246 that grew are sea zone packs (6a's marine life) and mammal packs (whales moved out of
+  fish, iNaturalist additions).
+- **Rebuilt locally after all of it (2026-11-24, nothing published):** vectors (offline steps),
+  packs (6,001, 1,450 MB; sea zones 46 MB; index 29.7 MB, lite 3.5 MB), catalog seed (207 MB
+  plus embedding files, 1,132 MB in all; sha256 and sizes match; loads on a fresh database).
+  The gallery top-up must pause while the seed builds (it changes gallery embeddings mid-export).
+- **Gate:** 309 failures, all pack drift (decision 8). Anchors pass, no shared iNaturalist taxa.
+  Warning: 18,328 listed species have no reference photo.
 
 Still to do:
 
-- **6c** after decision 1, then 6b and `refresh --stages=tiers` again (minutes). 296 well-birded
-  regions (Italy on, plus a few earlier) still lack some yearly counts because iNaturalist
-  throttled this machine; rerun `npm run apply-inat-membership -w data-pipeline` (preview) when
-  it lets up, until no line says "some yearly counts missing".
-- **Gallery top-up** (`/tmp/run-topup.sh`, nice 19, retries every 30 minutes): iNaturalist is
-  throttling this machine (other jobs share it), so it is waiting. Then `npm run
-backfill-photo-withheld -w data-pipeline`, then the vectors (8) again for the new photos.
-- **Decision 5, pack drift:** review the 308 packs above (the fish drops especially) before
-  accepting.
-- **5b, 5c, 5d, 5f, 5h** leftovers as listed under each item (Aruba and Puerto Rico now have
-  country tiers, so 5b's decision is only about search and area pills).
-- **9, 10** packs and seed (see item 10).
+- Decisions 6, 7 and 8.
+- **Gallery top-up** (`/tmp/run-topup.sh`, nice 19, retries every 30 minutes while iNaturalist
+  throttles), then `npm run backfill-photo-withheld -w data-pipeline`, the offline vectors steps,
+  and the packs and seed again (`refresh --stages=packs,gate`, then `build-catalog-seed.ts`).
+- A later `npm run apply-inat-membership -w data-pipeline` preview to fetch the 292 regions'
+  missing yearly counts, then `-- --apply` and 6b and tiers again.
+- **5b, 5c, 5d, 5f, 5h** leftovers as listed under each item.
+- Then publish, only with the maintainer's go-ahead.
 
 The catalog (species, regions, rarity tiers) and region packs are held back until the **description
 rewrites** land. That's when one complete republish happens. Everything below has to be done first, in
@@ -428,8 +465,8 @@ this order, so the republish carries it all. Ask the maintainer before running a
      built the lists, any single research-grade iNaturalist photo cleared a vagrant flag, and the
      country list took a vagrant only when every province flagged it, so Canada's 760 birds had 5
      vagrants and Great Kiskadee (46 observations, all in 2018) showed by default. The new step lists a
-     species where its place has a research-grade observation, removes one iNaturalist lacks where
-     it covers the group (20,000 observations of it there), and flags a bird seen in at most 2 of the
+     species where its place has a research-grade observation, flags vagrant one iNaturalist lacks
+     where it covers the group (20,000 observations of it there), and flags a bird seen in at most 2 of the
      last 10 complete years where birds are that well observed (a province otherwise takes its
      country's call, then GBIF's existing flag). Hand-checked overrides still win; GBIF range
      checklist overrides no longer do. Rules: `src/regions/inatVagrancy.ts`.
@@ -443,8 +480,10 @@ this order, so the republish carries it all. Ask the maintainer before running a
      escapes and GBIF-only strays.
    - Order: after 6b and before the tiers (7). 6b's `unlisted-birds` pass and the tiers'
      `removeBirdsEbirdNeverHad` keep every bird iNaturalist confirms in the region (2026-11-24).
-   - Full preview 2026-11-24: not applied, removals too broad (Decisions needed, 1). Every change
-     goes to `data/review/inat-membership-changes.tsv`.
+   - A species iNaturalist lacks is flagged vagrant, never removed (maintainer, 2026-11-24);
+     applied that day. Every change goes to `data/review/inat-membership-changes.tsv`. Run the
+     follow-ups cache only when eBird calls aren't allowed (`--no-followups`, then the three
+     scripts by hand, `apply-ebird-exotics --max-requests=0`).
      6d. **iNaturalist common names** (maintainer decision: iNaturalist is the source of truth for
      non-bird names; birds keep eBird's). `npm run apply-inat-common-names -w data-pipeline` (dry
      run: counts per class, 40 spot checks), then `-- --apply` (backs up the names it changes to

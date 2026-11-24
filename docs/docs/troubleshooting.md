@@ -41,7 +41,7 @@ If "Species reference vectors couldn't be fully downloaded" appears, the model i
 - **"Species recognition took too long on this photo"** means one photo timed out. Lifer restarts species recognition on its own, so carry on.
 - **"Stopped: species recognition is stuck on an earlier photo"** means several photos in a row timed out. Quit and reopen the desktop app, or run `docker compose restart api` on a server.
 
-Suggestions only appear on the **Import photos** page and in trips and albums, not on a species page's Upload, since the species is already known there.
+On a species page's **Import**, each photo keeps that species, and a row only mentions a suggestion when it disagrees, like "Looks like Black-collared Hawk".
 
 The status line in **Species recognition** tells you which model suggestions use. "The general model, which is less accurate" means only part of the download finished. Click **Download the identification model (~370 MB)** to finish it.
 

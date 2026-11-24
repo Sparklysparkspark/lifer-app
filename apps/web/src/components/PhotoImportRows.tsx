@@ -17,7 +17,7 @@ import {
   suggestSpeciesFromVideo,
 } from "../lib/uploadQueue";
 import { discardUpload, uploadFile } from "../lib/tusUpload";
-import SpeciesPicker, { type SuggestedSpecies } from "./SpeciesPicker";
+import SpeciesPicker, { type SpeciesResult, type SuggestedSpecies } from "./SpeciesPicker";
 import RegionBrowser from "./RegionBrowser";
 import Lightbox from "./Lightbox";
 import ImportReviewRow from "./importReview/ImportReviewRow";
@@ -47,6 +47,7 @@ import { useSettings } from "../hooks/useSettings";
 import { useRegions } from "../hooks/useRegions";
 import { downloadedTaxaByCountry, usePackIndex } from "../lib/packIndex";
 import Button from "./Button";
+import FormMessage from "./FormMessage";
 import FilePickArea from "./FilePickArea";
 import ProgressBar from "./ProgressBar";
 import { useSpeciesName } from "../lib/speciesName";
@@ -157,6 +158,8 @@ function pairFacts(r: ImportRow): PairFacts[] {
 const UPLOAD_CONCURRENCY = 2;
 // Inspect runs server-side inference, so a big drop shouldn't queue dozens at once.
 const INSPECT_CONCURRENCY = 2;
+// Files named in the "can't import" message; the rest are counted.
+const UNSUPPORTED_NAMES_SHOWN = 5;
 // While importing, free space is checked again after this many photos.
 const SPACE_CHECK_EVERY = 10;
 
@@ -177,8 +180,15 @@ export default function PhotoImportRows({
   onImported,
   onImportStarted,
   suggestedRegionId,
+  presetSpecies,
+  volumeId,
 }: {
   tripId?: string;
+  /** Started from a species page: every photo starts as this species, with a different match
+   *  offered on its row rather than chosen. */
+  presetSpecies?: SpeciesResult;
+  /** A registered drive to save into, or unset for the main library (VolumeDestinationPicker). */
+  volumeId?: string;
   /** The batch's trip's region, offered first in the region picker. */
   suggestedRegionId?: string | null;
   /** Links each new capture into this album. Unlike tripId, it never changes where files are stored. */
@@ -398,10 +408,16 @@ export default function PhotoImportRows({
   const addRowsLatest = useLatest((files: File[]) => addRows(files));
   const removedFilesRef = useRef<File[]>([]);
 
-  function addFiles(fileList: FileList | File[]) {
+  // Files picked or dropped one by one that Lifer can't import, named so none vanishes silently.
+  const [unsupported, setUnsupported] = useState<string[]>([]);
+
+  function addFiles(fileList: FileList | File[], fromFolder = false) {
     // RAW and HEIC files often have an empty MIME type, so those match by extension. Anything the
-    // server wouldn't take (a GIF in a picked folder) is left out.
-    const files = Array.from(fileList).filter((f) => photoFormatOf(f) != null || isRawFile(f.name) || isVideoFile(f));
+    // server wouldn't take is left out: named when picked, quietly for a folder's sidecars and the like.
+    const all = Array.from(fileList);
+    const importable = (f: File) => photoFormatOf(f) != null || isRawFile(f.name) || isVideoFile(f);
+    const files = all.filter(importable);
+    if (!fromFolder) setUnsupported(all.filter((f) => !importable(f)).map((f) => f.name));
     let done = 0;
     void sortKnownFiles(files, (fresh, old) => {
       for (const f of fresh) if (f.fingerprint) fingerprintsRef.current.set(f.file, f.fingerprint);
@@ -508,8 +524,8 @@ export default function PhotoImportRows({
       key: `${file.name}-${file.size}-${file.lastModified}-${Math.random()}`,
       file,
       previewUrl: URL.createObjectURL(file),
-      speciesId: null,
-      speciesLabel: null,
+      speciesId: presetSpecies?.id ?? null,
+      speciesLabel: presetSpecies ? speciesName(presetSpecies) : null,
       status: "ready",
       suggestions: [],
       isRaw: isRawFile(file.name),
@@ -609,8 +625,10 @@ export default function PhotoImportRows({
                   rawMatch: res.rawMatch ?? null,
                   editedVersionOf: res.editedVersionOf ?? null,
                   // A RAW or an edited copy of a photo you already have takes that photo's species
-                  // (unless one was picked).
-                  ...(known && !r.speciesId ? { speciesId: known.speciesId, speciesLabel: speciesName(known) } : {}),
+                  // (unless one was picked; the species page's own is a default, not a pick).
+                  ...(known && (!r.speciesId || r.speciesId === presetSpecies?.id)
+                    ? { speciesId: known.speciesId, speciesLabel: speciesName(known) }
+                    : {}),
                   cull: res.cull ?? null,
                   subject: res.subject ?? null,
                   subjectBoxes: res.subjectBoxes ?? [],
@@ -993,6 +1011,7 @@ export default function PhotoImportRows({
             cullOption,
             tripId: row.tripId ?? tripId,
             albumId,
+            volumeId,
             regionId,
             locationLabel: row.label ?? "",
           },
@@ -1035,6 +1054,12 @@ export default function PhotoImportRows({
           return;
         }
         const captureId = outcome.captureId;
+        // A RAW joins the photo it belongs to; a species picked for it here corrects that photo.
+        if (row.rawMatch && captureId === row.rawMatch.captureId && row.speciesId !== row.rawMatch.speciesId) {
+          await api
+            .patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: row.speciesId! })
+            .catch((err: unknown) => toast.error(errorMessage(err, t("import.rows.reassignFailed"))));
+        }
         for (const key of keys) committed.push({ key, captureId });
         if (outcome.sourceMove?.moved) movedCount++;
         else if (outcome.sourceMove) stayedCount++;
@@ -1245,7 +1270,7 @@ export default function PhotoImportRows({
         prompt={t("import.rows.pickPrompt")}
         hint={t("import.rows.pickHint")}
         accept={`${PHOTO_ACCEPT},${VIDEO_ACCEPT},${[...VENDOR_RAW_EXTENSIONS].join(",")}`}
-        onFiles={(files) => addFiles(files)}
+        onFiles={(files, fromFolder) => addFiles(files, fromFolder)}
         onChooseFolder={
           desktop
             ? async () => {
@@ -1256,6 +1281,18 @@ export default function PhotoImportRows({
               }
             : undefined
         }
+      />
+      <FormMessage
+        error={
+          unsupported.length > 0
+            ? t("import.rows.unsupported", {
+                count: unsupported.length,
+                names: unsupported.slice(0, UNSUPPORTED_NAMES_SHOWN).join(", "),
+                more: Math.max(0, unsupported.length - UNSUPPORTED_NAMES_SHOWN),
+              })
+            : null
+        }
+        className="wrap-anywhere"
       />
       {desktop && (
         <div className="flex items-start gap-3">
@@ -1422,6 +1459,7 @@ export default function PhotoImportRows({
                   onCancelPick={() => setFocusedRowKey(null)}
                   regionId={regionId}
                   onPick={(r) => assignAndAdvance(row.key, r)}
+                  presetSpecies={presetSpecies}
                   isActive={row.key === activeRow?.key}
                   highlightIndex={highlightIndex}
                   onDismissWarning={(warning) => review.dismissWarning(row.key, warning)}
