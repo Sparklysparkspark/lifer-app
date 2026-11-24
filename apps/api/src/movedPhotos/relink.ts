@@ -8,6 +8,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { setImmediate as yieldToLoop, setTimeout as sleep } from "node:timers/promises";
+import { commonFolder } from "@lifer/shared";
 import { pool } from "@lifer/core/db.js";
 import { DATA_DIR, SINGLE_USER_MODE } from "@lifer/core/config.js";
 import { canonicalPath, isWithin } from "@lifer/core/lib/pathContainment.js";
@@ -39,6 +40,8 @@ export interface PassResult {
   proposals: number;
   batchId: string | null;
   unreadableFolders: number;
+  /** Where the photos still missing after the pass used to be, when they share a folder. */
+  missingFolder: string | null;
   walk: WalkStats | null;
   /** The longest the event loop waited during the pass, in ms. */
   maxLagMs: number;
@@ -93,7 +96,7 @@ export interface Places {
 }
 
 export async function placesFor(userId: string): Promise<Places> {
-  const trips = await pool.query<{ source_folder: string; destination_folder: string }>(
+  const trips = await pool.query<{ source_folder: string | null; destination_folder: string | null }>(
     `SELECT source_folder, destination_folder FROM trips WHERE user_id = $1`,
     [userId],
   );
@@ -104,7 +107,9 @@ export async function placesFor(userId: string): Promise<Places> {
   const watched = SINGLE_USER_MODE ? (await listWatchedFolders()).filter((w) => w.userId === userId) : [];
   return {
     library: DATA_DIR,
-    trips: [...new Set(trips.rows.flatMap((t) => [t.source_folder, t.destination_folder]))],
+    trips: [...new Set(trips.rows.flatMap((t) => [t.source_folder, t.destination_folder]))].filter(
+      (p): p is string => !!p,
+    ),
     watched: watched.map((w) => w.path),
     chosen: chosen.rows.map((r) => r.path),
   };
@@ -125,6 +130,29 @@ export function rootsOf(places: Places): string[] {
   const roots: string[] = [];
   for (const p of all) if (!roots.some((r) => isWithin(canonicalPath(r), canonicalPath(p)))) roots.push(p);
   return roots;
+}
+
+/** A folder as the disk spells it: no trailing separator, the volume's own letter case, links
+ *  resolved. Null when it isn't there (an unplugged drive, a share that isn't connected). */
+export function diskPath(p: string): string | null {
+  try {
+    return realpathSync.native(path.resolve(p));
+  } catch {
+    return null;
+  }
+}
+
+/** How `folder` (as diskPath spells it) overlaps the places already searched: the place that
+ *  already covers it, else the user's own places it would cover. Case-folded where volumes
+ *  usually ignore case. */
+export function placeOverlap(places: Places, folder: string): { coveredBy: string | null; contains: string[] } {
+  const spelled = (p: string) => key(diskPath(p) ?? path.resolve(p));
+  const target = key(folder);
+  const coveredBy =
+    [places.library, ...places.trips, ...places.watched, ...places.chosen].find((p) => isWithin(spelled(p), target)) ??
+    null;
+  if (coveredBy) return { coveredBy, contains: [] };
+  return { coveredBy: null, contains: places.chosen.filter((p) => isWithin(target, spelled(p))) };
 }
 
 const MOUNT_PARENTS = new Set(["/Volumes", "/media", "/mnt", "/run/media"]);
@@ -749,6 +777,7 @@ async function runPass(ctx: JobContext<PassResult, Extra>, userId: string, tripI
     proposals: 0,
     batchId: null,
     unreadableFolders: 0,
+    missingFolder: null,
     walk: null,
     maxLagMs: 0,
   };
@@ -791,6 +820,8 @@ async function runPass(ctx: JobContext<PassResult, Extra>, userId: string, tripI
   }
   await saveReviews(userId, reviews);
   result.review = reviews.length;
+  const accounted = new Set([...matches, ...reviews].map(({ m }) => m.id));
+  result.missingFolder = commonFolder(missing.filter((m) => !accounted.has(m.id)).map((m) => m.ref));
   return result;
 }
 

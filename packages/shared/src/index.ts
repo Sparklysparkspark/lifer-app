@@ -41,3 +41,4 @@ export * from "./inatGrouping.js";
 export * from "./sessions.js";
 export * from "./dateOnly.js";
 export * from "./versionStem.js";
+export * from "./folderPaths.js";

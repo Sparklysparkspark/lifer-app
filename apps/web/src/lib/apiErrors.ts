@@ -11,6 +11,7 @@ import i18n, { SOURCE_LOCALE } from "../i18n";
  */
 export const API_ERROR_MESSAGE_KEYS: Readonly<Record<string, string>> = {
   desktop_only: "errors.api.desktop_only",
+  folder_unavailable: "errors.api.folder_unavailable",
   immich_too_old: "errors.api.immich_too_old",
   immich_unreachable: "errors.api.immich_unreachable",
   invalid_request: "errors.api.invalid_request",

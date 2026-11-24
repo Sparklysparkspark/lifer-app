@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import { parentFolder } from "@lifer/shared";
 import { api } from "../api/client";
 import { useJobPoll } from "../hooks/useJobPoll";
 import {
@@ -12,6 +13,7 @@ import {
   useUndoRelinks,
   type MovedPhotosStatus,
 } from "../hooks/useMovedPhotos";
+import { useAddMovedFolder } from "../hooks/useAddMovedFolder";
 import { useToast } from "../hooks/useToast";
 import { ignore } from "../lib/ignore";
 import JobProgress from "./JobProgress";
@@ -29,6 +31,7 @@ export default function MovedPhotosTray() {
   const navigate = useNavigate();
   const undo = useUndoRelinks();
   const tripFolder = useTripFolderActions();
+  const movedFolder = useAddMovedFolder();
   const shown = useRef(new Set<string>());
 
   const job = useJobPoll<MovedPhotosStatus>(STATUS_URL, {
@@ -48,16 +51,26 @@ export default function MovedPhotosTray() {
             },
           ],
         });
-      // Only a look the user asked for says it found nothing.
-      else if (status.manual && r.relinked === 0 && r.proposals === 0)
-        toast.info(
-          [
-            t("movedPhotos.noneFound"),
-            r.unreadableFolders > 0 ? t("movedPhotos.unreadable", { count: r.unreadableFolders }) : "",
-          ]
-            .filter(Boolean)
-            .join(" "),
-        );
+      // Only a look the user asked for says it found nothing, with the way out when the photos
+      // were all in one folder: it moved somewhere Lifer doesn't search yet.
+      else if (status.manual && r.relinked === 0 && r.proposals === 0) {
+        const message = [
+          t("movedPhotos.noneFound"),
+          r.unreadableFolders > 0 ? t("movedPhotos.unreadable", { count: r.unreadableFolders }) : "",
+          r.missingFolder ? t("movedPhotos.suggest.line") : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const folder = r.missingFolder;
+        if (folder)
+          toast.show(message, {
+            durationMs: null,
+            actions: [
+              { label: t("movedPhotos.suggest.add"), onClick: () => void movedFolder.choose(parentFolder(folder)) },
+            ],
+          });
+        else toast.info(message);
+      }
     },
   });
 
@@ -102,24 +115,27 @@ export default function MovedPhotosTray() {
       api.post("/moved-photos/ack", { batchIds, tripIds }).catch(ignore("Couldn't mark moved photos as shown"));
   }, [status, t, toast, undo, tripFolder]);
 
-  if (!status?.running || !status.manual) return null;
+  if (!status?.running || !status.manual) return movedFolder.node;
   return (
-    <div
-      role="status"
-      aria-label={t("movedPhotos.trayLabel")}
-      className="w-96 max-w-full rounded-panel border border-line bg-surface p-3 shadow-sm"
-    >
-      <JobProgress
-        compact
-        status={status}
-        phases={{
-          checking: { label: t("movedPhotos.phase.checking"), progress: "none" },
-          looking: { label: t("movedPhotos.phase.looking"), progress: "none" },
-          matching: { label: t("movedPhotos.phase.matching"), progress: "count" },
-        }}
-        onCancel={() => void job.cancel("/moved-photos/cancel")}
-        cancelling={job.cancelling}
-      />
-    </div>
+    <>
+      {movedFolder.node}
+      <div
+        role="status"
+        aria-label={t("movedPhotos.trayLabel")}
+        className="w-96 max-w-full rounded-panel border border-line bg-surface p-3 shadow-sm"
+      >
+        <JobProgress
+          compact
+          status={status}
+          phases={{
+            checking: { label: t("movedPhotos.phase.checking"), progress: "none" },
+            looking: { label: t("movedPhotos.phase.looking"), progress: "none" },
+            matching: { label: t("movedPhotos.phase.matching"), progress: "count" },
+          }}
+          onCancel={() => void job.cancel("/moved-photos/cancel")}
+          cancelling={job.cancelling}
+        />
+      </div>
+    </>
   );
 }

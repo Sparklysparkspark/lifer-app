@@ -290,8 +290,45 @@ describe.skipIf(!url)("finding moved photos", () => {
     renameSync(old, path.join(dir, "outside", "a.jpg"));
 
     const result = await look();
-    expect(result).toMatchObject({ missing: 1, relinked: 0, review: 0 });
+    // Where it was, so the app can suggest adding the folder it went to.
+    expect(result).toMatchObject({ missing: 1, relinked: 0, review: 0, missingFolder: place });
     expect(await refOf(id)).toBe(old);
+  });
+
+  it("keeps one place per folder tree: no nested or repeated entries, merges on request, refuses absent folders", async () => {
+    const added = async () => (await get("/moved-photos/settings")).json().places.map((x: { path: string }) => x.path);
+    // The same folder again, spelled with a trailing slash, or a folder inside it: already covered.
+    const again = await post("/moved-photos/places", { path: place + path.sep });
+    expect(again.json()).toEqual({ added: false, path: place, coveredBy: place, contains: [] });
+    mkdirSync(path.join(place, "2025"));
+    expect((await post("/moved-photos/places", { path: path.join(place, "2025") })).json()).toMatchObject({
+      added: false,
+      coveredBy: place,
+    });
+    if (process.platform !== "linux") {
+      const shouted = await post("/moved-photos/places", { path: path.join(dir, "places", "PHOTOS") });
+      expect(shouted.json()).toMatchObject({ added: false, coveredBy: place });
+    }
+    // A parent of added places: offered as a merge, done only when asked.
+    const other = path.join(dir, "places", "Other");
+    mkdirSync(other);
+    await post("/moved-photos/places", { path: other });
+    const parent = path.join(dir, "places");
+    expect((await post("/moved-photos/places", { path: parent })).json()).toEqual({
+      added: false,
+      path: parent,
+      coveredBy: null,
+      contains: [place, other],
+    });
+    expect(await added()).toEqual([place, other]);
+    const merged = await post("/moved-photos/places", { path: parent, merge: true });
+    expect(merged.json()).toMatchObject({ added: true, contains: [place, other] });
+    expect(await added()).toEqual([parent]);
+    // A share that isn't connected is never saved.
+    const gone = await post("/moved-photos/places", { path: path.join(dir, "places", "Not here") });
+    expect(gone.statusCode).toBe(400);
+    expect(gone.json()).toMatchObject({ code: "folder_unavailable" });
+    expect(await added()).toEqual([parent]);
   });
 
   it("does nothing more than stat when nothing is missing, and skips folders unchanged since the last walk", async () => {

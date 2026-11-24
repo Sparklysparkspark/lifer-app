@@ -11,6 +11,8 @@ vi.mock("../api/client", async (importOriginal) => ({
 }));
 const toast = { show: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn(), dismiss: vi.fn() };
 vi.mock("../hooks/useToast", () => ({ useToast: () => toast }));
+const pick = vi.fn(async (_start?: string): Promise<string | null> => null);
+vi.mock("../lib/pickFolderNative", () => ({ pickFolderNative: (start?: string) => pick(start) }));
 
 const { default: MovedPhotosTray } = await import("./MovedPhotosTray");
 
@@ -70,5 +72,33 @@ describe("MovedPhotosTray", () => {
     expect(options.actions.map((a: { label: string }) => a.label)).toEqual(["Use it", "Not now"]);
     options.actions[0].onClick();
     await waitFor(() => expect(post).toHaveBeenCalledWith("/moved-photos/trip-folders/t1/use"));
+  });
+
+  it("after a look that found nothing, offers to add where the missing photos' folder went", async () => {
+    const { MOVED_PHOTOS_LOOK_STARTED } = await import("../hooks/useMovedPhotos");
+    const running = { ...idle, running: true, manual: true, notice: null, proposals: [] };
+    get.mockResolvedValueOnce(running);
+    get.mockResolvedValue({
+      ...running,
+      running: false,
+      result: { relinked: 0, proposals: 0, review: 0, unreadableFolders: 0, missingFolder: "/Users/ana/Trips/Belize" },
+    });
+    render(
+      <MemoryRouter>
+        <MovedPhotosTray />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+    window.dispatchEvent(new Event(MOVED_PHOTOS_LOOK_STARTED));
+    await waitFor(() => expect(toast.show).toHaveBeenCalledTimes(1));
+    const [message, options] = toast.show.mock.calls[0];
+    expect(message).toBe(
+      "No moved photos found. Moved a folder? Add its new parent folder so Lifer can find your photos again.",
+    );
+    pick.mockResolvedValueOnce("/Volumes/home/Trips");
+    post.mockResolvedValue({ added: true, path: "/Volumes/home/Trips", coveredBy: null, contains: [], started: true });
+    options.actions[0].onClick();
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/moved-photos/look", { manual: true }));
+    expect(pick).toHaveBeenCalledWith("/Users/ana/Trips");
   });
 });

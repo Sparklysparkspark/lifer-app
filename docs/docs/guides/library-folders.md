@@ -33,13 +33,13 @@ The folder you chose at setup **is** your library. Inside it, photos are filed b
 
 Choose how species folders (and the tags written into your files) are named in **Settings > Species and import > Name format**. Tick any of these, and use the **↑** **↓** arrows to put them in the order you want:
 
-| Option | Example |
-|---|---|
-| Common name | `American Robin` |
-| Scientific (Latin) name | `Turdus migratorius` |
-| eBird code | `amerob` |
-| Full taxonomy tree | `Aves / Passeriformes / Turdidae / Turdus migratorius` |
-| ABA code | `AMRO` |
+| Option                  | Example                                                |
+| ----------------------- | ------------------------------------------------------ |
+| Common name             | `American Robin`                                       |
+| Scientific (Latin) name | `Turdus migratorius`                                   |
+| eBird code              | `amerob`                                               |
+| Full taxonomy tree      | `Aves / Passeriformes / Turdidae / Turdus migratorius` |
+| ABA code                | `AMRO`                                                 |
 
 The first one a species has becomes the name, and the rest follow in brackets. For example, Common name then Scientific name gives `American Robin (Turdus migratorius)`. With three or more, the extras are separated by commas, like `American Robin (Turdus migratorius, amerob)`. eBird and ABA codes only apply to birds and are skipped for other species. The ABA code option appears once you download a pack covering North or Central America or the Caribbean.
 
@@ -49,14 +49,14 @@ If two species share a common name, Lifer adds the scientific name so their fold
 
 **Folder layout** in **Settings > Library** sets the folders above each photo. The presets file a photo like this:
 
-| Preset | Example |
-|---|---|
-| Species (default) | `Birds/American Robin/Adjusted/` |
-| Order, then family | `Birds/Passeriformes/Turdidae/American Robin/Adjusted/` |
-| Year, then species | `Wildlife 2025/Birds/American Robin/Adjusted/` |
-| Date (like Lightroom) | `2025/2025-06-14/Adjusted/` |
-| Trip | `Trips/Alaska 2025/Birds/American Robin/Adjusted/` |
-| Location | `Canada/Alberta/Pigeon Lake/Birds/American Robin/Adjusted/` |
+| Preset                | Example                                                     |
+| --------------------- | ----------------------------------------------------------- |
+| Species (default)     | `Birds/American Robin/Adjusted/`                            |
+| Order, then family    | `Birds/Passeriformes/Turdidae/American Robin/Adjusted/`     |
+| Year, then species    | `Wildlife 2025/Birds/American Robin/Adjusted/`              |
+| Date (like Lightroom) | `2025/2025-06-14/Adjusted/`                                 |
+| Trip                  | `Trips/Alaska 2025/Birds/American Robin/Adjusted/`          |
+| Location              | `Canada/Alberta/Pigeon Lake/Birds/American Robin/Adjusted/` |
 
 **Custom** lets you pick and order the levels yourself, from year, month, date, trip, country, province or state, place name, group, order, family and species. Dates go by the camera's own clock. A level the photo has no value for is skipped: a photo outside a trip skips the trip folder, and one with no place name skips that folder. Photos with no date still go under `Wildlife Undated` in the year layout. A trip's own `Wildlife` folder never gets trip or location folders inside it.
 
@@ -118,9 +118,16 @@ It looks a few minutes after it opens, when a photo can't be opened, and when yo
 In **Settings > Storage** under **Moved photos**:
 
 - **Look for moved photos automatically** is on by default. Turn it off to only look when you ask.
-- **Places where photos live** lists folders Lifer searches. Your library folder, trip folders and watched folders are always included. Click **Add folder** to add another, like the folder where you keep all your photos, and **Remove** to take one off. Lifer only searches inside these folders, and doesn't follow shortcuts that lead outside them.
+- **Places where photos live** lists the folders you added for Lifer to search, with how many in the heading. Add the folder that holds your photos, such as Family Trips: everything inside it is searched, so one entry is enough. Click **Add folder** to add one, and the remove button (x) on a row to take it off. Lifer only searches inside these folders, and doesn't follow shortcuts that lead outside them.
+  - A folder inside one Lifer already searches isn't added again. Lifer says **Already covered by** and names that folder.
+  - A folder that holds folders you added before offers to merge them into it. Click **Merge** to keep just the new one, or **Cancel**. **Undo** on the message puts them back.
+  - A folder on a drive or network share that isn't connected isn't added. Connect it, then try again.
+  - Your library folder, trip folders and watched folders are always searched. One line names how many; click **Show** to list them.
+  - Long lists get a filter box. Hover over a folder to see its full path.
 - **Look now** searches right away, with progress and **Cancel** at the bottom left.
 - **Recently found** lists what Lifer updated, each with **Undo**.
+
+If you moved a whole folder somewhere Lifer doesn't search, **Look now** can't find its photos. When the missing photos were all in one folder, Lifer offers **Moved a folder?** with **Choose folder**, after a look that found nothing, in **Settings > Storage**, and on the **Archive health** page. Pick the folder your photos are in now (the picker opens near where they were). Lifer adds it and looks again right away. It never guesses the new place for you.
 
 Searching is quick after the first time: Lifer only rereads folders that changed since it last looked. Folders it isn't allowed to open are skipped, and it says how many. A photo on a drive that isn't plugged in isn't searched for; plug the drive in instead.
 

@@ -2,10 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 import { api, type ApiResponse } from "../../api/client";
-import Button from "../../components/Button";
+import Button, { IconButton } from "../../components/Button";
 import { FolderBrowser } from "../../components/FolderPicker";
 import FolderPath from "../../components/FolderPath";
 import FormMessage from "../../components/FormMessage";
+import MovedFolderSuggestion from "../../components/MovedFolderSuggestion";
+import SearchInput from "../../components/SearchInput";
 import Switch from "../../components/Switch";
 import MovedPhotosReview from "../../components/MovedPhotosReview";
 import {
@@ -18,13 +20,68 @@ import {
 } from "../../hooks/useMovedPhotos";
 import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
-import { formatDate } from "../../lib/format";
+import { formatDate, formatList } from "../../lib/format";
 import { ignore } from "../../lib/ignore";
 import { pickFolderNative } from "../../lib/pickFolderNative";
 import { SettingRow, SettingsGroup } from "./shared";
 
 type Settings = ApiResponse<"/moved-photos/settings">;
 type Batch = ApiResponse<"/moved-photos/batches">["batches"][number];
+type Added = ApiResponse<"/moved-photos/places", "post">;
+type Notice = { kind: "covered"; by: string } | { kind: "merge"; path: string; contains: string[] };
+
+// Lists longer than this get a filter box.
+const FILTER_AT = 8;
+
+/** A compact list of folders, each name first with its full path on hover, filterable when long. */
+function FolderList({
+  label,
+  folders,
+  onRemove,
+}: {
+  label: string;
+  folders: Array<{ path: string; available?: boolean }>;
+  onRemove?: (path: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const shown = q ? folders.filter((f) => f.path.toLowerCase().includes(q)) : folders;
+  return (
+    <>
+      {folders.length > FILTER_AT && (
+        <SearchInput
+          value={query}
+          onChange={setQuery}
+          aria-label={t("movedPhotos.settings.filterLabel", { list: label })}
+          placeholder={t("movedPhotos.settings.filterPlaceholder")}
+        />
+      )}
+      <ul aria-label={label} className="max-h-72 divide-y divide-line overflow-y-auto">
+        {shown.map((f) => (
+          <li key={f.path} className="flex min-h-9 items-center justify-between gap-item py-1">
+            <div className="min-w-0 flex-1">
+              <FolderPath path={f.path} className="text-callout" />
+              {f.available === false && (
+                <p className="text-footnote text-muted">{t("movedPhotos.settings.notFound")}</p>
+              )}
+            </div>
+            {onRemove && (
+              <IconButton
+                tone="plain"
+                onClick={() => onRemove(f.path)}
+                aria-label={t("movedPhotos.settings.removeFolder", { folder: f.path })}
+              >
+                ✕
+              </IconButton>
+            )}
+          </li>
+        ))}
+      </ul>
+      {q && shown.length === 0 && <p className="text-callout text-muted">{t("movedPhotos.settings.noMatch")}</p>}
+    </>
+  );
+}
 
 // Settings > Storage: where Lifer looks for photos the user moved or renamed, a "Look now" button,
 // matches to review, and a log of recent relinks with Undo.
@@ -39,6 +96,8 @@ export default function MovedPhotosGroup() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [browsing, setBrowsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [showFixed, setShowFixed] = useState(false);
   const [starting, setStarting] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(
     () => (location.state as Record<string, unknown> | null)?.[OPEN_REVIEW] === true,
@@ -74,7 +133,43 @@ export default function MovedPhotosGroup() {
     }
   }
 
-  const addPlace = (path: string) => change(() => api.post("/moved-photos/places", { path }));
+  const removePlace = (path: string) => change(() => api.post("/moved-photos/places/remove", { path }));
+
+  // Inside a folder already searched: nothing to add. Holding folders added before: offer to
+  // merge them into it, with Undo.
+  async function addPlace(path: string, merge = false) {
+    setNotice(null);
+    let res: Added | null = null;
+    await change(async () => {
+      res = await api.post("/moved-photos/places", { path, merge });
+    });
+    const added = res as Added | null;
+    if (!added) return;
+    if (added.coveredBy) setNotice({ kind: "covered", by: added.coveredBy });
+    else if (!added.added) setNotice({ kind: "merge", path: added.path, contains: added.contains });
+    else if (added.contains.length > 0)
+      toast.show(t("movedPhotos.settings.merged", { count: added.contains.length }), {
+        tone: "success",
+        actions: [{ label: t("movedPhotos.undo"), onClick: () => void unmerge(added.path, added.contains) }],
+      });
+  }
+
+  async function unmerge(path: string, contains: string[]) {
+    await change(async () => {
+      await api.post("/moved-photos/places/remove", { path });
+      // One folder that can't come back (a drive since unplugged) mustn't strand the rest.
+      const results = await Promise.allSettled(contains.map((p) => api.post("/moved-photos/places", { path: p })));
+      const failed = contains.filter((_, i) => results[i].status === "rejected");
+      if (failed.length === 0) return;
+      const folders = formatList(failed.map((p) => p.split(/[\\/]/).filter(Boolean).pop() ?? p));
+      const restored = contains.length - failed.length;
+      toast.error(
+        restored > 0
+          ? t("movedPhotos.settings.unmergePartlyFailed", { count: restored, folders })
+          : t("movedPhotos.settings.unmergeFailed", { folders }),
+      );
+    });
+  }
 
   async function choose() {
     const native = await pickFolderNative();
@@ -98,7 +193,15 @@ export default function MovedPhotosGroup() {
   if (!settings) return null;
   const running = !!status?.running;
   const reviewCount = status?.reviewCount ?? 0;
-  const always = t("movedPhotos.settings.always", { count: settings.tripFolders });
+  const missingFolder = status?.result?.missingFolder;
+  const fixed = [settings.library, ...settings.trips, ...settings.watched].map((path) => ({ path }));
+  const alsoSearched = formatList(
+    [
+      t("movedPhotos.settings.libraryFolder"),
+      settings.trips.length > 0 ? t("movedPhotos.settings.tripFolders", { count: settings.trips.length }) : "",
+      settings.watched.length > 0 ? t("movedPhotos.settings.watchedFolders", { count: settings.watched.length }) : "",
+    ].filter(Boolean),
+  );
   return (
     <section id="moved-photos">
       <SettingsGroup title={t("movedPhotos.settings.title")}>
@@ -114,8 +217,8 @@ export default function MovedPhotosGroup() {
           }
         />
         <SettingRow
-          label={t("movedPhotos.settings.places")}
-          description={always}
+          label={t("movedPhotos.settings.placesCount", { count: settings.places.length })}
+          description={t("movedPhotos.settings.placesHelp")}
           control={
             !browsing && (
               <Button size="sm" variant="secondary" onClick={() => void choose()}>
@@ -134,23 +237,44 @@ export default function MovedPhotosGroup() {
               onCancel={() => setBrowsing(false)}
             />
           )}
+          {notice?.kind === "covered" && (
+            <p role="status" className="break-words text-callout text-ink">
+              {t("movedPhotos.settings.coveredBy", { folder: notice.by })}
+            </p>
+          )}
+          {notice?.kind === "merge" && (
+            <div role="status" className="flex flex-wrap items-center justify-between gap-item">
+              <p className="min-w-0 text-callout text-ink">
+                {t("movedPhotos.settings.mergeOffer", { count: notice.contains.length })}
+              </p>
+              <div className="flex shrink-0 gap-2">
+                <Button size="sm" variant="secondary" onClick={() => setNotice(null)}>
+                  {t("common.cancel")}
+                </Button>
+                <Button size="sm" variant="primary" autoFocus onClick={() => void addPlace(notice.path, true)}>
+                  {t("movedPhotos.settings.merge")}
+                </Button>
+              </div>
+            </div>
+          )}
+          {settings.places.length > 0 && (
+            <FolderList
+              label={t("movedPhotos.settings.addedList")}
+              folders={settings.places}
+              onRemove={(p) => void removePlace(p)}
+            />
+          )}
+          <div className="flex items-center justify-between gap-item">
+            <p className="min-w-0 text-subheadline text-muted">
+              {t("movedPhotos.settings.alsoSearched", { list: alsoSearched })}
+            </p>
+            <Button size="sm" variant="ghost" aria-expanded={showFixed} onClick={() => setShowFixed((v) => !v)}>
+              {showFixed ? t("movedPhotos.settings.hide") : t("movedPhotos.settings.show")}
+            </Button>
+          </div>
+          {showFixed && <FolderList label={t("movedPhotos.settings.fixedList")} folders={fixed} />}
         </SettingRow>
-        {settings.places.map((p) => (
-          <SettingRow
-            key={p.path}
-            label={<FolderPath path={p.path} />}
-            description={p.available ? undefined : t("movedPhotos.settings.notFound")}
-            control={
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => void change(() => api.post("/moved-photos/places/remove", { path: p.path }))}
-              >
-                {t("movedPhotos.settings.remove")}
-              </Button>
-            }
-          />
-        ))}
+        {missingFolder && <SettingRow label={<MovedFolderSuggestion folder={missingFolder} />} />}
         <SettingRow
           label={t("movedPhotos.settings.look")}
           description={t("movedPhotos.settings.lookDescription")}

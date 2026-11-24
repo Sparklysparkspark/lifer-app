@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { commonFolder } from "@lifer/shared";
 import { api, apiPath } from "../api/client";
 import Button from "../components/Button";
 import FolderPath from "../components/FolderPath";
+import MovedFolderSuggestion from "../components/MovedFolderSuggestion";
 import ManageListPage, { ManageList, RowThumb, type ManageMenuItem } from "../components/ManageListPage";
 import { useRevealOriginal } from "../hooks/useRevealOriginal";
 import { useToast } from "../hooks/useToast";
@@ -90,6 +92,12 @@ export default function ArchiveHealthPage() {
     );
   }, [data, search]);
 
+  // Missing files that were all in one folder: most likely that folder moved.
+  const missingFolder = useMemo(
+    () => commonFolder((data?.items ?? []).filter((i) => i.problem === "missing").map((i) => i.path)),
+    [data],
+  );
+
   const title = t("archiveHealth.title");
   return (
     <ManageListPage
@@ -135,6 +143,7 @@ export default function ArchiveHealthPage() {
           })}
         </p>
       )}
+      {missingFolder && <MovedFolderSuggestion folder={missingFolder} />}
       <ManageList
         label={title}
         rows={shown.map((item) => {

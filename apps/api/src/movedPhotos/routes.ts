@@ -13,7 +13,9 @@ import { isTripBusy } from "../trips/jobs.js";
 import {
   applyRelinks,
   autoMovedPhotos,
+  diskPath,
   movedPhotosJob,
+  placeOverlap,
   placesFor,
   startLook,
   undoBatch,
@@ -27,6 +29,9 @@ const PassResult = Open({
   proposals: Type.Integer(),
   batchId: Nullable(Type.String()),
   unreadableFolders: Type.Integer({ description: "Folders skipped because Lifer isn't allowed to read them" }),
+  missingFolder: Nullable(
+    Type.String({ description: "The folder the photos still missing were in, when they shared one" }),
+  ),
   maxLagMs: Type.Integer({ description: "Longest event-loop delay during the pass" }),
 });
 const Proposal = Type.Object({
@@ -169,7 +174,7 @@ export async function movedPhotosRoutes(fastify: FastifyInstance): Promise<void>
           Type.Object({
             auto: Type.Boolean(),
             library: Type.String(),
-            tripFolders: Type.Integer({ description: "Trips whose folders are included automatically" }),
+            trips: Type.Array(Type.String(), { description: "Trip folders, included automatically" }),
             watched: Type.Array(Type.String()),
             places: Type.Array(Place),
           }),
@@ -182,9 +187,7 @@ export async function movedPhotosRoutes(fastify: FastifyInstance): Promise<void>
       return {
         auto: await autoMovedPhotos(userId),
         library: places.library,
-        tripFolders: Number(
-          (await pool.query<{ n: string }>(`SELECT count(*) AS n FROM trips WHERE user_id = $1`, [userId])).rows[0].n,
-        ),
+        trips: places.trips,
         watched: places.watched,
         places: await Promise.all(places.chosen.map(async (p) => ({ path: p, available: await isDirectory(p) }))),
       };
@@ -208,17 +211,50 @@ export async function movedPhotosRoutes(fastify: FastifyInstance): Promise<void>
     },
   );
 
+  // A place inside one already searched is never added; one holding the user's own places
+  // replaces them only when asked (merge), so the list stays one entry per tree.
   app.post(
     "/moved-photos/places",
-    { preValidation: requireAuth, schema: { body: PathBody, response: replies(Ok) } },
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          {
+            path: Type.String({ minLength: 1 }),
+            merge: Type.Optional(Type.Boolean({ description: "Replace the added places this folder holds" })),
+          },
+          { additionalProperties: false },
+        ),
+        response: replies(
+          Type.Object({
+            added: Type.Boolean(),
+            path: Type.String({ description: "The folder as the disk spells it" }),
+            coveredBy: Nullable(Type.String({ description: "A place that already holds it; nothing was added" })),
+            contains: Type.Array(Type.String(), {
+              description: "Added places it holds: replaced when added, else nothing was added",
+            }),
+          }),
+        ),
+      },
+    },
     async (request, reply) => {
-      if (!(await isDirectory(request.body.path))) return reply.code(400).send({ error: "That folder doesn't exist" });
-      const folder = assertAllowedPath(request.body.path);
-      await pool.query(`INSERT INTO photo_places (user_id, path) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [
-        request.user!.id,
-        folder,
-      ]);
-      return { ok: true };
+      const userId = request.user!.id;
+      // Not there right now (a share not connected): never saved, so no silent dead entry.
+      const real = (await isDirectory(request.body.path)) ? diskPath(assertAllowedPath(request.body.path)) : null;
+      if (!real)
+        return reply.code(400).send({
+          error: "This folder isn't available right now. Connect the drive or share, then try again.",
+          code: "folder_unavailable",
+        });
+      const { coveredBy, contains } = placeOverlap(await placesFor(userId), real);
+      if (coveredBy || (contains.length > 0 && !request.body.merge))
+        return { added: false, path: real, coveredBy, contains };
+      await pool.query(
+        `WITH gone AS (DELETE FROM photo_places WHERE user_id = $1 AND path = ANY($3::text[]))
+         INSERT INTO photo_places (user_id, path) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [userId, real, contains],
+      );
+      return { added: true, path: real, coveredBy: null, contains };
     },
   );
 
