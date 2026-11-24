@@ -99,7 +99,8 @@ export default function ImportReviewRow({
               {row.isInspecting && !row.speciesId && (
                 <InlineSpinner size="xs" label={t("import.review.findingSuggestions")} />
               )}
-              {!row.notWildlife && !row.possibleDuplicate && (
+              {/* A RAW or an edit of a photo you already have takes that photo's species: nothing to compare. */}
+              {!row.notWildlife && !row.possibleDuplicate && !row.rawMatch && !row.editedVersionOf && (
                 <Button
                   variant="link"
                   size="sm"
