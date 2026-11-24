@@ -72,4 +72,22 @@ describe("SpeciesNotes", () => {
     expect(html).not.toContain("wikipedia.org");
     expect(render({ ...base, description_credit: "Someone else (CC BY)" })).not.toContain("Wikipedia contributors");
   });
+
+  it("credits a summary from another source with its own page and licence", () => {
+    const html = render({
+      ...base,
+      summary_notes: {
+        sections: [{ heading: "Summary", bullets: ["Large cod of cold shelf waters."] }],
+        credit: "FishBase",
+        source_url: "https://www.fishbase.se/summary/Gadus-morhua.html",
+        revision_id: null,
+        licence: "CC BY-NC 4.0",
+        licence_url: "https://creativecommons.org/licenses/by-nc/4.0/",
+      },
+    });
+    expect(html).toContain('href="https://www.fishbase.se/summary/Gadus-morhua.html"');
+    expect(html).toContain('href="https://creativecommons.org/licenses/by-nc/4.0/"');
+    expect(html).toContain("Adapted from");
+    expect(html).not.toContain("Wikipedia contributors");
+  });
 });

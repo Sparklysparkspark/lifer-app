@@ -37,6 +37,9 @@ export interface SpeciesNotes {
   credit?: string | null;
   source_url: string | null;
   revision_id: number | null;
+  // Set on text from a source other than Wikipedia (filler pass), shown in its credit line.
+  licence?: string;
+  licence_url?: string;
 }
 
 // GET /api/species/:id returns snake_case SQL rows.

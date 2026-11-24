@@ -65,6 +65,31 @@ export function WikipediaCredit({ url }: { url?: string | null }) {
   );
 }
 
+/** Credit for a summary written from another openly licensed source (FishBase, the Reptile
+ *  Database), which names itself, its page and its licence on the row. */
+function NotesCredit({ notes }: { notes: Notes }) {
+  if (!notes.licence_url || !notes.licence) return <WikipediaCredit url={notes.source_url} />;
+  const link = (href: string) => (
+    <a
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        openExternal(href);
+      }}
+      className="hover:text-ink hover:underline"
+    />
+  );
+  return (
+    <p className="text-footnote text-muted">
+      <Trans
+        i18nKey="species.notes.sourceCredit"
+        values={{ source: notes.credit, licence: notes.licence }}
+        components={{ page: notes.source_url ? link(notes.source_url) : <span />, licence: link(notes.licence_url) }}
+      />
+    </p>
+  );
+}
+
 // Plain-description fallbacks are Wikipedia text only when their credit says so.
 const fromWikipedia = (species: SpeciesDetail["species"]) => /wikipedia/i.test(species.description_credit ?? "");
 
@@ -76,7 +101,7 @@ export function SpeciesNotes({ species, status }: { species: SpeciesDetail["spec
       <div className="space-y-3">
         {status}
         <p className="text-callout leading-relaxed text-ink">{summaryText(species.summary_notes)}</p>
-        <WikipediaCredit url={species.summary_notes.source_url} />
+        <NotesCredit notes={species.summary_notes} />
       </div>
     );
   const identification = hasNotes(species.identification_notes) ? species.identification_notes : null;
