@@ -20,6 +20,7 @@ import Lightbox from "./Lightbox";
 import ImportReviewRow from "./importReview/ImportReviewRow";
 import ImportPlaceGroups from "./importReview/ImportPlaceGroups";
 import { groupImportRows, groupPlace, type StagedPlace } from "./importReview/importGroups";
+import { batchPairs, joinPairs, type PairFacts } from "./importReview/batchPairs";
 import Tip from "./Tip";
 import { useImportReview, type ReviewRowBase } from "./importReview/useImportReview";
 import ImportCompareView from "./importReview/ImportCompareView";
@@ -96,12 +97,36 @@ interface ImportRow extends ReviewRowBase {
   gps?: { lat: number; lon: number; regionId: string | null; town?: string | null } | null;
   /** From /uploads/inspect: the camera's own clock, for grouping. */
   cameraTime?: string | null;
+  /** From /uploads/inspect: the capture time and version evidence, which pair a RAW with its edit. */
+  takenAt?: string | null;
+  versionEvidence?: { documentId: string | null; press: string | null } | null;
   /** The region this row's suggestions were last ranked for. */
   inspectedRegion?: string | null;
   /** Chosen on the import screen and applied after the import (staged, not sent with it). */
   place?: StagedPlace | null;
   /** Free-text place label, sent with the import as the photo's Location. */
   label?: string;
+}
+
+function uniqueCaptures(all: CommittedImport[]): CommittedImport[] {
+  const seen = new Set<string>();
+  return all.filter((c) => !seen.has(c.captureId) && !!seen.add(c.captureId));
+}
+
+// What pairs a checked file with another of the import; a file already matched to the library
+// keeps that match instead.
+function pairFacts(r: ImportRow): PairFacts[] {
+  if (r.isVideo || r.takenAt === undefined || r.possibleDuplicate || r.rawMatch || r.editedVersionOf) return [];
+  return [
+    {
+      key: r.key,
+      name: r.file.name,
+      isRaw: !!r.isRaw,
+      takenAt: r.takenAt,
+      documentId: r.versionEvidence?.documentId ?? null,
+      press: r.versionEvidence?.press ?? null,
+    },
+  ];
 }
 
 const UPLOAD_CONCURRENCY = 2;
@@ -138,7 +163,10 @@ export default function PhotoImportRows({
 }) {
   const { t } = useTranslation();
   const speciesName = useSpeciesName();
-  const [rows, setRows] = useState<ImportRow[]>([]);
+  const [rawRows, setRows] = useState<ImportRow[]>([]);
+  // A RAW and its edit in this import are one photo: they show and act as one (batchPairs.ts).
+  const pairs = useMemo(() => batchPairs(rawRows.flatMap(pairFacts)), [rawRows]);
+  const rows = useMemo(() => joinPairs(rawRows, pairs, (r) => r.file.name), [rawRows, pairs]);
   const [importing, setImporting] = useState(false);
   const [lastBatch, setLastBatch] = useState<CommittedImport[]>([]);
   const toast = useToast();
@@ -485,6 +513,8 @@ export default function PhotoImportRows({
                   subject: res.subject ?? null,
                   gps: res.gps ?? null,
                   cameraTime: res.cameraTime ?? null,
+                  takenAt: res.takenAt ?? null,
+                  versionEvidence: res.versionEvidence ?? null,
                   inspectedRegion: (forRegionId && cameraRegion && res.gps?.regionId) || forRegionId,
                   isInspecting: false,
                 }
@@ -535,19 +565,34 @@ export default function PhotoImportRows({
   }
 
   function removeRow(key: string) {
+    const removed = rows.find((r) => r.key === key);
+    // Its partner keeps the species and verdict it showed.
+    const partner = rows.find((r) => r.key === removed?.partnerKey);
     setRows((prev) => {
       const row = prev.find((r) => r.key === key);
       if (row) URL.revokeObjectURL(row.previewUrl);
-      return prev.filter((r) => r.key !== key);
+      return prev
+        .filter((r) => r.key !== key)
+        .map((r) =>
+          r.key === partner?.key
+            ? {
+                ...r,
+                speciesId: partner.speciesId,
+                speciesLabel: partner.speciesLabel,
+                notWildlife: partner.notWildlife,
+              }
+            : r,
+        );
     });
-    const removed = rows.find((r) => r.key === key);
     if (removed && !removed.captureId) dropUpload(key, removed.uploadId);
     if (removed && !removed.captureId && !removed.possibleDuplicate) removedFilesRef.current.push(removed.file);
     review.forgetRow(key);
   }
 
   const readyRows = rows.filter((r) => r.speciesId && r.status === "ready" && !skipsRow(r) && !skipKind(r));
-  const readyCount = readyRows.length;
+  // A pair imports as one photo, so it counts once.
+  const readyKeys = new Set(readyRows.map((r) => r.key));
+  const readyCount = readyRows.filter((r) => !(r.samePhotoAs && readyKeys.has(r.partnerKey!))).length;
 
   // Photos this import leaves out (not wildlife, marked "No animal", already in the library) wait in
   // one section at the end, out of the groups, their counts and the keys.
@@ -679,13 +724,25 @@ export default function PhotoImportRows({
       regionId,
     );
 
+    // A RAW goes in one request with its paired edit, so the two become one photo with both files.
+    const byKey = new Map(toImport.map((r) => [r.key, r]));
+    const rawWith = new Map<string, ImportRow>();
+    for (const r of toImport) {
+      const p = r.partnerKey ? byKey.get(r.partnerKey) : undefined;
+      if (p && r.isRaw && !p.isRaw && p.speciesId === r.speciesId) rawWith.set(p.key, r);
+    }
+    const riding = new Set([...rawWith.values()].map((r) => r.key));
+    const requests = toImport.filter((r) => !riding.has(r.key));
+
     const committed: CommittedImport[] = [];
     // Every file joins the global upload banner now, so its count is the whole import from the
     // start (not just the ones begun); the uploads keep going if this screen unmounts.
-    for (const row of toImport) rowJobsRef.current.set(row.key, registerExternalJob(row.speciesId!, row.file.name));
-    await mapWithConcurrency(toImport, UPLOAD_CONCURRENCY, async (row) => {
+    for (const row of requests) rowJobsRef.current.set(row.key, registerExternalJob(row.speciesId!, row.file.name));
+    await mapWithConcurrency(requests, UPLOAD_CONCURRENCY, async (row) => {
       const jobId = rowJobsRef.current.get(row.key)!;
       const onProgress = (sent: number, total: number) => setRowProgress(row.key, sent, total);
+      const raw = rawWith.get(row.key);
+      const keys = raw ? [row.key, raw.key] : [row.key];
       try {
         const outcome = await commitImport(
           {
@@ -700,22 +757,27 @@ export default function PhotoImportRows({
           {
             ensureUploaded: () => ensureUploaded(row.key, row.file),
             // A 410 on the reused upload sends the file again.
-            post: (endpoint, uploadId, addFields) =>
-              postUploadedFile(endpoint, row.file, {
+            post: async (endpoint, uploadId, addFields) => {
+              const rawUploadId = raw ? await ensureUploaded(raw.key, raw.file) : null;
+              return postUploadedFile(endpoint, row.file, {
                 stagedId: row.isVideo ? row.stagedId : undefined,
                 uploadId,
                 onProgress,
-                addFields,
-              }),
+                addFields: (form) => {
+                  addFields(form);
+                  if (rawUploadId) form.append("rawUploadId", rawUploadId);
+                },
+              });
+            },
           },
         );
-        uploadsRef.current.delete(row.key);
+        for (const k of keys) uploadsRef.current.delete(k);
         if (outcome.kind === "rejected") {
           // The server read a reject this screen hadn't seen yet (the check failed or was still
           // running), and the import skips those.
           setRows((prev) =>
             prev.map((r) =>
-              r.key === row.key
+              keys.includes(r.key)
                 ? { ...r, status: "ready", uploadId: null, cull: { verdict: "reject", label: r.cull?.label ?? null } }
                 : r,
             ),
@@ -724,18 +786,20 @@ export default function PhotoImportRows({
           return;
         }
         const captureId = outcome.captureId;
-        committed.push({ key: row.key, captureId });
-        setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, status: "done", captureId } : r)));
+        for (const key of keys) committed.push({ key, captureId });
+        setRows((prev) => prev.map((r) => (keys.includes(r.key) ? { ...r, status: "done", captureId } : r)));
         settleExternalJob(jobId);
       } catch (err) {
         const message = err instanceof Error ? err.message : t("import.rows.uploadFailed");
         setRows((prev) =>
-          prev.map((r) => (r.key === row.key ? { ...r, status: "error", error: message, uploadProgress: null } : r)),
+          prev.map((r) => (keys.includes(r.key) ? { ...r, status: "error", error: message, uploadProgress: null } : r)),
         );
         settleExternalJob(jobId, message);
+        // The RAW's upload may be what expired: a retry sends it again.
+        if (raw) uploadsRef.current.delete(raw.key);
       } finally {
         rowJobsRef.current.delete(row.key);
-        importingKeysRef.current.delete(row.key);
+        for (const k of keys) importingKeysRef.current.delete(k);
       }
     });
 
@@ -744,8 +808,10 @@ export default function PhotoImportRows({
     if (committed.length === 0) return;
     // The staged places, read as they are now (they can change while files upload), in one step.
     const latest = new Map(rowsRef.current.map((r) => [r.key, r]));
+    // A RAW imported with its edit shares the edit's capture: one photo.
+    const photos = uniqueCaptures(committed);
     const places = placeAssignments(
-      committed.map((c) => {
+      photos.map((c) => {
         const r = latest.get(c.key) ?? toImport.find((x) => x.key === c.key);
         return { captureId: c.captureId, place: r?.place, label: r?.label };
       }),
@@ -763,7 +829,7 @@ export default function PhotoImportRows({
     const species = new Set(toImport.filter((r) => committed.some((c) => c.key === r.key)).map((r) => r.speciesId));
     const onlySpecies = species.size === 1 ? [...species][0] : null;
     reportResultShownElsewhere();
-    toast.show(t("import.rows.filed", { photos: committed.length, species: species.size }), {
+    toast.show(t("import.rows.filed", { photos: photos.length, species: species.size }), {
       tone: "success",
       actions: [
         {
@@ -780,7 +846,7 @@ export default function PhotoImportRows({
       });
     // Photos taken during a trip they weren't imported into: a hint to review them there.
     api
-      .post("/trips/matching", { captureIds: committed.map((c) => c.captureId) })
+      .post("/trips/matching", { captureIds: photos.map((c) => c.captureId) })
       .then(({ trips }) => {
         const trip = trips[0];
         if (!trip) return;
@@ -798,12 +864,13 @@ export default function PhotoImportRows({
   async function undoBatch(all: CommittedImport[]) {
     const batch = all.filter((c) => !undoneCaptureIds.current.has(c.captureId));
     if (batch.length === 0) return;
-    const { undone, failed } = await undoImports(
-      batch,
+    const { undone: undonePhotos, failed } = await undoImports(
+      uniqueCaptures(batch),
       (captureId) => api.delete(apiPath("/captures/{id}", { id: captureId })),
       UPLOAD_CONCURRENCY,
     );
-    for (const u of undone) undoneCaptureIds.current.add(u.captureId);
+    for (const u of undonePhotos) undoneCaptureIds.current.add(u.captureId);
+    const undone = batch.filter((c) => undoneCaptureIds.current.has(c.captureId));
     if (undone.length > 0) reportImportsRemoved();
     setRows((prev) => resetUndoneRows(prev, undone));
     setLastBatch((prev) => prev.filter((c) => !undoneCaptureIds.current.has(c.captureId)));
@@ -914,7 +981,7 @@ export default function PhotoImportRows({
             <div className="ml-auto flex items-center gap-3">
               {lastBatch.length > 0 && (
                 <Button variant="link" size="sm" onClick={() => void undoBatch(lastBatch)}>
-                  {t("import.rows.undoLast", { count: lastBatch.length })}
+                  {t("import.rows.undoLast", { count: uniqueCaptures(lastBatch).length })}
                 </Button>
               )}
               <Button size="sm" onClick={importAll} loading={importing} disabled={readyCount === 0}>

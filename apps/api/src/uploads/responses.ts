@@ -97,6 +97,15 @@ export const UploadInspection = Open({
       takenAt: Nullable(DateTime()),
     }),
   ),
+  /** What links this file with another of the same batch as one photo (a RAW and its edit): the XMP
+   *  document it descends from, and its shutter press (time, sub-second and body serial) as an
+   *  opaque key. Null when the file doesn't record them. */
+  versionEvidence: Type.Optional(
+    Open({
+      documentId: Nullable(Type.String()),
+      press: Nullable(Type.String()),
+    }),
+  ),
   /** The animal's box in percent of the upright photo (the preview shown), when matching located it. */
   subject: Nullable(Open({ x: Type.Number(), y: Type.Number(), w: Type.Number(), h: Type.Number() })),
   /** The camera's GPS point, with the most specific region holding it and the nearest town. */

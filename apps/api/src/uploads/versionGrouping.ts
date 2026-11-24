@@ -15,15 +15,12 @@ import { hideCapturesTx, unhideCapturesTx, type HiddenCover } from "../captures/
 import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { readVersionTags } from "./exif.js";
 import { lastOriginalInsertAt } from "./captureRows.js";
+import { baseStem } from "@lifer/shared";
+
+export { baseStem };
 
 export type FileRole = "original" | "edit" | "export";
 export type VersionEvidence = "document_id" | "time_serial_suffix" | "suggested" | "manual" | "version_folder";
-
-// What editors and exporters append to a name: "-2", "-Edit", "-Enhanced-NR", "-Pano", "-HDR",
-// black and white ("-BW", "_bw", "1234bw"), or a print size such as "_10x27" or " 16x20".
-// Underscore digits are left alone: "DSC_0001" is a camera name.
-const SUFFIX =
-  /(?:-(?:\d{1,3}|edit(?:ed)?|enhanced(?:-nr|-sr)?|nr|pano(?:rama)?|hdr|copy)|[-_ ](?:bw|b&w|mono)|(?<=\d)bw|[-_ ]\d{1,3}x\d{1,3})$/i;
 
 /** Folders whose files are versions of the original beside them, unless the user lists others. */
 export const DEFAULT_VERSION_FOLDERS = [
@@ -76,15 +73,6 @@ export function versionLabel(ref: string, role: FileRole | null): { kind: Versio
 const EDIT_FORMATS = new Set([".dng", ".tif", ".tiff", ".psd", ".psb"]);
 const EDITOR_SOFTWARE =
   /lightroom|photoshop|camera raw|capture one|dxo|topaz|luminar|darktable|rawtherapee|gimp|affinity|on1|pixelmator|acdsee/i;
-
-/** The name a file's versions share: no folder, extension or editor suffixes, lower case. */
-export function baseStem(fileName: string): string {
-  let stem = path.basename(fileName.replace(/\\/g, "/"), path.extname(fileName)).toLowerCase();
-  for (let next = stem.replace(SUFFIX, ""); next !== stem && next.length > 0; next = stem.replace(SUFFIX, "")) {
-    stem = next;
-  }
-  return stem;
-}
 
 const text = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
@@ -478,6 +466,20 @@ export interface EditedVersionTarget {
   evidence: VersionEvidence;
 }
 
+/** The evidence that links versions on its own: the XMP document a file descends from, and its
+ *  shutter press (the strict fingerprint, only when the file records sub-second and body serial). */
+export function versionEvidenceOf(
+  fileName: string,
+  tags: Record<string, unknown>,
+  strictFingerprint: string | null,
+): { documentId: string | null; press: string | null } {
+  const press =
+    strictFingerprint != null &&
+    text(String(tags.SubSecTimeOriginal ?? "")) != null &&
+    text(String(tags.SerialNumber ?? "")) != null;
+  return { documentId: classifyFile(fileName, tags).documentId, press: press ? strictFingerprint : null };
+}
+
 /** The RAW-only photo a non-RAW file being imported was made from (an edited JPEG of a RAW
  *  already imported), on the two rules that link on their own: the same XMP document, or the
  *  same shutter press with a name that differs only by an editor's suffix. Null when nothing,
@@ -488,11 +490,8 @@ export async function findEditedVersionTarget(
   tags: Record<string, unknown>,
   strictFingerprint: string | null,
 ): Promise<EditedVersionTarget | null> {
-  const { documentId } = classifyFile(fileName, tags);
-  const press =
-    strictFingerprint != null &&
-    text(String(tags.SubSecTimeOriginal ?? "")) != null &&
-    text(String(tags.SerialNumber ?? "")) != null;
+  const { documentId, press: pressFingerprint } = versionEvidenceOf(fileName, tags, strictFingerprint);
+  const press = pressFingerprint != null;
   if (!documentId && !press) return null;
   const res = await pool.query<{ head: string; ref: string; document_id: string | null; by_document: boolean }>(
     `SELECT COALESCE(cv.group_capture_id, c.id) AS head, o.ref, o.document_id, o.document_id = $3 AS by_document

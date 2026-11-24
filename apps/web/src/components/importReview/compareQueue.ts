@@ -2,7 +2,7 @@ import type { SuggestedSpecies } from "../SpeciesPicker";
 import { visibleSuggestions, type ReviewRowBase } from "./useImportReview";
 
 // Which photos and species compare mode (ImportCompareView) steps through.
-export const toConfirm = (r: ReviewRowBase) => !r.speciesId && !r.notWildlife && !r.possibleDuplicate;
+export const toConfirm = (r: ReviewRowBase) => !r.speciesId && !r.notWildlife && !r.possibleDuplicate && !r.samePhotoAs;
 // A typed species has no match to show.
 export const percentOf = (s: SuggestedSpecies) => s.matchPercent ?? (s.score > 0 ? Math.round(s.score * 100) : null);
 

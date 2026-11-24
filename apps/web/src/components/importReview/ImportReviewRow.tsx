@@ -99,18 +99,23 @@ export default function ImportReviewRow({
               {row.isInspecting && !row.speciesId && (
                 <InlineSpinner size="xs" label={t("import.review.findingSuggestions")} />
               )}
-              {/* A RAW or an edit of a photo you already have takes that photo's species: nothing to compare. */}
-              {!row.notWildlife && !row.possibleDuplicate && !row.rawMatch && !row.editedVersionOf && (
-                <Button
-                  variant="link"
-                  size="sm"
-                  onClick={() => onCompare()}
-                  tooltip={{ label: t("import.review.compareTip"), shortcut: shortcutLabel("compareImport") }}
-                >
-                  {t("import.review.compare")}
-                </Button>
-              )}
-              {onNoAnimal && !row.notWildlife && !row.possibleDuplicate && !row.speciesId && (
+              {/* A RAW or an edit of a photo you already have, or the partner of one in this import,
+                  takes that photo's species: nothing to compare. */}
+              {!row.notWildlife &&
+                !row.possibleDuplicate &&
+                !row.rawMatch &&
+                !row.editedVersionOf &&
+                !row.samePhotoAs && (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    onClick={() => onCompare()}
+                    tooltip={{ label: t("import.review.compareTip"), shortcut: shortcutLabel("compareImport") }}
+                  >
+                    {t("import.review.compare")}
+                  </Button>
+                )}
+              {onNoAnimal && !row.notWildlife && !row.possibleDuplicate && !row.speciesId && !row.samePhotoAs && (
                 <Button
                   variant="link"
                   size="sm"
@@ -123,6 +128,11 @@ export default function ImportReviewRow({
               {row.rawMatch && <span className="text-footnote text-muted">{t("import.review.rawMatch")}</span>}
               {row.editedVersionOf && (
                 <span className="text-footnote text-muted">{t("import.review.editedVersion")}</span>
+              )}
+              {row.samePhotoAs && (
+                <span className="min-w-0 text-footnote text-muted wrap-anywhere">
+                  {t("import.review.samePhotoAs", { name: row.samePhotoAs })}
+                </span>
               )}
               {!row.isInspecting && !row.speciesId && row.suggestError && (
                 <span className="text-footnote text-muted">

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useLatest } from "../../hooks/useLatest";
 import { isTypingTarget } from "../../hooks/useKeyboardShortcuts";
 import { matches } from "../../lib/keymap";
@@ -35,6 +35,10 @@ export interface ReviewRowBase {
   cull?: CullMarks | null;
   /** The animal's box in percent of the shown photo, which compare mode opens zoomed on. */
   subject?: { x: number; y: number; w: number; h: number } | null;
+  /** Another file of this import that is the same photo (batchPairs.ts): one species, one tick. */
+  partnerKey?: string;
+  /** On the partner that follows the other: that file's name. */
+  samePhotoAs?: string;
 }
 
 /** Compare mode's opening state: the photo, the ticked photos it confirms with, a species to show first. */
@@ -61,7 +65,21 @@ export function useImportReview<R extends ReviewRowBase>(
   opts: { onAllAssignedEnter?: () => void; enterStartsImport: boolean },
 ) {
   const speciesName = useSpeciesName();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Paired files (batchPairs.ts) act as one: a key stands for itself and its partner.
+  const partners = useMemo(
+    () => new Map(rows.flatMap((r) => (r.partnerKey ? [[r.key, r.partnerKey] as const] : []))),
+    [rows],
+  );
+  const withPartners = (keys: string[]) => [
+    ...new Set(keys.flatMap((k) => (partners.has(k) ? [k, partners.get(k)!] : [k]))),
+  ];
+  const [ticked, setSelected] = useState<Set<string>>(new Set());
+  // A pair formed after one file was ticked shows both ticked.
+  const selected = useMemo(() => {
+    const out = new Set(ticked);
+    for (const [k, p] of partners) if (ticked.has(p)) out.add(k);
+    return out;
+  }, [ticked, partners]);
   const [focusedRowKey, setFocusedRowKey] = useState<string | null>(null);
   // The photo Up and Down moved to; null follows the first photo without a species.
   const [cursorKey, setCursorKey] = useState<string | null>(null);
@@ -71,7 +89,8 @@ export function useImportReview<R extends ReviewRowBase>(
   // Set when a row was just assigned (or reopened with Up), so the next row to do is scrolled into view.
   const scrollToActiveRow = useRef(false);
 
-  function assignSpecies(keys: string[], result: SpeciesResult) {
+  function assignSpecies(picked: string[], result: SpeciesResult) {
+    const keys = withPartners(picked);
     setRows((prev) =>
       prev.map((r) =>
         // Picking a species by hand overrides a "doesn't look like wildlife" flag.
@@ -93,7 +112,8 @@ export function useImportReview<R extends ReviewRowBase>(
   // One step per action, covering every photo it changed (a set marked "no animal" at once).
   type Before = Pick<ReviewRowBase, "key" | "speciesId" | "speciesLabel" | "notWildlife" | "maybeNotWildlife">;
   const undoStack = useRef<Before[][]>([]);
-  const remember = (keys: string[]) => {
+  const remember = (picked: string[]) => {
+    const keys = withPartners(picked);
     const step = rows
       .filter((r) => keys.includes(r.key))
       .map((r) => ({
@@ -146,7 +166,8 @@ export function useImportReview<R extends ReviewRowBase>(
 
   /** "No animal": the photos are left out like ones that don't look like wildlife (the row's
    *  "Import anyway" brings one back, Mod+Z the whole step), and the keys move on. */
-  function markNoAnimal(keys: string[]) {
+  function markNoAnimal(picked: string[]) {
+    const keys = withPartners(picked);
     remember(keys);
     setRows((prev) =>
       prev.map((r) =>
@@ -177,13 +198,9 @@ export function useImportReview<R extends ReviewRowBase>(
   // Clears a row's species and unticks it, keeping its pick highlighted so Enter puts it back.
   function reopen(row: R) {
     const pick = visibleSuggestions(row.suggestions).findIndex((s) => s.id === row.speciesId);
-    setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, speciesId: null, speciesLabel: null } : r)));
-    setSelected((prev) => {
-      if (!prev.has(row.key)) return prev;
-      const next = new Set(prev);
-      next.delete(row.key);
-      return next;
-    });
+    const keys = withPartners([row.key]);
+    setRows((prev) => prev.map((r) => (keys.includes(r.key) ? { ...r, speciesId: null, speciesLabel: null } : r)));
+    setSelected((prev) => new Set([...prev].filter((k) => !keys.includes(k))));
     setHighlightFor(row.key);
     setHighlightIndex(Math.max(pick, 0));
   }
@@ -196,20 +213,20 @@ export function useImportReview<R extends ReviewRowBase>(
       setCursorKey(key);
       return;
     }
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+    const keys = withPartners([key]);
+    const on = !selected.has(key);
+    setSelected((prev) => new Set(on ? [...prev, ...keys] : [...prev].filter((k) => !keys.includes(k))));
   }
 
-  /** Forgets a removed row's selection and focus. */
+  /** Forgets a removed row's selection and focus. Its partner stays as it was. */
   function forgetRow(key: string) {
+    const partner = partners.get(key);
+    const keepPartner = partner != null && selected.has(partner);
     setSelected((prev) => {
-      if (!prev.has(key)) return prev;
+      if (!prev.has(key) && !keepPartner) return prev;
       const next = new Set(prev);
       next.delete(key);
+      if (keepPartner) next.add(partner);
       return next;
     });
     if (focusedRowKey === key) setFocusedRowKey(null);
@@ -219,9 +236,10 @@ export function useImportReview<R extends ReviewRowBase>(
   /** "Import anyway" on a duplicate or not-wildlife warning. A duplicate's earlier photo is the best
    *  match there is, so its species is filled in (unless one was already picked). */
   function dismissWarning(key: string, warning: "possibleDuplicate" | "notWildlife" | "maybeNotWildlife") {
+    const keys = withPartners([key]);
     setRows((prev) =>
       prev.map((r) => {
-        if (r.key !== key) return r;
+        if (!keys.includes(r.key)) return r;
         const dup = warning === "possibleDuplicate" ? r.possibleDuplicate : null;
         return {
           ...r,
@@ -233,7 +251,9 @@ export function useImportReview<R extends ReviewRowBase>(
   }
 
   // Keyboard actions target the cursor row, else the first unassigned row; not-wildlife rows are skipped.
-  const activeRow = rows.find((r) => r.key === cursorKey) ?? rows.find((r) => !r.speciesId && !r.notWildlife);
+  // A partner follows its pair's other file, so it's never the next one to do.
+  const activeRow =
+    rows.find((r) => r.key === cursorKey) ?? rows.find((r) => !r.speciesId && !r.notWildlife && !r.samePhotoAs);
   const activeKey = activeRow?.key;
   // A new active row starts at its first suggestion.
   const [highlightIndex, setHighlightIndex] = useState(0);
@@ -259,7 +279,7 @@ export function useImportReview<R extends ReviewRowBase>(
   }
 
   // Ticks on confirmed rows mean "confirmed", so bulk assign acts only on the ones still to do.
-  const bulkKeys = rows.filter((r) => selected.has(r.key) && !r.speciesId).map((r) => r.key);
+  const bulkKeys = rows.filter((r) => selected.has(r.key) && !r.speciesId && !r.samePhotoAs).map((r) => r.key);
 
   // A ticked photo compares with the rest of the ticked ones still to confirm, as one set.
   function openCompare(key: string, speciesId?: string) {

@@ -542,6 +542,7 @@
     "review": {
       "rawMatch": "After the picked species, joined by a middle dot: this RAW file pairs with a photo already imported.",
       "editedVersion": "After the picked species, joined by a middle dot: this edited file (such as a JPEG exported from a RAW) joins a photo already imported as one of its versions.",
+      "samePhotoAs": "After the picked species, joined by a middle dot: this file is the same shot as another file in this import (such as a RAW and its edited export), so it takes that file's species and imports with it as one photo. {name} is the other file's name, such as 6F9A8074.CR3.",
       "suggestError": "{error} is an English error message from species matching.",
       "duplicateExact": "{species} is the earlier photo's species; {date} is its formatted capture date, shown only when known (dated is yes or no).",
       "duplicateSimilar": "Same as duplicateExact, for a near-duplicate.",

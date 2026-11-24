@@ -214,4 +214,89 @@ describe("PhotoImportRows", () => {
     const commit = post.mock.calls.find((c) => c[0] === "/uploads")!;
     expect(formFields(commit[1]).speciesId).toBe("sp-kingfisher");
   });
+
+  it("treats a RAW and its JPG in one import as one photo, imported in one request", async () => {
+    uploadFile.mockImplementation(async (f: File) => `up-${f.name}`);
+    post.mockImplementation((path: string) => {
+      if (path === "/uploads/inspect")
+        return Promise.resolve({
+          possibleDuplicate: null,
+          suggestions: [heron, egret],
+          previewDataUrl: null,
+          takenAt: "2026-11-20T07:12:33.000Z",
+          versionEvidence: { documentId: null, press: null },
+        });
+      if (path === "/uploads") return Promise.resolve({ captureId: "cap-1" });
+      return Promise.reject(new Error(`unexpected POST ${path}`));
+    });
+    const { container } = render(
+      <MemoryRouter>
+        <ToastContext.Provider value={toast}>
+          <PhotoImportRows />
+        </ToastContext.Provider>
+      </MemoryRouter>,
+    );
+    const input = container.querySelector<HTMLInputElement>('input[type="file"][accept]')!;
+    fireEvent.change(input, {
+      target: {
+        files: [new File(["raw"], "6F9A8074.CR3"), new File(["jpeg"], "6F9A8074.jpg", { type: "image/jpeg" })],
+      },
+    });
+
+    // The JPG follows the RAW: no suggestions or Compare of its own.
+    expect(await screen.findByText("· Same photo as 6F9A8074.CR3")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /Great Blue Heron.*match/ })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Compare" })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /Great Blue Heron.*match/ }));
+    expect(screen.getAllByText("Great Blue Heron")).toHaveLength(2);
+    expect((screen.getByRole("checkbox", { name: "6F9A8074.jpg" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText(/1 ready to import/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 photo" }));
+    await waitFor(() => expect(screen.getAllByText("✓ Imported")).toHaveLength(2));
+    const commits = post.mock.calls.filter((c) => c[0] === "/uploads");
+    expect(commits).toHaveLength(1);
+    expect(formFields(commits[0][1])).toMatchObject({
+      speciesId: "sp-heron",
+      uploadId: "up-6F9A8074.jpg",
+      rawUploadId: "up-6F9A8074.CR3",
+    });
+    expect(vi.mocked(toast.show).mock.calls[0][0]).toBe("1 photo filed under 1 species");
+  });
+
+  it("keeps the other file of a pair when one is removed", async () => {
+    post.mockImplementation((path: string) =>
+      path === "/uploads/inspect"
+        ? Promise.resolve({
+            possibleDuplicate: null,
+            suggestions: [heron],
+            previewDataUrl: null,
+            takenAt: "2026-11-20T07:12:33.000Z",
+            versionEvidence: { documentId: null, press: null },
+          })
+        : Promise.reject(new Error(`unexpected POST ${path}`)),
+    );
+    const { container } = render(
+      <MemoryRouter>
+        <ToastContext.Provider value={toast}>
+          <PhotoImportRows />
+        </ToastContext.Provider>
+      </MemoryRouter>,
+    );
+    const input = container.querySelector<HTMLInputElement>('input[type="file"][accept]')!;
+    fireEvent.change(input, {
+      target: {
+        files: [new File(["raw"], "6F9A8074.CR3"), new File(["jpeg"], "6F9A8074.jpg", { type: "image/jpeg" })],
+      },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Great Blue Heron.*match/ }));
+    // The RAW row's remove button comes first.
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+
+    expect(screen.queryByText("6F9A8074.CR3")).toBeNull();
+    expect(screen.queryByText(/Same photo as/)).toBeNull();
+    expect(screen.getByText("Great Blue Heron")).toBeTruthy();
+    expect((screen.getByRole("checkbox", { name: "6F9A8074.jpg" }) as HTMLInputElement).checked).toBe(true);
+  });
 });

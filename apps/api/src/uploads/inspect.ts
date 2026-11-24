@@ -18,7 +18,7 @@ import {
   extractEmbeddedPreview,
 } from "./exif.js";
 import { findRawRelatedCaptures } from "./rawMatching.js";
-import { findEditedVersionTarget } from "./versionGrouping.js";
+import { findEditedVersionTarget, versionEvidenceOf } from "./versionGrouping.js";
 import {
   claimedPhotoFormat,
   isRawFile,
@@ -242,12 +242,19 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
               : Promise.resolve(null);
           // A RAW of a photo you've already imported is filed with that photo on import (raw.ts), so it
           // already has its species: no suggestions, duplicate warning or wildlife check needed.
+          const exifFingerprint = await computeExifFingerprint(file.path, tags);
+          // The same evidence, for pairing this file with another of the batch (a RAW and its edit).
+          const versionEvidence = versionEvidenceOf(
+            file.filename ?? "",
+            tags as Record<string, unknown>,
+            exifFingerprint.strict,
+          );
           const rawMatch = isRaw
             ? await findRawRelatedCaptures(
                 userId,
                 file.filename ?? "",
                 exif,
-                await computeExifFingerprint(file.path, tags),
+                exifFingerprint,
                 captureTimeFromTags(tags),
               )
                 .then((matches) => (matches.length === 1 ? matches[0] : null))
@@ -261,7 +268,7 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
                   userId,
                   file.filename ?? "",
                   tags as Record<string, unknown>,
-                  (await computeExifFingerprint(file.path, tags)).strict,
+                  exifFingerprint.strict,
                 ).catch(() => null)
               : null;
           const knownPhoto = Boolean(rawMatch || editedVersion);
@@ -475,6 +482,7 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
               commonName: editedVersion.commonName,
               takenAt: editedVersion.takenAt,
             },
+            versionEvidence,
             subject,
             gps,
           };

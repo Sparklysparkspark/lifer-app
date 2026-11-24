@@ -41590,6 +41590,12 @@ export interface paths {
                     [key: string]: unknown;
                   })
                 | null;
+              versionEvidence?: {
+                documentId: string | null;
+                press: string | null;
+              } & {
+                [key: string]: unknown;
+              };
               subject:
                 | ({
                     x: number;

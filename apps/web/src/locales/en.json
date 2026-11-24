@@ -1323,6 +1323,7 @@
       "findingSuggestions": "Finding species suggestions",
       "rawMatch": "· RAW for your photo already in the library",
       "editedVersion": "· Edited version of the photo you already have",
+      "samePhotoAs": "· Same photo as {name}",
       "suggestError": "{error}. Pick a species by hand.",
       "remove": "Remove",
       "importAnyway": "Import anyway",

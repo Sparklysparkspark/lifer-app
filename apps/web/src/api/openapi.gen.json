@@ -36735,6 +36735,15 @@
                         { "type": "null" }
                       ]
                     },
+                    "versionEvidence": {
+                      "type": "object",
+                      "required": ["documentId", "press"],
+                      "properties": {
+                        "documentId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                        "press": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                      },
+                      "additionalProperties": true
+                    },
                     "subject": {
                       "anyOf": [
                         {
