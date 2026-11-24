@@ -1562,6 +1562,7 @@
     "radiusLabel": "How big a place is (a radius). Photos inside it count as taken there, and it is sent to iNaturalist as the location's accuracy.",
     "localityLabel": "The town and province a place is in, e.g. Prince George, British Columbia, Canada.",
     "localityPlaceholder": "Example locality; keep a real town and province.",
+    "movePinHere": "Link button beside the town or area hint after picking a town from the search: moves the map pin and coordinates to that town's point. Picking a town alone never moves them.",
     "localityAuto": "Hint under the town or area field when adding a place and it is empty: Lifer works it out from the place's point.",
     "localitySource": {
       "region": "Where the town or area text came from: Lifer filled it in from the province.",

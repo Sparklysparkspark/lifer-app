@@ -54,7 +54,7 @@ To place photos picked in the Gallery, select them and choose **Place on map**. 
 
 A saved spot is a named place: a centre, a size (100 m unless you change it) and a town or area. Choose one from the place list in **Needs placing** or in a photo's coordinates. With nothing typed, the list shows **Nearby** places first (when the photos are inside one, **This looks like King Fisher Pond** leads), then **Recent** and **All places**. **New place from the map** is the last row.
 
-When you add a place, **Town or area** searches towns and provinces (online too, when allowed). Picking one fills it in and moves the pin there; typing your own text works as well. Left empty, Lifer fills it in from the pin.
+When you add a place, **Town or area** searches towns and provinces (online too, when allowed). Picking one fills in the text only and never moves the pin or changes the coordinates; choose **Move the pin here** if you do want the pin at that town. Typing your own text works as well. Left empty, Lifer fills it in from the pin.
 
 Choosing a place gives the photos its name and region. A photo with its own GPS keeps its point; a photo without one takes the place's centre. When some were taken more than a kilometre outside the place, Lifer asks first: **File here** keeps their points, **Move these too** moves them.
 

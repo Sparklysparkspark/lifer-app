@@ -1864,6 +1864,7 @@
     "radiusLabel": "Size",
     "localityLabel": "Town or area",
     "localityPlaceholder": "e.g. Prince George, British Columbia",
+    "movePinHere": "Move the pin here",
     "localityAuto": "Left empty, Lifer fills it in from the point",
     "localitySource": {
       "region": "Worked out from the region",

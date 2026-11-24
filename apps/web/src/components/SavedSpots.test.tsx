@@ -163,7 +163,43 @@ describe("SavedSpotsList", () => {
 });
 
 describe("AddSpotModal", () => {
-  it("finds a town for Town or area, which fills it in, moves the pin there and names an unnamed place", async () => {
+  it("keeps the coordinates when a town is picked for the metadata", async () => {
+    get.mockImplementation(async (url: string) =>
+      String(url).startsWith("/places/locate")
+        ? {
+            places: [
+              {
+                kind: "town",
+                id: "1",
+                name: "Prince George",
+                detail: "British Columbia, Canada",
+                lat: 53.917,
+                lon: -122.75,
+                regionId: null,
+                bbox: null,
+                group: null,
+                locality: "Prince George, British Columbia, Canada",
+                geoprivacy: null,
+                radiusM: null,
+                distanceM: null,
+                recognised: false,
+              },
+            ],
+            nextOffset: null,
+          }
+        : { running: false, canUndo: false },
+    );
+    render(<AddSpotModal onClose={vi.fn()} onAdded={vi.fn()} initialPoint={{ lat: 54.00162, lon: -122.6984 }} />);
+    const coords = screen.getByLabelText("Latitude and longitude") as HTMLInputElement;
+    const before = coords.value;
+    const town = screen.getByRole("combobox", { name: "Town or area" });
+    fireEvent.focus(town);
+    fireEvent.change(town, { target: { value: "prince" } });
+    fireEvent.click(await screen.findByRole("option", { name: "Prince George, British Columbia, Canada" }));
+    expect(coords.value).toBe(before);
+  });
+
+  it("finds a town for Town or area, which fills the text only, leaves the pin alone until asked and names an unnamed place", async () => {
     get.mockImplementation(async (url: string) =>
       String(url).startsWith("/places/locate")
         ? {
@@ -198,7 +234,10 @@ describe("AddSpotModal", () => {
     fireEvent.click(await screen.findByRole("option", { name: "Prince George, British Columbia, Canada" }));
     expect((town as HTMLInputElement).value).toBe("Prince George, British Columbia, Canada");
     expect(screen.getByText("From Lifer's town list")).toBeTruthy();
-    expect((screen.getByLabelText("Latitude and longitude") as HTMLInputElement).value).toMatch(/^53\.917/);
+    const coords = screen.getByLabelText("Latitude and longitude") as HTMLInputElement;
+    expect(coords.value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Move the pin here" }));
+    expect(coords.value).toMatch(/^53\.917/);
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Prince George");
     // Free text is still the user's own.
     fireEvent.change(town, { target: { value: "Near Prince George" } });

@@ -367,7 +367,7 @@ export function AddSpotModal({
   const [name, setName] = useState(initialName.slice(0, 500));
   const [locality, setLocality] = useState(initialLocality?.slice(0, 300) ?? "");
   // The last town or area picked from the search, to say where the text came from.
-  const [picked, setPicked] = useState<{ text: string; online: boolean } | null>(
+  const [picked, setPicked] = useState<{ text: string; online: boolean; lat?: number; lon?: number } | null>(
     initialLocality ? { text: initialLocality.slice(0, 300), online: true } : null,
   );
   const [text, setText] = useState(initialPoint ? formatCoordinates(initialPoint.lat, initialPoint.lon) : "");
@@ -444,8 +444,8 @@ export function AddSpotModal({
               onPick={(p) => {
                 const line = placeLine(p).slice(0, 300);
                 setLocality(line);
-                setPicked({ text: line, online: p.kind === "online" });
-                setText(formatCoordinates(p.lat, p.lon));
+                // Text only: the pin and coordinates are the photo's real position and stay put.
+                setPicked({ text: line, online: p.kind === "online", lat: p.lat, lon: p.lon });
                 if (!name.trim()) setName(p.name.slice(0, 500));
               }}
             />
@@ -456,6 +456,16 @@ export function AddSpotModal({
               : locality === picked?.text
                 ? t(picked.online ? "savedSpots.localitySource.online" : "savedSpots.localitySource.townList")
                 : t("savedSpots.localitySource.user")}
+            {locality === picked?.text && picked.lat !== undefined && picked.lon !== undefined && (
+              <Button
+                variant="link"
+                size="sm"
+                className="ml-2"
+                onClick={() => setText(formatCoordinates(picked.lat!, picked.lon!))}
+              >
+                {t("savedSpots.movePinHere")}
+              </Button>
+            )}
           </p>
         </div>
         <Suspense fallback={<Spinner />}>
