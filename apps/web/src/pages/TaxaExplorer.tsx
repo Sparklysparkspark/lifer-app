@@ -371,7 +371,7 @@ export default function TaxaExplorer() {
   const optionId = (i: number) => `${listId}-${i}`;
 
   return (
-    <main className="space-y-section p-page">
+    <div className="flex-1 bg-canvas">
       <PageHeader
         title={t("explorer.title")}
         backFallbackTo="/stats"
@@ -384,407 +384,421 @@ export default function TaxaExplorer() {
           ) : undefined
         }
       />
-      {tree.collected === 0 && !regionId ? (
-        <EmptyState
-          title={t("explorer.emptyTitle")}
-          action={{ label: t("nav.importPhotos"), onClick: () => navigate("/import") }}
-        />
-      ) : (
-        <div
-          className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-8"
-          data-uncollected-colour={uncollectedColour || undefined}
-        >
-          <div className={`min-w-0 transition-opacity ${loading ? "opacity-60" : ""}`} aria-busy={loading}>
-            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-              <nav
-                aria-label={t("explorer.regionPath")}
-                className="flex flex-wrap items-center gap-1 text-callout text-muted"
-              >
-                {regionId ? (
-                  <Button variant="link" size="sm" onClick={() => go({ region: null })}>
-                    {t("explorer.allRegions")}
-                  </Button>
-                ) : (
-                  <span aria-current="location" className="font-semibold text-ink">
-                    {t("explorer.allRegions")}
-                  </span>
+      <main className="space-y-section p-page">
+        {tree.collected === 0 && !regionId ? (
+          <EmptyState
+            title={t("explorer.emptyTitle")}
+            action={{ label: t("nav.importPhotos"), onClick: () => navigate("/import") }}
+          />
+        ) : (
+          <div
+            className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-8"
+            data-uncollected-colour={uncollectedColour || undefined}
+          >
+            <div className={`min-w-0 transition-opacity ${loading ? "opacity-60" : ""}`} aria-busy={loading}>
+              <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                <nav
+                  aria-label={t("explorer.regionPath")}
+                  className="flex flex-wrap items-center gap-1 text-callout text-muted"
+                >
+                  {regionId ? (
+                    <Button variant="link" size="sm" onClick={() => go({ region: null })}>
+                      {t("explorer.allRegions")}
+                    </Button>
+                  ) : (
+                    <span aria-current="location" className="font-semibold text-ink">
+                      {t("explorer.allRegions")}
+                    </span>
+                  )}
+                  {regionId &&
+                    regions.breadcrumb.map((r, i, trail) => (
+                      <span key={r.id} className="flex min-w-0 items-center gap-1">
+                        <span aria-hidden="true">›</span>
+                        {i === trail.length - 1 ? (
+                          <span aria-current="location" className="font-semibold text-ink wrap-anywhere">
+                            {r.name}
+                          </span>
+                        ) : (
+                          <Button variant="link" size="sm" onClick={() => go({ region: r.id })}>
+                            {r.name}
+                          </Button>
+                        )}
+                      </span>
+                    ))}
+                </nav>
+                {(regionId ? regions.children : regions.downloadedCountries).length > 0 && (
+                  // Wraps under the trail rather than squeezing beside it.
+                  <div className="min-w-64 flex-1">
+                    <AreaPills
+                      areas={regionId ? regions.children : regions.downloadedCountries}
+                      withPhotos={regionsWithPhotos}
+                      onPick={(id) => go({ region: id })}
+                    />
+                  </div>
                 )}
-                {regionId &&
-                  regions.breadcrumb.map((r, i, trail) => (
-                    <span key={r.id} className="flex min-w-0 items-center gap-1">
-                      <span aria-hidden="true">›</span>
-                      {i === trail.length - 1 ? (
+              </div>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <div className="relative w-full sm:w-72">
+                  <SearchInput
+                    value={query}
+                    onChange={(q) => {
+                      setQuery(q);
+                      setOption(0);
+                      setListOpen(true);
+                    }}
+                    onFocus={() => setListOpen(true)}
+                    onBlur={() => setListOpen(false)}
+                    onKeyDown={onSearchKey}
+                    placeholder={t("explorer.searchPlaceholder")}
+                    aria-label={t("explorer.searchPlaceholder")}
+                    inputProps={{
+                      role: "combobox",
+                      autoComplete: "off",
+                      "aria-autocomplete": "list",
+                      "aria-expanded": showResults,
+                      "aria-controls": listId,
+                      "aria-activedescendant": showResults && results.length ? optionId(option) : undefined,
+                    }}
+                  />
+                  {showResults && (
+                    <ul
+                      id={listId}
+                      role="listbox"
+                      aria-label={t("explorer.results")}
+                      className="absolute inset-x-0 top-full z-30 mt-1 max-h-96 min-w-72 overflow-y-auto rounded-panel border border-line bg-surface py-1 shadow-lg"
+                    >
+                      {results.length === 0 && (
+                        <li className="px-3 py-2 text-callout text-muted">{t("explorer.noMatch")}</li>
+                      )}
+                      {results.map((id, i) => {
+                        const { node } = index.byId.get(id)!;
+                        const path = shownPath(id).map((a) => label(index.byId.get(a)!.node));
+                        const rank = t(RANK_KEYS[node.rank]);
+                        return (
+                          <li
+                            key={id}
+                            id={optionId(i)}
+                            role="option"
+                            aria-selected={i === option}
+                            // Keeps focus in the field, so its blur doesn't close the list before the pick.
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              pick(id);
+                            }}
+                            onMouseEnter={() => setOption(i)}
+                            className={`cursor-pointer px-3 py-1.5 ${i === option ? "bg-surface-muted" : ""}`}
+                          >
+                            <span className="block text-callout wrap-anywhere">
+                              <span className={`text-ink ${nameClass(node)}`}>{label(node)}</span>
+                              {secondName(node).length > 0 && (
+                                <span className="ml-1.5 text-footnote text-muted">
+                                  <SpeciesNameText parts={secondName(node)} />
+                                </span>
+                              )}
+                            </span>
+                            <span className="block text-footnote text-muted wrap-anywhere">
+                              {path.length ? t("explorer.resultPath", { rank, path: path.join(" / ") }) : rank}
+                            </span>
+                          </li>
+                        );
+                      })}
+                      {found.length > RESULTS && (
+                        <li className="px-3 py-1.5 text-footnote text-muted">
+                          {t("explorer.moreResults", { count: found.length - RESULTS })}
+                        </li>
+                      )}
+                    </ul>
+                  )}
+                </div>
+                <SegmentedControl
+                  label={t("explorer.shape")}
+                  value={view}
+                  onChange={setView}
+                  options={[
+                    { value: "list", label: t("explorer.list") },
+                    { value: "circle", label: t("explorer.circle") },
+                  ]}
+                />
+                <FilterPopover label={t("collection.toolbar.view")} activeCount={0}>
+                  <Tooltip content={{ label: t("explorer.rank.genus"), description: t("explorer.generaHelp") }}>
+                    {(tip) => (
+                      <label {...tip} className="flex items-center justify-between gap-4 text-callout text-ink">
+                        {t("explorer.showGenera")}
+                        <Switch checked={genus} onChange={setGenus} label={t("explorer.showGenera")} />
+                      </label>
+                    )}
+                  </Tooltip>
+                  <Tooltip
+                    content={{
+                      label: t("collection.toolbar.uncollectedColour"),
+                      description: t("collection.toolbar.uncollectedColourTitle"),
+                    }}
+                  >
+                    {(tip) => (
+                      <label {...tip} className="mt-3 flex items-center justify-between gap-4 text-callout text-ink">
+                        {t("collection.toolbar.uncollectedColour")}
+                        <Switch
+                          checked={uncollectedColour}
+                          onChange={setUncollectedColour}
+                          label={t("collection.toolbar.uncollectedColour")}
+                        />
+                      </label>
+                    )}
+                  </Tooltip>
+                </FilterPopover>
+                <div className="ml-auto flex flex-wrap gap-2">
+                  {view === "list" && (
+                    <>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() =>
+                          setExpanded(
+                            new Set([...expanded, ...rows.filter((r) => r.childIds.length > 0).map((r) => r.id)]),
+                          )
+                        }
+                      >
+                        {t("explorer.expandLevel")}
+                      </Button>
+                      <Button variant="secondary" size="sm" onClick={() => setExpanded(myBranches(index))}>
+                        {t("explorer.myBranches")}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={expanded.size === 0}
+                        onClick={() => setExpanded(new Set())}
+                      >
+                        {t("explorer.collapseAll")}
+                      </Button>
+                    </>
+                  )}
+                  {random && (
+                    <Button variant="secondary" size="sm" onClick={random}>
+                      {t("explorer.random")}
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {focus && (
+                <nav
+                  aria-label={t("explorer.focusPath")}
+                  className="sticky top-[var(--mac-title-bar,0px)] z-10 mb-2 flex flex-wrap items-center gap-x-1 bg-canvas py-1.5 text-footnote"
+                >
+                  <Button variant="link" size="sm" onClick={() => zoomTo(null)}>
+                    {t("explorer.allGroups")}
+                  </Button>
+                  {[...shownPath(focus), focus].map((id) => (
+                    <span key={id} className="flex min-w-0 items-center gap-1">
+                      <span aria-hidden="true" className="text-muted">
+                        /
+                      </span>
+                      {id === focus ? (
                         <span aria-current="location" className="font-semibold text-ink wrap-anywhere">
-                          {r.name}
+                          {label(index.byId.get(id)!.node)}
                         </span>
                       ) : (
-                        <Button variant="link" size="sm" onClick={() => go({ region: r.id })}>
-                          {r.name}
+                        <Button variant="link" size="sm" onClick={() => zoomTo(id)}>
+                          {label(index.byId.get(id)!.node)}
                         </Button>
                       )}
                     </span>
                   ))}
-              </nav>
-              {(regionId ? regions.children : regions.downloadedCountries).length > 0 && (
-                // Wraps under the trail rather than squeezing beside it.
-                <div className="min-w-64 flex-1">
-                  <AreaPills
-                    areas={regionId ? regions.children : regions.downloadedCountries}
-                    withPhotos={regionsWithPhotos}
-                    onPick={(id) => go({ region: id })}
-                  />
+                </nav>
+              )}
+              {tree.tree.length === 0 ? (
+                <EmptyState
+                  title={t("explorer.regionEmpty")}
+                  action={{ label: t("explorer.allRegions"), onClick: () => go({ region: null }) }}
+                />
+              ) : view === "circle" ? (
+                <TreeCircle
+                  index={index}
+                  center={focus}
+                  genus={genus}
+                  selected={selected}
+                  label={label}
+                  onZoomOut={zoomOut}
+                  onPick={(id) => {
+                    const entry = index.byId.get(id)!;
+                    const group = entry.node.rank !== "species";
+                    if (group) go({ focus: id });
+                    // On a phone the detail is a sheet, so zooming into a group doesn't also open it.
+                    if (!group || wide) select(id);
+                  }}
+                />
+              ) : (
+                <div
+                  ref={listRef}
+                  role="tree"
+                  aria-label={t("explorer.title")}
+                  onKeyDown={onKeyDown}
+                  style={{
+                    height: layout.tops.length ? layout.tops.at(-1)! + layout.heights.at(-1)! : 0,
+                    position: "relative",
+                  }}
+                >
+                  {rows.slice(first, last + 1).map((row, k) => {
+                    const { node, id, depth } = row;
+                    const isClade = row.childIds.length > 0;
+                    const open = expanded.has(id);
+                    const faded = node.collected === 0;
+                    const isSpecies = node.rank === "species";
+                    const name = label(node);
+                    const second = secondName(node);
+                    const at = first + k;
+                    return (
+                      <div
+                        key={id}
+                        data-id={id}
+                        role="treeitem"
+                        aria-level={depth + 1}
+                        aria-expanded={isClade ? open : undefined}
+                        aria-selected={selected === id}
+                        tabIndex={id === focusable ? 0 : -1}
+                        onFocus={() => setActive(id)}
+                        onClick={() => {
+                          setActive(id);
+                          select(id);
+                          // Opening a group by its name never closes it; the chevron does both.
+                          if (isClade && !open) toggle(id);
+                        }}
+                        className={`absolute right-0 flex cursor-pointer items-center gap-2 rounded-control pr-2 transition-colors hover:bg-line focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
+                          selected === id ? "bg-accent/10" : ""
+                        }`}
+                        // The row starts at its own indent, so its highlight spans only its group.
+                        style={{ top: layout.tops[at], height: layout.heights[at], left: depth * INDENT }}
+                      >
+                        <RowLines lines={row.lines} />
+                        {isClade && open && (
+                          // The line down to this group's own children.
+                          <span
+                            aria-hidden="true"
+                            className="absolute bottom-0 w-px bg-line"
+                            style={{ left: 12, top: "calc(50% + 10px)" }}
+                          />
+                        )}
+                        <span
+                          aria-hidden="true"
+                          className={`relative flex h-8 w-6 shrink-0 items-center justify-center ${isClade ? "" : "invisible"}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isClade) toggle(id);
+                          }}
+                        >
+                          <Chevron open={open} />
+                        </span>
+                        {node.photoId ? (
+                          // raw-control: the whole thumbnail is the button that opens the photo.
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            aria-label={t("explorer.openPhoto", { name })}
+                            onClick={(e) => {
+                              // The row's own click selects and expands; a photo only opens.
+                              e.stopPropagation();
+                              openRowPhoto(row);
+                            }}
+                            className="h-14 w-14 shrink-0 overflow-hidden rounded-panel transition hover:opacity-90"
+                          >
+                            <ProgressiveImg
+                              thumbSrc={`/api/photos/${node.photoId}/thumb`}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          </button>
+                        ) : node.referenceUrl ? (
+                          <span
+                            className={`h-14 w-14 shrink-0 overflow-hidden rounded-panel bg-surface-muted ${faded ? "cover-uncollected opacity-70" : ""}`}
+                          >
+                            <ProgressiveImg
+                              thumbSrc={node.referenceUrl}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          </span>
+                        ) : (
+                          <PhotoPlaceholder className="h-14 w-14 shrink-0 rounded-panel" />
+                        )}
+                        <div className={`min-w-0 flex-1 ${faded ? "opacity-70" : ""}`}>
+                          {!isSpecies && (
+                            <p className="text-overline text-muted uppercase">{t(RANK_KEYS[node.rank])}</p>
+                          )}
+                          <p
+                            className={`${isSpecies ? "line-clamp-3" : "line-clamp-2"} text-callout wrap-anywhere`}
+                            title={name}
+                          >
+                            <span className={`font-semibold text-ink ${nameClass(node)}`}>{name}</span>
+                            {second.length > 0 && (
+                              <span className="ml-1.5 text-footnote text-muted">
+                                <SpeciesNameText parts={second} />
+                              </span>
+                            )}
+                          </p>
+                          {!isSpecies ? (
+                            <div className="mt-0.5 flex flex-wrap items-center gap-x-2">
+                              <span
+                                className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-line"
+                                aria-hidden="true"
+                              >
+                                <span
+                                  className="block h-full rounded-full bg-accent"
+                                  style={{ width: `${node.total ? (node.collected / node.total) * 100 : 0}%` }}
+                                />
+                              </span>
+                              <span className="text-footnote text-muted tabular-nums">
+                                {t("explorer.speciesOf", {
+                                  collected: formatNumber(node.collected),
+                                  total: formatNumber(node.total),
+                                })}
+                              </span>
+                              {node.photos > 0 && (
+                                <span className="text-footnote text-muted tabular-nums">
+                                  {t("explorer.photoCount", {
+                                    count: node.photos,
+                                    formatted: formatNumber(node.photos),
+                                  })}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-footnote text-muted tabular-nums">
+                              {faded
+                                ? t("explorer.notYet")
+                                : node.photos > 0 &&
+                                  t("explorer.photoCount", {
+                                    count: node.photos,
+                                    formatted: formatNumber(node.photos),
+                                  })}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <div className="relative w-full sm:w-72">
-                <SearchInput
-                  value={query}
-                  onChange={(q) => {
-                    setQuery(q);
-                    setOption(0);
-                    setListOpen(true);
-                  }}
-                  onFocus={() => setListOpen(true)}
-                  onBlur={() => setListOpen(false)}
-                  onKeyDown={onSearchKey}
-                  placeholder={t("explorer.searchPlaceholder")}
-                  aria-label={t("explorer.searchPlaceholder")}
-                  inputProps={{
-                    role: "combobox",
-                    autoComplete: "off",
-                    "aria-autocomplete": "list",
-                    "aria-expanded": showResults,
-                    "aria-controls": listId,
-                    "aria-activedescendant": showResults && results.length ? optionId(option) : undefined,
-                  }}
-                />
-                {showResults && (
-                  <ul
-                    id={listId}
-                    role="listbox"
-                    aria-label={t("explorer.results")}
-                    className="absolute inset-x-0 top-full z-30 mt-1 max-h-96 min-w-72 overflow-y-auto rounded-panel border border-line bg-surface py-1 shadow-lg"
-                  >
-                    {results.length === 0 && (
-                      <li className="px-3 py-2 text-callout text-muted">{t("explorer.noMatch")}</li>
-                    )}
-                    {results.map((id, i) => {
-                      const { node } = index.byId.get(id)!;
-                      const path = shownPath(id).map((a) => label(index.byId.get(a)!.node));
-                      const rank = t(RANK_KEYS[node.rank]);
-                      return (
-                        <li
-                          key={id}
-                          id={optionId(i)}
-                          role="option"
-                          aria-selected={i === option}
-                          // Keeps focus in the field, so its blur doesn't close the list before the pick.
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            pick(id);
-                          }}
-                          onMouseEnter={() => setOption(i)}
-                          className={`cursor-pointer px-3 py-1.5 ${i === option ? "bg-surface-muted" : ""}`}
-                        >
-                          <span className="block text-callout wrap-anywhere">
-                            <span className={`text-ink ${nameClass(node)}`}>{label(node)}</span>
-                            {secondName(node).length > 0 && (
-                              <span className="ml-1.5 text-footnote text-muted">
-                                <SpeciesNameText parts={secondName(node)} />
-                              </span>
-                            )}
-                          </span>
-                          <span className="block text-footnote text-muted wrap-anywhere">
-                            {path.length ? t("explorer.resultPath", { rank, path: path.join(" / ") }) : rank}
-                          </span>
-                        </li>
-                      );
-                    })}
-                    {found.length > RESULTS && (
-                      <li className="px-3 py-1.5 text-footnote text-muted">
-                        {t("explorer.moreResults", { count: found.length - RESULTS })}
-                      </li>
-                    )}
-                  </ul>
-                )}
-              </div>
-              <SegmentedControl
-                label={t("explorer.shape")}
-                value={view}
-                onChange={setView}
-                options={[
-                  { value: "list", label: t("explorer.list") },
-                  { value: "circle", label: t("explorer.circle") },
-                ]}
-              />
-              <FilterPopover label={t("collection.toolbar.view")} activeCount={0}>
-                <Tooltip content={{ label: t("explorer.rank.genus"), description: t("explorer.generaHelp") }}>
-                  {(tip) => (
-                    <label {...tip} className="flex items-center justify-between gap-4 text-callout text-ink">
-                      {t("explorer.showGenera")}
-                      <Switch checked={genus} onChange={setGenus} label={t("explorer.showGenera")} />
-                    </label>
-                  )}
-                </Tooltip>
-                <Tooltip
-                  content={{
-                    label: t("collection.toolbar.uncollectedColour"),
-                    description: t("collection.toolbar.uncollectedColourTitle"),
-                  }}
-                >
-                  {(tip) => (
-                    <label {...tip} className="mt-3 flex items-center justify-between gap-4 text-callout text-ink">
-                      {t("collection.toolbar.uncollectedColour")}
-                      <Switch
-                        checked={uncollectedColour}
-                        onChange={setUncollectedColour}
-                        label={t("collection.toolbar.uncollectedColour")}
-                      />
-                    </label>
-                  )}
-                </Tooltip>
-              </FilterPopover>
-              <div className="ml-auto flex flex-wrap gap-2">
-                {view === "list" && (
-                  <>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() =>
-                        setExpanded(
-                          new Set([...expanded, ...rows.filter((r) => r.childIds.length > 0).map((r) => r.id)]),
-                        )
-                      }
-                    >
-                      {t("explorer.expandLevel")}
-                    </Button>
-                    <Button variant="secondary" size="sm" onClick={() => setExpanded(myBranches(index))}>
-                      {t("explorer.myBranches")}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={expanded.size === 0}
-                      onClick={() => setExpanded(new Set())}
-                    >
-                      {t("explorer.collapseAll")}
-                    </Button>
-                  </>
-                )}
-                {random && (
-                  <Button variant="secondary" size="sm" onClick={random}>
-                    {t("explorer.random")}
-                  </Button>
-                )}
-              </div>
-            </div>
-            {focus && (
-              <nav
-                aria-label={t("explorer.focusPath")}
-                className="sticky top-[var(--mac-title-bar,0px)] z-10 mb-2 flex flex-wrap items-center gap-x-1 bg-canvas py-1.5 text-footnote"
-              >
-                <Button variant="link" size="sm" onClick={() => zoomTo(null)}>
-                  {t("explorer.allGroups")}
-                </Button>
-                {[...shownPath(focus), focus].map((id) => (
-                  <span key={id} className="flex min-w-0 items-center gap-1">
-                    <span aria-hidden="true" className="text-muted">
-                      /
-                    </span>
-                    {id === focus ? (
-                      <span aria-current="location" className="font-semibold text-ink wrap-anywhere">
-                        {label(index.byId.get(id)!.node)}
-                      </span>
-                    ) : (
-                      <Button variant="link" size="sm" onClick={() => zoomTo(id)}>
-                        {label(index.byId.get(id)!.node)}
-                      </Button>
-                    )}
-                  </span>
-                ))}
-              </nav>
-            )}
-            {tree.tree.length === 0 ? (
-              <EmptyState
-                title={t("explorer.regionEmpty")}
-                action={{ label: t("explorer.allRegions"), onClick: () => go({ region: null }) }}
-              />
-            ) : view === "circle" ? (
-              <TreeCircle
-                index={index}
-                center={focus}
-                genus={genus}
-                selected={selected}
-                label={label}
-                onZoomOut={zoomOut}
-                onPick={(id) => {
-                  const entry = index.byId.get(id)!;
-                  const group = entry.node.rank !== "species";
-                  if (group) go({ focus: id });
-                  // On a phone the detail is a sheet, so zooming into a group doesn't also open it.
-                  if (!group || wide) select(id);
-                }}
-              />
+            {wide ? (
+              <aside className="sticky top-4 max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-panel border border-line bg-surface p-4">
+                {detail || <p className="text-callout text-muted">{t("explorer.detailEmpty")}</p>}
+              </aside>
             ) : (
-              <div
-                ref={listRef}
-                role="tree"
-                aria-label={t("explorer.title")}
-                onKeyDown={onKeyDown}
-                style={{
-                  height: layout.tops.length ? layout.tops.at(-1)! + layout.heights.at(-1)! : 0,
-                  position: "relative",
-                }}
-              >
-                {rows.slice(first, last + 1).map((row, k) => {
-                  const { node, id, depth } = row;
-                  const isClade = row.childIds.length > 0;
-                  const open = expanded.has(id);
-                  const faded = node.collected === 0;
-                  const isSpecies = node.rank === "species";
-                  const name = label(node);
-                  const second = secondName(node);
-                  const at = first + k;
-                  return (
-                    <div
-                      key={id}
-                      data-id={id}
-                      role="treeitem"
-                      aria-level={depth + 1}
-                      aria-expanded={isClade ? open : undefined}
-                      aria-selected={selected === id}
-                      tabIndex={id === focusable ? 0 : -1}
-                      onFocus={() => setActive(id)}
-                      onClick={() => {
-                        setActive(id);
-                        select(id);
-                        // Opening a group by its name never closes it; the chevron does both.
-                        if (isClade && !open) toggle(id);
-                      }}
-                      className={`absolute right-0 flex cursor-pointer items-center gap-2 rounded-control pr-2 transition-colors hover:bg-line focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
-                        selected === id ? "bg-accent/10" : ""
-                      }`}
-                      // The row starts at its own indent, so its highlight spans only its group.
-                      style={{ top: layout.tops[at], height: layout.heights[at], left: depth * INDENT }}
-                    >
-                      <RowLines lines={row.lines} />
-                      {isClade && open && (
-                        // The line down to this group's own children.
-                        <span
-                          aria-hidden="true"
-                          className="absolute bottom-0 w-px bg-line"
-                          style={{ left: 12, top: "calc(50% + 10px)" }}
-                        />
-                      )}
-                      <span
-                        aria-hidden="true"
-                        className={`relative flex h-8 w-6 shrink-0 items-center justify-center ${isClade ? "" : "invisible"}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (isClade) toggle(id);
-                        }}
-                      >
-                        <Chevron open={open} />
-                      </span>
-                      {node.photoId ? (
-                        // raw-control: the whole thumbnail is the button that opens the photo.
-                        <button
-                          type="button"
-                          tabIndex={-1}
-                          aria-label={t("explorer.openPhoto", { name })}
-                          onClick={(e) => {
-                            // The row's own click selects and expands; a photo only opens.
-                            e.stopPropagation();
-                            openRowPhoto(row);
-                          }}
-                          className="h-14 w-14 shrink-0 overflow-hidden rounded-panel transition hover:opacity-90"
-                        >
-                          <ProgressiveImg
-                            thumbSrc={`/api/photos/${node.photoId}/thumb`}
-                            alt=""
-                            className="h-full w-full object-cover"
-                          />
-                        </button>
-                      ) : node.referenceUrl ? (
-                        <span
-                          className={`h-14 w-14 shrink-0 overflow-hidden rounded-panel bg-surface-muted ${faded ? "cover-uncollected opacity-70" : ""}`}
-                        >
-                          <ProgressiveImg thumbSrc={node.referenceUrl} alt="" className="h-full w-full object-cover" />
-                        </span>
-                      ) : (
-                        <PhotoPlaceholder className="h-14 w-14 shrink-0 rounded-panel" />
-                      )}
-                      <div className={`min-w-0 flex-1 ${faded ? "opacity-70" : ""}`}>
-                        {!isSpecies && <p className="text-overline text-muted uppercase">{t(RANK_KEYS[node.rank])}</p>}
-                        <p
-                          className={`${isSpecies ? "line-clamp-3" : "line-clamp-2"} text-callout wrap-anywhere`}
-                          title={name}
-                        >
-                          <span className={`font-semibold text-ink ${nameClass(node)}`}>{name}</span>
-                          {second.length > 0 && (
-                            <span className="ml-1.5 text-footnote text-muted">
-                              <SpeciesNameText parts={second} />
-                            </span>
-                          )}
-                        </p>
-                        {!isSpecies ? (
-                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2">
-                            <span
-                              className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-line"
-                              aria-hidden="true"
-                            >
-                              <span
-                                className="block h-full rounded-full bg-accent"
-                                style={{ width: `${node.total ? (node.collected / node.total) * 100 : 0}%` }}
-                              />
-                            </span>
-                            <span className="text-footnote text-muted tabular-nums">
-                              {t("explorer.speciesOf", {
-                                collected: formatNumber(node.collected),
-                                total: formatNumber(node.total),
-                              })}
-                            </span>
-                            {node.photos > 0 && (
-                              <span className="text-footnote text-muted tabular-nums">
-                                {t("explorer.photoCount", { count: node.photos, formatted: formatNumber(node.photos) })}
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <p className="text-footnote text-muted tabular-nums">
-                            {faded
-                              ? t("explorer.notYet")
-                              : node.photos > 0 &&
-                                t("explorer.photoCount", { count: node.photos, formatted: formatNumber(node.photos) })}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              <Modal open={!!detail} onClose={() => select(null)} ariaLabel={t("explorer.title")}>
+                {detail}
+              </Modal>
             )}
           </div>
-          {wide ? (
-            <aside className="sticky top-4 max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-panel border border-line bg-surface p-4">
-              {detail || <p className="text-callout text-muted">{t("explorer.detailEmpty")}</p>}
-            </aside>
-          ) : (
-            <Modal open={!!detail} onClose={() => select(null)} ariaLabel={t("explorer.title")}>
-              {detail}
-            </Modal>
-          )}
-        </div>
-      )}
-      {lightbox && (
-        <Lightbox
-          slides={lightbox.slides}
-          index={lightbox.index}
-          onIndexChange={(i) => setLightbox({ ...lightbox, index: i })}
-          onClose={() => setLightbox(null)}
-        />
-      )}
-    </main>
+        )}
+        {lightbox && (
+          <Lightbox
+            slides={lightbox.slides}
+            index={lightbox.index}
+            onIndexChange={(i) => setLightbox({ ...lightbox, index: i })}
+            onClose={() => setLightbox(null)}
+          />
+        )}
+      </main>
+    </div>
   );
 }
