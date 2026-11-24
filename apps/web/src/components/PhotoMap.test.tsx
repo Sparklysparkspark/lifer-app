@@ -854,6 +854,14 @@ describe("PhotoMap", () => {
     expect(seen.search).toContain("at=point%3A19.9995");
   });
 
+  it("frames a country picked in the keyboard list, with its photos", async () => {
+    serve();
+    renderMap({}, "/gallery?view=map");
+    fireEvent.click(await screen.findByRole("button", { name: /Canada/ }));
+    await waitFor(() => expect(seen.search).toContain("region=c1"));
+    expect(seen.search).toContain("at=region");
+  });
+
   it("frames a clicked province of the framed country, with its photos, and Back returns", async () => {
     serve();
     renderMap({}, "/gallery?view=map&region=c1");

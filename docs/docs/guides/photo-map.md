@@ -14,7 +14,7 @@ The photo map shows where the photos in your [Gallery](./gallery-and-search.md) 
 - As you zoom out, nearby dots and rings merge into circles with the total. A circle of only rings stays hollow; a filled circle with an extra outline ring holds some photos with no exact location.
 - **Countries** with photos, placed or not, have a firmer outline. Circles of dots show how many photos they hold.
 - **Saved spots** are rings with a coloured edge.
-- Under the map, **Photos by country** lists the counts, largest first. It's the way to use the map from the keyboard or a screen reader.
+- Under the map, **Photos by country** lists the counts, largest first. It's the way to use the map from the keyboard or a screen reader: picking a country there frames it, just as a click on the map does.
 
 A photo is **placed** only when it has coordinates. The line above the map says how many are, such as **1,204 of 1,556 photos placed.**, and a button names the rest: **352 need placing** opens the [Needs placing](#needs-placing) list. **Show photos without a location** opens them as a grid instead.
 

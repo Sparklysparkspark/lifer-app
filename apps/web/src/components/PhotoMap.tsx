@@ -1907,7 +1907,10 @@ export default function PhotoMap({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => openSide({ kind: "photos", selection: { kind: "region", id: r.id, regionOnly: false } })}
+                // Same as clicking the country: frames it and opens its photos.
+                onClick={() =>
+                  enterRegion(r.id, { kind: "photos", selection: { kind: "region", id: r.id, regionOnly: false } })
+                }
                 className="w-full justify-between! rounded-none! border-0! px-4!"
               >
                 <span className="truncate">{r.name}</span>
