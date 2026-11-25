@@ -184,10 +184,11 @@ Rarity is **how hard a species is to find and photograph** in a place. There are
 
 ### Rarity here and worldwide {#tiers-here-and-worldwide}
 
-A species card can show two rarities:
+Every species card with a rarity shows it in a quiet line under its names, with a small colour swatch (the wording always says it too). In a region it's the rarity **there**; a species with only a worldwide rarity reads "Rare worldwide". Species without enough data show nothing, and the smallest card size drops the "worldwide".
 
-- **The plain badge** ("Rare") is the **worldwide** rarity: how hard the species is where it's easiest to find, one step harder when its whole range is tiny.
-- **The "here" badge** ("Occasional here") is its rarity **in the region you're viewing**. It only appears on a region's checklist. **Rarity here** in Group and Sort uses it.
+A card can also carry one badge for what's unusual:
+
+- **The "here" badge** ("Rare here") appears on a region's checklist when the species is rarer there than worldwide, and replaces the quiet line. **Rarity here** in Group and Sort uses the local rarity.
 
 A bird that's Common worldwide can be Rare here at the edge of its range.
 

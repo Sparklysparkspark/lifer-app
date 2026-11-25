@@ -125,3 +125,43 @@ describe("SpeciesCard remove from list", () => {
     expect(api.put).toHaveBeenCalledWith("/regions/r1/checklist-additions/s1");
   });
 });
+
+describe("SpeciesCard tier line", () => {
+  function show(extra: object, props: object = {}) {
+    render(
+      <ToastContext.Provider value={toast}>
+        <ConfirmContext.Provider value={vi.fn().mockResolvedValue(false)}>
+          <MemoryRouter>
+            <SpeciesCard item={{ ...item, ...extra } as CollectionItem} {...props} />
+          </MemoryRouter>
+        </ConfirmContext.Provider>
+      </ToastContext.Provider>,
+    );
+  }
+
+  it("shows the tier of a common species", () => {
+    show({ tier: "common" });
+    expect(screen.getByText("Common")).toBeTruthy();
+  });
+
+  it("shows nothing without a tier", () => {
+    show({});
+    expect(screen.queryByText("Common")).toBeNull();
+  });
+
+  it("qualifies a worldwide-only tier while a region is picked, but not in compact", () => {
+    show({ tier: "rare" }, { regionId: "r1" });
+    expect(screen.getByText("Rare worldwide")).toBeTruthy();
+    cleanup();
+    show({ tier: "rare" }, { regionId: "r1", compact: true });
+    expect(screen.getByText("Rare")).toBeTruthy();
+  });
+
+  it("shows a local tier plainly, and leaves a rarer-here badge to say it alone", () => {
+    show({ tier: "common", localTier: "common" }, { regionId: "r1" });
+    expect(screen.getByText("Common")).toBeTruthy();
+    cleanup();
+    show({ tier: "common", localTier: "rare" }, { regionId: "r1" });
+    expect(screen.getAllByText(/Rare/)).toHaveLength(1);
+  });
+});

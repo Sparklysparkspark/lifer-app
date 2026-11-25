@@ -3748,6 +3748,7 @@
   },
   "speciesCard": {
     "select": "Select {name}",
+    "tierWorldwide": "{tier} worldwide",
     "badge": {
       "nameChanged": "Name changed",
       "nameChangedTitle": "This species was split. Tap to pick which one is in your photos.",

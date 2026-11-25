@@ -1419,6 +1419,7 @@
     }
   },
   "speciesCard": {
+    "tierWorldwide": "Small line under a species card's names when a region is picked but the species has only a worldwide rarity: {tier} is the rarity name, like Common, giving Common worldwide.",
     "badge": {
       "rediscovered": "Badge on a species card: the user photographed a species that had been rarely recorded or unrecorded for 25 years.",
       "ghost": "Badge on a species card: a species with very few records anywhere.",
