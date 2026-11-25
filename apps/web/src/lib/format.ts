@@ -10,6 +10,7 @@ export function setFormatLocale(locale: string | undefined): void {
   if (locale === currentLocale) return;
   currentLocale = locale;
   dateFormatters.clear();
+  takenFormatters.clear();
   numberFormatters.clear();
 }
 
@@ -68,6 +69,40 @@ export function formatDate(
 /** A wall-clock time stored as UTC milliseconds (a camera's clock), shown as is, with no zone shift. */
 export function formatWallClock(ms: number, style: DateStyle = "medium"): string {
   return new Intl.DateTimeFormat(currentLocale, { ...DATE_OPTIONS[style], timeZone: "UTC" }).format(ms);
+}
+
+// A day typed for a photo with none is stored at noon UTC (dateOnlyToTakenAt): it has no time.
+const DATE_ONLY_TAKEN_AT = /T12:00:00(\.000)?(Z|\+00:00)$/;
+const takenFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** When a photo was taken, as shot: "Nov 17, 2026, 7:42 PM", or the date alone when no time is
+ *  known; "" with no date. Lifer holds the camera's clock as if it were UTC unless the file named
+ *  its zone (`zoned`), so that clock is read back in UTC and never moved to the viewer's zone. A
+ *  zoned time is a true instant and shows in the viewer's zone. `zoned` undefined (a list that
+ *  doesn't say) gives the date only, as the time can't be placed. `full` adds seconds, and for a
+ *  zoned time its UTC offset, for a tooltip. */
+export function formatTakenAt(
+  value: string | null | undefined,
+  zoned: boolean | null | undefined,
+  { full = false, locale }: { full?: boolean; locale?: string } = {},
+): string {
+  const date = toDate(value);
+  if (!date || !value) return "";
+  const wallClock = zoned !== true;
+  const withTime = zoned !== undefined && !(wallClock && DATE_ONLY_TAKEN_AT.test(value));
+  const key = `${locale ?? ""}|${wallClock}|${withTime}|${full}`;
+  let formatter = takenFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale ?? currentLocale, {
+      ...DATE_OPTIONS[withTime ? "dateTime" : "medium"],
+      ...(withTime && full ? { second: "2-digit" } : {}),
+      ...(withTime && full && !wallClock ? { timeZoneName: "shortOffset" } : {}),
+      // An unknown zone keeps the viewer's, as every other date in Lifer.
+      ...(wallClock && zoned !== undefined ? { timeZone: "UTC" } : {}),
+    });
+    if (!locale) takenFormatters.set(key, formatter);
+  }
+  return formatter.format(date);
 }
 
 /** Two dates in the active locale, sharing what they have in common, like "May 3 – 10, 2026". */

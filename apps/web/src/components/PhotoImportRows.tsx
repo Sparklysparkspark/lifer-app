@@ -20,6 +20,7 @@ import { discardUpload, uploadFile } from "../lib/tusUpload";
 import SpeciesPicker, { type SpeciesResult, type SuggestedSpecies } from "./SpeciesPicker";
 import RegionBrowser from "./RegionBrowser";
 import Lightbox from "./Lightbox";
+import { MenuItem, MenuPanel } from "./Menu";
 import ImportReviewRow from "./importReview/ImportReviewRow";
 import ImportPlaceGroups from "./importReview/ImportPlaceGroups";
 import { groupImportRows, groupPlace, photoCount, type StagedPlace } from "./importReview/importGroups";
@@ -1500,6 +1501,34 @@ export default function PhotoImportRows({
             videoUrl: r.isVideo ? r.previewUrl : null,
             noPreview: r.previewFromServer && !r.rawPreviewUrl,
             caption: r.file.name,
+            // Not in Lifer yet, so of the photo actions only these apply.
+            menu:
+              r.status === "uploading" || r.status === "done"
+                ? undefined
+                : (close: () => void) => (
+                    <MenuPanel className="w-max min-w-44">
+                      {!r.isVideo && (
+                        <MenuItem
+                          onSelect={() => {
+                            close();
+                            setPreviewKey(null);
+                            review.openCompare(r.key);
+                          }}
+                        >
+                          {t("import.review.compare")}
+                        </MenuItem>
+                      )}
+                      <MenuItem
+                        danger
+                        onSelect={() => {
+                          close();
+                          removeRows([r.key]);
+                        }}
+                      >
+                        {r.isVideo ? t("import.rows.removeVideo") : t("import.rows.removePhoto")}
+                      </MenuItem>
+                    </MenuPanel>
+                  ),
           }))}
           index={previewIndex}
           onIndexChange={(i) => setPreviewKey(previewRows[i]?.key ?? null)}

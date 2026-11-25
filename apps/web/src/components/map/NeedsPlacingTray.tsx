@@ -9,6 +9,8 @@ import EmptyState from "../EmptyState";
 import FormMessage from "../FormMessage";
 import PhotoTile from "../PhotoTile";
 import Lightbox from "../Lightbox";
+import { photoSlide } from "../../lib/photoSlide";
+import { useReassignCapture } from "../../hooks/usePhotoEdits";
 import Menu, { MenuItems, MenuPanel } from "../Menu";
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { useEscapeToClose } from "../../hooks/useEscapeToClose";
@@ -42,6 +44,7 @@ export default function NeedsPlacingTray({
   onPlace,
   onSetRegion,
   onDragSource,
+  onChanged,
 }: {
   queryString: string;
   counts: Record<TrayState, number>;
@@ -56,6 +59,8 @@ export default function NeedsPlacingTray({
   onSetRegion: SetRegion;
   /** A group (or its ticked photos) is being dragged towards the map; null when the drag ends. */
   onDragSource: (source: PlaceSource | null) => void;
+  /** After an edit from the viewer (a place, an ID, a delete), so the map and the tray follow. */
+  onChanged: () => void;
 }) {
   const { t } = useTranslation();
   const [state, setState] = useState<TrayState>("all");
@@ -156,6 +161,7 @@ export default function NeedsPlacingTray({
                 onPlace={onPlace}
                 onChangeRegion={setRegionFor}
                 onDragSource={onDragSource}
+                onChanged={onChanged}
               />
             </li>
           ))}
@@ -240,6 +246,7 @@ function GroupRow({
   onPlace,
   onChangeRegion,
   onDragSource,
+  onChanged,
 }: {
   group: PlacingGroup;
   loadPhotos: () => Promise<{ captureIds: string[]; photoIds: string[] }>;
@@ -250,8 +257,10 @@ function GroupRow({
   onPlace: (source: PlaceSource) => void;
   onChangeRegion: (source: PlaceSource) => void;
   onDragSource: (source: PlaceSource | null) => void;
+  onChanged: () => void;
 }) {
   const { t } = useTranslation();
+  const reassign = useReassignCapture(onChanged);
   const [photos, setPhotos] = useState<{ captureIds: string[]; photoIds: string[] } | null>(null);
   const [open, setOpen] = useState(false);
   const [ticked, setTicked] = useState<Set<string>>(new Set());
@@ -312,11 +321,32 @@ function GroupRow({
     const res = await fetchPhotos();
     if (res) setViewing(Math.max(0, res.photoIds.indexOf(photoId)));
   }
-  const slides = (photos?.photoIds ?? []).map((id, i) => ({
-    url: `/api/photos/${id}/display`,
-    captureId: photos!.captureIds[i],
-    caption: when,
-  }));
+  // Only ids are loaded here, so the menu leaves out the file actions that need the original's
+  // location; placing, Correct the ID, albums, date and Delete all work from the viewer.
+  const slides = (photos?.photoIds ?? []).map((photoId, i) => {
+    const captureId = photos!.captureIds[i];
+    return photoSlide(
+      { photoId, captureId },
+      {
+        caption: when,
+        info: null,
+        photo: { captureId, photoId },
+        coordinates: { lat: null, lon: null, hasRegion: g.regionId !== null, onChange: onChanged },
+        onReassign: (to) => void reassign(captureId, null, to),
+        onChanged,
+        onDeleted: () => {
+          setPhotos(
+            (p) =>
+              p && {
+                captureIds: p.captureIds.filter((_, j) => j !== i),
+                photoIds: p.photoIds.filter((_, j) => j !== i),
+              },
+          );
+          onChanged();
+        },
+      },
+    );
+  });
 
   return (
     <div

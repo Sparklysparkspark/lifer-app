@@ -1816,7 +1816,8 @@
     "next": "Next",
     "noPreview": "No preview available",
     "viewSpecies": "View species ↗",
-    "similar": "Similar photos"
+    "similar": "Similar photos",
+    "noDate": "No date"
   },
   "manageTags": {
     "title": "Tags",
@@ -2143,11 +2144,30 @@
       "saveFailed": "Couldn't import the list",
       "skip": "Skip",
       "summary": "{matched} matched{ambiguous, plural, =0 {} other {, # to pick}}{unmatched, plural, =0 {} other {, # not found}}.",
-      "title": "Import target list",
       "undoFailed": "Couldn't undo the import",
       "undone": "Import undone"
     },
-    "importAction": "Import target list",
+    "addAction": "Add targets",
+    "addTitle": "Add targets",
+    "tabsLabel": "How to add targets",
+    "tabGroup": "Target a group",
+    "tabImport": "Import a list",
+    "group": {
+      "description": "Every species of a group in a place, as targets.",
+      "placeholder": "Try: raptors of BC, owls, mushrooms of BC",
+      "count": "{count, plural, one {Targets # species you haven't photographed} other {Targets # species you haven't photographed}}",
+      "countAll": "{count, plural, one {Targets # species} other {Targets # species}}",
+      "inatCount": "{count, plural, one {# species on iNaturalist. It becomes a target when it's added, in the background.} other {# species on iNaturalist. Each becomes a target as it's added, in the background.}}",
+      "none": "Nothing in this group to target in {region}.",
+      "notInCatalog": "Lifer's checklists have no group called “{query}”. To target plants, insects or fungi, turn on iNaturalist search in Settings, under Species and import.",
+      "newListNamed": "New list named {name}",
+      "includePhotographed": "Include species I've already photographed",
+      "searching": "Looking for the group…",
+      "adding": "Adding {name}. Its species become targets as they arrive.",
+      "failed": "Couldn't add the targets",
+      "undone": "Targets removed",
+      "undoFailed": "Couldn't remove the targets"
+    },
     "nameWithRegion": "{name} ({region})",
     "renameTitle": "Rename target list",
     "settings": {
@@ -2263,7 +2283,8 @@
       "noPlace": "No place matches “{query}”.",
       "needPlace": "Add a place, such as “of Canada”.",
       "button": "Add {count, plural, one {# species} other {# species}} to {region}",
-      "buttonIdle": "Add list"
+      "buttonIdle": "Add list",
+      "alsoTarget": "Also add these species to my targets"
     },
     "starters": {
       "lepidoptera": "Butterflies and moths",
@@ -2302,6 +2323,7 @@
       "rename": "Rename",
       "hide": "Hide from Collection",
       "show": "Show in Collection",
+      "untarget": "Remove these targets",
       "remove": "Remove list"
     },
     "hiddenTag": "Hidden",
@@ -2320,7 +2342,8 @@
       "finished": "Added {name}: {count, plural, one {# species} other {# species}}.",
       "hidden": "Hid {name} from the Collection. It stays in Settings, under Species and import.",
       "removed": "Removed {name}.",
-      "removedKept": "Removed {name}. {kept, plural, one {# species you photographed or marked stays} other {# species you photographed or marked stay}}."
+      "removedKept": "Removed {name}. {kept, plural, one {# species you photographed or marked stays} other {# species you photographed or marked stay}}.",
+      "untargeted": "The species of {name} are no longer targets."
     },
     "settings": {
       "title": "Species lists",
@@ -2743,6 +2766,10 @@
     "general": {
       "about": "About",
       "appearance": "Appearance",
+      "hdrViewer": {
+        "title": "Show HDR photos in the viewer",
+        "description": "On a screen that shows HDR, Ultra HDR JPEGs open with their bright highlights. Thumbnails and grids are unchanged."
+      },
       "editor": {
         "group": "Photo editing",
         "title": "Edit photos with",

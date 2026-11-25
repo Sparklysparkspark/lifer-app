@@ -1,35 +1,30 @@
-import { useMemo, useState } from "react";
-import { useApiRoute } from "../../lib/resource";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, apiPath } from "../../api/client";
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
-import { useLatest } from "../../hooks/useLatest";
 import { errorMessage } from "../../lib/errorMessage";
 import { formatNumber } from "../../lib/format";
 import { useSpeciesName } from "../../lib/speciesName";
-import type { GalleryItem } from "../../pages/gallery/types";
 import Button from "../Button";
 import FormMessage from "../FormMessage";
 import InlineSpinner from "../InlineSpinner";
-import Lightbox, { type LightboxSlide } from "../Lightbox";
-import { gallerySlide } from "./gallerySlide";
+import { MarkPhotoViewer, useMarkPhotos } from "./MapPhotoViewer";
 import Menu, { MenuItems, MenuPanel, type MenuAction } from "../Menu";
 import PhotoTile from "../PhotoTile";
 
-const PAGE = 60;
-
-/** The photos at a clicked dot, cluster, ring or spot, best rated first, without leaving the map.
- *  Pages through /gallery, so a 20,000-photo cluster never loads all at once. */
+/** The photos at a clicked dot, cluster, ring or spot, best rated first, without leaving the map. */
 export default function MapPhotoPanel({
   params,
   actions,
   onOpenInGallery,
+  onChanged,
 }: {
   /** The Gallery's filters plus the selection's own (bbox, regionId or place). */
   params: URLSearchParams;
   /** The overflow menu. */
   actions: MenuAction[];
   onOpenInGallery: () => void;
+  /** After an edit from the viewer, so the map's dots follow. */
+  onChanged?: () => void;
 }) {
   const { t } = useTranslation();
   const speciesName = useSpeciesName();
@@ -37,41 +32,9 @@ export default function MapPhotoPanel({
   const [loadingMore, setLoadingMore] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   const menu = useDropdownMenu();
-  const firstParams = new URLSearchParams(params);
-  firstParams.set("sort", "ratingHigh");
-  firstParams.set("limit", String(PAGE));
-  const first = useApiRoute(apiPath("/gallery", {}, firstParams));
-  // Later pages and rating edits, kept only while they follow the first page they were made on.
-  const [more, setMore] = useState<{ after: object | null; items: GalleryItem[]; cursor: string | null }>({
-    after: null,
-    items: [],
-    cursor: null,
-  });
-  const extra = first.data && more.after === first.data ? more : null;
-  const items = first.data ? (extra ? extra.items : first.data.items) : null;
-  const cursor = extra ? extra.cursor : (first.data?.nextCursor ?? null);
-  const total = first.data ? (first.data.total ?? first.data.items.length) : null;
-  const loadError = first.error ? errorMessage(first.error, t("gallery.map.loadFailed")) : null;
-  const setItems = (update: (prev: GalleryItem[]) => GalleryItem[], next = cursor) =>
-    first.data && setMore({ after: first.data, items: update(items ?? []), cursor: next });
-
-  async function loadMore(next: string) {
-    const p = new URLSearchParams(firstParams);
-    p.set("cursor", next);
-    const res = await api.get(apiPath("/gallery", {}, p));
-    setItems((prev) => [...prev, ...res.items], res.nextCursor);
-  }
-
-  const rate = useLatest((captureId: string, rating: number | null) => {
-    setItems((prev) => prev.map((it) => (it.captureId === captureId ? { ...it, qualityRating: rating } : it)));
-    api
-      .patch(apiPath("/captures/{id}/rating", { id: captureId }), { rating })
-      .catch((err) => setError(errorMessage(err, t("gallery.map.rateFailed"))));
-  });
-  const slides = useMemo<LightboxSlide[]>(
-    () => (items ?? []).map((i) => gallerySlide(i, speciesName, (rating) => rate.current(i.captureId, rating))),
-    [items, speciesName, rate],
-  );
+  const photos = useMarkPhotos(params);
+  const { items, cursor, total } = photos;
+  const loadError = photos.error ? errorMessage(photos.error, t("gallery.map.loadFailed")) : null;
 
   return (
     <div className="space-y-3" data-testid="map-photo-panel">
@@ -131,7 +94,8 @@ export default function MapPhotoPanel({
           loading={loadingMore}
           onClick={() => {
             setLoadingMore(true);
-            loadMore(cursor)
+            photos
+              .loadMore()
               .catch((err) => setError(errorMessage(err, t("gallery.map.loadFailed"))))
               .finally(() => setLoadingMore(false));
           }}
@@ -139,8 +103,14 @@ export default function MapPhotoPanel({
           {t("gallery.map.showMore")}
         </Button>
       )}
-      {open !== null && slides[open] && (
-        <Lightbox slides={slides} index={open} onIndexChange={setOpen} onClose={() => setOpen(null)} />
+      {open !== null && (
+        <MarkPhotoViewer
+          photos={photos}
+          index={open}
+          onIndexChange={setOpen}
+          onClose={() => setOpen(null)}
+          onChanged={onChanged}
+        />
       )}
     </div>
   );

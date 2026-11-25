@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   formatBytes,
   formatDate,
@@ -9,6 +9,7 @@ import {
   formatNumber,
   formatPercent,
   formatRelativeTime,
+  formatTakenAt,
   toDate,
   setFormatLocale,
 } from "./format";
@@ -159,5 +160,44 @@ describe("formatDuration", () => {
     expect(formatDuration(3729, "en")).toBe("1:02:09");
     expect(formatDuration(null)).toBe("");
     expect(formatDuration("abc")).toBe("");
+  });
+});
+
+describe("formatTakenAt", () => {
+  // A zone with daylight saving, so a shift to the viewer's zone would show.
+  const zone = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = "America/New_York";
+  });
+  afterAll(() => {
+    process.env.TZ = zone;
+  });
+  // Intl spaces "7:42 PM" with a narrow no-break space.
+  const shown = (...args: Parameters<typeof formatTakenAt>) => formatTakenAt(...args).replace(/\s/g, " ");
+
+  it("shows the camera's clock as shot, in 12 or 24 hours by locale", () => {
+    expect(shown("2026-11-17T19:42:05.000Z", false, { locale: "en-US" })).toBe("Nov 17, 2026, 7:42 PM");
+    expect(shown("2026-11-17T19:42:05.000Z", null, { locale: "en-GB" })).toBe("17 Nov 2026, 19:42");
+    expect(shown("2026-11-17T19:42:05.000Z", false, { locale: "en-US", full: true })).toBe("Nov 17, 2026, 7:42:05 PM");
+  });
+
+  it("keeps a wall-clock time that doesn't exist in the viewer's zone (spring forward)", () => {
+    expect(shown("2026-03-08T02:30:00.000Z", false, { locale: "en-US" })).toBe("Mar 8, 2026, 2:30 AM");
+  });
+
+  it("shows a zoned time in the viewer's zone, with its offset either side of the change", () => {
+    expect(shown("2026-03-08T06:30:00.000Z", true, { locale: "en-US", full: true })).toBe(
+      "Mar 8, 2026, 1:30:00 AM GMT-5",
+    );
+    expect(shown("2026-03-08T07:30:00.000Z", true, { locale: "en-US", full: true })).toBe(
+      "Mar 8, 2026, 3:30:00 AM GMT-4",
+    );
+  });
+
+  it("gives the date alone for a typed day, an unknown zone, and nothing without a date", () => {
+    expect(shown("2026-06-04T12:00:00.000Z", false, { locale: "en-US" })).toBe("Jun 4, 2026");
+    expect(shown("2026-06-04T23:30:00.000Z", undefined, { locale: "en-US" })).toBe("Jun 4, 2026");
+    expect(formatTakenAt(null, false)).toBe("");
+    expect(formatTakenAt("", true)).toBe("");
   });
 });

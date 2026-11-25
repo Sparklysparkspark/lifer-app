@@ -576,7 +576,7 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
       if (tripRes.rows.length === 0) return reply.code(404).send({ error: "Trip not found" });
 
       const res = await pool.query(
-        `SELECT p.id AS photo_id, p.width, p.height, c.id AS capture_id, c.species_id, s.scientific_name, s.common_name, c.taken_at, c.created_at,
+        `SELECT p.id AS photo_id, p.width, p.height, c.id AS capture_id, c.species_id, s.scientific_name, s.common_name, c.taken_at, c.taken_at_zoned, c.created_at,
               c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso, c.quality_rating,
               EXISTS (SELECT 1 FROM originals ro WHERE ro.capture_id = ${filesCaptureOf("c")} AND ro.kind = 'raw') AS has_raw,
               o.ref AS original_ref, o.kind AS original_kind, o.managed AS original_managed,
@@ -611,6 +611,7 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
           scientificName: row.scientific_name,
           commonName: row.common_name,
           takenAt: row.taken_at,
+          takenAtZoned: row.taken_at_zoned,
           hasRaw: row.has_raw,
           originalRef: row.original_ref,
           inatObservationId: row.inat_observation_id,

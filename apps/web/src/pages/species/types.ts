@@ -139,6 +139,8 @@ export interface SpeciesCapture {
   width: number | null;
   height: number | null;
   taken_at: string | null;
+  /** taken_at is a true instant (see formatTakenAt). */
+  taken_at_zoned?: boolean | null;
   camera_model: string | null;
   lens: string | null;
   focal_length_mm: string | null;

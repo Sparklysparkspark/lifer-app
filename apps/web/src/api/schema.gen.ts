@@ -832,6 +832,7 @@ export interface paths {
                 commonName: string | null;
                 taxonClass: string;
                 takenAt: string | null;
+                takenAtZoned: boolean | null;
                 cameraModel: string | null;
                 lens: string | null;
                 focalLengthMm: (number | string) | null;
@@ -1661,6 +1662,7 @@ export interface paths {
                 commonName: string | null;
                 taxonClass: string;
                 takenAt: string | null;
+                takenAtZoned: boolean | null;
                 cameraModel: string | null;
                 lens: string | null;
                 focalLengthMm: (number | string) | null;
@@ -5161,6 +5163,7 @@ export interface paths {
                   commonName: string | null;
                   taxonClass: string;
                   takenAt: string | null;
+                  takenAtZoned: boolean | null;
                   cameraModel: string | null;
                   lens: string | null;
                   focalLengthMm: (number | string) | null;
@@ -5771,6 +5774,7 @@ export interface paths {
                 captureId: string;
                 photoId: string | null;
                 takenAt: string | null;
+                takenAtZoned: boolean | null;
                 fileName: string | null;
                 speciesName: string | null;
               }[];
@@ -5847,6 +5851,7 @@ export interface paths {
                 captureId: string;
                 photoId: string | null;
                 takenAt: string | null;
+                takenAtZoned: boolean | null;
                 fileName: string | null;
                 speciesName: string | null;
               }[];
@@ -9278,6 +9283,7 @@ export interface paths {
                 commonName: string | null;
                 taxonClass: string;
                 takenAt: string | null;
+                takenAtZoned: boolean | null;
                 cameraModel: string | null;
                 lens: string | null;
                 focalLengthMm: (number | string) | null;
@@ -9513,6 +9519,153 @@ export interface paths {
     };
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/collection/targets/by-group": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /collection/targets/by-group */
+    get: {
+      parameters: {
+        query: {
+          /** @description The group words, e.g. "raptors" */
+          q: string;
+          /** @description Without one, only whether the catalog has the group */
+          regionId?: string;
+          /** @description 1 to count species already photographed too */
+          includePhotographed?: "0" | "1";
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              group: string | null;
+              count: number | null;
+              examples: {
+                /** Format: uuid */
+                speciesId: string;
+                scientificName: string;
+                commonName: string | null;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    /** POST /collection/targets/by-group */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            q: string;
+            /** Format: uuid */
+            regionId: string;
+            /**
+             * Format: uuid
+             * @description Add to this list instead of making a new one
+             */
+            listId?: string;
+            name?: string;
+            includePhotographed?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** Format: uuid */
+              listId: string;
+              createdList: boolean;
+              addedSpeciesIds: string[];
+              checklistSpeciesIds: string[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
     delete?: never;
     options?: never;
     head?: never;
@@ -11485,6 +11638,7 @@ export interface paths {
                 commonName: string | null;
                 taxonClass: string;
                 takenAt: string | null;
+                takenAtZoned: boolean | null;
                 cameraModel: string | null;
                 lens: string | null;
                 focalLengthMm: (number | string) | null;
@@ -12718,6 +12872,7 @@ export interface paths {
                 commonName: string | null;
                 taxonClass: string;
                 takenAt: string | null;
+                takenAtZoned: boolean | null;
                 cameraModel: string | null;
                 lens: string | null;
                 focalLengthMm: (number | string) | null;
@@ -22808,6 +22963,69 @@ export interface paths {
           content: {
             "image/jpeg": string;
           };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/photos/{id}/hdr": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /photos/{id}/hdr */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description Not described yet */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content?: never;
         };
         /** @description The request doesn't match this operation's parameters or body */
         400: {
@@ -33657,6 +33875,7 @@ export interface paths {
                 /** @description Members with a downloaded reference photo */
                 photosReady: number;
                 hidden: boolean;
+                targetListId: string | null;
                 /** Format: date-time */
                 createdAt: string;
                 /** Format: date-time */
@@ -33722,6 +33941,17 @@ export interface paths {
              */
             regionId?: string;
             name?: string;
+            /** @description Every species the list adds also becomes a target */
+            targets?: {
+              /**
+               * Format: uuid
+               * @description Default: a new target list named after the list
+               */
+              listId?: string;
+              name?: string;
+              /** @description Also target species already photographed */
+              photographed?: boolean;
+            };
           };
         };
       };
@@ -33763,6 +33993,7 @@ export interface paths {
                 /** @description Members with a downloaded reference photo */
                 photosReady: number;
                 hidden: boolean;
+                targetListId: string | null;
                 /** Format: date-time */
                 createdAt: string;
                 /** Format: date-time */
@@ -33932,6 +34163,7 @@ export interface paths {
                 /** @description Members with a downloaded reference photo */
                 photosReady: number;
                 hidden: boolean;
+                targetListId: string | null;
                 /** Format: date-time */
                 createdAt: string;
                 /** Format: date-time */
@@ -34030,6 +34262,7 @@ export interface paths {
                 /** @description Members with a downloaded reference photo */
                 photosReady: number;
                 hidden: boolean;
+                targetListId: string | null;
                 /** Format: date-time */
                 createdAt: string;
                 /** Format: date-time */
@@ -34132,6 +34365,7 @@ export interface paths {
                 /** @description Members with a downloaded reference photo */
                 photosReady: number;
                 hidden: boolean;
+                targetListId: string | null;
                 /** Format: date-time */
                 createdAt: string;
                 /** Format: date-time */
@@ -34234,6 +34468,110 @@ export interface paths {
                 /** @description Members with a downloaded reference photo */
                 photosReady: number;
                 hidden: boolean;
+                targetListId: string | null;
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: date-time */
+                updatedAt: string;
+                lastRefreshedAt: string | null;
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/species-lists/{id}/untarget": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /species-lists/{id}/untarget */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              list: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                taxon: {
+                  id: number;
+                  name: string;
+                  rank: string | null;
+                };
+                place: {
+                  id: number;
+                  name: string;
+                };
+                /**
+                 * Format: uuid
+                 * @description The region whose checklist the species are added to
+                 */
+                regionId: string;
+                nativeOnly: boolean;
+                sizeEstimate: number | null;
+                addedCount: number;
+                status: "queued" | "running" | "paused" | "offline" | "done" | "failed";
+                lastError: string | null;
+                nextBatchAt: string | null;
+                /** @description Bigger than 5000 species, so added in batches */
+                capped: boolean;
+                fetchingNow: boolean;
+                /** @description Members with a downloaded reference photo */
+                photosReady: number;
+                hidden: boolean;
+                targetListId: string | null;
                 /** Format: date-time */
                 createdAt: string;
                 /** Format: date-time */
@@ -34631,6 +34969,7 @@ export interface paths {
                 width: number | null;
                 height: number | null;
                 taken_at: string | null;
+                taken_at_zoned: boolean | null;
                 camera_model: string | null;
                 lens: string | null;
                 focal_length_mm: string | null;
@@ -43401,6 +43740,7 @@ export interface paths {
                 scientificName: string;
                 commonName: string | null;
                 takenAt: string | null;
+                takenAtZoned: boolean | null;
                 hasRaw: boolean;
                 originalRef: string | null;
                 inatObservationId: string | null;

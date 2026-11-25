@@ -71,10 +71,8 @@ import PlaceSuggestions from "./PlaceSuggestions";
 import type { MenuAction } from "./Menu";
 import { AddSpotModal, type SavedSpot } from "./SavedSpots";
 import SegmentedControl from "./SegmentedControl";
-import Lightbox, { type LightboxSlide } from "./Lightbox";
 import MapHoverCard from "./map/MapHoverCard";
-import { gallerySlide } from "./map/gallerySlide";
-import { useSpeciesName } from "../lib/speciesName";
+import MapPhotoViewer from "./map/MapPhotoViewer";
 import { TAXA_GROUPS } from "../lib/taxaColour";
 import { CLUSTER_SUMS, MAP_MAX_ZOOM, PHOTO_CLUSTERING, photoFeatures } from "../lib/mapPhotos";
 import type { Box } from "../lib/cardPlacement";
@@ -678,8 +676,8 @@ export default function PhotoMap({
   const queryRef = useLatest(queryString);
   // The hover card's pointer handlers, set by the map's own hover logic.
   const cardRef = useRef({ enter: () => {}, leave: () => {}, close: () => {} });
-  const speciesName = useSpeciesName();
-  const [viewer, setViewer] = useState<{ slides: LightboxSlide[]; index: number } | null>(null);
+  // The hover card's photo, full size, among the photos of its mark.
+  const [viewer, setViewer] = useState<{ params: URLSearchParams; index: number } | null>(null);
   // The map fills the window under the toolbar; in a narrow window, where the panel goes under
   // it, most of it.
   const rowRef = useRef<HTMLDivElement>(null);
@@ -1873,6 +1871,7 @@ export default function PhotoMap({
                   onPlace={(source) => void placeSource(source)}
                   onSetRegion={(ids, region) => setPoint(ids, null, region)}
                   onDragSource={(source) => (dragSource.current = source)}
+                  onChanged={refresh}
                 />
               )}
               <PlaceSuggestions reloadKey={spotsResource.data} onAdded={() => void spotsResource.reload()} />
@@ -1893,7 +1892,12 @@ export default function PhotoMap({
             onWidthChange={setSideWidth}
             onClose={closeSide}
           >
-            <MapPhotoPanel params={panelParams} actions={panelActions} onOpenInGallery={openSelectionInGallery} />
+            <MapPhotoPanel
+              params={panelParams}
+              actions={panelActions}
+              onOpenInGallery={openSelectionInGallery}
+              onChanged={refresh}
+            />
           </MapSidePanel>
         )}
       </div>
@@ -1910,18 +1914,9 @@ export default function PhotoMap({
           photoIds={hover.photoIds}
           onPointerEnter={() => cardRef.current.enter()}
           onPointerLeave={() => cardRef.current.leave()}
-          onOpen={(items, index) => {
+          onOpen={(index) => {
             cardRef.current.close();
-            setViewer({
-              slides: items.map((i) =>
-                gallerySlide(i, speciesName, (rating) =>
-                  api
-                    .patch(apiPath("/captures/{id}/rating", { id: i.captureId }), { rating })
-                    .catch((err) => toast.error(errorMessage(err, t("gallery.map.rateFailed")))),
-                ),
-              ),
-              index,
-            });
+            if (hover.query) setViewer({ params: hover.query, index });
           }}
           onShowAll={
             hover.side
@@ -1935,11 +1930,11 @@ export default function PhotoMap({
         />
       )}
       {viewer && (
-        <Lightbox
-          slides={viewer.slides}
-          index={viewer.index}
-          onIndexChange={(index) => setViewer({ ...viewer, index })}
+        <MapPhotoViewer
+          params={viewer.params}
+          start={viewer.index}
           onClose={() => setViewer(null)}
+          onChanged={refresh}
         />
       )}
       {namingSpot && (

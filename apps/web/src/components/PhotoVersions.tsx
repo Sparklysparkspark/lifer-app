@@ -13,7 +13,7 @@ import {
   versionNames,
   type PhotoVersion,
 } from "../lib/photoVersions";
-import { formatBytes, formatDate, formatList } from "../lib/format";
+import { formatBytes, formatList, formatTakenAt } from "../lib/format";
 import { errorMessage } from "../lib/errorMessage";
 import { docsUrl } from "../lib/docs";
 import { openExternal } from "../lib/openExternal";
@@ -215,6 +215,43 @@ function PhotoVersionsPanel({
           })
         : t("versions.oneFile");
 
+  // One file's menu, in the list and in the viewer's ⋯ (`close` closes whichever holds it).
+  const filePanel = (f: VersionFile, close: () => void) => (
+    <PhotoMenu
+      photo={{
+        captureId: f.captureId,
+        photoId: f.photoId ?? "",
+        originalRef: f.ref,
+        originalKind: f.kind,
+        originalManaged: f.managed,
+      }}
+      onClose={close}
+      coverItems={
+        f.captureId !== shownCapture && (
+          <MenuItem
+            onSelect={() => {
+              close();
+              showAsPhoto(f);
+            }}
+          >
+            {t("versions.useAsPhoto")}
+          </MenuItem>
+        )
+      }
+      endItems={
+        !f.isGroup && (
+          <MenuItem
+            onSelect={() => {
+              close();
+              splitOut(f);
+            }}
+          >
+            {t("versions.splitOut")}
+          </MenuItem>
+        )
+      }
+    />
+  );
   const fileMenu = (f: VersionFile) => (
     <Menu
       trigger="plain"
@@ -223,40 +260,7 @@ function PhotoVersionsPanel({
       menuRef={menu.ref}
       className="relative shrink-0"
     >
-      <PhotoMenu
-        photo={{
-          captureId: f.captureId,
-          photoId: f.photoId ?? "",
-          originalRef: f.ref,
-          originalKind: f.kind,
-          originalManaged: f.managed,
-        }}
-        onClose={menu.close}
-        coverItems={
-          f.captureId !== shownCapture && (
-            <MenuItem
-              onSelect={() => {
-                menu.close();
-                showAsPhoto(f);
-              }}
-            >
-              {t("versions.useAsPhoto")}
-            </MenuItem>
-          )
-        }
-        endItems={
-          !f.isGroup && (
-            <MenuItem
-              onSelect={() => {
-                menu.close();
-                splitOut(f);
-              }}
-            >
-              {t("versions.splitOut")}
-            </MenuItem>
-          )
-        }
-      />
+      {filePanel(f, menu.close)}
     </Menu>
   );
   // The thumbnail opens the file full size; focus comes back to it when the viewer closes.
@@ -379,7 +383,13 @@ function PhotoVersionsPanel({
         )}
       </Modal>
       {viewing !== null && (
-        <Lightbox slides={slides} index={viewing} onIndexChange={setViewing} onClose={() => setViewing(null)} />
+        <Lightbox
+          // Each file's own menu, as in the list.
+          slides={slides.map((slide, i) => ({ ...slide, menu: (close: () => void) => filePanel(viewable[i], close) }))}
+          index={viewing}
+          onIndexChange={setViewing}
+          onClose={() => setViewing(null)}
+        />
       )}
       <LinkPicker
         open={picking}
@@ -478,7 +488,7 @@ function LinkPicker({
               )}
               <span className="line-clamp-2 text-caption text-muted wrap-anywhere">
                 {/* The date first: a long species name is cut at two lines, the date never is. */}
-                {[formatDate(n.takenAt), n.speciesName].filter(Boolean).join(" · ")}
+                {[formatTakenAt(n.takenAt, n.takenAtZoned), n.speciesName].filter(Boolean).join(" · ")}
               </span>
             </button>
           </li>

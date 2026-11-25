@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ToastContext, type ToastApi } from "../hooks/useToast";
 import Lightbox, { useLightbox, type LightboxSlide } from "./Lightbox";
 import TagEditor from "./TagEditor";
@@ -328,5 +328,48 @@ describe("the viewer's file names", () => {
     fireEvent.click(screen.getByRole("button", { name: "More options" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete photo" }));
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("Lightbox HDR copy", () => {
+  // An HDR screen, and images that decode, so only the setting decides.
+  function renderOnHdrScreen(setting: string | null) {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(dynamic-range: high)",
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    Object.defineProperty(HTMLImageElement.prototype, "decode", { value: () => Promise.resolve(), configurable: true });
+    if (setting === null) localStorage.removeItem("lifer:hdrViewer");
+    else localStorage.setItem("lifer:hdrViewer", setting);
+    render(
+      <MemoryRouter>
+        <ToastContext.Provider value={toast}>
+          <Lightbox
+            slides={[{ url: "/api/photos/p1/display" }]}
+            index={0}
+            onIndexChange={() => {}}
+            onClose={() => {}}
+          />
+        </ToastContext.Provider>
+      </MemoryRouter>,
+    );
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete (HTMLImageElement.prototype as Partial<HTMLImageElement>).decode;
+    localStorage.removeItem("lifer:hdrViewer");
+  });
+
+  it("shows the SDR display image by default, even on an HDR screen", async () => {
+    renderOnHdrScreen(null);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.querySelector("img")?.getAttribute("src")).toBe("/api/photos/p1/display");
+  });
+
+  it("swaps in the HDR copy once it has decoded, with the setting on", async () => {
+    renderOnHdrScreen("true");
+    await waitFor(() => expect(document.querySelector("img")?.getAttribute("src")).toBe("/api/photos/p1/hdr"));
   });
 });

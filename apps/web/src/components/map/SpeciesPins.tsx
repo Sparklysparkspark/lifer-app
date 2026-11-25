@@ -31,7 +31,8 @@ import Button from "../Button";
 import Lightbox, { type LightboxSlide } from "../Lightbox";
 import ProgressiveImg from "../ProgressiveImg";
 import { PointCard } from "../Tooltip";
-import { gallerySlide } from "./gallerySlide";
+import { librarySlide, type LibrarySlideActions } from "../../lib/librarySlide";
+import { useReassignCapture } from "../../hooks/usePhotoEdits";
 
 type PinData = ApiResponse<"/collection/map">;
 type Hover =
@@ -121,10 +122,25 @@ export default function SpeciesPins({
       .patch(apiPath("/captures/{id}/rating", { id: captureId }), { rating })
       .catch((err) => toast.error(errorMessage(err, t("gallery.map.rateFailed"))));
   });
+  // The open preview keeps its photos; the next opening reads them again.
+  const reassign = useReassignCapture(() => pinPhotos.clear());
+  const actions = useLatest<LibrarySlideActions>({
+    rate: (id, rating) => rate.current(id, rating),
+    reassign: (id, from, to) => void reassign(id, from, to),
+    changed: () => pinPhotos.clear(),
+    deleted: (id) => setPreview((p) => p && { ...p, items: p.items.filter((it) => it.captureId !== id) }),
+  });
   const slides = useMemo<LightboxSlide[]>(
     () =>
-      (preview?.items ?? []).map((i) => gallerySlide(i, speciesName, (rating) => rate.current(i.captureId, rating))),
-    [preview?.items, speciesName, rate],
+      (preview?.items ?? []).map((i) =>
+        librarySlide(i, speciesName(i), {
+          rate: (id, rating) => actions.current.rate(id, rating),
+          reassign: (id, from, to) => actions.current.reassign(id, from, to),
+          changed: () => actions.current.changed(),
+          deleted: (id) => actions.current.deleted(id),
+        }),
+      ),
+    [preview?.items, speciesName, actions],
   );
 
   // The parked map keeps its layers between visits.

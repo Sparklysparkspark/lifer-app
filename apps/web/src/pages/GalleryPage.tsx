@@ -21,7 +21,6 @@ import { useReadyMarker } from "../lib/readyMarker";
 import { useGoBack } from "../hooks/useGoBack";
 import { useSearchParamsKeepingState, useUrlParam } from "../hooks/useSearchParamsKeepingState";
 import { isTauri } from "../lib/tauri";
-import { formatDate } from "../lib/format";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import type { GalleryItem } from "./gallery/types";
 import {
@@ -350,7 +349,7 @@ export default function GalleryPage() {
           videoUrl: i.kind === "video" ? `/api/photos/${i.photoId}/video` : null,
           audioUrl: i.kind === "audio" ? `/api/photos/${i.photoId}/audio` : null,
           frameUrl: i.kind === "video" ? `/photos/${i.photoId}/frame` : null,
-          caption: `${speciesName(i)}${i.takenAt ? " · " + formatDate(i.takenAt, "medium") : ""}`,
+          caption: speciesName(i),
           speciesId: i.speciesId,
           // Already in its group, the link would lead back here.
           similarHref: readOnly || similarTo ? null : `/gallery?similarTo=${i.captureId}`,
@@ -394,6 +393,7 @@ export default function GalleryPage() {
             shutter: i.shutter,
             iso: i.iso,
             takenAt: i.takenAt,
+            takenAtZoned: i.takenAtZoned,
             durationSeconds: i.durationSeconds,
             files: photoFilePaths(i.originalRef, i.rawRef),
             cull: cullInfo(i.cullVerdict, i.cullLabel),

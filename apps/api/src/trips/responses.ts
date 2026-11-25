@@ -72,6 +72,7 @@ export const TripPhotos = Open({
       scientificName: Type.String(),
       commonName: Nullable(Type.String()),
       takenAt: Nullable(DateTime()),
+      takenAtZoned: Nullable(Type.Boolean()),
       hasRaw: Type.Boolean(),
       originalRef: Nullable(Type.String()),
       inatObservationId: Nullable(Type.String()),

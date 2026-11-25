@@ -77,6 +77,7 @@ const LinkCandidate = Type.Object({
   captureId: Uuid(),
   photoId: Nullable(Uuid()),
   takenAt: Nullable(Type.String()),
+  takenAtZoned: Nullable(Type.Boolean()),
   fileName: Nullable(Type.String()),
   speciesName: Nullable(Type.String()),
 });
@@ -125,10 +126,11 @@ async function describeCandidates(userId: string, groupId: string, ids: string[]
     id: string;
     current_photo_id: string | null;
     taken_at: Date | null;
+    taken_at_zoned: boolean | null;
     species: string | null;
     ref: string | null;
   }>(
-    `SELECT c.id, c.current_photo_id, c.taken_at, COALESCE(s.common_name, s.scientific_name) AS species,
+    `SELECT c.id, c.current_photo_id, c.taken_at, c.taken_at_zoned, COALESCE(s.common_name, s.scientific_name) AS species,
             (SELECT o.ref FROM originals o WHERE o.capture_id = c.id ORDER BY o.kind = 'raw' LIMIT 1) AS ref
      FROM captures c
      JOIN photos p ON p.id = c.current_photo_id AND COALESCE(p.kind, 'image') = 'image'
@@ -141,6 +143,7 @@ async function describeCandidates(userId: string, groupId: string, ids: string[]
     captureId: r.id,
     photoId: r.current_photo_id,
     takenAt: r.taken_at?.toISOString() ?? null,
+    takenAtZoned: r.taken_at_zoned,
     fileName: r.ref ? path.basename(r.ref.replace(/\\/g, "/")) : null,
     speciesName: r.species,
   }));

@@ -72,6 +72,7 @@ export const SpeciesDetail = Open({
       width: Nullable(Type.Integer()),
       height: Nullable(Type.Integer()),
       taken_at: Nullable(DateTime()),
+      taken_at_zoned: Nullable(Type.Boolean()),
       camera_model: Text,
       lens: Text,
       focal_length_mm: Numeric,

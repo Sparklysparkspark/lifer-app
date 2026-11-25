@@ -337,8 +337,8 @@ function serve({ withoutCoordinates = 12, regionOnly = 8 } = {}) {
         nextCursor: null,
         total: 2,
       });
-    // The hover card's sample: the best photos at a mark.
-    if (path.startsWith("/gallery?") && /limit=6(&|$)/.test(path))
+    // The hover card's sample: the best photos at a mark, and the viewer's first page of them.
+    if (path.startsWith("/gallery?") && /limit=60?(&|$)/.test(path))
       return Promise.resolve({
         items: [
           {
@@ -359,6 +359,7 @@ function serve({ withoutCoordinates = 12, regionOnly = 8 } = {}) {
             commonName: "Osprey",
             scientificName: "Pandion haliaetus",
             takenAt: "2026-04-03T10:00:00Z",
+            takenAtZoned: false,
             qualityRating: 4,
             originalRef: "/p/b.jpg",
             rawRef: null,
@@ -578,10 +579,19 @@ describe("PhotoMap", () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(screen.getByRole("group", { name: "This area" })).toBeTruthy();
     // The best photos, as buttons; the second opens the viewer on it, with the others to step to.
-    fireEvent.click(await screen.findByRole("button", { name: "Osprey, Apr 3, 2026" }));
-    expect(await screen.findByText("Osprey, Apr 3, 2026", { selector: "p, span, div" })).toBeTruthy();
+    // The camera's clock, as shot.
+    fireEvent.click(await screen.findByRole("button", { name: /^Osprey, Apr 3, 2026, 10:00\W/ }));
+    const viewer = await screen.findByRole("dialog", { name: "Photo viewer" });
+    expect(
+      within(viewer)
+        .getByText(/^Apr 3, 2026, 10:00\W/)
+        .getAttribute("title"),
+    ).toMatch(/10:00:00/);
+    expect(within(viewer).getByText(/2 \/ 18/)).toBeTruthy();
     expect(screen.queryByRole("group", { name: "This area" })).toBeNull();
-    expect(screen.getByRole("dialog")).toBeTruthy();
+    // The same controls as everywhere: fullscreen, the photo menu and close.
+    for (const name of ["Enter fullscreen", "More options", "Close"])
+      expect(within(viewer).getByRole("button", { name })).toBeTruthy();
   });
 
   it("folds a saved spot under a cluster: the cluster is picked and its card names the spot", async () => {

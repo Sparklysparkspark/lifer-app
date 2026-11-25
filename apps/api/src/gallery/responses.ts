@@ -24,6 +24,12 @@ export const GalleryItem = Open({
   commonName: Nullable(Type.String()),
   taxonClass: Type.String(),
   takenAt: Nullable(DateTime()),
+  takenAtZoned: Nullable(
+    Type.Boolean({
+      description:
+        "takenAt is a true instant (the file named its zone); otherwise it is the camera's clock read as UTC",
+    }),
+  ),
   cameraModel: Nullable(Type.String()),
   lens: Nullable(Type.String()),
   focalLengthMm: Nullable(NumberLike()),

@@ -10,6 +10,7 @@ export interface SlidePhoto {
   captureId?: string | null;
   speciesId?: string | null;
   takenAt?: string | null;
+  takenAtZoned?: boolean | null;
   cameraModel?: string | null;
   lens?: string | null;
   focalLengthMm?: number | string | null;
@@ -43,6 +44,7 @@ export function photoSlide(p: SlidePhoto, extra: Partial<LightboxSlide> = {}): L
       shutter: p.shutter,
       iso: p.iso,
       takenAt: p.takenAt,
+      takenAtZoned: p.takenAtZoned,
       durationSeconds: p.durationSeconds,
       files: photoFilePaths(p.originalRef, p.rawRef),
     },

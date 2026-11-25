@@ -23,6 +23,7 @@ function photo(partial: Partial<TripPhoto> & { photoId: string }): TripPhoto {
     scientificName: "Alces alces",
     commonName: "Moose",
     takenAt: null,
+    takenAtZoned: null,
     hasRaw: false,
     inatObservationId: null,
     originalRef: null,

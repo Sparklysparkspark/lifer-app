@@ -4,7 +4,6 @@ import Lightbox, { type LightboxSlide } from "../../components/Lightbox";
 import PhotoPlaceholder from "../../components/PhotoPlaceholder";
 import { fullSizeUrl, type SpeciesDetail } from "./types";
 import { useSpeciesName } from "../../lib/speciesName";
-import { formatDate } from "../../lib/format";
 import PhotoArrows from "../../components/PhotoArrows";
 import { captureInfo } from "./photoGridHelpers";
 
@@ -23,7 +22,6 @@ function heroSlides(detail: SpeciesDetail): LightboxSlide[] {
     // Your own photo: its shooting details, like anywhere else you open it.
     slides.push({
       url: coverUrl,
-      caption: coverCapture.taken_at ? formatDate(coverCapture.taken_at) : null,
       info: captureInfo(coverCapture),
     });
     // The catalog photo stays one click away, even when the gallery has no row for it.

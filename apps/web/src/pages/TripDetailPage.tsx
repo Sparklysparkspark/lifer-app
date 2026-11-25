@@ -9,7 +9,8 @@ import { useSettings } from "../hooks/useSettings";
 import GroupedSpeciesGrid from "../components/GroupedSpeciesGrid";
 import SearchInput from "../components/SearchInput";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
-import { photoSlide } from "../lib/photoSlide";
+import { librarySlide } from "../lib/librarySlide";
+import { useReassignCapture } from "../hooks/usePhotoEdits";
 import AddToAlbumModal from "../components/AddToAlbumModal";
 import { SelectionBar } from "../components/SelectionActionRow";
 import EmptyState from "../components/EmptyState";
@@ -31,7 +32,6 @@ import { PhotoViewMenu } from "../components/PhotoGridControls";
 import PhotoFiltersMenu from "../components/PhotoFiltersMenu";
 import { GRID_PHOTO_FILTER_SECTIONS, PHOTO_SORTS } from "../lib/photoGridSections";
 import SelectModeToggle from "../components/SelectModeToggle";
-import { formatDate } from "../lib/format";
 import { DEFAULT_RAW_FILES } from "../lib/photoListFilters";
 import { useSpeciesName } from "../lib/speciesName";
 import { useScrollMemory } from "../hooks/useScrollMemory";
@@ -341,16 +341,19 @@ function TripDetail() {
   );
 
   const { rateCapture } = edits;
+  const reload = useCallback(() => void load(), [load]);
+  const reassign = useReassignCapture(reload);
   const slides = useMemo<LightboxSlide[]>(
     () =>
       visiblePhotos.map((p) =>
-        photoSlide(p, {
-          caption: `${speciesName(p)}${p.takenAt ? ` · ${formatDate(p.takenAt)}` : ""}`,
-          rating: p.qualityRating,
-          onRate: (rating: number | null) => void rateCapture(p.captureId, rating),
+        librarySlide(p, speciesName(p), {
+          rate: (captureId, rating) => void rateCapture(captureId, rating),
+          reassign: (captureId, from, to) => void reassign(captureId, from, to),
+          changed: reload,
+          deleted: reload,
         }),
       ),
-    [visiblePhotos, speciesName, rateCapture],
+    [visiblePhotos, speciesName, rateCapture, reassign, reload],
   );
 
   if (loadError) {

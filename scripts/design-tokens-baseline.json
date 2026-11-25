@@ -86,12 +86,6 @@
   {
     "file": "apps/web/src/components/Lightbox.tsx",
     "kind": "colour",
-    "text": "\"flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-body leading-none text-white transition-colors hover:bg-white/20\";",
-    "count": 3
-  },
-  {
-    "file": "apps/web/src/components/Lightbox.tsx",
-    "kind": "colour",
     "text": ": `mt-3 w-full max-w-3xl shrink-0 text-center text-callout text-white/70 transition-opacity duration-300 ${overlayFadeClass}`",
     "count": 1
   },
@@ -142,12 +136,6 @@
     "kind": "colour",
     "text": "className=\"text-white/70 underline hover:text-white\"",
     "count": 8
-  },
-  {
-    "file": "apps/web/src/components/Lightbox.tsx",
-    "kind": "colour",
-    "text": "{(slide.caption || durationLabel) && <span className=\"text-white/40\"> · </span>}",
-    "count": 1
   },
   {
     "file": "apps/web/src/components/Lightbox.tsx",

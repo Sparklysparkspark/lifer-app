@@ -23,7 +23,7 @@ import { useSelectMode } from "../../hooks/useSelectMode";
 import { useLatest } from "../../hooks/useLatest";
 import type { SpeciesResult } from "../../components/SpeciesPicker";
 import { shotDataLine } from "../../lib/shotData";
-import { formatDate } from "../../lib/format";
+import { formatTakenAt } from "../../lib/format";
 import { filterBucketFor, fullSizeUrl, type PhotoFilter, type SpeciesCapture, type SpeciesDetail } from "./types";
 import {
   captureCounts,
@@ -162,6 +162,7 @@ export default function SpeciesPhotoGrid({
   const { tagCapture, rateCapture } = edits;
   // Changes every render; the ref keeps the slides memoized.
   const reassignRef = useLatest(edits.reassignSpecies);
+  const renderMenuRef = useLatest(renderCaptureMenu);
 
   const selectedCaptures = captures.filter((c) => selectedIds.has(c.id));
 
@@ -172,7 +173,6 @@ export default function SpeciesPhotoGrid({
         videoUrl: c.photo_kind === "video" ? `/api/photos/${c.photo_id}/video` : null,
         audioUrl: c.photo_kind === "audio" ? `/api/photos/${c.photo_id}/audio` : null,
         frameUrl: c.photo_kind === "video" ? `/photos/${c.photo_id}/frame` : null,
-        caption: c.taken_at ? formatDate(c.taken_at) : null,
         rating: c.quality_rating,
         onRate: (rating: number | null) => void rateCapture(c.id, rating),
         captureId: c.id,
@@ -188,8 +188,10 @@ export default function SpeciesPhotoGrid({
             ...("morph" in changes && { morph: changes.morph }),
           })),
         info: captureInfo(c),
+        // The grid's own photo menu, built when the viewer's ⋯ opens.
+        menu: (close: () => void) => renderMenuRef.current(c, close),
       })),
-    [photoCaptures, tagCapture, rateCapture, reassignRef, updateCaptures],
+    [photoCaptures, tagCapture, rateCapture, reassignRef, updateCaptures, renderMenuRef],
   );
   const appearances = useMemo(() => captures.map(appearanceOf), [captures]);
   const morphOptions = useMemo(() => appearances.flatMap((a) => (a.morph ? [a.morph] : [])), [appearances]);
@@ -200,7 +202,7 @@ export default function SpeciesPhotoGrid({
     [pendingUploadCount],
   );
 
-  function renderCaptureMenu(c: SpeciesCapture) {
+  function renderCaptureMenu(c: SpeciesCapture, close = () => menu.setOpenKey(null)) {
     const isCover = userSpecies?.cover_photo_id === c.photo_id;
     const edit = (edit: CaptureEdit) => () => setEditing({ captureId: c.id, edit });
     const [editTags, correctId, tagSpecies] = [edit("tags"), edit("reassign"), edit("tagSpecies")];
@@ -220,7 +222,7 @@ export default function SpeciesPhotoGrid({
           hasRaw: c.has_raw_original,
           inatObservationId: c.inat_observation_id,
         }}
-        onClose={() => menu.setOpenKey(null)}
+        onClose={close}
         onRate={(rating) => void rateCapture(c.id, rating)}
         featured={isCover}
         onToggleFeatured={() => void edits.setCover(isCover ? null : c.photo_id!)}
@@ -332,7 +334,7 @@ export default function SpeciesPhotoGrid({
             menu={menu}
             pending={{ keys: pendingKeys, label: t("species.photoGrid.uploading") }}
             onOpen={(i) => setLightboxIndex(slideIndexById.get(visibleCaptures[i].id) ?? 0)}
-            renderMenu={renderCaptureMenu}
+            renderMenu={(c) => renderCaptureMenu(c)}
             renderLabel={(c) => {
               const location = locationText(c);
               return (
@@ -366,7 +368,7 @@ export default function SpeciesPhotoGrid({
                   {/* Every photo here is this species, so its label is when and where it was taken. */}
                   <PhotoTileCaption
                     {...captions}
-                    label={[c.taken_at && formatDate(c.taken_at), location].filter(Boolean).join(" · ")}
+                    label={[formatTakenAt(c.taken_at, c.taken_at_zoned), location].filter(Boolean).join(" · ")}
                     rating={c.quality_rating}
                     onRate={(rating) => void rateCapture(c.id, rating)}
                     shotLine={shotDataLine(c)}

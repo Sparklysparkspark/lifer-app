@@ -40,8 +40,7 @@ export function usePhotoEdits({
 }) {
   const { t } = useTranslation();
   const toast = useToast();
-  const navigate = useNavigate();
-  const speciesName = useSpeciesName();
+  const reassign = useReassignCapture(reload);
   const [editing, setEditing] = useState<{ captureId: string; edit: CaptureEdit } | null>(null);
   const [placing, setPlacing] = useState<string | null>(null);
   const [tagOptions, setTagOptions] = useState<string[]>([]);
@@ -87,33 +86,6 @@ export function usePhotoEdits({
     } catch (err) {
       toast.error(errorMessage(err, t("species.edits.tagSpeciesFailed")));
     }
-  }
-
-  /** `from` is the photo's species now, so the move can be undone. */
-  async function reassign(captureId: string, from: string | null | undefined, to: SpeciesResult) {
-    try {
-      await api.patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: to.id });
-    } catch (err) {
-      toast.error(errorMessage(err, t("species.edits.reassignFailed")));
-      return;
-    }
-    reload();
-    const undo = from
-      ? [
-          {
-            label: t("species.edits.undo"),
-            onClick: () =>
-              void api
-                .patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: from })
-                .catch(() => toast.error(t("species.edits.moveBackFailed")))
-                .then(reload),
-          },
-        ]
-      : [];
-    toast.show(t("species.edits.movedTo", { species: speciesName(to) }), {
-      tone: "success",
-      actions: [{ label: t("species.edits.view"), onClick: () => navigate(`/species/${to.id}`) }, ...undo],
-    });
   }
 
   async function hide(captureIds: string[]) {
@@ -209,4 +181,41 @@ export function usePhotoEdits({
     dialog,
     menuActions,
   };
+}
+
+/** Correct the ID of one photo, with View and Undo on the toast. `from` is the photo's species now,
+ *  so the move can be undone. Stable while `reload` is. */
+export function useReassignCapture(reload: () => void) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const speciesName = useSpeciesName();
+  return useCallback(
+    async (captureId: string, from: string | null | undefined, to: SpeciesResult) => {
+      try {
+        await api.patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: to.id });
+      } catch (err) {
+        toast.error(errorMessage(err, t("species.edits.reassignFailed")));
+        return;
+      }
+      reload();
+      const undo = from
+        ? [
+            {
+              label: t("species.edits.undo"),
+              onClick: () =>
+                void api
+                  .patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: from })
+                  .catch(() => toast.error(t("species.edits.moveBackFailed")))
+                  .then(reload),
+            },
+          ]
+        : [];
+      toast.show(t("species.edits.movedTo", { species: speciesName(to) }), {
+        tone: "success",
+        actions: [{ label: t("species.edits.view"), onClick: () => navigate(`/species/${to.id}`) }, ...undo],
+      });
+    },
+    [reload, t, toast, navigate, speciesName],
+  );
 }

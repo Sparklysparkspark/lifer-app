@@ -46,16 +46,21 @@ import { useApiRoute } from "../lib/resource";
 import { api, apiPath } from "../api/client";
 import { errorMessage } from "../lib/errorMessage";
 import { openExternal } from "../lib/openExternal";
-import { formatDate, formatDuration, formatNumber } from "../lib/format";
+import { formatDuration, formatNumber, formatTakenAt } from "../lib/format";
 import { downloadWithToast } from "../lib/downloadFile";
 import { ignore } from "../lib/ignore";
 import { backStateFor } from "../lib/backLabel";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { sharpestShown } from "./ProgressiveImg";
+import { useHdrPhoto } from "../lib/hdrViewer";
 import { VersionStrip, usePhotoVersions } from "./PhotoVersions";
 import { StackIcon } from "./PhotoTile";
 import { countedVersions, openPhotoVersions, photoVersionsPanel, type PhotoVersion } from "../lib/photoVersions";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import PhotoMenu, { type PhotoMenuPhoto } from "./PhotoMenu";
+import AddToAlbumModal from "./AddToAlbumModal";
+import AdjustTimeDialog from "../pages/gallery/AdjustTimeDialog";
+import { useDeleteCaptures } from "../hooks/useDeleteCaptures";
 
 /** A slide's identity across reloads; trip slides carry no captureId, and their URL is per photo. */
 function slideKey(slide: LightboxSlide | undefined): string | undefined {
@@ -109,6 +114,8 @@ export interface LightboxSlide {
     shutter?: string | null;
     iso?: number | null;
     takenAt?: string | null;
+    /** takenAt is a true instant (see formatTakenAt); left out where the list doesn't say. */
+    takenAtZoned?: boolean | null;
     durationSeconds?: number | string | null;
     /** Stored file locations (edited JPEG and any RAW), shown by file name. See photoFilePaths. */
     files?: string[];
@@ -142,7 +149,17 @@ export interface LightboxSlide {
   onFrameSaved?: () => void;
   /** The page's photo menu (a MenuPanel) for the viewer's ⋯ button; `close` closes it. */
   menu?: (close: () => void) => ReactElement;
+  /** A library photo without a page menu: the viewer's ⋯ offers the standard PhotoMenu, its items
+   *  following the slide's handlers (onRate, onReassign, coordinates.onChange, onDeleted, onChanged). */
+  photo?: PhotoMenuPhoto;
+  /** Adds Delete to the standard menu: the photo goes to Trash with Undo, and the page drops it. */
+  onDeleted?: () => void;
+  /** After a change made from the standard menu (date and time, Undo of a delete): reloads the page.
+   *  Adds "Adjust date and time". */
+  onChanged?: () => void;
 }
+
+const NO_SELECTION = { selectMode: false, selectedIds: new Set<string>(), setSelectedIds: () => {}, exit: () => {} };
 
 // Neighbours kept decoded each way, and the most decoded pixels they may hold between them.
 const PRELOAD_EACH_WAY = 2;
@@ -301,11 +318,12 @@ export default function Lightbox({
    *  about to show, so a change of slides in the same step lands on it. */
   footer?: (slide: LightboxSlide, follow: (key: string) => void) => ReactNode;
 }) {
-  // Arrows sit over the native video controls, so on video slides they fade out when the mouse idles.
+  // Arrows sit over the native video controls, and over the photo in fullscreen, so there they fade
+  // out when the mouse idles and come back on any move.
   const toast = useToast();
   const { t } = useTranslation();
   const location = useLocation();
-  const [videoControlsIdle, setVideoControlsIdle] = useState(false);
+  const [controlsIdle, setControlsIdle] = useState(false);
   // shortcut: the caption offers the chosen editor only; the ⋯ menu lists them all.
   const { editors, openIn } = useOpenInEditors();
   const checklist = useApiRoute(
@@ -321,13 +339,24 @@ export default function Lightbox({
     { has: (f) => f.lat != null, text: (count) => t("bursts.apply.haveCoordinates", { count }) },
   );
   const speciesScope = useBurstScope("species", correcting?.burstEdits ? correcting.captureId : null);
+  // The standard menu's own dialogs, each on the slide it opened from.
+  const [addingToAlbum, setAddingToAlbum] = useState<LightboxSlide | null>(null);
+  const [adjustingTime, setAdjustingTime] = useState<LightboxSlide | null>(null);
+  const dateScope = useBurstScope("date", adjustingTime?.burstEdits ? adjustingTime.captureId : null);
+  const deleting = useRef<LightboxSlide | null>(null);
+  const { deletePhoto } = useDeleteCaptures({
+    select: NO_SELECTION,
+    onDeleted: () => deleting.current?.onDeleted?.(),
+    reload: () => deleting.current?.onChanged?.(),
+  });
+  const dialogOpen = !!(correcting || editingCoordinates || editingAppearance || addingToAlbum || adjustingTime);
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef);
-  function resetVideoIdleTimer() {
-    setVideoControlsIdle(false);
+  function resetIdleTimer() {
+    setControlsIdle(false);
     if (idleTimeoutRef.current) clearTimeout(idleTimeoutRef.current);
-    idleTimeoutRef.current = setTimeout(() => setVideoControlsIdle(true), 1000);
+    idleTimeoutRef.current = setTimeout(() => setControlsIdle(true), 1000);
   }
   // The idle state itself resets with the other per-slide state below; its timer stops here.
   useEffect(() => {
@@ -375,6 +404,8 @@ export default function Lightbox({
         }
       }
       setIsFullscreen(true);
+      // Over the photo now, the controls fade until the mouse moves.
+      resetIdleTimer();
     } catch (err) {
       ignore("Couldn't change fullscreen")(err);
     }
@@ -426,6 +457,19 @@ export default function Lightbox({
     },
     [slides, onIndexChange],
   );
+  // Wraps at the ends, unless the page has more photos than it has loaded (`total`): then the step
+  // past the last asks the page for index + 1, which it shows once that page is in.
+  const step = useCallback(
+    (by: 1 | -1) => {
+      const to = index + by;
+      if ((total ?? 0) > slides.length && (to < 0 || to >= slides.length)) {
+        if (to >= slides.length) onIndexChange(to);
+        return;
+      }
+      go((to + slides.length) % slides.length);
+    },
+    [index, total, slides.length, go, onIndexChange],
+  );
   const follow = useCallback((key: string) => {
     shown.current.key = key;
   }, []);
@@ -445,7 +489,7 @@ export default function Lightbox({
   }, [slides, index, onIndexChange]);
   if (shownIndex !== index) {
     setShownIndex(index);
-    setVideoControlsIdle(false);
+    setControlsIdle(false);
     setImageFailed(false);
     setView(FIT);
     setVersionId(null);
@@ -480,14 +524,7 @@ export default function Lightbox({
       },
     },
     {
-      enabled:
-        !!current?.captureId &&
-        !current.videoUrl &&
-        !current.audioUrl &&
-        !versionsPanelOpen &&
-        !correcting &&
-        !editingCoordinates &&
-        !editingAppearance,
+      enabled: !!current?.captureId && !current.videoUrl && !current.audioUrl && !versionsPanelOpen && !dialogOpen,
     },
   );
 
@@ -523,8 +560,7 @@ export default function Lightbox({
   const stepVersionRef = useLatest(stepVersion);
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (correcting || editingCoordinates || editingAppearance || isTypingTarget(e.target) || e.defaultPrevented)
-        return;
+      if (dialogOpen || isTypingTarget(e.target) || e.defaultPrevented) return;
       // A dialog or another viewer over this one takes the keys (a Versions dialog's own viewer).
       if (!isTopLayer()) return;
       const slide = slides[index];
@@ -553,8 +589,8 @@ export default function Lightbox({
         video.pause();
         // 30 steps a second: the file's own frame rate isn't known here.
         video.currentTime = Math.max(0, video.currentTime + (matches(e, "frameForward") ? 1 : -1) / 30);
-      } else if (matches(e, "next")) go((index + 1) % slides.length);
-      else if (matches(e, "previous")) go((index - 1 + slides.length) % slides.length);
+      } else if (matches(e, "next")) step(1);
+      else if (matches(e, "previous")) step(-1);
       else if (slide?.onRate && (matches(e, "rateClear") || RATE_ACTIONS.some((a) => matches(e, a)))) {
         const rating = RATE_ACTIONS.findIndex((a) => matches(e, a)) + 1;
         slide.onRate(rating === 0 || slide.rating === rating ? null : rating);
@@ -575,11 +611,10 @@ export default function Lightbox({
     index,
     slides,
     go,
+    step,
     toggleFullscreenRef,
     canToggleFullscreenRef,
-    correcting,
-    editingCoordinates,
-    editingAppearance,
+    dialogOpen,
     versionsRef,
     stepVersionRef,
     isTopLayer,
@@ -593,6 +628,8 @@ export default function Lightbox({
     if (slideMissing) onCloseRef.current();
   }, [slideMissing, onCloseRef]);
   const decoded = useDecodedPhotos(slides, index);
+  // Experimental, off by default: the HDR copy replaces the SDR image once it has decoded.
+  const hdrUrl = useHdrPhoto(slides[index]?.url ?? "");
 
   const slide = slides[index];
   if (!slide) return null;
@@ -614,9 +651,15 @@ export default function Lightbox({
     .filter(Boolean)
     .join(" · ");
   const durationLabel = formatDuration(slide.info?.durationSeconds) || null;
-  // Left out when the caption already gives the date (the Gallery's and species page's do).
-  const fullDate = formatDate(slide.info?.takenAt, "medium");
-  const takenLabel = fullDate && !slide.caption?.includes(formatDate(slide.info?.takenAt)) ? fullDate : null;
+  // When it was taken, as shot, after the caption; seconds and the offset on hover. A library
+  // photo without one says so.
+  const takenAt = slide.info?.takenAt;
+  const takenLabel = takenAt
+    ? formatTakenAt(takenAt, slide.info?.takenAtZoned)
+    : slide.captureId && slide.info
+      ? t("lightbox.noDate")
+      : null;
+  const takenTitle = takenAt ? formatTakenAt(takenAt, slide.info?.takenAtZoned, { full: true }) : undefined;
   const hasCaptionBand = !!(
     slide.caption ||
     slide.speciesId ||
@@ -632,12 +675,43 @@ export default function Lightbox({
     slide.coordinates?.lat != null ||
     !!slide.coordinates?.onChange
   );
-  // A see-through light grey, to stand out on the black backdrop. The corner buttons are a fixed square with the
-  // glyph centred, so each is a circle whatever the character's shape; the arrows are PhotoArrows.
-  const iconButtonClass =
-    "flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-body leading-none text-white transition-colors hover:bg-white/20";
+  // The page's own menu, or the standard one for a library photo, its items following the slide's handlers.
+  const standard = slide.photo;
+  const trash = (deleteRaw: boolean) => {
+    deleting.current = slide;
+    void deletePhoto(standard!.captureId, deleteRaw);
+  };
+  const slideMenu =
+    slide.menu ??
+    (standard &&
+      ((close: () => void) => (
+        <PhotoMenu
+          photo={{ ...standard, rating: slide.rating, speciesId: slide.speciesId }}
+          onClose={close}
+          speciesLinkState={backStateFor(location, t, backLabel)}
+          onRate={slide.onRate}
+          onCorrectId={slide.onReassign && (() => setCorrecting(slide))}
+          onAddToAlbum={() => setAddingToAlbum(slide)}
+          onSetLocation={slide.coordinates?.onChange && (() => setEditingCoordinates(slide))}
+          onAdjustTime={slide.onChanged && (() => setAdjustingTime(slide))}
+          onInatSent={slide.onChanged}
+          onVersionsChange={slide.onVersionsChange ?? slide.onChanged}
+          onDelete={slide.onDeleted && (() => trash(false))}
+          onDeleteWithRaw={slide.onDeleted && (() => trash(true))}
+        />
+      )));
+  // A dark see-through chip with a light rim, so the buttons read on a white photo and on black
+  // alike. A fixed square with the glyph centred, so each is a circle whatever the character's
+  // shape; 44px to touch on a phone. The arrows are PhotoArrows.
+  const chipClass =
+    // design-token: a scrim over any photo, as PhotoArrows' photo tone.
+    "bg-black/55 text-white ring-1 ring-white/25 backdrop-blur-sm transition-colors hover:ring-white/60";
+  const iconButtonClass = `flex h-11 w-11 items-center justify-center rounded-full text-body leading-none sm:h-8 sm:w-8 ${chipClass}`;
 
-  const videoIdle = !!slide.videoUrl && videoControlsIdle;
+  const videoIdle = (!!slide.videoUrl || isFullscreen) && controlsIdle;
+  const startPeekTimer = () => {
+    if (slide.videoUrl || isFullscreen) resetIdleTimer();
+  };
   // The controls and details step aside while a video plays untouched or the photo is zoomed in.
   const overlayFadeClass = videoIdle || view.scale > 1 ? "pointer-events-none opacity-0" : "opacity-100";
   // Outside fullscreen the photo shrinks to whatever the caption below leaves, rather than taking a
@@ -656,16 +730,16 @@ export default function Lightbox({
       tabIndex={-1}
       className={`fixed inset-0 z-50 bg-surround outline-none ${videoIdle ? "cursor-none" : ""}`}
       onClick={handleClose}
-      onMouseMove={() => {
-        if (slide.videoUrl) resetVideoIdleTimer();
-      }}
+      onMouseMove={startPeekTimer}
+      // Tabbing to a faded control shows them all again.
+      onFocus={startPeekTimer}
     >
       <div
         // A video keeps a band clear above it: WebKit puts its volume and picture-in-picture
         // controls in the video's top corner, under the viewer's own buttons otherwise.
         className={`relative flex h-full w-full flex-col items-center justify-center overflow-hidden ${
-          // pt-14: clear of the download, fullscreen and close buttons along the top.
-          slide.videoUrl ? "px-4 py-16" : isFullscreen ? "" : "px-4 pb-4 pt-14"
+          // pt-14: clear of the download, fullscreen and close buttons along the top (taller to touch on a phone).
+          slide.videoUrl ? "px-4 py-16" : isFullscreen ? "" : "px-4 pb-4 pt-16 sm:pt-14"
         }`}
       >
         {/* The mac window's traffic lights get a drag strip of their own; the photo starts below it. */}
@@ -684,8 +758,7 @@ export default function Lightbox({
                     e.stopPropagation();
                     openPhotoVersions(slide.captureId!, slide.onVersionsChange);
                   }}
-                  // design-token: as the round controls beside it, a pill for its count
-                  className="flex h-8 items-center gap-1.5 rounded-full bg-white/10 px-3 text-footnote text-white transition-colors hover:bg-white/20"
+                  className={`flex h-11 items-center gap-1.5 rounded-full px-3 text-footnote sm:h-8 ${chipClass}`}
                 >
                   <StackIcon className="h-3.5 w-3.5" />
                   {/* A RAW behind its edit can be switched to but isn't counted as a version. */}
@@ -750,7 +823,7 @@ export default function Lightbox({
             </Tooltip>
           )}
           {/* Another version shown here is not the photo the menu acts on. */}
-          {!otherVersion && slide.menu && <LightboxMenu menu={slide.menu} buttonClass={iconButtonClass} />}
+          {!otherVersion && slideMenu && <LightboxMenu menu={slideMenu} buttonClass={iconButtonClass} />}
           <Tooltip content={{ label: t("lightbox.close"), shortcut: shortcutLabel("backToGrid") }}>
             {(tip) => (
               // raw-control: a lightbox overlay control, light on the dark backdrop.
@@ -763,11 +836,11 @@ export default function Lightbox({
 
         {slides.length > 1 && (
           <PhotoArrows
-            tone="dark"
             wide
-            className={overlayFadeClass}
-            onPrevious={() => go((index - 1 + slides.length) % slides.length)}
-            onNext={() => go((index + 1) % slides.length)}
+            // design-token: the corner buttons' light rim, so the arrows read on a black photo too.
+            className={`min-h-11 min-w-11 ring-1 ring-white/25 sm:min-h-0 sm:min-w-0 ${overlayFadeClass}`}
+            onPrevious={() => step(-1)}
+            onNext={() => step(1)}
             previousLabel={t("lightbox.previous")}
             nextLabel={t("lightbox.next")}
           />
@@ -812,7 +885,7 @@ export default function Lightbox({
             className={isFullscreen ? "h-full w-full" : "min-h-0 w-full flex-1"}
           >
             <img
-              src={versionUrl ?? placeholder ?? slide.url}
+              src={versionUrl ?? hdrUrl ?? placeholder ?? slide.url}
               alt=""
               draggable={false}
               className="h-full w-full object-contain"
@@ -836,6 +909,7 @@ export default function Lightbox({
             <Tip id="viewer-keys" dark takeOver when={!!slide.onRate} className="mb-2 text-left" />
             {/* Kept to a few lines so the photo above gets the height on a small window. */}
             {(slide.caption ||
+              takenLabel ||
               durationLabel ||
               slide.speciesId ||
               slide.similarHref ||
@@ -844,11 +918,18 @@ export default function Lightbox({
               (slide.captureId && editors[0])) && (
               <p className="text-white">
                 {slide.caption}
-                {slide.caption && durationLabel && " · "}
+                {slide.caption && takenLabel && " · "}
+                {takenLabel && (
+                  <span title={takenTitle} className="whitespace-nowrap">
+                    {takenLabel}
+                  </span>
+                )}
+                {(slide.caption || takenLabel) && durationLabel && " · "}
                 {durationLabel}
                 {slide.speciesId && (
                   <>
-                    {(slide.caption || durationLabel) && <span className="text-white/40"> · </span>}
+                    {/* design-token: caption text on the dark surround, as the links below */}
+                    {(slide.caption || takenLabel || durationLabel) && <span className="text-white/40"> · </span>}
                     <Link
                       to={`/species/${slide.speciesId}`}
                       state={backStateFor(location, t, backLabel)}
@@ -959,9 +1040,9 @@ export default function Lightbox({
                 )}
               </div>
             )}
-            {(cameraLine || takenLabel || slide.info?.cull) && (
+            {(cameraLine || slide.info?.cull) && (
               <p className="mt-0.5 text-footnote text-white/50">
-                {[cameraLine, takenLabel, slide.info?.cull].filter(Boolean).join(" · ")}
+                {[cameraLine, slide.info?.cull].filter(Boolean).join(" · ")}
               </p>
             )}
             {files.length > 0 && (
@@ -1059,6 +1140,21 @@ export default function Lightbox({
             morphOptions={morphOptions}
             onSaved={editingAppearance.onAppearanceChange}
             onClose={() => setEditingAppearance(null)}
+          />
+        </div>
+      )}
+      {addingToAlbum?.captureId && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <AddToAlbumModal captureIds={[addingToAlbum.captureId]} onClose={() => setAddingToAlbum(null)} />
+        </div>
+      )}
+      {adjustingTime?.captureId && adjustingTime.onChanged && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <AdjustTimeDialog
+            captureIds={dateScope.ids.length > 0 ? dateScope.ids : [adjustingTime.captureId]}
+            scope={dateScope.control}
+            onClose={() => setAdjustingTime(null)}
+            onChanged={adjustingTime.onChanged}
           />
         </div>
       )}

@@ -1554,6 +1554,7 @@ export function toGalleryItem(row: GalleryRow, score: number | null) {
     commonName: row.common_name,
     taxonClass: row.taxon_class,
     takenAt: row.taken_at,
+    takenAtZoned: row.taken_at_zoned ?? null,
     cameraModel: row.camera_model,
     lens: row.lens,
     focalLengthMm: row.focal_length_mm,

@@ -10,7 +10,7 @@ import Button from "../Button";
 import ProgressiveImg from "../ProgressiveImg";
 import { PointCard } from "../Tooltip";
 import type { Box } from "../../lib/cardPlacement";
-import { slideCaption } from "./gallerySlide";
+import { slideCaption } from "../../lib/librarySlide";
 
 const SHOWN = 6;
 
@@ -67,7 +67,8 @@ export default function MapHoverCard({
   query: URLSearchParams | null;
   /** Shown at once from the map's own data, until the request answers. */
   photoIds: string[];
-  onOpen: (items: GalleryItem[], index: number) => void;
+  /** Opens the viewer on the mark's photos at this one (they're in the same order). */
+  onOpen: (index: number) => void;
   onShowAll?: () => void;
   /** The map's box and its controls, which the card keeps inside and clear of. */
   within?: Box;
@@ -117,9 +118,9 @@ export default function MapHoverCard({
                     key={item.captureId}
                     variant="ghost"
                     size="sm"
-                    aria-label={slideCaption(item, speciesName)}
-                    tooltip={{ label: slideCaption(item, speciesName) }}
-                    onClick={() => onOpen(found.items, i)}
+                    aria-label={slideCaption(speciesName(item), item)}
+                    tooltip={{ label: slideCaption(speciesName(item), item) }}
+                    onClick={() => onOpen(i)}
                     className="aspect-square h-auto! overflow-hidden p-0!"
                   >
                     <ProgressiveImg

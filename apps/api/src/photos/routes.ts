@@ -19,7 +19,7 @@ import { ensureDefaultCardCrop } from "../collection/defaultCardCrop.js";
 import { ensureDir } from "@lifer/core/lib/safeFs.js";
 import { applyFileValidators, rangeStillValid, sendCachedImage, statFile } from "../lib/cachedFile.js";
 import { log } from "@lifer/core/lib/log.js";
-import { fullRender, isJpegPath } from "./fullRender.js";
+import { fullRender, hdrRender, isJpegPath } from "./fullRender.js";
 import { reportMissingFile } from "../movedPhotos/relink.js";
 
 // Smaller copies of the display image: a 1,024px one for grid tiles (the thumbnail is soft on dense
@@ -569,6 +569,26 @@ export async function photoRoutes(fastify: FastifyInstance): Promise<void> {
         }
       }
       return reply.code(404).send({ error: "Original not found" });
+    },
+  );
+
+  // Experimental (Settings > General > Show HDR photos in the viewer): a display-size copy of an
+  // Ultra HDR JPEG original with its gain map kept and its metadata left out. 404 for any other
+  // photo or a disconnected drive: the viewer keeps the SDR display image.
+  app.get(
+    "/photos/:id/hdr",
+    {
+      preValidation: requireScope("photos.read"),
+      config: notFoundOnInvalidId("No HDR copy for this photo"),
+      schema: { params: IdParams },
+    },
+    async (request, reply) => {
+      const original = await resolveOriginal(request.params.id, request.user!.id, "jpeg");
+      const ref = original?.connected && original.ref && isJpegPath(original.ref) ? original.ref : null;
+      const made = ref ? await hdrRender(request.params.id, ref) : null;
+      const st = made ? await statFile(made) : null;
+      if (!made || !st) return reply.code(404).send({ error: "No HDR copy for this photo" });
+      return sendOriginalFile(request, reply, made, st, "image/jpeg");
     },
   );
 

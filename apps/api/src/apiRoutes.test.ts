@@ -21,6 +21,7 @@ const NON_JSON_SCOPED_ROUTES = [
   "GET /api/photos/:id/medium",
   "GET /api/photos/:id/phone",
   "GET /api/photos/:id/full",
+  "GET /api/photos/:id/hdr",
   "GET /api/photos/:id/card",
   "GET /api/photos/:id/thumb",
   "GET /api/photos/:id/original",

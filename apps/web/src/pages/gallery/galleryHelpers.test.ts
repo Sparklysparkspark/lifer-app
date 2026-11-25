@@ -32,6 +32,7 @@ function item(photoId: string, partial: Partial<GalleryItem> = {}): GalleryItem 
     commonName: "Moose",
     taxonClass: "mammalia",
     takenAt: null,
+    takenAtZoned: null,
     cameraModel: null,
     lens: null,
     focalLengthMm: null,

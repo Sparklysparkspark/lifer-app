@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { LightboxSlide } from "../Lightbox";
 
 const get = vi.fn();
 vi.mock("../../api/client", async (importOriginal) => ({
@@ -8,13 +9,20 @@ vi.mock("../../api/client", async (importOriginal) => ({
   api: { get: (...a: unknown[]) => get(...a) },
 }));
 
+const shown: { slide?: LightboxSlide } = {};
 vi.mock("../Lightbox", () => ({
-  default: ({ slides, index }: { slides: Array<{ url: string }>; index: number }) => (
-    <div role="dialog" data-testid="viewer">
-      {index + 1} of {slides.length}: {slides[index].url}
-    </div>
-  ),
+  default: ({ slides, index }: { slides: LightboxSlide[]; index: number }) => {
+    shown.slide = slides[index];
+    return (
+      <div role="dialog" data-testid="viewer">
+        {index + 1} of {slides.length}: {slides[index].url}
+      </div>
+    );
+  },
 }));
+
+const reassign = vi.fn();
+vi.mock("../../hooks/usePhotoEdits", () => ({ useReassignCapture: () => reassign }));
 
 // The shared picker, reduced to its result: the user picks Canada.
 vi.mock("../SetRegionDialog", () => ({
@@ -77,6 +85,7 @@ function renderTray(onPlace = vi.fn(), onSetRegion = vi.fn().mockResolvedValue(t
       onPlace={onPlace}
       onSetRegion={onSetRegion}
       onDragSource={() => {}}
+      onChanged={() => {}}
     />,
   );
   return onPlace;
@@ -99,6 +108,12 @@ describe("NeedsPlacingTray", () => {
     expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
     fireEvent.click(screen.getAllByTestId("photo-tile")[2].querySelector("button")!);
     expect(screen.getByTestId("viewer").textContent).toBe("3 of 4: /api/photos/pc/display");
+    // The standard photo menu and placing from the viewer, as on the rest of the map.
+    expect(shown.slide?.photo).toEqual({ captureId: "c", photoId: "pc" });
+    expect(shown.slide?.coordinates?.onChange).toBeTypeOf("function");
+    expect(shown.slide?.onDeleted).toBeTypeOf("function");
+    shown.slide?.onReassign?.({ id: "s2" } as never);
+    expect(reassign).toHaveBeenCalledWith("c", null, { id: "s2" });
   });
 
   it("previews from the row's thumbnail stack", async () => {

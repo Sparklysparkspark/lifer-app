@@ -68,6 +68,7 @@ export function captureInfo(c: SpeciesCapture): NonNullable<LightboxSlide["info"
     shutter: c.shutter,
     iso: c.iso,
     takenAt: c.taken_at,
+    takenAtZoned: c.taken_at_zoned,
     durationSeconds: c.duration_seconds,
     files: photoFilePaths(c.original_ref, c.raw_ref),
   };

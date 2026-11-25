@@ -840,7 +840,8 @@
   },
   "lightbox": {
     "revealHint": "Tooltip on the photo viewer's Show in Finder button beside the file names.",
-    "viewSpecies": "Link in the photo viewer to the photo's species page. The arrow marks it as leaving the viewer."
+    "viewSpecies": "Link in the photo viewer to the photo's species page. The arrow marks it as leaving the viewer.",
+    "noDate": "In the photo viewer's caption, after the species name, for one of your photos with no capture date. Where a date shows, it reads like Nov 17, 2026, 7:42 PM."
   },
   "manageTags": {
     "noMatch": "{search} is the user's search text.",
@@ -931,7 +932,8 @@
       "bigList": "For a list over the size limit. {size} is the batch size formatted with digit grouping, like 5,000.",
       "growthForm": "{query} is what the user typed, like trees; iNaturalist has no single group for trees or shrubs.",
       "button": "The dialog's main button. {region} is the Lifer region whose checklist gets the species.",
-      "buttonIdle": "The main button before a group and place are picked (disabled)."
+      "buttonIdle": "The main button before a group and place are picked (disabled).",
+      "alsoTarget": "Checkbox in Add a list from iNaturalist: every species the list adds, now and in later batches, also goes on a new target list named after the list."
     },
     "starters": {
       "lepidoptera": "A tappable starter group under the search box (iNaturalist order Lepidoptera)."
@@ -948,13 +950,15 @@
     },
     "actions": {
       "update": "Menu item: read the list from iNaturalist again to add newly recorded species.",
-      "continue": "Starts the next batch of a big list now instead of waiting."
+      "continue": "Starts the next batch of a big list now instead of waiting.",
+      "untarget": "Menu item on a list from iNaturalist that was set to add its species to targets: takes those targets back and stops adding more."
     },
     "remove": {
       "message": "Confirm dialog body. {count} is how many species the list added, {region} the region they were added to."
     },
     "toast": {
-      "removedKept": "{kept} is how many of the list's species stay because the user photographed or marked them."
+      "removedKept": "{kept} is how many of the list's species stay because the user photographed or marked them.",
+      "untargeted": "Toast after Remove these targets. {name} is the list's name, like Spiders of Canada."
     }
   },
   "otherTaxa": {
@@ -1099,6 +1103,10 @@
       "undone": "{count} is a number of species."
     },
     "general": {
+      "hdrViewer": {
+        "title": "Settings > General > Appearance switch, off by default. HDR (high dynamic range) photos have highlights brighter than normal white; the full-size photo viewer shows them that way when on. Keep HDR as is.",
+        "description": "Under Show HDR photos in the viewer. Ultra HDR JPEG is a file format name (a JPEG with extra brightness data); keep it untranslated. Unchanged: thumbnails, grids and screens without HDR keep the standard (SDR) look."
+      },
       "editor": {
         "group": "Settings > General heading for the photo editor choice (desktop app).",
         "title": "Label of the picker of which installed photo editor (Lightroom Classic, darktable...) opens photos.",
@@ -1595,8 +1603,21 @@
     }
   },
   "targetLists": {
+    "addAction": "Opens the Add targets dialog, from the Collection's Add species menu and from Settings.",
+    "tabGroup": "Tab: type a group and a place, like raptors of BC, and make every species in it a target.",
+    "tabImport": "Tab: import a CSV file of species names as targets.",
+    "group": {
+      "placeholder": "Example phrases in the empty box. BC is British Columbia; keep the examples to well-known groups and places in your language.",
+      "count": "Live preview: how many species would become targets (ones not photographed yet).",
+      "countAll": "Live preview with Include species I've already photographed switched on.",
+      "inatCount": "Live preview for a group only iNaturalist has (plants, insects, fungi): species are added in the background and each becomes a target when it arrives.",
+      "none": "{region} is a region name, like British Columbia.",
+      "notInCatalog": "{query} is what the user typed. Settings and Species and import name a Settings page; keep them as the app's own names.",
+      "newListNamed": "First option of the Add to dropdown: a new target list named after what the user typed. {name} is that text, like raptors of BC.",
+      "adding": "Toast after targeting a group from iNaturalist. {name} is the new list's name, like Mushrooms of British Columbia."
+    },
     "import": {
-      "done": "Toast after importing a target list from a CSV. {name} is the list's name, which the user typed.",
+      "done": "Toast after importing a target list from a CSV, or targeting a group. {name} is the list's name, which the user typed.",
       "notFound": "{names} is a comma-separated list of species names from the user's file that matched nothing.",
       "offChecklist": "Checkbox in the import review. {region} is a region name, like British Columbia.",
       "summary": "{matched} is a formatted number of names matched to one species; the other parts only show when not zero."

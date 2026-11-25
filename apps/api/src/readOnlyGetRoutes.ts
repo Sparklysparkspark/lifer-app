@@ -15,6 +15,7 @@ export const AUDITED_GET_ROUTES: readonly string[] = [
   "/api/library/existing",
   "/api/species/other-taxa/added",
   "/api/target-lists",
+  "/api/collection/targets/by-group",
   "/api/species-lists",
   // iNaturalist autocomplete proxies; the response cache they fill is not something a person notices.
   "/api/species-lists/search/taxa",
@@ -52,6 +53,7 @@ export const AUDITED_GET_ROUTES: readonly string[] = [
   "/api/photos/:id/medium",
   "/api/photos/:id/phone",
   "/api/photos/:id/full",
+  "/api/photos/:id/hdr",
   "/api/photos/:id/thumb",
   "/api/photos/:id/original",
   "/api/photos/:id/original-raw",

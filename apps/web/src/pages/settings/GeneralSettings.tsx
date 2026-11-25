@@ -29,6 +29,7 @@ import Switch from "../../components/Switch";
 import { useSpeciesNamePrefs, type AlsoShow } from "../../lib/speciesName";
 import { saveSpeciesNames, usePersistedFlag } from "../collection/useCollectionDisplayPrefs";
 import Checkbox from "../../components/Checkbox";
+import { useHdrViewerSetting } from "../../lib/hdrViewer";
 import { SPECIES_DOWNLOADS_PATH } from "../../lib/speciesDownloads";
 
 const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases/latest`;
@@ -41,6 +42,7 @@ export default function GeneralSettings() {
     <>
       <SettingsGroup title={t("settings.general.appearance")}>
         <ThemeRow />
+        <HdrViewerRow />
         {/* English is the only language for now; the picker appears once there's another (or the dev pseudo-locale). */}
         {AVAILABLE_LOCALES.length > 1 && <LanguageRow />}
       </SettingsGroup>
@@ -64,6 +66,19 @@ export default function GeneralSettings() {
         <SettingLinkRow to="/guide" label={t("settings.general.gettingStarted.openGuide")} />
       </SettingsGroup>
     </>
+  );
+}
+
+// Experimental, per browser: the viewer's HDR copy of Ultra HDR JPEGs (lib/hdrViewer.ts).
+function HdrViewerRow() {
+  const { t } = useTranslation();
+  const [on, setOn] = useHdrViewerSetting();
+  return (
+    <SettingRow
+      label={t("settings.general.hdrViewer.title")}
+      description={t("settings.general.hdrViewer.description")}
+      control={<Switch label={t("settings.general.hdrViewer.title")} checked={on} onChange={setOn} />}
+    />
   );
 }
 

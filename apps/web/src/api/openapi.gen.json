@@ -1086,6 +1086,7 @@
                           "commonName",
                           "taxonClass",
                           "takenAt",
+                          "takenAtZoned",
                           "cameraModel",
                           "lens",
                           "focalLengthMm",
@@ -1135,6 +1136,15 @@
                           "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "taxonClass": { "type": "string" },
                           "takenAt": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+                          "takenAtZoned": {
+                            "anyOf": [
+                              {
+                                "type": "boolean",
+                                "description": "takenAt is a true instant (the file named its zone); otherwise it is the camera's clock read as UTC"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
                           "cameraModel": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "lens": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "focalLengthMm": {
@@ -2074,6 +2084,7 @@
                           "commonName",
                           "taxonClass",
                           "takenAt",
+                          "takenAtZoned",
                           "cameraModel",
                           "lens",
                           "focalLengthMm",
@@ -2123,6 +2134,15 @@
                           "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "taxonClass": { "type": "string" },
                           "takenAt": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+                          "takenAtZoned": {
+                            "anyOf": [
+                              {
+                                "type": "boolean",
+                                "description": "takenAt is a true instant (the file named its zone); otherwise it is the camera's clock read as UTC"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
                           "cameraModel": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "lens": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "focalLengthMm": {
@@ -5111,6 +5131,7 @@
                                 "commonName",
                                 "taxonClass",
                                 "takenAt",
+                                "takenAtZoned",
                                 "cameraModel",
                                 "lens",
                                 "focalLengthMm",
@@ -5161,6 +5182,15 @@
                                 "taxonClass": { "type": "string" },
                                 "takenAt": {
                                   "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+                                },
+                                "takenAtZoned": {
+                                  "anyOf": [
+                                    {
+                                      "type": "boolean",
+                                      "description": "takenAt is a true instant (the file named its zone); otherwise it is the camera's clock read as UTC"
+                                    },
+                                    { "type": "null" }
+                                  ]
                                 },
                                 "cameraModel": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                                 "lens": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
@@ -5879,11 +5909,12 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "required": ["captureId", "photoId", "takenAt", "fileName", "speciesName"],
+                        "required": ["captureId", "photoId", "takenAt", "takenAtZoned", "fileName", "speciesName"],
                         "properties": {
                           "captureId": { "type": "string", "format": "uuid" },
                           "photoId": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] },
                           "takenAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "takenAtZoned": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
                           "fileName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "speciesName": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
                         }
@@ -5936,11 +5967,12 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "required": ["captureId", "photoId", "takenAt", "fileName", "speciesName"],
+                        "required": ["captureId", "photoId", "takenAt", "takenAtZoned", "fileName", "speciesName"],
                         "properties": {
                           "captureId": { "type": "string", "format": "uuid" },
                           "photoId": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] },
                           "takenAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "takenAtZoned": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
                           "fileName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "speciesName": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
                         }
@@ -8589,6 +8621,7 @@
                           "commonName",
                           "taxonClass",
                           "takenAt",
+                          "takenAtZoned",
                           "cameraModel",
                           "lens",
                           "focalLengthMm",
@@ -8638,6 +8671,15 @@
                           "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "taxonClass": { "type": "string" },
                           "takenAt": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+                          "takenAtZoned": {
+                            "anyOf": [
+                              {
+                                "type": "boolean",
+                                "description": "takenAt is a true instant (the file named its zone); otherwise it is the camera's clock read as UTC"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
                           "cameraModel": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "lens": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "focalLengthMm": {
@@ -8963,6 +9005,152 @@
                     }
                   },
                   "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/collection/targets/by-group": {
+      "get": {
+        "summary": "GET /collection/targets/by-group",
+        "tags": ["collection"],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "description": "The group words, e.g. \"raptors\"",
+            "schema": { "type": "string", "minLength": 1, "maxLength": 200 }
+          },
+          {
+            "name": "regionId",
+            "in": "query",
+            "required": false,
+            "description": "Without one, only whether the catalog has the group",
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "name": "includePhotographed",
+            "in": "query",
+            "required": false,
+            "description": "1 to count species already photographed too",
+            "schema": { "enum": ["0", "1"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["group", "count", "examples"],
+                  "properties": {
+                    "group": {
+                      "anyOf": [
+                        { "type": "string", "description": "The group's name; null when the catalog doesn't hold it" },
+                        { "type": "null" }
+                      ]
+                    },
+                    "count": {
+                      "anyOf": [
+                        { "type": "integer", "description": "Species it would target; null without a region" },
+                        { "type": "null" }
+                      ]
+                    },
+                    "examples": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["speciesId", "scientificName", "commonName"],
+                        "properties": {
+                          "speciesId": { "type": "string", "format": "uuid" },
+                          "scientificName": { "type": "string" },
+                          "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      },
+      "post": {
+        "summary": "POST /collection/targets/by-group",
+        "tags": ["collection"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["q", "regionId"],
+                "properties": {
+                  "q": { "type": "string", "minLength": 1, "maxLength": 200 },
+                  "regionId": { "type": "string", "format": "uuid" },
+                  "listId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Add to this list instead of making a new one"
+                  },
+                  "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+                  "includePhotographed": { "type": "boolean" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["listId", "createdList", "addedSpeciesIds", "checklistSpeciesIds"],
+                  "properties": {
+                    "listId": { "type": "string", "format": "uuid" },
+                    "createdList": { "type": "boolean" },
+                    "addedSpeciesIds": { "type": "array", "items": { "type": "string", "format": "uuid" } },
+                    "checklistSpeciesIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Always empty: only listed species are targeted"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -10715,6 +10903,7 @@
                           "commonName",
                           "taxonClass",
                           "takenAt",
+                          "takenAtZoned",
                           "cameraModel",
                           "lens",
                           "focalLengthMm",
@@ -10764,6 +10953,15 @@
                           "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "taxonClass": { "type": "string" },
                           "takenAt": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+                          "takenAtZoned": {
+                            "anyOf": [
+                              {
+                                "type": "boolean",
+                                "description": "takenAt is a true instant (the file named its zone); otherwise it is the camera's clock read as UTC"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
                           "cameraModel": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "lens": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "focalLengthMm": {
@@ -13124,6 +13322,7 @@
                           "commonName",
                           "taxonClass",
                           "takenAt",
+                          "takenAtZoned",
                           "cameraModel",
                           "lens",
                           "focalLengthMm",
@@ -13173,6 +13372,15 @@
                           "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "taxonClass": { "type": "string" },
                           "takenAt": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+                          "takenAtZoned": {
+                            "anyOf": [
+                              {
+                                "type": "boolean",
+                                "description": "takenAt is a true instant (the file named its zone); otherwise it is the camera's clock read as UTC"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
                           "cameraModel": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "lens": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "focalLengthMm": {
@@ -21058,6 +21266,32 @@
             "description": "The file",
             "content": { "image/jpeg": { "schema": { "type": "string", "format": "binary" } } }
           },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the photos.read scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/photos/{id}/hdr": {
+      "get": {
+        "summary": "GET /photos/{id}/hdr",
+        "tags": ["photos"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "photos.read",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Not described yet" },
           "400": {
             "description": "The request doesn't match this operation's parameters or body",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
@@ -29271,6 +29505,7 @@
                           "fetchingNow",
                           "photosReady",
                           "hidden",
+                          "targetListId",
                           "createdAt",
                           "updatedAt",
                           "lastRefreshedAt"
@@ -29344,6 +29579,16 @@
                             "description": "Members with a downloaded reference photo"
                           },
                           "hidden": { "type": "boolean" },
+                          "targetListId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "description": "The target list its species also go on, null when off"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
                           "createdAt": { "type": "string", "format": "date-time" },
                           "updatedAt": { "type": "string", "format": "date-time" },
                           "lastRefreshedAt": {
@@ -29399,7 +29644,21 @@
                     "format": "uuid",
                     "description": "Default: the region with this iNaturalist place"
                   },
-                  "name": { "type": "string", "minLength": 1, "maxLength": 500 }
+                  "name": { "type": "string", "minLength": 1, "maxLength": 500 },
+                  "targets": {
+                    "type": "object",
+                    "properties": {
+                      "listId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Default: a new target list named after the list"
+                      },
+                      "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+                      "photographed": { "type": "boolean", "description": "Also target species already photographed" }
+                    },
+                    "additionalProperties": false,
+                    "description": "Every species the list adds also becomes a target"
+                  }
                 },
                 "additionalProperties": false
               }
@@ -29433,6 +29692,7 @@
                         "fetchingNow",
                         "photosReady",
                         "hidden",
+                        "targetListId",
                         "createdAt",
                         "updatedAt",
                         "lastRefreshedAt"
@@ -29503,6 +29763,16 @@
                           "description": "Members with a downloaded reference photo"
                         },
                         "hidden": { "type": "boolean" },
+                        "targetListId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "description": "The target list its species also go on, null when off"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
                         "createdAt": { "type": "string", "format": "date-time" },
                         "updatedAt": { "type": "string", "format": "date-time" },
                         "lastRefreshedAt": {
@@ -29581,6 +29851,7 @@
                         "fetchingNow",
                         "photosReady",
                         "hidden",
+                        "targetListId",
                         "createdAt",
                         "updatedAt",
                         "lastRefreshedAt"
@@ -29651,6 +29922,16 @@
                           "description": "Members with a downloaded reference photo"
                         },
                         "hidden": { "type": "boolean" },
+                        "targetListId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "description": "The target list its species also go on, null when off"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
                         "createdAt": { "type": "string", "format": "date-time" },
                         "updatedAt": { "type": "string", "format": "date-time" },
                         "lastRefreshedAt": {
@@ -29748,6 +30029,7 @@
                         "fetchingNow",
                         "photosReady",
                         "hidden",
+                        "targetListId",
                         "createdAt",
                         "updatedAt",
                         "lastRefreshedAt"
@@ -29818,6 +30100,16 @@
                           "description": "Members with a downloaded reference photo"
                         },
                         "hidden": { "type": "boolean" },
+                        "targetListId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "description": "The target list its species also go on, null when off"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
                         "createdAt": { "type": "string", "format": "date-time" },
                         "updatedAt": { "type": "string", "format": "date-time" },
                         "lastRefreshedAt": {
@@ -29879,6 +30171,7 @@
                         "fetchingNow",
                         "photosReady",
                         "hidden",
+                        "targetListId",
                         "createdAt",
                         "updatedAt",
                         "lastRefreshedAt"
@@ -29949,6 +30242,16 @@
                           "description": "Members with a downloaded reference photo"
                         },
                         "hidden": { "type": "boolean" },
+                        "targetListId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "description": "The target list its species also go on, null when off"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
                         "createdAt": { "type": "string", "format": "date-time" },
                         "updatedAt": { "type": "string", "format": "date-time" },
                         "lastRefreshedAt": {
@@ -30010,6 +30313,7 @@
                         "fetchingNow",
                         "photosReady",
                         "hidden",
+                        "targetListId",
                         "createdAt",
                         "updatedAt",
                         "lastRefreshedAt"
@@ -30080,6 +30384,158 @@
                           "description": "Members with a downloaded reference photo"
                         },
                         "hidden": { "type": "boolean" },
+                        "targetListId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "description": "The target list its species also go on, null when off"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "createdAt": { "type": "string", "format": "date-time" },
+                        "updatedAt": { "type": "string", "format": "date-time" },
+                        "lastRefreshedAt": {
+                          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/species-lists/{id}/untarget": {
+      "post": {
+        "summary": "POST /species-lists/{id}/untarget",
+        "tags": ["species-lists"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["list"],
+                  "properties": {
+                    "list": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "name",
+                        "taxon",
+                        "place",
+                        "regionId",
+                        "nativeOnly",
+                        "sizeEstimate",
+                        "addedCount",
+                        "status",
+                        "lastError",
+                        "nextBatchAt",
+                        "capped",
+                        "fetchingNow",
+                        "photosReady",
+                        "hidden",
+                        "targetListId",
+                        "createdAt",
+                        "updatedAt",
+                        "lastRefreshedAt"
+                      ],
+                      "properties": {
+                        "id": { "type": "string", "format": "uuid" },
+                        "name": { "type": "string" },
+                        "taxon": {
+                          "type": "object",
+                          "required": ["id", "name", "rank"],
+                          "properties": {
+                            "id": { "type": "integer" },
+                            "name": { "type": "string" },
+                            "rank": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                          }
+                        },
+                        "place": {
+                          "type": "object",
+                          "required": ["id", "name"],
+                          "properties": { "id": { "type": "integer" }, "name": { "type": "string" } }
+                        },
+                        "regionId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "description": "The region whose checklist the species are added to"
+                        },
+                        "nativeOnly": { "type": "boolean" },
+                        "sizeEstimate": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "description": "iNaturalist's species count, null before the first page"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "addedCount": { "type": "integer" },
+                        "status": {
+                          "anyOf": [
+                            { "type": "string", "const": "queued" },
+                            { "type": "string", "const": "running" },
+                            { "type": "string", "const": "paused" },
+                            { "type": "string", "const": "offline" },
+                            { "type": "string", "const": "done" },
+                            { "type": "string", "const": "failed" }
+                          ]
+                        },
+                        "lastError": {
+                          "anyOf": [
+                            { "type": "string", "description": "offline, rate_limited, refused or failed" },
+                            { "type": "null" }
+                          ]
+                        },
+                        "nextBatchAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "description": "When a waiting batch or retry starts on its own"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "capped": { "type": "boolean", "description": "Bigger than 5000 species, so added in batches" },
+                        "fetchingNow": { "type": "boolean" },
+                        "photosReady": {
+                          "type": "integer",
+                          "description": "Members with a downloaded reference photo"
+                        },
+                        "hidden": { "type": "boolean" },
+                        "targetListId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "description": "The target list its species also go on, null when off"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
                         "createdAt": { "type": "string", "format": "date-time" },
                         "updatedAt": { "type": "string", "format": "date-time" },
                         "lastRefreshedAt": {
@@ -30520,6 +30976,7 @@
                           "width",
                           "height",
                           "taken_at",
+                          "taken_at_zoned",
                           "camera_model",
                           "lens",
                           "focal_length_mm",
@@ -30557,6 +31014,7 @@
                           "width": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
                           "height": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
                           "taken_at": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+                          "taken_at_zoned": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
                           "camera_model": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "lens": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "focal_length_mm": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
@@ -38725,6 +39183,7 @@
                           "scientificName",
                           "commonName",
                           "takenAt",
+                          "takenAtZoned",
                           "hasRaw",
                           "originalRef",
                           "inatObservationId",
@@ -38757,6 +39216,7 @@
                           "scientificName": { "type": "string" },
                           "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "takenAt": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+                          "takenAtZoned": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
                           "hasRaw": { "type": "boolean" },
                           "originalRef": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "inatObservationId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },

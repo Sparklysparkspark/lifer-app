@@ -12,7 +12,8 @@ import { filterCollectionItems, searchHaystack, searchRanks } from "./collection
 import { tripTaxonFilters } from "./trip/tripFilters";
 import { useSettings } from "../hooks/useSettings";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
-import { photoSlide } from "../lib/photoSlide";
+import { librarySlide } from "../lib/librarySlide";
+import { useReassignCapture } from "../hooks/usePhotoEdits";
 import CardCropEditor from "../components/CardCropEditor";
 import { NAME_MAX_LENGTH } from "@lifer/shared";
 import EditableTextField from "../components/EditableTextField";
@@ -167,6 +168,7 @@ function AlbumDetail() {
   const [croppingQuadSlot, setCroppingQuadSlot] = useState<number | null>(null);
   const shares = useAlbumShares(id);
   const detail = useAlbumDetail(id, view);
+  const reassign = useReassignCapture(detail.load);
   const { album } = detail;
   // The species view is the Collection's, toolbar and all, as on a trip.
   const url = useCollectionUrlState();
@@ -298,14 +300,15 @@ function AlbumDetail() {
 
   const hasVideoInAlbum = album.items.some((i) => i.kind !== "image");
 
-  const slides: LightboxSlide[] = sortedItems.map((item) =>
-    photoSlide(item, {
-      frameUrl: item.kind === "video" ? `/photos/${item.photoId}/frame` : null,
-      caption: speciesName(item),
-      rating: item.qualityRating ?? null,
-      onRate: (rating: number | null) => void detail.rateCapture(item.captureId, rating),
+  const slides: LightboxSlide[] = sortedItems.map((item) => ({
+    ...librarySlide(item, speciesName(item), {
+      rate: (captureId, rating) => void detail.rateCapture(captureId, rating),
+      reassign: (captureId, from, to) => void reassign(captureId, from, to),
+      changed: detail.load,
+      deleted: detail.load,
     }),
-  );
+    frameUrl: item.kind === "video" ? `/photos/${item.photoId}/frame` : null,
+  }));
   const selectedCount = select.selectedIds.size;
   const selectionActions: BarAction[] = [
     ...(selectedCount >= COMPARE_MIN && selectedCount <= COMPARE_MAX
