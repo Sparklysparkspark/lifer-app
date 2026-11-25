@@ -4962,6 +4962,7 @@
     },
     "notYet": "Not photographed yet",
     "detailEmpty": "Pick a group or species to see your photos of it.",
+    "preview": "Preview",
     "breadcrumbs": "Groups above this one",
     "speciesOf": "{collected} of {total} species",
     "photoCount": "{count, plural, one {# photo} other {{formatted} photos}}",

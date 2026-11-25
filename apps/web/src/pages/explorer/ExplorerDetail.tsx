@@ -58,6 +58,7 @@ export default function ExplorerDetail({
   marks,
   rarity,
   regionName,
+  preview = false,
 }: {
   index: TreeIndex;
   id: string;
@@ -73,6 +74,8 @@ export default function ExplorerDetail({
   rarity: boolean;
   /** The picked region, which a species' local tier is named after. */
   regionName: string | null;
+  /** Shown for the arc or row the pointer rests on, not the selection: read-only, and says so. */
+  preview?: boolean;
 }) {
   const { t } = useTranslation();
   const location = useLocation();
@@ -99,7 +102,8 @@ export default function ExplorerDetail({
       : null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" inert={preview}>
+      {preview && <p className="text-caption font-semibold text-muted uppercase">{t("explorer.preview")}</p>}
       {crumbs.length > 0 && (
         <nav aria-label={t("explorer.breadcrumbs")} className="flex flex-wrap items-center gap-x-1 text-footnote">
           {crumbs.map((crumbId, i) => (
@@ -219,7 +223,7 @@ export default function ExplorerDetail({
         </section>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      <div className={`flex flex-wrap gap-2 ${preview ? "opacity-50" : ""}`}>
         {node.speciesId && (
           <Link
             to={`/species/${node.speciesId}`}
@@ -236,7 +240,7 @@ export default function ExplorerDetail({
         )}
       </div>
       {marks.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className={`flex flex-wrap gap-2 ${preview ? "opacity-50" : ""}`}>
           {marks.map((m) => (
             <Button key={m.label} variant="secondary" size="sm" onClick={m.onSelect}>
               {m.label}

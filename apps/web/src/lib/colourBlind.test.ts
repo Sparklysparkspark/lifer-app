@@ -174,4 +174,15 @@ describe("Tree of life circle", () => {
     );
     expect(tooClose).toEqual([]);
   });
+  it.each(themes)(
+    "keeps the two-tone selection outline 3:1 off its halo and every arc fill in %s mode",
+    (_mode, theme, empty) => {
+      expect(contrast(theme.ink, theme.surface)).toBeGreaterThanOrEqual(3);
+      // Ink or its light halo, one of the two, stands 3:1 off whatever the arc is filled with.
+      const fills = [theme.canvas, theme.accent, empty, ...steps(theme)];
+      expect(fills.filter((c) => Math.max(contrast(theme.ink, c), contrast(theme.surface, c)) < 3)).toEqual([]);
+      // The focus ring's accent stands 3:1 off the canvas between arcs.
+      expect(contrast(theme.accent, theme.canvas)).toBeGreaterThanOrEqual(3);
+    },
+  );
 });

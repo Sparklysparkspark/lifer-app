@@ -33,7 +33,7 @@ import { taxonDisplayLabel } from "@lifer/shared";
 import { buttonClasses } from "../lib/buttonClasses";
 import { downloadWithToast } from "../lib/downloadFile";
 import { formatNumber } from "../lib/format";
-import { useApiResource } from "../lib/resource";
+import { useApiResource, usePrefetchWhenIdle } from "../lib/resource";
 import { speciesGroupLabel, taxonClassLabel } from "../lib/speciesGroups";
 import { namePartClass, useSpeciesNameParts } from "../lib/speciesName";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
@@ -46,6 +46,8 @@ import { useRegionTree } from "./collection/useRegionTree";
 import { usePersistedFlag } from "./collection/useCollectionDisplayPrefs";
 import { matches } from "../lib/keymap";
 import ExplorerDetail from "./explorer/ExplorerDetail";
+import PreviewPane from "./explorer/PreviewPane";
+import { previewAfterDwell, previewNow } from "./explorer/previewStore";
 import MarkCounts from "./explorer/MarkCounts";
 import RarityChip from "./explorer/RarityChip";
 import TreeCircle from "./explorer/TreeCircle";
@@ -72,6 +74,7 @@ const MOUNT = { above: 2, below: 2 };
 const WIDE = "(min-width: 1024px)";
 const RESULTS = 50;
 const TREE_TIMEOUT_MS = 30_000;
+const PREFETCH = 4;
 const RANK_KEYS: Record<TreeNode["rank"], string> = {
   class: "explorer.rank.class",
   order: "explorer.rank.order",
@@ -128,6 +131,22 @@ export default function TaxaExplorer() {
   const treePath =
     regionId && !regions.regionsLoaded ? null : apiPath("/collection/tree", {}, { include: "uncollected", regionId });
   const res = useApiResource<{ collected: number; tree: TreeNode[] }>(treePath);
+  // Once this tree is up, the first few region pills' trees (and All regions) load in idle time,
+  // so a pick draws at once. Few, as each counts toward the kept answers' size bound; ordered as
+  // AreaPills shows them when some are cut, yours first.
+  const pillsFirst = [...(regionId ? regions.children : regions.downloadedCountries)]
+    .sort(
+      (a, b) =>
+        Number(!!regionsWithPhotos?.has(b.id)) - Number(!!regionsWithPhotos?.has(a.id)) || a.name.localeCompare(b.name),
+    )
+    .slice(0, PREFETCH);
+  usePrefetchWhenIdle(
+    res.data && regions.regionsLoaded
+      ? [...(regionId ? [null] : []), ...pillsFirst.map((r) => r.id)].map((id) =>
+          apiPath("/collection/tree", {}, { include: "uncollected", regionId: id }),
+        )
+      : [],
+  );
   // The last tree stays up while another region's loads, so the page never drops to a spinner.
   const [lastTree, setLastTree] = useState(res.data);
   if (res.data && res.data !== lastTree) setLastTree(res.data);
@@ -458,6 +477,24 @@ export default function TaxaExplorer() {
       regionName={regionId ? (regions.breadcrumb.at(-1)?.name ?? null) : null}
     />
   );
+  // What the pointer rests on, read-only: built only when the pane asks for it.
+  const previewOf = (id: string) => {
+    const { node } = index.byId.get(id)!;
+    return (
+      <ExplorerDetail
+        index={index}
+        id={id}
+        label={label}
+        onSelect={choose}
+        onFocusGroup={null}
+        onOpenPhotos={() => {}}
+        marks={marksFor(node, label(node))}
+        rarity={rarity}
+        regionName={regionId ? (regions.breadcrumb.at(-1)?.name ?? null) : null}
+        preview
+      />
+    );
+  };
   const first = range?.[0] ?? 0;
   const last = Math.min(range?.[1] ?? 40, rows.length - 1);
   const focusable = active && rows.some((r) => r.id === active) ? active : rows[0]?.id;
@@ -823,7 +860,10 @@ export default function TaxaExplorer() {
                         tabIndex={id === focusable ? 0 : -1}
                         onFocus={() => setActive(id)}
                         onContextMenu={openMenu(id)}
+                        onPointerEnter={(e) => previewAfterDwell(id, e.pointerType)}
+                        onPointerLeave={(e) => previewAfterDwell(null, e.pointerType)}
                         onClick={() => {
+                          previewNow(null);
                           setActive(id);
                           select(id);
                           // Opening a group by its name never closes it; the chevron does both.
@@ -950,8 +990,11 @@ export default function TaxaExplorer() {
               )}
             </div>
             {wide ? (
-              <aside className="sticky top-4 max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-panel border border-line bg-surface p-4">
-                {detail || <p className="text-callout text-muted">{t("explorer.detailEmpty")}</p>}
+              // A steady height, so previews of short and tall groups don't make the pane jump.
+              <aside className="sticky top-4 max-h-[calc(100dvh-2rem)] min-h-[min(36rem,calc(100dvh-2rem))] overflow-y-auto rounded-panel border border-line bg-surface p-4">
+                <PreviewPane selected={detail ? selected : null} has={(id) => index.byId.has(id)} render={previewOf}>
+                  {detail || <p className="text-callout text-muted">{t("explorer.detailEmpty")}</p>}
+                </PreviewPane>
               </aside>
             ) : (
               <Modal open={!!detail} onClose={() => select(null)} ariaLabel={t("explorer.title")}>
