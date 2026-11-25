@@ -13,7 +13,11 @@ vi.mock("../hooks/useRevealOriginal", () => ({
   useRevealOriginal: () => (ref: string | null | undefined) =>
     ref ? { kind: "reveal", label: "Show in Finder", run: revealRun } : null,
   useRevealFiles: (refs: string[]) =>
-    refs.map((ref) => ({ kind: "reveal", label: refs.length > 1 ? `Show in Finder: ${ref}` : "Show in Finder", run: revealRun })),
+    refs.map((ref) => ({
+      kind: "reveal",
+      label: refs.length > 1 ? `Show in Finder: ${ref}` : "Show in Finder",
+      run: revealRun,
+    })),
 }));
 
 const toast: ToastApi = { success: vi.fn(), error: vi.fn(), info: vi.fn(), show: vi.fn(), dismiss: vi.fn() };

@@ -1448,7 +1448,14 @@ export default function PhotoMap({
       });
     const label = region?.label.trim();
     const body = region
-      ? { captureIds: ids, lat: null, lon: null, keepPoint: true, regionId: region.id, ...(label && { locationLabel: label }) }
+      ? {
+          captureIds: ids,
+          lat: null,
+          lon: null,
+          keepPoint: true,
+          regionId: region.id,
+          ...(label && { locationLabel: label }),
+        }
       : { captureIds: ids, lat: at?.lat ?? null, lon: at?.lon ?? null };
     // The API runs these in the background; the job's own toast says when they're done.
     // shortcut: that toast says Placed even for a region change; give the job a kind if that shows up.

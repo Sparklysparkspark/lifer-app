@@ -169,7 +169,12 @@ export function GallerySelectBar({
           onClick: () => openInEditors.openIn(editor, { captureIds: [...selectedIds].slice(0, 200) }),
           menuOnly: true,
         })),
-        ...reveals.map((reveal) => ({ key: `reveal-${reveal.label}`, label: reveal.label, onClick: reveal.run, menuOnly: true })),
+        ...reveals.map((reveal) => ({
+          key: `reveal-${reveal.label}`,
+          label: reveal.label,
+          onClick: reveal.run,
+          menuOnly: true,
+        })),
         {
           key: "appearance",
           label: t("appearance.action"),

@@ -68,5 +68,6 @@ commands.allow = [
   "plugin_install_cancel",
   # editors.rs: installed photo editors and opening files in one; each checks is_app_page.
   "editors_list",
+  "editor_pick_other",
   "open_in",
 ]

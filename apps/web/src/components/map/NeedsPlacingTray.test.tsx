@@ -18,7 +18,15 @@ vi.mock("../Lightbox", () => ({
 
 // The shared picker, reduced to its result: the user picks Canada.
 vi.mock("../SetRegionDialog", () => ({
-  default: ({ count, onSet, onClose }: { count: number; onSet: (id: string, label: string) => void; onClose: () => void }) => (
+  default: ({
+    count,
+    onSet,
+    onClose,
+  }: {
+    count: number;
+    onSet: (id: string, label: string) => void;
+    onClose: () => void;
+  }) => (
     <div role="dialog" aria-label={`Set region of ${count}`}>
       <button
         onClick={() => {

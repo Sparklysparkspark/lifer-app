@@ -12,10 +12,26 @@ const SURFACES = ["canvas", "surface", "surface-muted"];
 
 // Machado et al. 2009, severity 1.0, applied in linear RGB.
 const MATRICES: Record<string, number[][]> = {
-  none: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-  protanopia: [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]],
-  deuteranopia: [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.01182, 0.04294, 0.968881]],
-  tritanopia: [[1.255528, -0.076749, -0.178779], [-0.078411, 0.930809, 0.147602], [0.004733, 0.691367, 0.3039]],
+  none: [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+  ],
+  protanopia: [
+    [0.152286, 1.052583, -0.204868],
+    [0.114503, 0.786281, 0.099216],
+    [-0.003882, -0.048116, 1.051998],
+  ],
+  deuteranopia: [
+    [0.367322, 0.860646, -0.227968],
+    [0.280085, 0.672501, 0.047413],
+    [-0.01182, 0.04294, 0.968881],
+  ],
+  tritanopia: [
+    [1.255528, -0.076749, -0.178779],
+    [-0.078411, 0.930809, 0.147602],
+    [0.004733, 0.691367, 0.3039],
+  ],
 };
 
 function tokens(block: string): Record<string, string> {
@@ -40,7 +56,9 @@ function contrast(a: string, b: string): number {
 }
 
 function lab(hex: string, kind: string): number[] {
-  const [r, g, b] = MATRICES[kind].map((row) => row[0] * linear(hex)[0] + row[1] * linear(hex)[1] + row[2] * linear(hex)[2]);
+  const [r, g, b] = MATRICES[kind].map(
+    (row) => row[0] * linear(hex)[0] + row[1] * linear(hex)[1] + row[2] * linear(hex)[2],
+  );
   const x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047;
   const y = 0.2126729 * r + 0.7151522 * g + 0.072175 * b;
   const z = (0.0193339 * r + 0.119192 * g + 0.9503041 * b) / 1.08883;
@@ -59,7 +77,7 @@ function deltaE2000(p: number[], q: number[]): number {
   const a2p = (1 + g) * a2;
   const c1 = Math.hypot(a1p, b1);
   const c2 = Math.hypot(a2p, b2);
-  const hue = (y: number, x: number) => ((Math.atan2(y, x) / rad) + 360) % 360;
+  const hue = (y: number, x: number) => (Math.atan2(y, x) / rad + 360) % 360;
   const h1 = c1 ? hue(b1, a1p) : 0;
   const h2 = c2 ? hue(b2, a2p) : 0;
   let dh = 0;
@@ -74,12 +92,16 @@ function deltaE2000(p: number[], q: number[]): number {
   let hp = h1 + h2;
   if (c1 * c2) hp = Math.abs(h1 - h2) > 180 ? (h1 + h2 + (h1 + h2 < 360 ? 360 : -360)) / 2 : (h1 + h2) / 2;
   const t =
-    1 - 0.17 * Math.cos((hp - 30) * rad) + 0.24 * Math.cos(2 * hp * rad) +
-    0.32 * Math.cos((3 * hp + 6) * rad) - 0.2 * Math.cos((4 * hp - 63) * rad);
+    1 -
+    0.17 * Math.cos((hp - 30) * rad) +
+    0.24 * Math.cos(2 * hp * rad) +
+    0.32 * Math.cos((3 * hp + 6) * rad) -
+    0.2 * Math.cos((4 * hp - 63) * rad);
   const sl = 1 + (0.015 * (lMean - 50) ** 2) / Math.sqrt(20 + (lMean - 50) ** 2);
   const sc = 1 + 0.045 * cp;
   const sh = 1 + 0.015 * cp * t;
-  const rt = -Math.sin(2 * 30 * Math.exp(-(((hp - 275) / 25) ** 2)) * rad) * 2 * Math.sqrt(cp ** 7 / (cp ** 7 + 25 ** 7));
+  const rt =
+    -Math.sin(2 * 30 * Math.exp(-(((hp - 275) / 25) ** 2)) * rad) * 2 * Math.sqrt(cp ** 7 / (cp ** 7 + 25 ** 7));
   const dl = (L2 - L1) / sl;
   const dc = (c2 - c1) / sc;
   const dhh = dH / sh;

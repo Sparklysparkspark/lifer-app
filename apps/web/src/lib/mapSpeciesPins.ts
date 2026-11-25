@@ -152,7 +152,11 @@ export function highlightSpecies(map: MapLibreMap, speciesId: string | null): vo
 
 /** Distinct species among a cluster's pins, the pins themselves (what its disc counts), and their photos. */
 export function clusterSummary(leaves: ReadonlyArray<{ speciesId: string; count: number }>) {
-  return { species: new Set(leaves.map((l) => l.speciesId)).size, pins: leaves.length, photos: leaves.reduce((n, l) => n + l.count, 0) };
+  return {
+    species: new Set(leaves.map((l) => l.speciesId)).size,
+    pins: leaves.length,
+    photos: leaves.reduce((n, l) => n + l.count, 0),
+  };
 }
 
 // A click zooms in at most this far; a cluster still whole there (one point) is read from its card.

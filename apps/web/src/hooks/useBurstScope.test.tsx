@@ -25,7 +25,10 @@ beforeEach(() => {
   localStorage.clear();
   scene = {
     burst: ["a", "b", "c"],
-    scene: [{ burstId: "a", frames: [frame("a", 1), frame("b", null), frame("c", 2)] }, { burstId: "d", frames: [frame("d", 1)] }],
+    scene: [
+      { burstId: "a", frames: [frame("a", 1), frame("b", null), frame("c", 2)] },
+      { burstId: "d", frames: [frame("d", 1)] },
+    ],
   };
 });
 afterEach(cleanup);

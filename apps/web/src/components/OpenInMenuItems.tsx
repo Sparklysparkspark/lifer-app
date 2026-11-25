@@ -19,10 +19,12 @@ export default function OpenInMenuItems({
   const { editors, openIn } = useOpenInEditors();
   const [chosen, ...others] = editors;
   if (!chosen) return null;
-  const open = (editor: PhotoEditor, edited = false) => () => {
-    onSelect?.();
-    openIn(editor, { ...targets, edited });
-  };
+  const open =
+    (editor: PhotoEditor, edited = false) =>
+    () => {
+      onSelect?.();
+      openIn(editor, { ...targets, edited });
+    };
   return (
     <>
       <MenuItem onSelect={open(chosen)}>{t("openIn.item", { name: chosen.name })}</MenuItem>

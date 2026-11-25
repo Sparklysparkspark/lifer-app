@@ -165,15 +165,15 @@ Click a photo to open it full screen. The **⋯** button in the top corner has t
 
 ![The photo viewer](/img/photo-viewer.jpg)
 
-| Key                                         | What it does                                                                                                                                          |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <kbd>←</kbd> <kbd>→</kbd>                   | Previous or next photo, wrapping around at the ends. In a video, skip 10 seconds.                                                                     |
-| <kbd>1</kbd> to <kbd>5</kbd>                | Set the star rating. Press the same number again to clear it.                                                                                         |
-| <kbd>F</kbd>                                | Full screen (hidden when Lifer is already full screen)                                                                                                |
+| Key                                         | What it does                                                                                                                      |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| <kbd>←</kbd> <kbd>→</kbd>                   | Previous or next photo, wrapping around at the ends. In a video, skip 10 seconds.                                                 |
+| <kbd>1</kbd> to <kbd>5</kbd>                | Set the star rating. Press the same number again to clear it.                                                                     |
+| <kbd>F</kbd>                                | Full screen (hidden when Lifer is already full screen)                                                                            |
 | <kbd>Option</kbd>+<kbd>←</kbd> <kbd>→</kbd> | Previous or next version of the photo (<kbd>Alt</kbd> on Windows and Linux). See [Photo versions](./photo-versions.md#switching). |
-| <kbd>Cmd</kbd>+<kbd>0</kbd>                 | Fit the photo to the window again after zooming (<kbd>Ctrl</kbd>+<kbd>0</kbd> on Windows and Linux)                                                   |
-| <kbd>Space</kbd>                            | Play or pause a video                                                                                                                                 |
-| <kbd>Esc</kbd>                              | Leave full screen, then close                                                                                                                         |
+| <kbd>Cmd</kbd>+<kbd>0</kbd>                 | Fit the photo to the window again after zooming (<kbd>Ctrl</kbd>+<kbd>0</kbd> on Windows and Linux)                               |
+| <kbd>Space</kbd>                            | Play or pause a video                                                                                                             |
+| <kbd>Esc</kbd>                              | Leave full screen, then close                                                                                                     |
 
 To zoom, pinch on a trackpad or hold <kbd>Ctrl</kbd> and scroll (up to 6x), or press <kbd>+</kbd> and <kbd>-</kbd>. Zooming centres on the pointer. Double-click to zoom to 2.5x, and again to zoom back out. The viewer and compare zoom the same way. Once zoomed, drag or scroll to move around; the photo stops at its edges, and the controls hide until you zoom back out. The caption shows the species, date, star rating, camera settings and file names, and lets you edit tags. Click a file name, or **Show in Finder** beside it, to open the folder that holds it. Click a star to rate, or **Correct the ID** to move the photo to another species.
 

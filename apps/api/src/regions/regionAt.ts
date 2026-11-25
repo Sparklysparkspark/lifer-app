@@ -1,12 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
-import {
-  exteriorRingsFromGeometry,
-  pointInRing,
-  type BoundingBox,
-  type Point,
-} from "@lifer/core/lib/geometry.js";
+import { exteriorRingsFromGeometry, pointInRing, type BoundingBox, type Point } from "@lifer/core/lib/geometry.js";
 import { requireAuth } from "../auth/session.js";
 import { NEAR_KM, nearOutline, parseOutline } from "../collection/pinOutline.js";
 import { Nullable, Uuid, replies, withSchemas } from "../lib/schema.js";

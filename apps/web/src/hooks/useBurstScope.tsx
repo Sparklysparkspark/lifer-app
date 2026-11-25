@@ -30,11 +30,7 @@ export function useBurstScope(
   return {
     ids: all ? frames.map((f) => f.captureId) : [captureId],
     control: (
-      <Checkbox
-        checked={all}
-        onChange={setAll}
-        description={already && having > 0 ? already.text(having) : undefined}
-      >
+      <Checkbox checked={all} onChange={setAll} description={already && having > 0 ? already.text(having) : undefined}>
         {t("bursts.apply.label", { count: frames.length })}
       </Checkbox>
     ),

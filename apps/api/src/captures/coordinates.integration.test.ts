@@ -252,10 +252,10 @@ describe.skipIf(!url)("photo coordinates", () => {
 
   it("refiles a photo with only a region under another region, still without a point", async () => {
     const id = await addCapture(USER);
-    await db.query(`UPDATE captures_all SET lat = NULL, lon = NULL, location_source = NULL, region_id = $2 WHERE id = $1`, [
-      id,
-      COUNTRY,
-    ]);
+    await db.query(
+      `UPDATE captures_all SET lat = NULL, lon = NULL, location_source = NULL, region_id = $2 WHERE id = $1`,
+      [id, COUNTRY],
+    );
     await post({ captureIds: [id], lat: null, lon: null, keepPoint: true, regionId: PROVINCE });
     const after = await db.query(`SELECT lat, lon, region_id FROM captures_all WHERE id = $1`, [id]);
     expect(after.rows[0]).toEqual({ lat: null, lon: null, region_id: PROVINCE });

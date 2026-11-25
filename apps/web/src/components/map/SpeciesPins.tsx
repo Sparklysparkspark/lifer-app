@@ -237,7 +237,15 @@ export default function SpeciesPins({
         .sort((a, b) => b.count - a.count)
         .filter((p) => !seen.has(p.speciesId) && seen.add(p.speciesId))
         .slice(0, CARD_PHOTOS);
-      setHover({ kind: "cluster", x, y, r: hit.radius, ...clusterSummary(leafPins), top, showAll: galleryLink(leafPins) });
+      setHover({
+        kind: "cluster",
+        x,
+        y,
+        r: hit.radius,
+        ...clusterSummary(leafPins),
+        top,
+        showAll: galleryLink(leafPins),
+      });
     };
     const hoverAt = (point: { x: number; y: number }, pointerType: string) => {
       const hit = pickAt(point, pointerType);

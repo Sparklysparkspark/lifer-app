@@ -10,7 +10,8 @@ vi.mock("../hooks/useInatStatus", () => ({ useInatStatus: () => ({ available: tr
 vi.mock("../hooks/useSendToInat", () => ({ useSendToInat: () => async () => true }));
 vi.mock("../hooks/useOpenInEditors", () => ({ useOpenInEditors: () => ({ editors: [], openIn: () => {} }) }));
 vi.mock("../hooks/useRevealOriginal", () => ({
-  useRevealOriginal: () => (ref: string | null) => (ref ? { kind: "reveal", label: "Show in Finder", run: () => {} } : null),
+  useRevealOriginal: () => (ref: string | null) =>
+    ref ? { kind: "reveal", label: "Show in Finder", run: () => {} } : null,
   useRevealFiles: (refs: Array<string | null | undefined>) => {
     const files = [...new Set(refs.filter(Boolean))] as string[];
     return files.map((ref) => ({
@@ -133,7 +134,10 @@ describe("PhotoMenu", () => {
 
   it("offers Show in Finder and Copy file path for each file of a RAW and its edit, and the date editor", () => {
     const adjust = vi.fn();
-    renderMenu({ photo: { ...photo, rawRef: "/Volumes/A/IMG_1.CR3", originalRef: "/Volumes/A/IMG_1.jpg" }, onAdjustTime: adjust });
+    renderMenu({
+      photo: { ...photo, rawRef: "/Volumes/A/IMG_1.CR3", originalRef: "/Volumes/A/IMG_1.jpg" },
+      onAdjustTime: adjust,
+    });
     for (const name of [
       "Show in Finder: IMG_1.jpg",
       "Show in Finder: IMG_1.CR3",

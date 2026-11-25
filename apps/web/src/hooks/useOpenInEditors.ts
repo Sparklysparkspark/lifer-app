@@ -52,19 +52,16 @@ export function useOpenInEditors(): {
   const [found, setFound] = useState<PhotoEditor[]>([]);
   const [choice, setChoice] = useState(readChoice);
 
-  const load = useCallback(
-    (fresh: boolean) => {
-      const invoke = tauriInvoke();
-      if (!invoke) return Promise.resolve([]);
-      if (fresh) editorsAsked = null;
-      editorsAsked ??= invoke("editors_list").then(
-        (l) => (Array.isArray(l) ? (l as PhotoEditor[]) : []),
-        () => [],
-      );
-      return editorsAsked;
-    },
-    [],
-  );
+  const load = useCallback((fresh: boolean) => {
+    const invoke = tauriInvoke();
+    if (!invoke) return Promise.resolve([]);
+    if (fresh) editorsAsked = null;
+    editorsAsked ??= invoke("editors_list").then(
+      (l) => (Array.isArray(l) ? (l as PhotoEditor[]) : []),
+      () => [],
+    );
+    return editorsAsked;
+  }, []);
 
   useEffect(() => {
     if (!local) return;

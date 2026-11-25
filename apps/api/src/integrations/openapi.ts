@@ -610,6 +610,7 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
   "/stats/species-portfolio": { get: { summary: "Per-species photo coverage" } },
   "/stats/gear-species-breakdown": { get: { summary: "Species by camera and lens" } },
   "/stats/exif-bucket": { get: { summary: "Every photo behind one EXIF chart bar" } },
+  "/stats/timeline": { get: { summary: "Photos per month by animal group" } },
   "/moved-photos/status": { get: { summary: "Whether photos moved on disk were found again, and what needs review" } },
   "/stats/year-comparison": { get: { summary: "Year-over-year comparison" } },
 

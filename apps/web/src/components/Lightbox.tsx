@@ -217,13 +217,7 @@ function RevealFileName({ fileRef, revealable }: { fileRef: string; revealable: 
 
 /** The viewer's ⋯ menu: the page's own photo menu for the shown photo, so the viewer offers what
  *  the grid's tile menu does. In the corner, so it stays in fullscreen too. */
-function LightboxMenu({
-  menu,
-  buttonClass,
-}: {
-  menu: (close: () => void) => ReactElement;
-  buttonClass: string;
-}) {
+function LightboxMenu({ menu, buttonClass }: { menu: (close: () => void) => ReactElement; buttonClass: string }) {
   const { t } = useTranslation();
   const { openKey, setOpenKey, ref } = useDropdownMenu<true>();
   return (
@@ -1049,7 +1043,9 @@ export default function Lightbox({
             capture={{ captureId: correcting.captureId, tags: [] }}
             tagOptions={[]}
             onTagsChange={() => {}}
-            onReassign={(species) => correcting.onReassign!(species, speciesScope.ids[0] ? speciesScope.ids : undefined)}
+            onReassign={(species) =>
+              correcting.onReassign!(species, speciesScope.ids[0] ? speciesScope.ids : undefined)
+            }
             scope={speciesScope.control}
             onClose={() => setCorrecting(null)}
           />
