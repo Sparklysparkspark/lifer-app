@@ -1041,6 +1041,23 @@ export async function removeExtinct(
   return res.rows.map(({ region, species }) => ({ region, species }));
 }
 
+/** Species no region list may carry, whatever source added them (GBIF and iNaturalist record people). */
+export const NEVER_LISTED_SPECIES = ["Homo sapiens"];
+
+export async function removeNeverListed(
+  country: Country,
+  apply: boolean,
+): Promise<Array<{ region: string; species: string }>> {
+  const res = await pool.query<{ region_id: string; species_id: string; region: string; species: string }>(
+    `SELECT rs.region_id, rs.species_id, r.name AS region, COALESCE(s.common_name, s.scientific_name) AS species
+     FROM region_species rs JOIN species s ON s.id = rs.species_id JOIN regions r ON r.id = rs.region_id
+     WHERE rs.region_id = ANY($1) AND s.scientific_name = ANY($2)`,
+    [regionIdsOf(country), NEVER_LISTED_SPECIES],
+  );
+  if (apply) await deleteRows(res.rows);
+  return res.rows.map(({ region, species }) => ({ region, species }));
+}
+
 async function main() {
   await requirePostgis(pool, "compute-local-tiers.ts");
   const args = process.argv.slice(2);
@@ -1110,6 +1127,7 @@ async function main() {
     }
     for (const [label, rows] of [
       ["extinct species", await removeExtinct(country, apply)],
+      ["species never listed", await removeNeverListed(country, apply)],
       ["birds eBird has never had reported there", await removeBirdsEbirdNeverHad(country, apply)],
     ] as const) {
       if (rows.length === 0) continue;

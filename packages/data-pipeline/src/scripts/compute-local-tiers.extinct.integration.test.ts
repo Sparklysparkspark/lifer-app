@@ -19,7 +19,7 @@ afterAll(async () => {
 
 const id = (n: number) => `14015000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const [WORLD, CONTINENT, COUNTRY, SOUTH, ISLAND, MARSH] = [1, 2, 3, 4, 5, 6].map(id);
-const [BETTONG, WHITE_EYE, CURLEW, AUK, EDGE, LORIKEET] = [10, 11, 12, 13, 14, 15].map(id);
+const [BETTONG, WHITE_EYE, CURLEW, AUK, EDGE, LORIKEET, HUMAN] = [10, 11, 12, 13, 14, 15, 16].map(id);
 const COUNTRY_NAME = "Extinctia";
 
 // [species, name, Red List status, province, live records in the last 15 years, distinct years among them]
@@ -38,7 +38,7 @@ const LISTINGS: Array<[string, string, string, string, number, number]> = [
 
 describe.skipIf(!url)("compute-local-tiers: extinct species", () => {
   const db = new pg.Pool({ connectionString: url });
-  const speciesIds = LISTINGS.map((l) => l[0]);
+  const speciesIds = [...LISTINGS.map((l) => l[0]), HUMAN];
   const cleanup = async () => {
     await db.query(`DELETE FROM regions WHERE id = ANY($1)`, [[MARSH, ISLAND, SOUTH, COUNTRY, CONTINENT, WORLD]]);
     await db.query(`DELETE FROM species WHERE id = ANY($1)`, [speciesIds]);
@@ -124,5 +124,23 @@ describe.skipIf(!url)("compute-local-tiers: extinct species", () => {
       expect(await extinct(gone)).toBe(true);
       expect(await listed(gone)).toEqual([]);
     }
+  });
+
+  it("takes people off every list, whatever added them", async () => {
+    await db.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 140159, 'Homo sapiens', 'mammalia')`,
+      [HUMAN],
+    );
+    await db.query(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2), ($3, $2)`, [
+      COUNTRY,
+      HUMAN,
+      SOUTH,
+    ]);
+    const { loadCountries, removeNeverListed } = await import("./compute-local-tiers.js");
+    const [country] = await loadCountries([COUNTRY_NAME]);
+    expect(await removeNeverListed(country, false)).toHaveLength(2);
+    expect(await listed(HUMAN)).toEqual([COUNTRY, SOUTH].sort());
+    await removeNeverListed(country, true);
+    expect(await listed(HUMAN)).toEqual([]);
   });
 });

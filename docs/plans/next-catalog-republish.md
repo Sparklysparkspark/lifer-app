@@ -74,6 +74,15 @@ Everything up to publishing is done on the Docker `lifer` database and built loc
   - `lifer-id-species-image-embeddings-bioclip-2-v1.bin.gz` 84,860,705
   - `lifer-id-species-text-embeddings-bioclip-2-v1.bin.gz` 191,508,215
 
+- **Homo sapiens off every list** (16:40): its 47 listings deleted under the catalog lock (10
+  from the province build, 37 from the restore); packs and seed never carried them, so nothing
+  needed rebuilding. The tiers stage now removes `NEVER_LISTED_SPECIES` (`compute-local-tiers.ts`)
+  and the restore skips them. Backups:
+  `data/backups/lifer-catalog-before-homo-sapiens-removal-2026-11-25-tables.dump` (region_species
+  and hotspots) and `lifer-homo-sapiens-region-species-rows-2026-11-25.csv`. Gate rechecked
+  against the built index afterwards: the same 265 drift failures, each matching
+  `pack-drift-explained.tsv` count for count, nothing else.
+
 Not done (iNaturalist refused this machine all night):
 
 - The gallery top-up (`/tmp/run-topup.sh`). If it runs later: then `backfill-photo-withheld`,

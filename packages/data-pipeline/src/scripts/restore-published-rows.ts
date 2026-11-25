@@ -5,8 +5,8 @@
 //
 // Reads every published region pack that lists a species the catalog's region no longer has
 // (cached in data/published-packs-cache, so a rerun reads nothing twice), and skips a row when:
-//   - its species is gone from the catalog, hidden as extinct, a farm animal or an escape-prone
-//     pet (captive-origin-species.json);
+//   - its species is gone from the catalog, hidden as extinct, never listed (NEVER_LISTED_SPECIES),
+//     a farm animal or an escape-prone pet (captive-origin-species.json);
 //   - a logged clean-up took it off on purpose (escapes-removed-*.tsv and the applied 6b TSVs);
 //   - it's a bird the region's cached eBird list lacks (eBird lists every stray).
 // The tiers stage afterwards still applies its own removal rules to what comes back.
@@ -30,6 +30,7 @@ import { COUNTRIES_SQL, groupIdsSql, provinceIdsSql } from "@lifer/core/regions/
 import { fetchPublishedIndex } from "../pipeline/packIndex.js";
 import { cachedPlaceCounts } from "../regions/inatChecklist.js";
 import { cachedEbirdCodes } from "./add-new-species-to-checklists.js";
+import { NEVER_LISTED_SPECIES } from "./compute-local-tiers.js";
 
 const PIPELINE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DATA_DIR = path.join(PIPELINE_DIR, "data");
@@ -271,6 +272,7 @@ async function main() {
         if (!region) decision = "skip: region not found";
         else if (!s) decision = "skip: species gone from the catalog";
         else if (s.gone) decision = "skip: extinct or hidden";
+        else if (NEVER_LISTED_SPECIES.includes(s.name)) decision = "skip: never listed";
         else if (s.domestic) decision = "skip: farm animal";
         else if (captive.has(s.name)) decision = "skip: escape-prone pet";
         else if (removed.has(`${region.name}|${s.name}`) || removed.has(`${region.name}|${s.common}`))
