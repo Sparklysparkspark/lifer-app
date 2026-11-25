@@ -18,7 +18,7 @@ vi.mock("@lifer/core/species/textEmbedding.js", () => ({
 }));
 vi.mock("./detectAndCrop.js", () => ({ detectSubjectPresence: async () => presence }));
 
-const { checkSubject, unsureWithoutAnimal } = await import("./wildlifeCheck.js");
+const { checkSubject, insectHintUnlessMatched, unsureWithoutAnimal } = await import("./wildlifeCheck.js");
 
 /** A photo vector whose softmax shares (CLIP's logit scale of 100) are `shares`, with what's left
  *  spread evenly over every other description. */
@@ -130,5 +130,19 @@ describe("no confident name without an animal", () => {
 
   it("leaves suggestions alone when there was nothing to tell from", () => {
     expect(unsureWithoutAnimal(suggestions(), { notWildlife: null, invertebrate: null })[0].confident).toBe(true);
+  });
+});
+
+describe("insectHintUnlessMatched", () => {
+  it("keeps the insect note when no species matched", () => {
+    expect(insectHintUnlessMatched({ looksLike: "a bee" }, [])).toEqual({ looksLike: "a bee" });
+  });
+
+  it("drops it when a confident suggestion remains", () => {
+    expect(insectHintUnlessMatched({ looksLike: "an insect" }, [{ confident: true }])).toBeNull();
+  });
+
+  it("passes no note through", () => {
+    expect(insectHintUnlessMatched(null, [])).toBeNull();
   });
 });

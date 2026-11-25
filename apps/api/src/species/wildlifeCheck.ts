@@ -172,6 +172,12 @@ export function unlessLikelyMatch<T extends { confident?: boolean }>(suggestions
   return suggestions[0]?.confident ? suggestions : [];
 }
 
+/** The insect note only when nothing matched: a confident species suggestion outranks the guess
+ * that the frame is an insect (a dark close-up of a sheep can read as one). */
+export function insectHintUnlessMatched<H>(hint: H | null, suggestions: readonly unknown[]): H | null {
+  return suggestions.length > 0 ? null : hint;
+}
+
 const NOTHING: SubjectCheck = { notWildlife: null, invertebrate: null };
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 const label = (prompt: string) => prompt.replace(/^a photo of /, "");

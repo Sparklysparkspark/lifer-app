@@ -48,7 +48,13 @@ import { regionAt } from "../regions/regionAt.js";
 import { nearestTown } from "../places/gazetteer.js";
 import { joinBurst, pooledVectors } from "../species/bursts.js";
 import { matchSpeciesByKeywords, groupByScientificName } from "../species/matchByKeywords.js";
-import { checkSubject, unlessLikelyMatch, unsureWithoutAnimal, type SubjectCheck } from "../species/wildlifeCheck.js";
+import {
+  checkSubject,
+  insectHintUnlessMatched,
+  unlessLikelyMatch,
+  unsureWithoutAnimal,
+  type SubjectCheck,
+} from "../species/wildlifeCheck.js";
 import { prepareWorkingImage, previewDataUrlFor, type WorkingImage } from "./workingImage.js";
 import { receiveMultipartFile, type ReceivedFile } from "./uploadSource.js";
 import { readCullMarks } from "./cullMarks.js";
@@ -415,7 +421,7 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
             }
           }
 
-          // A browser can't show a RAW, TIFF or HEIC, so a JPEG of it goes back as the import
+          // A browser can't show a RAW, TIFF, HEIC, AVIF or JPEG 2000, so a JPEG of it goes back as the import
           // screen's image: a RAW's embedded preview, else a small render of the photo.
           let previewDataUrl: string | null = null;
           if (isRaw && embedSource?.buffer)
@@ -435,6 +441,8 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
           const { notWildlife, invertebrate, maybeNotWildlife } = subjectCheck;
           if (invertebrate) suggestions = unlessLikelyMatch(suggestions);
           suggestions = unsureWithoutAnimal(suggestions, subjectCheck);
+          // A confident species match outranks a guess that it is an insect (a dark close-up can read as one).
+          const insectHint = insectHintUnlessMatched(invertebrate, suggestions);
 
           // Staging moves the file, so it comes last, once nothing else reads it: the cull marks
           // read (started above, queued behind other exiftool reads) and the no-wildlife check both
@@ -473,7 +481,7 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
             uploadId: received || !roomy ? null : uploadId,
             notWildlife,
             maybeNotWildlife: maybeNotWildlife ?? null,
-            invertebrate,
+            invertebrate: insectHint,
             rawMatch: rawMatch && {
               captureId: rawMatch.id,
               speciesId: rawMatch.species_id,
