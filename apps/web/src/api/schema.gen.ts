@@ -2493,7 +2493,6 @@ export interface paths {
                       [key: string]: unknown;
                     })
                   | null;
-                photographedWhere?: ("here" | "elsewhere") | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -8949,7 +8948,6 @@ export interface paths {
                       [key: string]: unknown;
                     })
                   | null;
-                photographedWhere?: ("here" | "elsewhere") | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -26683,7 +26681,6 @@ export interface paths {
                       [key: string]: unknown;
                     })
                   | null;
-                photographedWhere?: ("here" | "elsewhere") | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -27213,7 +27210,6 @@ export interface paths {
                       [key: string]: unknown;
                     })
                   | null;
-                photographedWhere?: ("here" | "elsewhere") | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -42739,7 +42735,6 @@ export interface paths {
                       [key: string]: unknown;
                     })
                   | null;
-                photographedWhere?: ("here" | "elsewhere") | null;
               } & {
                 [key: string]: unknown;
               })[];

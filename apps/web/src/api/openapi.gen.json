@@ -3019,15 +3019,6 @@
                               },
                               { "type": "null" }
                             ]
-                          },
-                          "photographedWhere": {
-                            "anyOf": [
-                              {
-                                "enum": ["here", "elsewhere"],
-                                "description": "Region checklist rows: a photo of it was taken in this region, or located photos all outside it; null with none located"
-                              },
-                              { "type": "null" }
-                            ]
                           }
                         },
                         "additionalProperties": true
@@ -8299,15 +8290,6 @@
                                   "kind": { "enum": ["region", "seaZone"] }
                                 },
                                 "additionalProperties": true
-                              },
-                              { "type": "null" }
-                            ]
-                          },
-                          "photographedWhere": {
-                            "anyOf": [
-                              {
-                                "enum": ["here", "elsewhere"],
-                                "description": "Region checklist rows: a photo of it was taken in this region, or located photos all outside it; null with none located"
                               },
                               { "type": "null" }
                             ]
@@ -24251,15 +24233,6 @@
                               },
                               { "type": "null" }
                             ]
-                          },
-                          "photographedWhere": {
-                            "anyOf": [
-                              {
-                                "enum": ["here", "elsewhere"],
-                                "description": "Region checklist rows: a photo of it was taken in this region, or located photos all outside it; null with none located"
-                              },
-                              { "type": "null" }
-                            ]
                           }
                         },
                         "additionalProperties": true
@@ -24721,15 +24694,6 @@
                                   "kind": { "enum": ["region", "seaZone"] }
                                 },
                                 "additionalProperties": true
-                              },
-                              { "type": "null" }
-                            ]
-                          },
-                          "photographedWhere": {
-                            "anyOf": [
-                              {
-                                "enum": ["here", "elsewhere"],
-                                "description": "Region checklist rows: a photo of it was taken in this region, or located photos all outside it; null with none located"
                               },
                               { "type": "null" }
                             ]
@@ -37986,15 +37950,6 @@
                                   "kind": { "enum": ["region", "seaZone"] }
                                 },
                                 "additionalProperties": true
-                              },
-                              { "type": "null" }
-                            ]
-                          },
-                          "photographedWhere": {
-                            "anyOf": [
-                              {
-                                "enum": ["here", "elsewhere"],
-                                "description": "Region checklist rows: a photo of it was taken in this region, or located photos all outside it; null with none located"
                               },
                               { "type": "null" }
                             ]

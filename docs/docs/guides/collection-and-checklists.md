@@ -82,7 +82,7 @@ Archived species and extinct species never count toward totals.
 
 By default a species counts as photographed on every checklist once you've photographed it anywhere. To keep a life list for one place, open **View** and, under **Counting**, pick from **Include photos from**: **Anywhere**, the country, or (on a state or province) the province itself. On a country you choose between Anywhere and the country.
 
-With a country or province picked, a species counts only if you have a photo of it taken there (in the Trash or hidden doesn't count). Everything else shows as not photographed: the count, the progress bar, the cards, **Photographed first** and the photographed filters all follow. Seen marks and targets don't change. The choice is saved as a level, so picking the province and then opening a country counts that country's photos, and the next province you open counts its own. It isn't offered on a continent or World.
+With a country or province picked, a species counts only if you have a photo of it taken there (in the Trash or hidden doesn't count). Everything else shows as not photographed: the count, the progress bar, the cards, **Photographed first** and the photographed filters all follow. The checklist itself stays the same: a species you photographed only somewhere else is still listed, as not photographed here. To see only the ones you have from here, set **Filters > Show** to **Photographed**. Seen marks and targets don't change. The choice is saved as a level, so picking the province and then opening a country counts that country's photos, and the next province you open counts its own. It isn't offered on a continent or World.
 
 ## Seen, targets, hiding and archiving {#card-actions}
 
@@ -231,7 +231,7 @@ By default, Lifer hides species almost nobody will encounter from checklists:
 - Species with almost no records.
 - Species marked **Vagrant** in the region you're viewing.
 
-Turn this off in [Settings > Species and import](../settings.md#obscure-species). Anything you've photographed or seen always stays visible.
+Turn this off in [Settings > Species and import](../settings.md#obscure-species). Anything you've photographed or seen always stays visible, except a vagrant: it shows once you've photographed it in the region you're viewing or added it there, since a stray photographed elsewhere isn't that region's.
 
 ## Species pages {#species-page}
 

@@ -224,20 +224,8 @@ const REGION_VIEW_SPECIES_CTE = `WITH RECURSIVE region_tree AS (
          ),
          -- photographedIn: the scope region's tree and the species with a live photo there.
          ${photographedInTreeCtes("photo_scope_tree", "photographed_in_scope", P.photoScope, P.placedInScope)},
-         -- The Photos taken filter: the same for the viewed region itself, and every species with
-         -- a photo that has a place at all.
-         ${photographedInTreeCtes("here_tree", "photographed_here", P.region)},
-         photographed_located AS (
-           SELECT c.species_id FROM captures c WHERE c.user_id = ${P.user} AND c.region_id IS NOT NULL
-           UNION
-           SELECT cs.species_id FROM capture_species cs JOIN captures c ON c.id = cs.capture_id
-           WHERE c.user_id = ${P.user} AND c.region_id IS NOT NULL
-         )`;
-
-// Where the user's photos of a species were taken, for the Photos taken filter: "here" with any
-// in the viewed region, "elsewhere" with located ones all outside it, null with none located.
-const PHOTOGRAPHED_WHERE_SQL = `CASE WHEN s.id IN (SELECT species_id FROM photographed_here) THEN 'here'
-             WHEN s.id IN (SELECT species_id FROM photographed_located) THEN 'elsewhere' END`;
+         -- The same for the viewed region itself, for OWNED_HERE_SQL's vagrant rule.
+         ${photographedInTreeCtes("here_tree", "photographed_here", P.region)}`;
 
 // A region's subtree (groups included) plus provinces shown under their continent that belong
 // to it.
@@ -427,8 +415,7 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
       const res = await pool.query(
         `${REGION_VIEW_SPECIES_CTE}
          SELECT
-           ${checklistItemColumns(P.user, userAddedColumnsSql({ seaZonesParam: P.seaZones, includeLandParam: P.includeLand }), SCOPED_STATE_SQL)},
-           ${PHOTOGRAPHED_WHERE_SQL} AS photographed_where
+           ${checklistItemColumns(P.user, userAddedColumnsSql({ seaZonesParam: P.seaZones, includeLandParam: P.includeLand }), SCOPED_STATE_SQL)}
          FROM species_ids si
          JOIN species s ON s.id = si.species_id
          ${REGION_VIEW_JOINS}

@@ -110,11 +110,8 @@ export default function CollectionToolbar({
   );
   const sizeStepIndex = sizeSteps ? fluidSizeStepIndex(sizeSteps, prefs.cardMinWidth) : 0;
   const { regionId, taxonFilters, seaZoneIds, updateParam } = url;
-  // photoPlaces is set only for a region checklist (not a hub), whose rows say where photos were taken.
-  const photosTakenOffered = !!photoPlaces && !!regionName;
   // Only departures from the default count (collectedFirst is on by default).
   const activeFilterCount =
-    (photosTakenOffered && url.photosTakenFilter !== "anywhere" ? 1 : 0) +
     (url.stateFilter !== "all" ? 1 : 0) +
     (url.ghostOnly ? 1 : 0) +
     (url.lostOnly ? 1 : 0) +
@@ -325,25 +322,6 @@ export default function CollectionToolbar({
                 </option>
               ))}
             </Select>
-          )}
-          {/* Only a country, group or province checklist knows where each photo was taken. */}
-          {photosTakenOffered && (
-            <div className="mt-1.5 space-y-1">
-              <FilterFieldLabel>{t("collection.toolbar.photosTaken")}</FilterFieldLabel>
-              <Select
-                aria-label={t("collection.toolbar.photosTaken")}
-                value={url.photosTakenFilter}
-                onChange={(e) => updateParam("photosTaken", e.target.value === "anywhere" ? null : e.target.value)}
-                className="w-full"
-                title={t("collection.toolbar.photosTakenTitle")}
-              >
-                <option value="anywhere">{t("collection.toolbar.photosTakenAnywhere")}</option>
-                <option value="here">{t("collection.toolbar.photosTakenHere", { region: regionName })}</option>
-                <option value="elsewhere">
-                  {t("collection.toolbar.photosTakenElsewhere", { region: regionName })}
-                </option>
-              </Select>
-            </div>
           )}
           {/* Kept while checked, so it can be unchecked once the last mark is gone. */}
           {(hasNeedsBetter || url.needsBetterOnly) && (

@@ -58,19 +58,28 @@ beforeEach(() => {
 });
 
 describe("useCollectionData", () => {
-  it("waits until ready, then loads the whole collection and its quick count", async () => {
-    route({
-      "/collection/count": { total: 2, collected: 1 },
-      "/collection": { items: [item("a"), item("b", "seen")] },
-    });
+  it("waits until ready, then loads the whole collection", async () => {
+    route({ "/collection": { items: [item("a"), item("b", "seen")] } });
     const { result, rerender } = renderHook((props: Args) => useCollectionData(props), {
       initialProps: { ...base, ready: false },
     });
     expect(get).not.toHaveBeenCalled();
     rerender(base);
     await waitFor(() => expect(result.current.items).toHaveLength(2));
-    expect(result.current.quickCount).toEqual({ total: 2, collected: 1 });
     expect(get).toHaveBeenCalledWith("/collection");
+  });
+
+  it("shows the new scope's header count before its list arrives", async () => {
+    // The list never answers: only the count can fill the header.
+    route({ "/regions/r1/species/count": { total: 534, collected: 32, seen: 0 } });
+    const { result, rerender } = renderHook((props: Args) => useCollectionData(props), {
+      initialProps: { ...base, regionId: "r1" },
+    });
+    await waitFor(() => expect(result.current.regionStats).toEqual({ total: 534, collected: 32, seen: 0 }));
+    route({ "/regions/r1/species/count?": { total: 534, collected: 6, seen: 0 } });
+    rerender({ ...base, regionId: "r1", photographedIn: "country" });
+    await waitFor(() => expect(result.current.regionStats).toEqual({ total: 534, collected: 6, seen: 0 }));
+    expect(get).toHaveBeenLastCalledWith(expect.stringContaining("photographedIn=country"));
   });
 
   it("ignores a slower answer for the region it just left", async () => {
@@ -156,7 +165,7 @@ describe("useCollectionData", () => {
 
   it("patches changed rows and the counts in place", async () => {
     route({
-      "/regions/r1/species/count": { total: 3, collected: 2 },
+      "/regions/r1/species/count": { total: 3, collected: 2, seen: 1 },
       "/regions/r1/species?": {
         items: [item("a"), item("b"), item("c", "seen")],
         region: { id: "r1", name: "One" },
@@ -170,6 +179,5 @@ describe("useCollectionData", () => {
     act(() => result.current.applyChange(["a"], "removed"));
     expect(result.current.items?.map((i) => i.speciesId)).toEqual(["b", "c"]);
     expect(result.current.regionStats).toEqual({ total: 2, collected: 1, seen: 0 });
-    expect(result.current.quickCount).toEqual({ total: 2, collected: 1 });
   });
 });

@@ -1,7 +1,6 @@
 // Runs only with TEST_DATABASE_URL pointing at a migrated, disposable database.
 // "Count photos from": a species counts as photographed on a region's checklist only with a live
-// photo in the viewed region's country or province. Also each row's photographedWhere, for the
-// Photos taken filter.
+// photo in the viewed region's country or province. The list itself never changes with it.
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import pg from "pg";
@@ -209,58 +208,150 @@ describe.skipIf(!url)("photographedIn on a region's checklist", () => {
     expect((await get(`/api/regions/${id.alberta}/species?photographedIn=planet`)).statusCode).toBe(400);
     expect((await get(`/api/regions/${id.alberta}/species/count?photographedIn=planet`)).statusCode).toBe(400);
   });
+});
 
-  describe("photographedWhere", () => {
-    async function where(route: string) {
-      const res = await get(route);
-      expect(res.statusCode).toBe(200);
-      const items = res.json().items as Array<{ speciesId: string; photographedWhere?: string | null }>;
-      return Object.fromEntries(items.map((i) => [i.speciesId, i.photographedWhere]));
+// The scope changes only the photographed state and counts: the list is always the region's
+// checklist, and a vagrant listing shows only when photographed in the region itself.
+describe.skipIf(!url)("photographedIn keeps the checklist", () => {
+  const USER3 = "abcdabcd-0000-4000-8000-000000000a01";
+  const TOKEN3 = "lifer_test_photographed_in_a01";
+  const vs = (n: number) => `abcdabcd-0000-4000-8000-000000000b0${n}`;
+  // Listed in Zzcanada, photographed only in Zzbelize.
+  const LISTED_AWAY = vs(1);
+  // A vagrant in Zzcanada, photographed only in Zzbelize.
+  const VAGRANT_AWAY = vs(2);
+  // Listed in Zzcanada and photographed there.
+  const LISTED_HERE = vs(3);
+  // A vagrant in Zzcanada, photographed there.
+  const VAGRANT_HERE = vs(4);
+  // Listed in Zzcanada, never photographed.
+  const MISSING = vs(5);
+  const SPECIES = [LISTED_AWAY, VAGRANT_AWAY, LISTED_HERE, VAGRANT_HERE, MISSING];
+  const NAMES3 = { hub: "Zzkeep Continent", canada: "Zzkeep Canada", belize: "Zzkeep Belize" };
+  let app: FastifyInstance;
+  let db: pg.Pool;
+  let cookieName: string;
+  const id: Record<keyof typeof NAMES3, string> = {} as never;
+
+  async function view(query: string) {
+    const get = (route: string) =>
+      app.inject({ method: "GET", url: `/api/regions/${id.canada}${route}`, cookies: { [cookieName]: TOKEN3 } });
+    const res = await get(`/species${query}`);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      stats: { total: number; collected: number };
+      items: Array<{ speciesId: string; state: string } & Record<string, unknown>>;
+    };
+    expect((await get(`/species/count${query}`)).json()).toMatchObject(body.stats);
+    return {
+      stats: body.stats,
+      states: Object.fromEntries(body.items.map((i) => [i.speciesId, i.state])),
+      items: body.items,
+    };
+  }
+
+  async function cleanup() {
+    await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [USER3]);
+    await db.query(`DELETE FROM user_species WHERE user_id = $1`, [USER3]);
+    await db.query(`DELETE FROM users WHERE id = $1`, [USER3]);
+    await db.query(`DELETE FROM regions WHERE name = ANY($1) AND parent_id IS NOT NULL`, [Object.values(NAMES3)]);
+    await db.query(`DELETE FROM regions WHERE name = $1`, [NAMES3.hub]);
+    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [SPECIES]);
+    await db.query(`DELETE FROM downloaded_packs WHERE region = $1`, [NAMES3.canada]);
+  }
+
+  beforeAll(async () => {
+    db = new pg.Pool({ connectionString: url });
+    const { hashToken } = await import("../auth/session.js");
+    ({ SESSION_COOKIE_NAME: cookieName } = await import("@lifer/core/config.js"));
+    const { regionRoutes } = await import("./routes.js");
+    await cleanup();
+    // Hiding obscure species is what hides vagrant listings.
+    await db.query(
+      `INSERT INTO users (id, email, password_hash, hide_obscure_species) VALUES ($1, 'photographed-in-keep@test', 'x', true)`,
+      [USER3],
+    );
+    await db.query(`INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + interval '1 day')`, [
+      hashToken(TOKEN3),
+      USER3,
+    ]);
+    const region = async (name: string, parentId: string | null, codes: string[]) =>
+      (
+        await db.query<{ id: string }>(
+          `INSERT INTO regions (name, parent_id, external_codes, occurrence_computed_at) VALUES ($1, $2, $3, now()) RETURNING id`,
+          [name, parentId, codes],
+        )
+      ).rows[0].id;
+    id.hub = await region(NAMES3.hub, null, []);
+    id.canada = await region(NAMES3.canada, id.hub, ["ZZK"]);
+    id.belize = await region(NAMES3.belize, id.hub, ["ZZB"]);
+    await db.query(`INSERT INTO downloaded_packs (pack_id, region, taxon) VALUES ('zzkeep-aves', $1, 'aves')`, [
+      NAMES3.canada,
+    ]);
+    for (const [i, speciesId] of SPECIES.entries()) {
+      await db.query(
+        `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class) VALUES ($1, $2, $3, $4, 'aves')`,
+        [speciesId, 942001 + i, `Zzkeepus s${i}`, `Keep Bird ${i}`],
+      );
+      await db.query(
+        `INSERT INTO species_traits (species_id, occurrence_count, last_occurrence_year, source_attribution)
+         VALUES ($1, 5000, 2025, 'test')`,
+        [speciesId],
+      );
+      const vagrant = speciesId === VAGRANT_AWAY || speciesId === VAGRANT_HERE;
+      await db.query(`INSERT INTO region_species (region_id, species_id, is_vagrant) VALUES ($1, $2, $3)`, [
+        id.canada,
+        speciesId,
+        vagrant,
+      ]);
+      if (speciesId === MISSING) continue;
+      await db.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'collected')`, [
+        USER3,
+        speciesId,
+      ]);
+      const where = speciesId === LISTED_HERE || speciesId === VAGRANT_HERE ? id.canada : id.belize;
+      await db.query(`INSERT INTO captures_all (user_id, species_id, fingerprint, region_id) VALUES ($1, $2, $3, $4)`, [
+        USER3,
+        speciesId,
+        `zzkeep-${speciesId}`,
+        where,
+      ]);
     }
+    app = Fastify();
+    await app.register(cookie);
+    await app.register(regionRoutes, { prefix: "/api" });
+    await app.ready();
+  });
 
-    it("marks live photos in a province as here, located ones outside as elsewhere, unlocated as neither", async () => {
-      expect(await where(`/api/regions/${id.alberta}/species`)).toEqual({
-        [IN_ALBERTA]: "here",
-        // Its other photo, on the island, doesn't make it elsewhere.
-        [IN_GROUP_PROVINCE]: "elsewhere",
-        [SECONDARY]: "elsewhere",
-        // Another user's photo in Alberta doesn't count.
-        [ELSEWHERE]: "elsewhere",
-        // Trashed and hidden photos don't count; with no other photo, nothing is located.
-        [TRASHED]: null,
-        [HIDDEN]: null,
-        [NO_PLACE]: null,
-      });
-    });
+  afterAll(async () => {
+    await app?.close();
+    await cleanup();
+    await db.end();
+  });
 
-    it("counts provinces inside a country or group, and provinces shown under the continent", async () => {
-      expect(await where(`/api/regions/${id.country}/species`)).toMatchObject({
-        [IN_GROUP_PROVINCE]: "here",
-        [SECONDARY]: "here",
-        [IN_ALBERTA]: "here",
-        [ELSEWHERE]: "elsewhere",
-        [NO_PLACE]: null,
-      });
-      expect(await where(`/api/regions/${id.group}/species`)).toMatchObject({
-        [IN_GROUP_PROVINCE]: "here",
-        [IN_ALBERTA]: "elsewhere",
-      });
+  it("counts every species photographed anywhere, out of the whole checklist", async () => {
+    const { stats, states } = await view("");
+    expect(states).toEqual({
+      [LISTED_AWAY]: "collected",
+      [LISTED_HERE]: "collected",
+      [VAGRANT_HERE]: "collected",
+      [MISSING]: "unseen",
     });
+    expect(stats).toMatchObject({ total: 4, collected: 3 });
+  });
 
-    it("is independent of the Count photos from choice", async () => {
-      expect(await where(`/api/regions/${id.alberta}/species?photographedIn=province`)).toMatchObject({
-        [IN_ALBERTA]: "here",
-        [ELSEWHERE]: "elsewhere",
-      });
+  it("lists the same species with only photos from the country counting", async () => {
+    const { stats, states, items } = await view("?photographedIn=country");
+    expect(states).toEqual({
+      // Photographed only in Belize: still on the checklist, as not photographed here.
+      [LISTED_AWAY]: "unseen",
+      [LISTED_HERE]: "collected",
+      [VAGRANT_HERE]: "collected",
+      [MISSING]: "unseen",
     });
-
-    it("isn't on a continent's combined list", async () => {
-      const res = await get(`/api/regions/${id.hub}/aggregate-species`);
-      expect(res.statusCode).toBe(200);
-      const items = res.json().items as Array<Record<string, unknown>>;
-      expect(items.length).toBeGreaterThan(0);
-      expect(items.every((i) => !("photographedWhere" in i))).toBe(true);
-    });
+    expect(stats).toMatchObject({ total: 4, collected: 2 });
+    // One scope control: rows no longer carry a separate where-photographed flag.
+    expect(items.every((i) => !("photographedWhere" in i))).toBe(true);
   });
 });
 

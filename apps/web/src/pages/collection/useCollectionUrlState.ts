@@ -11,9 +11,6 @@ export type StateFilter = (typeof STATE_FILTERS)[number];
 // For a yes-or-no trait (introduced, endemic, vagrant): no filter, only those, or none of them.
 const TRAIT_FILTERS = ["any", "only", "hide"] as const;
 export type TraitFilter = (typeof TRAIT_FILTERS)[number];
-// Where the photos of a photographed species were taken, relative to the viewed region.
-const PHOTOS_TAKEN_FILTERS = ["anywhere", "here", "elsewhere"] as const;
-export type PhotosTakenFilter = (typeof PHOTOS_TAKEN_FILTERS)[number];
 export type ParamUpdates = Record<string, string | null>;
 export type UpdateParams = (updates: ParamUpdates, options?: { replace?: boolean }) => void;
 
@@ -82,7 +79,6 @@ export function useCollectionUrlState() {
   const introducedFilter = parseEnum(searchParams.get("introduced"), TRAIT_FILTERS, "any");
   const endemicFilter = parseEnum(searchParams.get("endemic"), TRAIT_FILTERS, "any");
   const vagrantFilter = parseEnum(searchParams.get("vagrant"), TRAIT_FILTERS, "any");
-  const photosTakenFilter = parseEnum(searchParams.get("photosTaken"), PHOTOS_TAKEN_FILTERS, "anywhere");
   // filterCollectionItems' input, the same object until one of these changes.
   const itemFilters = useMemo<ItemFilters>(
     () => ({
@@ -90,7 +86,6 @@ export function useCollectionUrlState() {
       introduced: introducedFilter,
       endemic: endemicFilter,
       vagrant: vagrantFilter,
-      photosTaken: photosTakenFilter,
       tiers: tierFilters,
       ghostOnly,
       lostOnly,
@@ -105,7 +100,6 @@ export function useCollectionUrlState() {
       introducedFilter,
       endemicFilter,
       vagrantFilter,
-      photosTakenFilter,
       tierFilters,
       ghostOnly,
       lostOnly,
@@ -133,7 +127,6 @@ export function useCollectionUrlState() {
         introduced: null,
         endemic: null,
         vagrant: null,
-        photosTaken: null,
         tiers: null,
         search: null,
         taxon: null,
@@ -169,7 +162,6 @@ export function useCollectionUrlState() {
     introducedFilter,
     endemicFilter,
     vagrantFilter,
-    photosTakenFilter,
     // Rarity tiers to show (the tier each card shows); empty means every tier.
     tierFilters,
     search,

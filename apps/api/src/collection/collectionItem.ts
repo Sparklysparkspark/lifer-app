@@ -75,8 +75,6 @@ export interface CollectionRow {
   user_added_region_name?: string | null;
   /** "seaZone" when user_added_region_id is a sea zone; null or absent for a region. */
   user_added_kind?: string | null;
-  /** Region rows only: where the user's photos of it were taken (checklist.ts PHOTOGRAPHED_WHERE_SQL). */
-  photographed_where?: "here" | "elsewhere" | null;
   /** rawOnlySql: every photo of it is still an unedited RAW. */
   raw_only?: boolean | null;
   /** PHOTO_COUNT_JOIN; absent from routes that don't join it (trips, albums). */
@@ -181,7 +179,6 @@ export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNIC
     capturedYears: row.captured_years ?? null,
     heard: row.heard === true,
     suggested: row.suggested === true,
-    ...(row.photographed_where !== undefined && { photographedWhere: row.photographed_where }),
     ...(row.photo_count !== undefined && { photoCount: row.photo_count ?? 0 }),
     // Only region rows carry it, so GET /collection items are unchanged.
     ...(row.user_added_region_id !== undefined && {

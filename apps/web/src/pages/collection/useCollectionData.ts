@@ -10,10 +10,6 @@ import type { TaxonFilter } from "./taxonLabels";
 import type { PhotographedIn } from "./useCollectionDisplayPrefs";
 
 type RegionMeta = RegionSpeciesResult["region"];
-interface Counts {
-  total: number;
-  collected: number;
-}
 
 // Opening a species unmounts this page, so the last result per view is kept at module scope
 // and a remount draws it at once while the fetch revalidates in the background.
@@ -92,8 +88,6 @@ export function useCollectionData({
     name: string;
     taxon: TaxonFilter;
   } | null>(null);
-  // A count-only query that lands well before the full list, for the header total.
-  const [quickCount, setQuickCount] = useState<Counts | null>(null);
   // For a hub: which downloaded countries it aggregated, to tell "none downloaded" from "no match".
   const [downloadedHubCountryNames, setDownloadedHubCountryNames] = useState<string[]>([]);
   // What the last load threw; null once one succeeds.
@@ -125,7 +119,6 @@ export function useCollectionData({
   // too, so the previous region's don't linger until the list arrives.
   const resetForLoad = useCallback(() => {
     setLoadError(null);
-    setQuickCount(null);
     setNeedsPackFor(null);
     setTaxonPackMissingFor(null);
     if (regionId && regionKnownHub) {
@@ -162,10 +155,11 @@ export function useCollectionData({
         .catch(failed);
     } else if (regionId) {
       const query = `${taxonQuery}&${seaZoneQuery}&${includeLandQuery}&${photographedInQuery}`;
+      // Lands well before the full list, so the header follows a new scope or filter at once.
       api
         .get(apiPath("/regions/{id}/species/count", { id: regionId }, new URLSearchParams(query)))
         .then((res) => {
-          if (current()) setQuickCount(res);
+          if (current()) setRegionStats(res);
         })
         .catch((err) => console.error("Couldn't load species counts", err));
       api
@@ -181,12 +175,6 @@ export function useCollectionData({
         .catch(failed);
     } else if (!firstRunPrompt) {
       const query = taxonQuery ? `?${taxonQuery}` : "";
-      api
-        .get(apiPath("/collection/count", {}, new URLSearchParams(query)))
-        .then((res) => {
-          if (current()) setQuickCount(res);
-        })
-        .catch((err) => console.error("Couldn't load species counts", err));
       api
         .get<{ items: CollectionItem[] }>(`/collection${query}`)
         .then((res) => {
@@ -307,7 +295,6 @@ export function useCollectionData({
       setRegionStats((s) =>
         s ? { total: s.total + total, collected: s.collected + collected, seen: s.seen + seen } : s,
       );
-      setQuickCount((c) => (c ? { total: c.total + total, collected: c.collected + collected } : c));
       const cached = collectionCache.get(currentKeyRef.current);
       if (cached) {
         collectionCache.set(currentKeyRef.current, {
@@ -330,7 +317,6 @@ export function useCollectionData({
     items,
     regionMeta,
     regionStats,
-    quickCount,
     needsPackFor,
     taxonPackMissingFor,
     downloadedHubCountryNames,
