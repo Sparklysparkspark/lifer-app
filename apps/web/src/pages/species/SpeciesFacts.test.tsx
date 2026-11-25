@@ -53,7 +53,7 @@ describe("SpeciesOverview", () => {
       ...detail,
       hotspotRegionName: "Canada",
       hotspotAlternatives: [{ id: "bz", name: "Belize" }],
-      captures: [{ region_id: "ab", region_name: "Alberta" }],
+      captures: [{ region_id: "ab", region_name: "Alberta" }] as unknown as SpeciesDetail["captures"],
     };
     render(
       <MemoryRouter>
