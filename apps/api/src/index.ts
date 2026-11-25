@@ -33,6 +33,7 @@ import { runEmbeddingBackfill } from "./species/embeddingBackfill.js";
 import { scheduleArchiveHealth } from "./originals/health.js";
 import { scheduleMovedPhotos } from "./movedPhotos/relink.js";
 import { scheduleVersionGrouping } from "./uploads/versionGrouping.js";
+import { scheduleHdrRenditions } from "./photos/hdr/renditions.js";
 import { preferEditedCoversLater } from "./collection/defaultCardCrop.js";
 import { seedCatalogIfEmpty } from "./species/catalogSeedUpdate.js";
 import { ensureRegionRollup } from "./regions/rollup.js";
@@ -299,6 +300,8 @@ scheduleArchiveHealth();
 // A quiet look for photos the user moved or renamed, a few minutes after launch.
 scheduleMovedPhotos();
 scheduleVersionGrouping();
+// HDR renditions for the viewer, for new imports and photos already in the library (photos/hdr).
+scheduleHdrRenditions();
 // Automatic covers still on a RAW's preview move to an edit made since (lib/autoCovers.ts).
 preferEditedCoversLater(null);
 // Moves species matching onto a GPU when this machine has a faster one that gives the same answers.

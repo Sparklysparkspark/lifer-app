@@ -213,6 +213,8 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
         path.join(APP_DATA_DIR, "medium", `${p.id}.webp`),
         path.join(APP_DATA_DIR, "phone", `${p.id}.webp`),
         path.join(APP_DATA_DIR, "video-preview", `${p.id}.mp4`),
+        path.join(APP_DATA_DIR, "hdr", `${p.id}.jpg`),
+        path.join(APP_DATA_DIR, "hdr", `${p.id}.source`),
       );
     }
     for (const file of files) await removeFileQuietly(file);

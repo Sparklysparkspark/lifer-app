@@ -314,6 +314,20 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
       binary: "image/jpeg",
     },
   },
+  "/photos/{id}/hdr": {
+    get: {
+      summary: "HDR rendition (Ultra HDR JPEG)",
+      description:
+        "For a photo whose original is HDR (a gain map JPEG, AVIF or JPEG XL, or a PQ or HLG AVIF, JPEG XL, PNG or TIFF): an Ultra HDR JPEG up to 2,560px with no metadata. Screens without HDR show its SDR base. 404 for any other photo.",
+      binary: "image/jpeg",
+    },
+  },
+  "/photos/hdr-renditions": {
+    get: {
+      summary: "Photos with an HDR rendition",
+      description: "The ids of your photos that `/photos/{id}/hdr` serves. Made in the background after import.",
+    },
+  },
   "/photos/{id}/card": {
     get: {
       summary: "Species card image (WebP)",

@@ -94,6 +94,7 @@ export async function deleteLocalLibraryRoutes(fastify: FastifyInstance): Promis
         path.join(APP_DATA_DIR, "phone"),
         path.join(APP_DATA_DIR, "thumb"),
         path.join(APP_DATA_DIR, "card"),
+        path.join(APP_DATA_DIR, "hdr"),
       ];
       if (ownsWholeFolder) clearedDirs.unshift(ORIGINALS_DIR);
       for (const dir of clearedDirs) {

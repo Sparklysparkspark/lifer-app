@@ -32,15 +32,17 @@ function damaged(): Error {
   return Object.assign(new Error("This photo is damaged and can't be read"), { statusCode: 400 });
 }
 
-/** The upright sRGB image of a JPEG XL file (its first frame) as PNG bytes. */
-async function decodeJxl(input: string | Uint8Array): Promise<Buffer> {
+/** The upright image of a JPEG XL file (its first frame) as PNG bytes: in sRGB, or with
+ *  `ownColours` in the file's own colour space (16-bit, stated in a cICP chunk or ICC profile), as
+ *  the HDR rendition needs. A bare codestream decodes too, as a gain map is stored. */
+export async function decodeJxl(input: string | Uint8Array, { ownColours = false } = {}): Promise<Buffer> {
   if (typeof input === "string" && (await stat(input)).size > MAX_JXL_FILE_BYTES)
     throw Object.assign(new Error("That JPEG XL file is too large to decode"), { statusCode: 413 });
   const { JxlImage } = await decoder();
   return decodeLimit(async () => {
     const image = new JxlImage();
     try {
-      image.forceSrgb = true;
+      image.forceSrgb = !ownColours;
       image.feedBytes(typeof input === "string" ? await readFile(input) : input);
       // A truncated file can still render a partial frame; it's refused instead.
       if (!image.tryInit() || !image.loaded) throw damaged();

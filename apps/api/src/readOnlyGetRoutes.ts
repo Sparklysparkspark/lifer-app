@@ -54,6 +54,7 @@ export const AUDITED_GET_ROUTES: readonly string[] = [
   "/api/photos/:id/phone",
   "/api/photos/:id/full",
   "/api/photos/:id/hdr",
+  "/api/photos/hdr-renditions",
   "/api/photos/:id/thumb",
   "/api/photos/:id/original",
   "/api/photos/:id/original-raw",

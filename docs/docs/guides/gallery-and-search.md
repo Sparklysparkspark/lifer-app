@@ -123,11 +123,11 @@ Hover a photo and click its **⋯**, or right-click it, for:
 - **Show in Finder** (**Show in File Explorer** on Windows), on the desktop app: opens the folder that holds the file. A photo with a RAW and an edited file offers each. If the file is on a drive that isn't connected, Lifer says so. **Copy file path** copies where the file is.
 - **Open in** your photo editor, on the desktop app. See [Opening photos in your editor](#editor).
 - **Hide photo**: keeps a weak photo out of the Gallery, your life list and Stats without deleting it. Find it again under **Hidden** in the Gallery's **Filters**, or click **Undo** on the message, which also makes it the featured photo again if you had picked it as one. A featured photo Lifer chose for you is picked again by the usual rules. See [Hidden photos](./culling-with-other-apps.md#hidden).
-- **Delete photo** (or **Delete video**). It goes to the [Trash](./trash.md).
+- **Delete photo** (or **Delete video**). It goes to the [Trash](./trash.md), with **Undo** on the message. **Delete with RAW files** also deletes the RAW beside an edited photo.
 
 ### Selecting many photos {#select}
 
-1. Click **Select** (or press <kbd>S</kbd>).
+1. Click **Select**.
 2. Click photos to select them. <kbd>Shift</kbd>-click selects everything between the last photo you clicked and this one. You can also press and drag across photos.
 3. <kbd>Cmd</kbd>+<kbd>A</kbd> (<kbd>Ctrl</kbd>+<kbd>A</kbd> on Windows and Linux) selects everything that matches your search and filters, not just what you've scrolled to. If some photos aren't loaded yet, a small spinner shows while Lifer loads the rest first.
 
@@ -142,7 +142,7 @@ The toolbar shows how many are selected. Each action that needs a choice opens i
 - **Add to album…**, or create a **New album…**.
 - **Download originals**: saves each selected photo's original, one after another, including photos **Select all** picked that haven't scrolled into view yet.
 - **Hide**: hides them all, as **Hide photo** does.
-- **Delete selected** (or press <kbd>Delete</kbd> or <kbd>Backspace</kbd>). If any of them have a RAW file, you can also tick **Also delete the matching RAW file when this is permanently removed**. Deleted photos go to the [Trash](./trash.md) for 7 days.
+- **Delete selected** (or press <kbd>Delete</kbd> or <kbd>Backspace</kbd>). They go to the [Trash](./trash.md) at once, with **Undo** on the message. When some have a RAW beside an edited file, **More > Delete with RAW files** deletes the RAWs too.
 
 Actions that don't fit the window's width move into **More** at the end of the toolbar. When you open the Gallery from Stats to fix photos missing a region, **Set region…** comes first.
 
@@ -167,8 +167,13 @@ Click a photo to open it full screen. The viewer is the same wherever a photo op
 
 | Key                                         | What it does                                                                                                                      |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| <kbd>←</kbd> <kbd>→</kbd>                   | Previous or next photo, wrapping around at the ends. In a video, skip 10 seconds.                                                 |
+| <kbd>←</kbd> <kbd>→</kbd>                   | Previous or next photo, wrapping around at the ends                                                                               |
 | <kbd>1</kbd> to <kbd>5</kbd>                | Set the star rating. Press the same number again to clear it.                                                                     |
+| <kbd>0</kbd>                                | Clear the rating                                                                                                                  |
+| <kbd>Shift</kbd>+<kbd>1</kbd> to <kbd>5</kbd> | Rate and go to the next photo (<kbd>Shift</kbd>+<kbd>0</kbd> clears and goes on)                                                |
+| <kbd>S</kbd>                                | Correct the ID                                                                                                                    |
+| <kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd>  | In a video, skip 10 seconds                                                                                                       |
+| <kbd>,</kbd> <kbd>.</kbd>                   | In a video, step back or forward a frame                                                                                          |
 | <kbd>F</kbd>                                | Full screen (hidden when Lifer is already full screen)                                                                            |
 | <kbd>Option</kbd>+<kbd>←</kbd> <kbd>→</kbd> | Previous or next version of the photo (<kbd>Alt</kbd> on Windows and Linux). See [Photo versions](./photo-versions.md#switching). |
 | <kbd>Cmd</kbd>+<kbd>0</kbd>                 | Fit the photo to the window again after zooming (<kbd>Ctrl</kbd>+<kbd>0</kbd> on Windows and Linux)                               |
@@ -177,7 +182,7 @@ Click a photo to open it full screen. The viewer is the same wherever a photo op
 
 To zoom, pinch on a trackpad or hold <kbd>Ctrl</kbd> and scroll (up to 6x), or press <kbd>+</kbd> and <kbd>-</kbd>. Zooming centres on the pointer. Double-click to zoom to 2.5x, and again to zoom back out. The viewer and compare zoom the same way. Once zoomed, drag or scroll to move around; the photo stops at its edges, and the controls hide until you zoom back out. The caption shows the species, when the photo was taken (like Nov 17, 2026, 7:42 PM; rest the pointer on it for the seconds), star rating, camera settings and file names, and lets you edit tags. The time is your camera's clock as it was when you took the photo, not moved to the time zone you're in now; when the file recorded its time zone, the time shows in yours and the tooltip names the offset. A photo with only a date shows just the date, and one with none says **No date**. Click a file name, or **Show in Finder** beside it, to open the folder that holds it. Click a star to rate, or **Correct the ID** to move the photo to another species.
 
-HDR photos (Ultra HDR JPEGs, as Lightroom and recent phones export) show like any other photo. To see their bright highlights on a screen that shows HDR, turn on **Settings > General > Show HDR photos in the viewer**. Only the viewer changes; grids, thumbnails and shared pages keep the normal image.
+HDR photos show like any other photo. To see their bright highlights on a screen that shows HDR (a Mac with an XDR display, or Windows with HDR on), turn on **Settings > General > Show HDR photos in the viewer**. It works for HDR exported from Lightroom or Camera Raw as JPEG, AVIF or JPEG XL, for PQ and HLG AVIF, JPEG XL, PNG and TIFF, and for Ultra HDR phone photos. Lifer prepares the HDR version in the background after import, beside the normal one; your files are never changed. Only the viewer changes; grids, thumbnails, shared pages and species matching keep the normal image. HEIC and RAW files show as standard images.
 
 **Add appearance** under the stars records how the animal looks: its life stage (egg to adult), sex, plumage (like breeding or eclipse) and colour morph (like a dark morph), so a juvenile or a rare morph that looks nothing like the usual adult is easy to tell apart. What you set shows as small labels in the viewer, and a species page lists the stages and morphs among your photos of it. Appearance syncs with a linked server like other edits; it isn't written into the photo files.
 
@@ -245,8 +250,9 @@ Select 2 to 4 photos and click **Compare** to see them side by side, with the da
 | <kbd>←</kbd> <kbd>→</kbd>    | Move the outline to the previous or next photo                            |
 | <kbd>1</kbd> to <kbd>5</kbd> | Rate the outlined photo; the same number again clears it                  |
 | <kbd>0</kbd>                 | Clear the outlined photo's rating                                         |
-| <kbd>F</kbd>                 | Set the outlined photo as the featured photo                              |
-| <kbd>C</kbd>                 | Make the outlined photo the album cover (in an album)                     |
+| <kbd>Shift</kbd>+<kbd>1</kbd> to <kbd>5</kbd> | Rate the outlined photo and move to the next                |
+| <kbd>K</kbd>                 | Set the outlined photo as the featured photo                              |
+| <kbd>F</kbd>                 | Full screen                                                               |
 | <kbd>+</kbd> <kbd>-</kbd>    | Zoom in or out                                                            |
 | <kbd>Cmd</kbd>+<kbd>0</kbd>  | Fit every photo again (<kbd>Ctrl</kbd>+<kbd>0</kbd> on Windows and Linux) |
 | <kbd>Esc</kbd>               | Close                                                                     |

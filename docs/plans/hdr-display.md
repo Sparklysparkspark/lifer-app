@@ -1,27 +1,70 @@
 # HDR display
 
-Can Lifer show HDR photos? Yes, as an optional display layer on top of the normal pipeline, and a
-small experimental first step is built (off by default). Status: prototype, 2026-11-25.
+Lifer shows HDR photos at full brightness in the viewer, behind **Settings > General > Appearance >
+Show HDR photos in the viewer** (off by default). Status: built for JPEG, AVIF, JPEG XL, PNG and
+TIFF HDR, 2026-11-25; HEIC is assessed below and not shipped; RAW stays SDR.
 
 ## Summary
 
-- **The rule.** The original file is never changed, and everything that exists today (thumbnails,
-  display previews, species matching vectors, crops, edits, exports, search, share pages, the phone
-  app) keeps running on the normal SDR sRGB pipeline for every format. HDR is an extra rendition the
+- **The rule.** The original file is never changed, and everything that exists (thumbnails, display
+  previews, species matching vectors, crops, edits, exports, search, share pages, the phone app)
+  runs on the normal SDR sRGB pipeline for every format, unchanged. HDR is an extra rendition the
   full-size viewer swaps in only where the screen and the webview can show it. Everywhere else the
   SDR preview shows, with no visible difference in behaviour.
 - **What webviews can do.** WKWebView on macOS 26 and later and Chromium (Chrome, Edge, WebView2)
-  render gain-map HDR images in a plain `<img>` and support `dynamic-range-limit`. WebKitGTK (Linux)
-  has no HDR image path. So: macOS and Windows yes, Linux SDR only.
-- **What we can make.** sharp 0.35 (already a dependency) resizes an Ultra HDR JPEG while keeping its
-  gain map (`keepGainMap()`), and can write a new Ultra HDR JPEG from linear HDR pixels
-  (`withGainMap()`). That covers Ultra HDR / ISO 21496-1 JPEGs now, and PQ/HLG AVIF later with a
-  small converter. HEIC, JPEG XL and RAW HDR need decoders Lifer doesn't have.
-- **This Mac can't show HDR right now.** Both Dell monitors report an EDR headroom of 1.0 (current
-  and potential), so `(dynamic-range: high)` is false here. They are Display P3 capable.
-- **Built.** Settings > General > Appearance > **Show HDR photos in the viewer** (experimental, off).
-  With it on and an HDR screen, the viewer asks `GET /api/photos/:id/hdr` for a 2,560 px Ultra HDR
-  copy and swaps it in once decoded; a 404 (no gain map) or any failure keeps the SDR image.
+  render gain map HDR images in a plain `<img>`. WebKitGTK (Linux) has no HDR image path. So: macOS
+  and Windows yes, Linux SDR only.
+- **One rendition format.** Whatever the original, the rendition is an Ultra HDR JPEG (an SDR base
+  plus an ISO 21496-1 gain map, with the older hdrgm XMP too), up to 2,560 px, with no metadata (no
+  GPS). Every engine that can show HDR reads it; any other shows its SDR base.
+- **No new dependency.** sharp (libvips, libheif with AV1), jxl-oxide (JPEG XL) and Lifer's own small
+  readers and writer for the containers do it all.
+- **This Mac can't show HDR right now.** Both Dell monitors report an EDR headroom of 1.0, so
+  `(dynamic-range: high)` is false here. They are Display P3 capable.
+
+## How it works
+
+- **Detect** (`apps/api/src/photos/hdr/detect.ts`) reads the original's header only: a JPEG's APP
+  segments (MPF plus ISO 21496-1 or hdrgm), a PNG's `cICP` chunk or ICC `cicp` tag, a TIFF's ICC
+  `cicp` tag, an AVIF's items (a `tmap` gain map item, or the primary image's nclx transfer: 16 PQ,
+  18 HLG), a JPEG XL's `jhgm` box. Nothing else in Lifer calls it.
+- **Render** (`render.ts`):
+  - Gain map JPEG: sharp resizes and rotates base and gain map together (`keepGainMap()`).
+  - AVIF or JPEG XL with a gain map: the base and the gain map image are decoded (sharp reads the
+    AVIF gain map item by a copy of the file that names it primary, `heifItems.ts`; jxl-oxide
+    decodes the `jhgm` codestream) and re-encoded at rendition size; the file's own ISO 21496-1
+    block is copied over. A P3 base keeps a Display P3 profile.
+  - PQ or HLG (AVIF, PNG, TIFF, JPEG XL): 16-bit pixels to linear light (SDR white 203 nits, the
+    BT.2100 OOTF for HLG), to Display P3, a hue-keeping shoulder for the SDR base, and the gain map
+    back to the HDR image (`ultraHdr.ts` writes the file, `gainMapMetadata.ts` the metadata).
+  - An HDR file with nothing above SDR white gets no rendition.
+- **Store** in `APP_DATA_DIR/hdr/<photo id>.jpg`, beside the display previews, with
+  `photos.hdr_rendition` (migration 206): NULL not looked at, `none`, `ready`. A `.source` note
+  records the original's path and modified time; the route makes the rendition again when the
+  original was re-edited, relinked or swapped for another version. Trash and Remove all data delete
+  the files with the other derivatives.
+- **Background pass** (`renditions.ts`, started in `index.ts`): every 30 s, once imports have been
+  quiet for 15 s, it looks at every photo still NULL, one at a time, and records each outcome as it
+  goes. That one pass is the library backfill as well: it resumes where it stopped, never looks at a
+  photo twice, and leaves a photo whose drive is away for the next launch.
+- **Routes.** `GET /api/photos/hdr-renditions` lists the user's photos with a rendition;
+  `GET /api/photos/:id/hdr` serves one (owner only, `photos.read`, not the companion app).
+- **Viewer** (`apps/web/src/lib/hdrViewer.ts`, used by `Lightbox.tsx` through `useHdrPhoto`): with
+  the setting on and `(dynamic-range: high)`, it loads the list when the viewer opens and asks only
+  for listed photos, swapping the rendition in once decoded. If the list can't be loaded it may ask
+  for any photo; a 404 keeps the SDR image. Share links and reference photos never qualify.
+
+Measured on 3000 x 2000 samples (2,560 px renditions):
+
+| Original                                 | Rendition | Time on an M4 |
+| ---------------------------------------- | --------- | ------------- |
+| Ultra HDR JPEG (Lightroom)               | 1.10 MB   | 0.2 s         |
+| AVIF with a gain map (Lightroom)         | 0.80 MB   | 0.4 s         |
+| JPEG XL with a gain map (Lightroom)      | 0.81 MB   | 4.6 s         |
+| 10-bit BT.2020 PQ AVIF                   | 0.72 MB   | 1.3 s         |
+| PQ PNG and PQ JPEG XL (1,200 px samples) | 0.23 MB   | 0.4 to 0.5 s  |
+
+Only HDR photos get one, so a library pays about 1 MB per HDR photo.
 
 ## Evidence per webview
 
@@ -74,80 +117,68 @@ Shipping status from the vendors:
 - `<video>` tricks (a one-frame HDR video as a still) work in all three engines but cost a
   transcode per photo and break zoom; not worth it when `<img>` gain maps work.
 
-## What each format needs for an HDR rendition
+## Formats
 
-The rendition is always an Ultra HDR JPEG (SDR base plus ISO 21496-1 gain map), because every
-engine that can show HDR reads it, and every other one shows its SDR base. Sizes are for a 2,560 px
-long edge, measured on the 3000 x 2000 samples.
+| Original                                                              | Status                                                                                                              |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Ultra HDR / ISO 21496-1 gain map JPEG (Lightroom, Camera Raw, phones) | Built.                                                                                                              |
+| AVIF with a gain map (Lightroom "maximize compatibility")             | Built.                                                                                                              |
+| AVIF, PQ or HLG                                                       | Built.                                                                                                              |
+| JPEG XL with a gain map, or PQ or HLG                                 | Built. Decoding is WebAssembly, so a large JPEG XL takes a few seconds in the background.                           |
+| 16-bit PNG or TIFF, PQ or HLG (`cICP`, or an ICC v4.4 `cicp` tag)     | Built. A TIFF or PNG whose ICC profile states PQ or HLG only by its curves (no `cicp` tag) is not recognised.       |
+| HEIC / HEIF (HEVC): iPhone HDR, Canon HDR PQ HEIF                     | Not shipped. Options below.                                                                                         |
+| RAW                                                                   | SDR, by design: HDR from a RAW needs a raw developer; people export HDR from Lightroom, which the rows above cover. |
 
-| Original                                                 | Feasible now?                                                                                                                                                                                                                                                                                                                                                            | Extra storage                                            |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| Ultra HDR / ISO 21496-1 JPEG (Lightroom, Pixel, Samsung) | **Yes, built.** `sharp().rotate().keepGainMap().resize()` keeps and rotates the gain map, leaves every tag out (checked with exiftool: no GPS, Make or Artist). The copy's base is tagged sRGB, so a P3 base loses its wider gamut in the HDR copy.                                                                                                                      | about 1.1 MB (0.72 MB base + 0.38 MB full-size gain map) |
-| AVIF or HEIF with PQ or HLG (no gain map)                | **Yes, with a small converter.** sharp decodes the 10-bit pixels as 16-bit; a JS PQ (or HLG) to linear step plus a BT.2020 to BT.709 matrix gives scRGB, and `withGainMap()` writes an Ultra HDR JPEG. Prototyped in the scratchpad: real gain map, 350 ms, but 6 MB untuned; the libultrahdr CLI path (ffmpeg to P010, `ultrahdr_app`) made 0.75 MB. Needs size tuning. | 0.75 to 1 MB once tuned                                  |
-| AVIF with a gain map (`tmap`)                            | **Not with sharp.** Its AVIF reader doesn't see the gain map (`metadata().gainMap` empty), and `withGainMap()` made a nearly flat map. Needs libavif (`avifgainmaputil tonemap` to PQ, then the row above), a new native dependency.                                                                                                                                     | as above                                                 |
-| HEIC (iPhone HDR: Apple gain map or ISO 21496-1)         | **No.** Lifer decodes HEIC with heic-decode, which gives the 8-bit primary image only; sharp's prebuilt libvips has no HEVC. Would need native libheif with libde265 (patent and licence review) or macOS ImageIO (Mac only).                                                                                                                                            | about 1 MB                                               |
-| JPEG XL (`jhgm` gain map, or PQ/HLG)                     | **No.** sharp can't read JPEG XL ("unsupported image format"); Lifer's own decoder outputs 8-bit. Needs libjxl's gain map API.                                                                                                                                                                                                                                           | about 1 MB                                               |
-| PNG or TIFF with PQ/HLG (`cICP`) or float linear         | **Possible.** sharp reads 16-bit PNG/TIFF; the `cICP` chunk needs a small parser, then the PQ/HLG converter. A float TIFF is already linear and goes straight to `withGainMap()`.                                                                                                                                                                                        | about 1 MB                                               |
-| RAW                                                      | **No.** HDR from RAW needs a raw developer with HDR output (Lightroom, Apple RAW); the embedded previews Lifer uses are SDR. People export Ultra HDR JPEGs from Lightroom, which the first row covers.                                                                                                                                                                   | none                                                     |
+### HEIC options
 
-Only photos with an HDR original get a rendition, so for most wildlife libraries the cost is a few
-hundred MB at most. The normal pipeline needs no change for any of these: today every format is
-decoded to its SDR base (or tone mapped) and that stays the source of thumbnails, previews and
-matching.
+Lifer already decodes HEIC with heic-decode, which runs libheif-js: libheif 1.23 with libde265,
+compiled to WebAssembly, LGPL-3.0 (compatible with Lifer's AGPL, and loaded as a replaceable module).
+Its own preview path asks for 8-bit RGBA only.
 
-## Options
-
-| Option                                                        | Effort                                    | Verdict                                                                                                                                                                                                                       |
-| ------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A. Wide gamut only: P3 previews for P3 screens, sRGB fallback | 2 to 3 days                               | Worth it later, as its own rendition: P3 previews would change every thumbnail and the matcher inputs if done in place, which the rule above forbids. These Dells are P3, so this is the only visible gain on this Mac today. |
-| B. HDR in the full-size viewer only, behind a setting         | first step 1 day (done), full 3 to 5 days | **Recommended.** A derived, metadata-free Ultra HDR rendition, not the original bytes: a 2,560 px copy is a tenth of a 20 MB original over a server link, and carries no GPS.                                                 |
-| C. Thumbnails and grids stay SDR                              | none                                      | Yes, always. Hundreds of HDR tiles next to SDR UI would glare and drain battery.                                                                                                                                              |
-| D. Not worth it now                                           | none                                      | The first step is cheap and isolated, so B over D.                                                                                                                                                                            |
-
-## Recommendation and next steps
-
-1. **Done (prototype).** Ultra HDR JPEG only, made on first view, cached an hour beside the other
-   full-size renders (`APP_DATA_DIR/full/<id>-hdr.jpg`), setting off by default. Files:
-   `apps/api/src/photos/fullRender.ts` (`hdrRender`), the `/photos/:id/hdr` route in
-   `apps/api/src/photos/routes.ts`, `apps/web/src/lib/hdrViewer.ts`, `Lightbox.tsx`, the row in
-   `GeneralSettings.tsx`.
-2. **Keep the rendition (1 to 2 days).** Store it in `APP_DATA_DIR/hdr/<photo id>.jpg` next to the
-   display preview, made by a background job after import, and record it in the database (a nullable
-   `photos.hdr_rendition` state: unknown, none, ready). The API then lists which photos have one, so
-   the viewer never probes a photo that hasn't, phones and share pages never ask, and a library-wide
-   backfill is one resumable job (run once before launch; afterwards batched into a release).
-3. **PQ/HLG AVIF and HEIF (1 to 2 days)** with the converter above, tuned for size.
-4. **AVIF gain maps, HEIC, JPEG XL** only if people ask: each needs a new native decoder.
+1. **The libheif-js already shipped (recommended, about 2 days).** Its WebAssembly build exports the
+   raw libheif C API: decode to 16-bit interleaved RGB (`heif_chroma_interleaved_RRGGBB_LE`), read
+   nclx colour, list auxiliary images. That covers Canon PQ and HLG HEIF (the PQ/HLG path above) and
+   an iPhone's gain map: iOS 18 and later write an ISO 21496-1 `tmap` item (the AVIF path, decoded
+   by libheif-js instead of sharp); earlier iPhones store Apple's own auxiliary gain map
+   (`urn:com:apple:photo:2020:aux:hdrgainmap`) whose headroom sits in Apple's metadata, documented by
+   Apple. No new dependency; the HEVC patent position is the same as today's HEIC previews.
+2. **macOS ImageIO** (Core Image can read an HDR HEIC and write an ISO gain map JPEG on macOS 15 and
+   later) through a small helper in the desktop app: licence-free, but Mac only and not in the
+   Docker server.
+3. **Not suitable:** the bundled ffmpeg-static is a 6.0 GPL build that can't read HEIF image grids
+   (iPhone photos are grids); a native libheif plus libde265 would add the same LGPL code a second
+   time as a native module, for no gain over option 1.
 
 ## Risks
 
 - **Glare.** An HDR photo beside SDR UI looks very bright. The viewer's backdrop is dark already;
   only the open photo is HDR. If it is too much, `dynamic-range-limit: constrained` (Chrome only)
   or a brightness choice can follow.
-- **WebKit falls back to SDR under transforms.** Zoom and pan may drop to SDR (see above). Fine as a
-  fallback, odd if it flickers between the two while zooming.
+- **WebKit falls back to SDR under transforms.** Zoom and pan may drop to SDR. Fine as a fallback,
+  odd if it flickers between the two while zooming.
 - **Battery.** HDR drives the backlight harder on laptops; it's opt-in and viewer-only.
-- **Species matching stays SDR.** It never reads the HDR copy.
+- **Species matching stays SDR.** Nothing but the viewer reads the rendition.
 - **Sharing and exports.** Share links, print and share pages, exports and the phone app keep the
-  SDR images; the decision function only matches the owner's `/api/photos/:id/display`.
-- **Privacy.** The HDR copy carries no metadata (GPS included), and the route needs the owner's
-  `photos.read` scope (not the companion app's), so nothing about GPS sharing changes.
-- **Server bandwidth.** About 1.1 MB per opened photo, only with the setting on and an HDR screen.
+  SDR images.
+- **Privacy.** The rendition carries no metadata (GPS included), and the route is the owner's only.
+- **Server bandwidth.** About 1 MB per opened HDR photo, only with the setting on and an HDR screen.
   Neighbours are not preloaded as HDR.
-- **Probe cost.** Until step 2, each viewed JPEG with the setting on reads its original once to look
-  for a gain map, and a photo without one 404s (remembered until reload).
+- **Colour.** The tone mapped SDR base of a PQ or HLG photo is Lifer's own (a simple shoulder), so
+  on an HDR screen that has less headroom than the photo the in-between looks may differ a little
+  from Lightroom's. Gain map originals keep the photographer's own base and gain map.
+- **Migration number.** 206 was free when written; renumber if another change lands 206 first.
 
 ## What the maintainer must eyeball on a real HDR display
 
 Use an Apple XDR screen (MacBook Pro 14/16 inch, Pro Display XDR) or an HDR monitor with HDR turned
-on in System Settings > Displays (check whether these Dells offer the switch). Open the scratch
-harness `index.html` in the session scratchpad's `hdrlab/harness` folder in Safari, and in Chrome:
+on in System Settings > Displays (check whether these Dells offer the switch), and turn on the
+setting in the Lifer dev app.
 
-1. The first row's Ultra HDR JPEGs (original and sharp's resize) have highlights brighter than the
-   page white; the second row (`dynamic-range-limit: standard`) looks SDR.
-2. Which of the AVIF (gain map), PQ AVIF and JPEG XL show HDR in each browser.
-3. The sharp resize looks as good as the original (its base is sRGB, not P3).
-4. In the Lifer dev app with the setting on: an Ultra HDR photo brightens shortly after opening;
-   zooming and panning keep it HDR (or say if it flickers to SDR); paging is smooth; an SDR photo is
+1. A Lightroom Ultra HDR JPEG, HDR AVIF and HDR JPEG XL each brighten shortly after opening in the
+   viewer, and look like the original does in Lightroom or Preview.
+2. A PQ AVIF or PQ PNG looks right, both on the HDR screen and as its SDR base (the in-between
+   brightness steps too: lower the screen brightness to shrink the headroom).
+3. Zooming and panning keep it HDR (or say if it flickers to SDR); paging is smooth; an SDR photo is
    unchanged; moving the window to an SDR screen switches the photo back to SDR.
-5. Whether the bright photo next to the dark viewer UI is pleasant or too much.
+4. Whether the bright photo next to the dark viewer UI is pleasant or too much.
+5. On Windows with HDR on, the same in the WebView2 app.

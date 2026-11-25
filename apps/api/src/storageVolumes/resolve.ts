@@ -142,7 +142,7 @@ export interface ResolvedOriginal {
   volumeLabel?: string;
 }
 
-interface OriginalLocation {
+export interface OriginalLocation {
   ref: string;
   volume_id: string | null;
   volume_relative_path: string | null;
