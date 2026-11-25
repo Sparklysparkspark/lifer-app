@@ -45,6 +45,7 @@ import { useRegionsWithPhotos } from "../hooks/useRegionsWithPhotos";
 import { useRegionTree } from "./collection/useRegionTree";
 import { usePersistedFlag } from "./collection/useCollectionDisplayPrefs";
 import { matches } from "../lib/keymap";
+import CrashBoundary from "../components/CrashBoundary";
 import ExplorerDetail from "./explorer/ExplorerDetail";
 import PreviewPane from "./explorer/PreviewPane";
 import { previewAfterDwell, previewNow } from "./explorer/previewStore";
@@ -801,34 +802,37 @@ export default function TaxaExplorer() {
                   action={{ label: t("explorer.marks.showAll"), onClick: () => setTargetsOnly(false) }}
                 />
               ) : view === "circle" ? (
-                <TreeCircle
-                  index={index}
-                  center={focus}
-                  top={layers.at(-1) ?? null}
-                  genus={genus}
-                  selected={selected}
-                  label={label}
-                  onZoomOut={zoomOut}
-                  rarity={rarity}
-                  onMenu={(id, point) => {
-                    const { node } = index.byId.get(id)!;
-                    if (marksFor(node, label(node)).length > 0) menu.setOpenKey({ id, point });
-                  }}
-                  onMore={(arc) => {
-                    // A first-ring arc merges the current layer's groups; a deeper one, a group's children.
-                    if (arc.ring === 1) go({ rest: [...offsets.slice(0, layers.length), arc.offset!].join(".") });
-                    else go({ focus: arc.parent!, rest: String(arc.offset) });
-                    window.scrollTo(0, 0);
-                    select(null);
-                  }}
-                  onPick={(id) => {
-                    const entry = index.byId.get(id)!;
-                    const group = entry.node.rank !== "species";
-                    if (group) go({ focus: id });
-                    // On a phone the detail is a sheet, so zooming into a group doesn't also open it.
-                    if (!group || wide) select(id);
-                  }}
-                />
+                // A bad node costs the circle, not the page; a new region, focus or layer tries again.
+                <CrashBoundary resetKey={params.toString()}>
+                  <TreeCircle
+                    index={index}
+                    center={focus}
+                    top={layers.at(-1) ?? null}
+                    genus={genus}
+                    selected={selected}
+                    label={label}
+                    onZoomOut={zoomOut}
+                    rarity={rarity}
+                    onMenu={(id, point) => {
+                      const { node } = index.byId.get(id)!;
+                      if (marksFor(node, label(node)).length > 0) menu.setOpenKey({ id, point });
+                    }}
+                    onMore={(arc) => {
+                      // A first-ring arc merges the current layer's groups; a deeper one, a group's children.
+                      if (arc.ring === 1) go({ rest: [...offsets.slice(0, layers.length), arc.offset!].join(".") });
+                      else go({ focus: arc.parent!, rest: String(arc.offset) });
+                      window.scrollTo(0, 0);
+                      select(null);
+                    }}
+                    onPick={(id) => {
+                      const entry = index.byId.get(id)!;
+                      const group = entry.node.rank !== "species";
+                      if (group) go({ focus: id });
+                      // On a phone the detail is a sheet, so zooming into a group doesn't also open it.
+                      if (!group || wide) select(id);
+                    }}
+                  />
+                </CrashBoundary>
               ) : (
                 <div
                   ref={listRef}
@@ -992,9 +996,11 @@ export default function TaxaExplorer() {
             {wide ? (
               // A steady height, so previews of short and tall groups don't make the pane jump.
               <aside className="sticky top-4 max-h-[calc(100dvh-2rem)] min-h-[min(36rem,calc(100dvh-2rem))] overflow-y-auto rounded-panel border border-line bg-surface p-4">
-                <PreviewPane selected={detail ? selected : null} has={(id) => index.byId.has(id)} render={previewOf}>
-                  {detail || <p className="text-callout text-muted">{t("explorer.detailEmpty")}</p>}
-                </PreviewPane>
+                <CrashBoundary resetKey={`${params.toString()}|${selected ?? ""}`}>
+                  <PreviewPane selected={detail ? selected : null} has={(id) => index.byId.has(id)} render={previewOf}>
+                    {detail || <p className="text-callout text-muted">{t("explorer.detailEmpty")}</p>}
+                  </PreviewPane>
+                </CrashBoundary>
               </aside>
             ) : (
               <Modal open={!!detail} onClose={() => select(null)} ariaLabel={t("explorer.title")}>

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TreeCircle from "./TreeCircle";
 import { indexTree, type TreeNode } from "./treeModel";
@@ -107,5 +107,28 @@ describe("TreeCircle motion", () => {
     expect(container.querySelector("[data-outline]")).toBeNull();
     runFrame(10_000);
     expect(container.querySelector('[data-outline="selected"]')).not.toBeNull();
+  });
+
+  // The pointer can rest on an arc while the tree under it changes (a region pill, a mark, Targets only).
+  it("drops a hovered group the new tree lacks", () => {
+    vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce") }));
+    const { container, rerender } = render(<TreeCircle {...props} center={null} />);
+    fireEvent.mouseEnter(container.querySelector('[aria-label^="Strigiformes"]')!);
+    expect(container.querySelector('[aria-live="polite"]')!.textContent).toContain("Strigiformes");
+    const other = indexTree([node("class", "Mammalia", 20, [node("order", "Carnivora", 20)])]);
+    rerender(<TreeCircle {...props} index={other} center={null} />);
+    expect(container.querySelector('[aria-live="polite"]')!.textContent).toContain("All groups");
+    expect(container.querySelector('[data-outline="hover"]')).toBeNull();
+  });
+
+  it("drops a hovered More groups arc the new tree lacks", () => {
+    vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce") }));
+    const big = node("class", "Aves", 10_000, [node("order", "Passeriformes", 10_000)]);
+    const withThin = indexTree([big, node("class", "Amphibia", 1, [node("order", "Anura", 1)])]);
+    const { container, rerender } = render(<TreeCircle {...props} index={withThin} center={null} />);
+    fireEvent.mouseEnter(container.querySelector('[aria-label^="1 more group"]')!);
+    expect(container.querySelector('[aria-live="polite"]')!.textContent).toContain("1 more group");
+    rerender(<TreeCircle {...props} index={indexTree([big])} center={null} />);
+    expect(container.querySelector('[aria-live="polite"]')!.textContent).toContain("All groups");
   });
 });

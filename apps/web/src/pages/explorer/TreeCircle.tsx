@@ -151,7 +151,8 @@ export default function TreeCircle({
     () => circleArcs(index, center, { rings: RINGS, genus, top: top ?? undefined }),
     [index, center, genus, top],
   );
-  const [hover, setHover] = useState<Arc | null>(null);
+  // A key, not the arc: a new tree (region, marks, View) can drop the arc the pointer rests on.
+  const [hoverKey, setHover] = useState<string | null>(null);
   const [activeAt, setActive] = useState(0);
   // A zoom or a View change gives new arcs; the roving focus then starts again at the first.
   const active = activeAt < arcs.length ? activeAt : 0;
@@ -224,15 +225,11 @@ export default function TreeCircle({
 
   const centerNode = center ? index.byId.get(center)?.node : null;
   const roots = (top ?? index.roots).map((id) => index.byId.get(id)!.node);
-  // A hovered arc from before a region change can name a group the new tree lacks.
-  const hovered = hover && (!hover.id || index.byId.has(hover.id)) ? hover : null;
+  const hovered = hoverKey ? arcs.find((a) => arcKey(a) === hoverKey) : undefined;
   const shown = hovered ?? (focused ? arcs[active] : null);
   // One ring per arc, the strongest winning: focus over selected over hover.
   const ringed: [Arc | undefined, OutlineKind][] = [
-    [
-      hovered && (hovered.id || hovered.total > 0) ? arcs.find((a) => arcKey(a) === arcKey(hovered)) : undefined,
-      "hover",
-    ],
+    [hovered && (hovered.id || hovered.total > 0) ? hovered : undefined, "hover"],
     [selected ? arcs.find((a) => a.id === selected) : undefined, "selected"],
     [focused && keyboard ? arcs[active] : undefined, "focus"],
   ];
@@ -323,7 +320,7 @@ export default function TreeCircle({
                 previewNow(arc.id);
               }}
               onBlur={() => (setFocused(false), previewNow(null))}
-              onMouseEnter={() => setHover(arc)}
+              onMouseEnter={() => setHover(arcKey(arc))}
               // The pane previews what the pointer rests on; off every arc, it goes back to the selection.
               onPointerEnter={(e) => previewAfterDwell(arc.id, e.pointerType)}
               onPointerLeave={(e) => previewAfterDwell(null, e.pointerType)}
