@@ -7,6 +7,7 @@ export type SpaceTier = "ok" | "tight" | "critical";
 export interface ImportSpace {
   tier: SpaceTier;
   free: number | null;
+  volume?: number | null;
   toFree: number;
 }
 

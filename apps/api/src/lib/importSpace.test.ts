@@ -74,7 +74,7 @@ describe("checkImportSpace", () => {
     drives(400 * GB, 400 * GB);
     expect(await checkImportSpace(50, GB)).toMatchObject({ tier: "ok", toFree: 0 });
     setVolumeProbe(async () => null);
-    expect(await checkImportSpace(50, GB)).toEqual({ tier: "ok", free: null, toFree: 0 });
+    expect(await checkImportSpace(50, GB)).toEqual({ tier: "ok", free: null, volume: null, toFree: 0 });
   });
 
   it("remembers the Import page's batch for the checks made meanwhile", async () => {

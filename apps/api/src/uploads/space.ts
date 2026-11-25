@@ -23,6 +23,7 @@ export async function importSpaceRoutes(fastify: FastifyInstance): Promise<void>
           Type.Object({
             tier: Type.Enum(["ok", "tight", "critical"]),
             free: Nullable(Type.Number({ description: "Bytes free on the fullest drive involved" })),
+            volume: Nullable(Type.Number({ description: "Device id of that drive" })),
             toFree: Type.Number({ description: "Bytes to free so the rest of the batch fits" }),
           }),
         ),

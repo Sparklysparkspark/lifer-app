@@ -63,6 +63,8 @@ export interface SpaceCheck {
   tier: SpaceTier;
   /** Free bytes on the fullest drive involved; null when no drive reported its size. */
   free: number | null;
+  /** The fullest drive's device id, so the web app can remember a dismissal per drive. */
+  volume: number | null;
   /** Bytes to free so the rest of the batch fits above CRITICAL_FREE (0 when it does). */
   toFree: number;
 }
@@ -117,12 +119,17 @@ export async function checkImportSpace(files: number, bytes: number, remember = 
     else drives.set(v.dev, { v, need: n });
   }
   const rank: Record<SpaceTier, number> = { ok: 0, tight: 1, critical: 2 };
-  let out: SpaceCheck = { tier: "ok", free: null, toFree: 0 };
+  let out: SpaceCheck = { tier: "ok", free: null, volume: null, toFree: 0 };
   for (const { v, need: n } of drives.values()) {
     const tier = tierFor(v, n);
     const toFree = Math.max(0, n + CRITICAL_FREE - v.free);
     if (rank[tier] > rank[out.tier] || (rank[tier] === rank[out.tier] && (out.free === null || v.free < out.free)))
-      out = { tier, free: v.free, toFree: tier === "critical" ? Math.max(toFree, CRITICAL_FREE - v.free) : toFree };
+      out = {
+        tier,
+        free: v.free,
+        volume: v.dev,
+        toFree: tier === "critical" ? Math.max(toFree, CRITICAL_FREE - v.free) : toFree,
+      };
   }
   return out;
 }

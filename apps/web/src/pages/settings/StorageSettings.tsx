@@ -10,7 +10,8 @@ import { useConfirm } from "../../hooks/useConfirm";
 import { useDeploymentMode, useIsTauri } from "../../hooks/useDeploymentMode";
 import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
-import { formatDate } from "../../lib/format";
+import { formatBytes, formatDate } from "../../lib/format";
+import { checkImportSpace } from "../../lib/importSpace";
 import { ignore } from "../../lib/ignore";
 import { tauriInvoke } from "../../lib/tauri";
 import { changeLibraryFolder } from "../../lib/libraryFolderChange";
@@ -29,6 +30,7 @@ export default function StorageSettings() {
     <>
       <SettingsGroup title={t("settings.storage.title")}>
         <StorageLocationRow />
+        <FreeSpaceRow />
         <StorageVolumesRows />
         <ArchiveHealthRows />
       </SettingsGroup>
@@ -36,6 +38,17 @@ export default function StorageSettings() {
       <RemoveAllDataSection />
     </>
   );
+}
+
+// Plain status, always shown; the dismissible banner is the only nag.
+export function FreeSpaceRow() {
+  const { t } = useTranslation();
+  const [free, setFree] = useState<number | null>(null);
+  useEffect(() => {
+    void (async () => setFree((await checkImportSpace(0, 0)).free))().catch(ignore);
+  }, []);
+  if (free === null) return null;
+  return <SettingRow label={t("settings.storage.freeSpace.label")} description={formatBytes(free)} />;
 }
 
 // Only a desktop API can move the library; a server's folder is whatever LIFER_STORAGE_DIR mounts at /data.

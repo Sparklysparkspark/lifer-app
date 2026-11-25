@@ -21,7 +21,7 @@ vi.mock("../../hooks/useDeploymentMode", () => ({ useDeploymentMode: () => "desk
 vi.mock("../../lib/pickFolderNative", () => ({ pickFolderNative: () => Promise.resolve("/Volumes/Red 2TB") }));
 vi.mock("../../hooks/useConfirm", () => ({ useConfirm: () => () => Promise.reject(new Error("no confirm expected")) }));
 
-const { StorageVolumesRows } = await import("./StorageSettings");
+const { StorageVolumesRows, FreeSpaceRow } = await import("./StorageSettings");
 
 const drive = {
   id: "d1",
@@ -43,6 +43,14 @@ beforeEach(() => {
   toast.show.mockReset();
 });
 afterEach(cleanup);
+
+describe("Free space row", () => {
+  it("always shows the free space as plain status", async () => {
+    post.mockResolvedValue({ tier: "tight", free: 41.9e9, toFree: 0 });
+    render(<FreeSpaceRow />);
+    expect(await screen.findByText("41.9 GB")).toBeTruthy();
+  });
+});
 
 describe("Storage drives", () => {
   it("keeps drive actions in one menu and removes at once with Undo, keeping it the default", async () => {
