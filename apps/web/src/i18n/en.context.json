@@ -919,6 +919,46 @@
       "smallSize": "Compares sizes: what the other (Small) download option would be. {size} is like 300 MB."
     }
   },
+  "speciesLists": {
+    "menu": {
+      "add": "Item in the Collection's Add species menu: opens a dialog that adds every species of a group (spiders, butterflies) seen in a place, from iNaturalist.",
+      "importNames": "Item in the Add species menu: opens the older import where the user pastes species names one per line. Advanced because most people use Add a list instead."
+    },
+    "add": {
+      "phrase": "Fills the search box when a starter group is tapped and a place was already typed, like Spiders of Canada. {group} is the group's name, {place} what the user typed.",
+      "taxonValue": "The Group chip: the group's common name, then its rank and scientific name, like Spiders, order Araneae.",
+      "taxonDetail": "Second line of a group in the chip's list: rank and scientific name ({what}, like order Araneae) and how many iNaturalist observations it has.",
+      "count": "Live preview above a few example species: how many species the list would add.",
+      "estimate": "How long adding the list takes; it runs in the background.",
+      "bigList": "For a list over the size limit. {size} is the batch size formatted with digit grouping, like 5,000.",
+      "growthForm": "{query} is what the user typed, like trees; iNaturalist has no single group for trees or shrubs.",
+      "button": "The dialog's main button. {region} is the Lifer region whose checklist gets the species.",
+      "buttonIdle": "The main button before a group and place are picked (disabled)."
+    },
+    "starters": {
+      "lepidoptera": "A tappable starter group under the search box (iNaturalist order Lepidoptera)."
+    },
+    "errors": {
+      "noRegion": "The place picked has no Lifer region with a checklist (for example a park or a town), so the list has nowhere to go."
+    },
+    "status": {
+      "nextBatch": "A big list is added in batches; {when} is a relative time like in 3 hours.",
+      "done": "Under a finished list's name: how many species it added."
+    },
+    "photos": {
+      "pending": "How many of the list's species already have a reference photo, which Lifer needs to suggest them for your photos."
+    },
+    "actions": {
+      "update": "Menu item: read the list from iNaturalist again to add newly recorded species.",
+      "continue": "Starts the next batch of a big list now instead of waiting."
+    },
+    "remove": {
+      "message": "Confirm dialog body. {count} is how many species the list added, {region} the region they were added to."
+    },
+    "toast": {
+      "removedKept": "{kept} is how many of the list's species stay because the user photographed or marked them."
+    }
+  },
   "otherTaxa": {
     "title": "Modal for adding a species Lifer has no data for (insects, plants, fungi) from iNaturalist to a region's list.",
     "noChecklist": "{region} is a region name, like a continent, that can't hold a species list of its own.",

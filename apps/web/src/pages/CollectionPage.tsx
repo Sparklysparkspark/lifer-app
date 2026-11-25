@@ -19,6 +19,7 @@ import { startsOnboarding, useFirstRunRegion } from "./collection/useFirstRunReg
 import { usePackDownloadStatus } from "../hooks/usePackDownloadStatus";
 import { filterCollectionItems, photosTakenStats, searchHaystack, searchRanks } from "./collection/filterItems";
 import RegionBreadcrumb from "./collection/RegionBreadcrumb";
+import SpeciesListsStatus from "./collection/SpeciesListsStatus";
 import CollectionSelectBar from "./collection/CollectionSelectBar";
 import CollectionToolbar from "./collection/CollectionToolbar";
 import CategoryCards from "./collection/CategoryCards";
@@ -401,6 +402,7 @@ export default function CollectionPage() {
       {selectMode && <Tip id="collection-select" className="mx-page mt-3" />}
 
       <main className="space-y-section p-page">
+        {regionId && settings?.anyTaxaSearchEnabled && <SpeciesListsStatus regionId={regionId} />}
         {showMapToggle && !prefs.mapCollapsed && (
           <Suspense fallback={MAP_PLACEHOLDER}>
             <RegionMap

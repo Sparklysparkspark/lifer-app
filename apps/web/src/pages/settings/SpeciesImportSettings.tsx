@@ -14,10 +14,12 @@ import { SettingLinkRow, SettingRow, SettingSwitchRow, SettingsGroup } from "./s
 import { SPECIES_DOWNLOADS_PATH } from "../../lib/speciesDownloads";
 import OrderedChecklist from "./OrderedChecklist";
 import PhotoVersionsSettings from "./PhotoVersionsSettings";
+import SpeciesListsGroup from "./SpeciesListsGroup";
 import { useServerSetting } from "./useServerSetting";
 
 export default function SpeciesImportSettings() {
   const { t } = useTranslation();
+  const { settings } = useSettings();
   return (
     <>
       {/* First, since it's where every checklist comes from. */}
@@ -41,6 +43,8 @@ export default function SpeciesImportSettings() {
         <EbirdImportRow />
         <TargetListsRow />
       </SettingsGroup>
+      {/* The list routes answer only while searching iNaturalist is on. */}
+      {settings?.anyTaxaSearchEnabled && <SpeciesListsGroup />}
       <PhotoVersionsSettings />
     </>
   );

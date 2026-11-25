@@ -48,11 +48,14 @@ const BULK_PLACEHOLDER = "Apis mellifera\nBombus impatiens\n...";
 export default function AddOtherTaxaModal({
   initialQuery,
   initialRegionId,
+  startWithList = false,
   onClose,
   onAdded,
 }: {
   initialQuery: string;
   initialRegionId?: string | null;
+  /** Opens on the list of names, for the Add species menu's import item. */
+  startWithList?: boolean;
   onClose: () => void;
   /** Hands the added species back (the import screen assigns it) instead of opening its page. */
   onAdded?: (species: SpeciesResult) => void;
@@ -60,7 +63,7 @@ export default function AddOtherTaxaModal({
   const { t } = useTranslation();
   const speciesName = useSpeciesName();
   const toast = useToast();
-  const [mode, setMode] = useState<"search" | "bulk">("search");
+  const [mode, setMode] = useState<"search" | "bulk">(startWithList ? "bulk" : "search");
   const [query, setQuery] = useState(initialQuery);
   // Tagged with the query they answer: any other query is still searching, and the last list stays
   // up meanwhile. Under two characters there's no search, and the list is dropped so it doesn't

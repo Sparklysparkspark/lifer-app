@@ -108,6 +108,16 @@ Every device that was signed in is signed out. To see which email your account u
 
 The species catalog is built into the Docker image and loads on first start. If countries still don't appear, check the log for "Catalog auto-seed failed". Once the server has internet access, open **Settings > Offline data > Species catalog** and click **Update** if it offers one, or restart the server.
 
+## A list from iNaturalist isn't adding {#species-lists}
+
+See [Adding lists of plants, insects and spiders](./guides/collection-and-checklists.md#species-lists).
+
+- **"You're offline."** Adding a list needs a connection. A list already started waits and carries on by itself once you're back online; **Retry** tries again now.
+- **"iNaturalist is busy, try again in a few minutes."** iNaturalist asked Lifer to slow down. Wait a few minutes, then click **Retry** on the list.
+- **"Pick a place that has a Lifer region."** The place is a park, town or area Lifer has no checklist for. Click the **Place** chip and pick its province, state or country.
+- **No "Add a list from iNaturalist" item.** Turn on [Search iNaturalist for other species](./settings.md#any-taxa-search) in **Settings > Species and import**.
+- **The list stops at 5,000 species.** Bigger lists are added in batches over time. Click **Continue** on the list to start the next batch now.
+
 ## Where the logs are {#logs}
 
 **Docker server:**

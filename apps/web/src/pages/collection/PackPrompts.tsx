@@ -9,6 +9,8 @@ import { useConnection, usePackIndex } from "../../lib/packIndex";
 import ConnectionNote from "../../components/ConnectionNote";
 import FreeSpaceNote from "../../components/FreeSpaceNote";
 import AddOtherTaxaModal from "../../components/AddOtherTaxaModal";
+import AddSpeciesListModal from "../../components/AddSpeciesListModal";
+import { useSettings } from "../../hooks/useSettings";
 import JobProgress from "../../components/JobProgress";
 import Button from "../../components/Button";
 import { usePackDownloadJob } from "../../hooks/usePackDownloadStatus";
@@ -179,6 +181,8 @@ export function TaxonPackPrompt({
   const [downloadedZonePackIds, setDownloadedZonePackIds] = useState<string[]>([]);
   const [downloadingZoneId, setDownloadingZoneId] = useState<string | null>(null);
   const [otherTaxaModalOpen, setOtherTaxaModalOpen] = useState(false);
+  const [addingList, setAddingList] = useState(false);
+  const anyTaxa = !!useSettings().settings?.anyTaxaSearchEnabled;
   const { job, download, running, startedHere } = usePackDownloadAndWait((ids) => {
     setDownloadedZonePackIds((prev) => [...prev, ...ids]);
     setDownloadingZoneId(null);
@@ -234,11 +238,17 @@ export function TaxonPackPrompt({
               })}
         </h2>
         <p className="mx-auto mt-2 max-w-sm text-callout text-muted">{t("collection.packPrompt.otherTaxaBody")}</p>
-        <Button onClick={() => setOtherTaxaModalOpen(true)} className="mt-4">
-          {t("collection.packPrompt.searchInaturalist")}
-        </Button>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          {anyTaxa && <Button onClick={() => setAddingList(true)}>{t("speciesLists.menu.add")}</Button>}
+          <Button variant={anyTaxa ? "secondary" : "primary"} onClick={() => setOtherTaxaModalOpen(true)}>
+            {t("collection.packPrompt.searchInaturalist")}
+          </Button>
+        </div>
         {otherTaxaModalOpen && (
           <AddOtherTaxaModal initialQuery="" initialRegionId={regionId} onClose={() => setOtherTaxaModalOpen(false)} />
+        )}
+        {addingList && (
+          <AddSpeciesListModal regionId={regionId} regionName={regionName} onClose={() => setAddingList(false)} />
         )}
       </Panel>
     );

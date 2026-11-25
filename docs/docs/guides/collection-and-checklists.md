@@ -258,6 +258,10 @@ Each photo's **⋯** menu has **Rate**, **Set as featured photo** (or **Remove a
 
 To change many photos at once, click **Select**, then click photos (<kbd>Shift</kbd>-click selects a range). The toolbar has **Correct ID…**, **Add tag…**, **Rate…**, **Hide** and **Delete selected**.
 
+### Featured photo {#featured-photo}
+
+Until you pick one, Lifer features your first photo of a species. If that's a RAW and you add an edited photo of the species later, the edit becomes the featured photo: your highest rated edit, else the first one imported. **Set as featured photo** makes your choice stick: Lifer never replaces a photo you featured.
+
 ## Insects, plants and other groups {#other-taxa}
 
 For groups Lifer has no checklists for, like insects, spiders, plants and fungi, you can add species from iNaturalist, one at a time or a whole list at once.
@@ -267,5 +271,24 @@ For groups Lifer has no checklists for, like insects, spiders, plants and fungi,
 3. Choose **One species** to search and add a single species, or **Import a list** to paste many names at once, then pick a country, or a province or state.
 
 See [iNaturalist](./inaturalist.md#any-taxa) for the details.
+
+### Adding lists of plants, insects and spiders {#species-lists}
+
+Add every species of a group seen in a place in one go, like all the spiders of Canada. Needs [Search iNaturalist for other species](../settings.md#any-taxa-search) on, and a connection.
+
+1. Open a region in the Collection and click **+ Add species > Add a list from iNaturalist**. It's also offered when you filter to a group like **Insects** that has no species there yet.
+2. Type what you want, like `spiders of Canada`, `pine trees of BC` or `butterflies in Ontario`, or tap a starter such as **Spiders** or **Ferns**. With no place in the words, Lifer uses the region you're viewing.
+3. Lifer reads the words as two chips: a **Group** and a **Place**. If it guessed wrong (`bees` can match cattle), click the chip and pick another match. Places with a Lifer checklist are marked.
+4. Check the count and the example species, and turn on **Native species only** to leave out introduced species.
+5. Click **Add 795 species to Canada**. The dialog closes at once and the list fills in the background.
+
+While a list is being added, its progress shows above the region's species, with **Pause** and **Resume**. Lifer then downloads one reference photo per species so it can suggest them for your photos; **Photos and identification ready** means that's done. Only Research Grade sightings count, so very rarely seen species may be missing.
+
+- **Big lists** (over 5,000 species, like insects of Canada) are added 5,000 species at a time, a batch at a time over a few hours. **Continue** starts the next batch now. A smaller group is faster: beetles rather than insects.
+- **Trees, shrubs and wildflowers** aren't groups on iNaturalist, so they can't be a list. Pick a real group instead, like conifers, oaks or maples.
+- **Your lists** are in **Settings > Species and import > Species lists**, finished and hidden ones included. Each has **Update list** (to pick up newly recorded species), **Rename**, **Hide from Collection** and **Remove list**.
+- **Remove list** takes off the species the list added. Species you photographed or marked stay. Removing can't be undone; add the list again to get it back.
+
+To add your own list of names instead, use **+ Add species > Import a list of names (advanced)** and paste one name per line.
 
 These species appear on that region's checklist marked **Added by you** (and on the checklists of the regions that contain it, like the country for a province). They're yours: other people on the same server don't see them unless they add them too. To put one on another region's checklist too, open its species page and click **Add to another checklist** (see [Adding a species to a checklist](#add-to-checklist)). Filter to them with their group in **Animals**, like **Insects**. They have a photo and description from iNaturalist, but no rarity or occurrence data.

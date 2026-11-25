@@ -17,6 +17,9 @@ import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { groupsForCountries, useConnection, usePackIndex } from "../../lib/packIndex";
 import AddGroupsModal from "./AddGroupsModal";
 import TargetListImportModal from "../../components/TargetListImportModal";
+import AddOtherTaxaModal from "../../components/AddOtherTaxaModal";
+import AddSpeciesListModal from "../../components/AddSpeciesListModal";
+import { useSettings } from "../../hooks/useSettings";
 import { SPECIES_DOWNLOADS_PATH } from "../../lib/speciesDownloads";
 
 function addTargets(
@@ -89,6 +92,7 @@ export default function RegionBreadcrumb({
       namingStyles={namingStyles}
       onAddByHand={regionMeta && !regionKnownHub ? () => setAddingSpecies(true) : null}
       regionId={regionId}
+      listRegion={regionMeta && !regionKnownHub ? { id: regionMeta.id, name: regionMeta.name } : null}
       onTargetsImported={onChecklistChanged}
     />
   );
@@ -256,6 +260,7 @@ function AddSpeciesMenu({
   namingStyles,
   onAddByHand,
   regionId,
+  listRegion,
   onTargetsImported,
 }: {
   countries: Array<{ id: string; name: string }>;
@@ -263,10 +268,15 @@ function AddSpeciesMenu({
   namingStyles: string[];
   onAddByHand: (() => void) | null;
   regionId: string | null;
+  /** The region with a checklist in view: where Add a list and the name import go by default. */
+  listRegion: { id: string; name: string } | null;
   onTargetsImported: () => void;
 }) {
   const { t } = useTranslation();
   const menu = useDropdownMenu();
+  const anyTaxa = !!useSettings().settings?.anyTaxaSearchEnabled;
+  const [addingList, setAddingList] = useState(false);
+  const [importingNames, setImportingNames] = useState(false);
   const [choosingGroups, setChoosingGroups] = useState(false);
   const [importingTargets, setImportingTargets] = useState(false);
   const { packs, freeBytes, indexUnavailable, listProgress, sizesPending } = usePackIndex();
@@ -306,7 +316,11 @@ function AddSpeciesMenu({
           )}
           {note && <MenuNote>{note}</MenuNote>}
           {onAddByHand && <MenuItem onSelect={onAddByHand}>{t("collection.addGroups.byHand")}</MenuItem>}
+          {anyTaxa && <MenuItem onSelect={() => setAddingList(true)}>{t("speciesLists.menu.add")}</MenuItem>}
           <MenuItem onSelect={() => setImportingTargets(true)}>{t("targetLists.importAction")}</MenuItem>
+          {anyTaxa && (
+            <MenuItem onSelect={() => setImportingNames(true)}>{t("speciesLists.menu.importNames")}</MenuItem>
+          )}
           <MenuSeparator />
           <MenuLink to={SPECIES_DOWNLOADS_PATH} state={{ backLabel: t("nav.collection") }}>
             {t("collection.addGroups.moreCountries")}
@@ -325,6 +339,21 @@ function AddSpeciesMenu({
           onlyDownloaded={onlyDownloaded}
           namingStyles={namingStyles}
           onClose={() => setChoosingGroups(false)}
+        />
+      )}
+      {addingList && (
+        <AddSpeciesListModal
+          regionId={listRegion?.id}
+          regionName={listRegion?.name}
+          onClose={() => setAddingList(false)}
+        />
+      )}
+      {importingNames && (
+        <AddOtherTaxaModal
+          initialQuery=""
+          startWithList
+          initialRegionId={listRegion?.id}
+          onClose={() => setImportingNames(false)}
         />
       )}
       {importingTargets && (

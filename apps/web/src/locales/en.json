@@ -549,7 +549,7 @@
       "noPack": "No download is published for {region} yet. Check <a>Species downloads</a> later, or ask your Lifer admin about it.",
       "noTaxonPack": "No download covers {region}'s {taxon} yet. Check <a>Species downloads</a> later.",
       "notDownloaded": "{region}'s species list isn't downloaded yet",
-      "otherTaxaBody": "There's nothing to download for this one. Other species covers whatever Lifer doesn't already have a dataset for (insects, plants, fungi, and more). Jump to a species by scientific name (that matches best) and you'll get the option to search iNaturalist and add it here, or paste in a whole list of names at once from the same search screen.",
+      "otherTaxaBody": "Lifer has no dataset to download for insects, plants, fungi and the like. Add a whole group from iNaturalist, or search for one species.",
       "otherTaxaGroupTitle": "No {group} added for {region} yet",
       "otherTaxaTitle": "No other species added for {region} yet",
       "regionFailed": "Couldn't download this region",
@@ -2236,6 +2236,107 @@
       "title": "Setting up your collection"
     },
     "stepOf": "Step {step} of {total}"
+  },
+  "speciesLists": {
+    "menu": {
+      "add": "Add a list from iNaturalist",
+      "importNames": "Import a list of names (advanced)"
+    },
+    "add": {
+      "title": "Add a list from iNaturalist",
+      "description": "Every species of a group seen in a place, added to your checklist in the background.",
+      "fieldLabel": "Group and place",
+      "placeholder": "Try: spiders of Canada, pine trees of BC, butterflies in Ontario",
+      "startersLabel": "Popular groups",
+      "phrase": "{group} of {place}",
+      "groupChip": "Group",
+      "placeChip": "Place",
+      "taxonValue": "{name}, {what}",
+      "taxonDetail": "{what}, {count, plural, one {# observation} other {# observations}}",
+      "liferRegion": "Has a Lifer checklist",
+      "nativeOnly": "Native species only",
+      "count": "{count, plural, one {# species, for example:} other {# species, for example:}}",
+      "none": "No Research Grade sightings of this group in {place} yet.",
+      "examplesLabel": "Example species",
+      "estimate": "About {minutes, plural, one {# minute} other {# minutes}} to add, in the background.",
+      "bigList": "Big list: added in {batches} batches of {size} over time. To add it faster, pick a smaller group.",
+      "searching": "Searching iNaturalist...",
+      "growthForm": "“{query}” isn't one group on iNaturalist. Try a group such as conifers, oaks or maples.",
+      "noGroup": "No group matches “{query}”. Try another word, such as moths or beetles.",
+      "noPlace": "No place matches “{query}”.",
+      "needPlace": "Add a place, such as “of Canada”.",
+      "button": "Add {count, plural, one {# species} other {# species}} to {region}",
+      "buttonIdle": "Add list"
+    },
+    "starters": {
+      "lepidoptera": "Butterflies and moths",
+      "odonata": "Dragonflies and damselflies",
+      "bees": "Bees",
+      "spiders": "Spiders",
+      "mushrooms": "Mushrooms",
+      "ferns": "Ferns",
+      "conifers": "Conifers"
+    },
+    "errors": {
+      "offline": "You're offline. Try again when you're connected.",
+      "busy": "iNaturalist is busy, try again in a few minutes.",
+      "noRegion": "Pick a place that has a Lifer region.",
+      "failed": "Couldn't reach iNaturalist. Try again."
+    },
+    "status": {
+      "queued": "Waiting to start",
+      "startingCount": "Counting species...",
+      "adding": "Adding: {added, number} of {total, number}",
+      "nextBatch": "{added, number} of {total, number} added. The next batch starts {when}.",
+      "paused": "Paused at {added, number} of {total, number}",
+      "offline": "Waiting for a connection",
+      "done": "{count, plural, one {# species} other {# species}}",
+      "doneReady": "{count, plural, one {# species, photos and identification ready} other {# species, photos and identification ready}}"
+    },
+    "photos": {
+      "pending": "Photos for identification: {ready, number} of {total, number}"
+    },
+    "actions": {
+      "pause": "Pause",
+      "resume": "Resume",
+      "continue": "Continue",
+      "retry": "Retry",
+      "update": "Update list",
+      "rename": "Rename",
+      "hide": "Hide from Collection",
+      "show": "Show in Collection",
+      "remove": "Remove list"
+    },
+    "hiddenTag": "Hidden",
+    "progressLabel": "Adding {name}",
+    "rename": {
+      "title": "Rename list"
+    },
+    "remove": {
+      "title": "Remove {name}?",
+      "message": "Removes {count, plural, one {# species} other {# species}} from {region}. Species you photographed or marked stay. This can't be undone.",
+      "confirm": "Remove list"
+    },
+    "toast": {
+      "adding": "Adding {name}...",
+      "alreadyAdded": "{name} is already one of your lists.",
+      "finished": "Added {name}: {count, plural, one {# species} other {# species}}.",
+      "hidden": "Hid {name} from the Collection. It stays in Settings, under Species and import.",
+      "removed": "Removed {name}.",
+      "removedKept": "Removed {name}. {kept, plural, one {# species you photographed or marked stays} other {# species you photographed or marked stay}}."
+    },
+    "settings": {
+      "title": "Species lists",
+      "add": "Add a list from iNaturalist",
+      "addDescription": "Every species of a group in a place, such as spiders of Canada.",
+      "addButton": "Add a list",
+      "filter": "Filter lists",
+      "loadFailed": "Couldn't load your lists",
+      "noMatch": "No list matches “{query}”."
+    },
+    "collection": {
+      "label": "Lists being added"
+    }
   },
   "otherTaxa": {
     "noChecklist": "{region} has no checklist of its own. Pick a country, or a province or state inside one.",
