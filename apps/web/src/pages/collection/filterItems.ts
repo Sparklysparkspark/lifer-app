@@ -1,5 +1,5 @@
-import { nameMatchScore, type CollectionItem } from "@lifer/shared";
-import type { StateFilter, TraitFilter } from "./useCollectionUrlState";
+import { nameMatchScore, type CollectionItem, type RegionStats } from "@lifer/shared";
+import type { PhotosTakenFilter, StateFilter, TraitFilter } from "./useCollectionUrlState";
 import { broadGroups } from "../../lib/broadGroups";
 import { normalizeForSearch } from "../../lib/searchNormalize";
 
@@ -35,6 +35,8 @@ export interface ItemFilters {
   introduced: TraitFilter;
   endemic: TraitFilter;
   vagrant: TraitFilter;
+  /** Narrows photographed species by where their photos were taken; only region rows carry the flag. */
+  photosTaken?: PhotosTakenFilter;
   /** Tiers to keep, matched against the tier the card shows; empty keeps every tier. */
   tiers: ReadonlySet<string>;
   ghostOnly: boolean;
@@ -63,6 +65,7 @@ export function filterCollectionItems(
     introduced,
     endemic,
     vagrant,
+    photosTaken = "anywhere",
     tiers,
     ghostOnly,
     lostOnly,
@@ -79,15 +82,18 @@ export function filterCollectionItems(
       ? items
       : stateFilter === "target"
         ? items.filter((i) => i.isTarget && (!targetListSpecies || targetListSpecies.has(i.speciesId)))
-        : stateFilter === "here"
-          ? items.filter((i) => i.photographedHere)
-          : stateFilter === "elsewhere"
-            ? items.filter((i) => i.photographedElsewhereOnly)
-            : items.filter((i) => i.state === stateFilter);
+        : items.filter((i) => i.state === stateFilter);
   if (taxa?.size) filtered = filtered.filter((i) => !!i.taxonClass && taxa.has(i.taxonClass));
   filtered = byTrait(filtered, introduced, (i) => i.introduced);
   filtered = byTrait(filtered, endemic, (i) => i.endemic);
   filtered = byTrait(filtered, vagrant, (i) => i.vagrant);
+  // Species without a photo stay with the Show filter; rows without the flag (no region) aren't narrowed.
+  // A photographed species whose photos have no place at all is neither here nor elsewhere.
+  if (photosTaken !== "anywhere") {
+    filtered = filtered.filter(
+      (i) => i.state !== "collected" || i.photographedWhere === undefined || i.photographedWhere === photosTaken,
+    );
+  }
   // localTier is only set on a region's rows, where it's the tier the card shows.
   if (tiers.size > 0) filtered = filtered.filter((i) => tiers.has(i.localTier ?? i.tier ?? "unrated"));
   if (ghostOnly) filtered = filtered.filter((i) => i.isGhost);
@@ -142,4 +148,16 @@ function byTrait(
   has: (item: CollectionItem) => boolean,
 ): CollectionItem[] {
   return filter === "any" ? items : items.filter((i) => has(i) === (filter === "only"));
+}
+
+/** The header's counts under the Photos taken filter: its photographed count follows the choice,
+ *  out of the whole checklist. */
+export function photosTakenStats(
+  stats: RegionStats | null,
+  items: CollectionItem[] | null,
+  photosTaken: PhotosTakenFilter,
+): RegionStats | null {
+  if (!stats || !items || photosTaken === "anywhere") return stats;
+  const collected = items.filter((i) => i.state === "collected" && i.photographedWhere === photosTaken).length;
+  return { ...stats, collected };
 }

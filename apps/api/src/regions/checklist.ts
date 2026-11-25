@@ -224,8 +224,20 @@ const REGION_VIEW_SPECIES_CTE = `WITH RECURSIVE region_tree AS (
          ),
          -- photographedIn: the scope region's tree and the species with a live photo there.
          ${photographedInTreeCtes("photo_scope_tree", "photographed_in_scope", P.photoScope, P.placedInScope)},
-         -- The same for the viewed region itself, for the vagrant rule and the Show filter.
-         ${photographedInTreeCtes("here_tree", "photographed_here", P.region)}`;
+         -- The Photos taken filter: the same for the viewed region itself, and every species with
+         -- a photo that has a place at all.
+         ${photographedInTreeCtes("here_tree", "photographed_here", P.region)},
+         photographed_located AS (
+           SELECT c.species_id FROM captures c WHERE c.user_id = ${P.user} AND c.region_id IS NOT NULL
+           UNION
+           SELECT cs.species_id FROM capture_species cs JOIN captures c ON c.id = cs.capture_id
+           WHERE c.user_id = ${P.user} AND c.region_id IS NOT NULL
+         )`;
+
+// Where the user's photos of a species were taken, for the Photos taken filter: "here" with any
+// in the viewed region, "elsewhere" with located ones all outside it, null with none located.
+const PHOTOGRAPHED_WHERE_SQL = `CASE WHEN s.id IN (SELECT species_id FROM photographed_here) THEN 'here'
+             WHEN s.id IN (SELECT species_id FROM photographed_located) THEN 'elsewhere' END`;
 
 // A region's subtree (groups included) plus provinces shown under their continent that belong
 // to it.
@@ -257,10 +269,6 @@ function photographedInTreeCtes(tree: string, photographed: string, rootParam: s
 // the species' photos are in scope. Needs `us` and PHOTOGRAPHED_IN_SCOPE_JOIN.
 const SCOPED_STATE_SQL = `CASE WHEN ${P.photoScope}::uuid IS NOT NULL AND us.state = 'collected' AND pis.species_id IS NULL THEN NULL ELSE us.state END`;
 const PHOTOGRAPHED_IN_SCOPE_JOIN = `LEFT JOIN photographed_in_scope pis ON pis.species_id = s.id`;
-
-// For the Show filter's here and elsewhere choices, whatever the Counting scope. EXISTS, since a
-// capture without a species puts a NULL in photographed_here.
-const PHOTOGRAPHED_HERE_SQL = `EXISTS (SELECT 1 FROM photographed_here ph WHERE ph.species_id = s.id)`;
 
 // Joins `rs`, `ua` and `uz` for the region view; without the pack ($8 false) the region's catalog
 // row isn't shown, so its tiers aren't either.
@@ -420,8 +428,7 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
         `${REGION_VIEW_SPECIES_CTE}
          SELECT
            ${checklistItemColumns(P.user, userAddedColumnsSql({ seaZonesParam: P.seaZones, includeLandParam: P.includeLand }), SCOPED_STATE_SQL)},
-           ${PHOTOGRAPHED_HERE_SQL} AS photographed_here,
-           (us.state = 'collected' AND NOT ${PHOTOGRAPHED_HERE_SQL}) AS photographed_elsewhere_only
+           ${PHOTOGRAPHED_WHERE_SQL} AS photographed_where
          FROM species_ids si
          JOIN species s ON s.id = si.species_id
          ${REGION_VIEW_JOINS}

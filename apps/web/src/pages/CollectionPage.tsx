@@ -17,7 +17,7 @@ import { seaZonesRelevantFor, useSeaZoneFilter } from "./collection/useSeaZoneFi
 import { useNearbySeaZones } from "./collection/useNearbySeaZones";
 import { startsOnboarding, useFirstRunRegion } from "./collection/useFirstRunRegion";
 import { usePackDownloadStatus } from "../hooks/usePackDownloadStatus";
-import { filterCollectionItems, searchHaystack, searchRanks } from "./collection/filterItems";
+import { filterCollectionItems, photosTakenStats, searchHaystack, searchRanks } from "./collection/filterItems";
 import RegionBreadcrumb from "./collection/RegionBreadcrumb";
 import CollectionSelectBar from "./collection/CollectionSelectBar";
 import CollectionToolbar from "./collection/CollectionToolbar";
@@ -224,6 +224,10 @@ export default function CollectionPage() {
   const haystacks = useMemo(() => new Map((items ?? []).map((i) => [i.speciesId, searchHaystack(i)])), [items]);
   const deferredSearch = useDeferredValue(url.search);
   const { itemFilters } = url;
+  const headerStats = useMemo(
+    () => photosTakenStats(regionStats, items, url.photosTakenFilter),
+    [regionStats, items, url.photosTakenFilter],
+  );
   const targetLists = useTargetLists();
   const targetListIds = targetLists?.find((l) => l.id === url.targetListId)?.speciesIds;
   const targetListSpecies = useMemo(() => (targetListIds ? new Set(targetListIds) : null), [targetListIds]);
@@ -334,7 +338,7 @@ export default function CollectionPage() {
         breadcrumb={tree.breadcrumb}
         navigateToRegion={navigateToRegion}
         regionMeta={regionMeta}
-        regionStats={regionStats}
+        regionStats={headerStats}
         regionKnownHub={tree.regionKnownHub}
         hubStats={hubStats}
         showEbirdLink={taxonFilters.size === 0 || taxonFilters.has("aves")}

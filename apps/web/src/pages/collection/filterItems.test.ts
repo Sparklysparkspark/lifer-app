@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CollectionItem } from "@lifer/shared";
 import {
   filterCollectionItems,
+  photosTakenStats,
   normalizeSearchText,
   rankBySearch,
   searchHaystack,
@@ -243,19 +244,61 @@ describe("target list filter", () => {
   });
 });
 
-describe("Show photographed here or elsewhere only", () => {
+describe("photos taken filter", () => {
   const items = [
-    item({ speciesId: "here", scientificName: "A a", state: "collected", photographedHere: true }),
-    // Counting only this region's photos greys it, but it was still photographed elsewhere.
-    item({ speciesId: "away", scientificName: "B b", state: "unseen", photographedElsewhereOnly: true }),
-    item({ speciesId: "none", scientificName: "C c", state: "unseen" }),
+    item({ speciesId: "here", scientificName: "A a", state: "collected", photographedWhere: "here" }),
+    item({ speciesId: "away", scientificName: "B b", state: "collected", photographedWhere: "elsewhere" }),
+    // Photographed, but no photo has a location: only under Anywhere.
+    item({ speciesId: "nogps", scientificName: "F f", state: "collected", photographedWhere: null }),
+    item({ speciesId: "seen", scientificName: "C c", state: "seen", photographedWhere: null }),
+    item({ speciesId: "none", scientificName: "D d", state: "unseen", photographedWhere: null }),
+    // A row with no value (not a region checklist) is never narrowed.
+    item({ speciesId: "noflag", scientificName: "E e", state: "collected" }),
   ];
-  const run = (stateFilter: ItemFilters["stateFilter"]) =>
-    filterCollectionItems(items, { ...base, stateFilter, search: "" }, new Map()).map((i) => i.speciesId);
+  const run = (photosTaken: ItemFilters["photosTaken"], stateFilter: ItemFilters["stateFilter"] = "all") =>
+    filterCollectionItems(items, { ...base, stateFilter, photosTaken, search: "" }, new Map()).map((i) => i.speciesId);
 
-  it("narrows by where the photos were taken, whatever the Counting scope", () => {
-    expect(run("here")).toEqual(["here"]);
-    expect(run("elsewhere")).toEqual(["away"]);
-    expect(run("all")).toEqual(["here", "away", "none"]);
+  it("keeps everything by default", () => {
+    const all = ["here", "away", "nogps", "seen", "none", "noflag"];
+    expect(run(undefined)).toEqual(all);
+    expect(run("anywhere")).toEqual(all);
+  });
+
+  it("narrows only photographed species, leaving the rest to the Show filter", () => {
+    expect(run("here")).toEqual(["here", "seen", "none", "noflag"]);
+    expect(run("elsewhere")).toEqual(["away", "seen", "none", "noflag"]);
+  });
+
+  it("combines with Show Photographed", () => {
+    expect(run("here", "collected")).toEqual(["here", "noflag"]);
+    expect(run("elsewhere", "collected")).toEqual(["away", "noflag"]);
+    expect(run("elsewhere", "unseen")).toEqual(["none"]);
+  });
+
+  it("works with search", () => {
+    const haystacks = new Map(items.map((i) => [i.speciesId, searchHaystack(i)]));
+    const ids = filterCollectionItems(items, { ...base, photosTaken: "elsewhere", search: "b b" }, haystacks);
+    expect(ids.map((i) => i.speciesId)).toEqual(["away"]);
+    expect(filterCollectionItems(items, { ...base, photosTaken: "here", search: "b b" }, haystacks)).toEqual([]);
+  });
+});
+
+describe("header counts under the photos taken filter", () => {
+  const stats = { total: 534, collected: 32, seen: 1 };
+  const items = [
+    item({ speciesId: "here", scientificName: "A a", state: "collected", photographedWhere: "here" }),
+    item({ speciesId: "away", scientificName: "B b", state: "collected", photographedWhere: "elsewhere" }),
+    item({ speciesId: "away2", scientificName: "C c", state: "collected", photographedWhere: "elsewhere" }),
+    item({ speciesId: "none", scientificName: "D d", state: "unseen", photographedWhere: null }),
+  ];
+
+  it("counts the chosen place's photographed species out of the whole checklist", () => {
+    expect(photosTakenStats(stats, items, "anywhere")).toBe(stats);
+    expect(photosTakenStats(stats, items, "here")).toEqual({ total: 534, collected: 1, seen: 1 });
+    expect(photosTakenStats(stats, items, "elsewhere")).toEqual({ total: 534, collected: 2, seen: 1 });
+  });
+
+  it("waits for the list", () => {
+    expect(photosTakenStats(stats, null, "here")).toBe(stats);
   });
 });

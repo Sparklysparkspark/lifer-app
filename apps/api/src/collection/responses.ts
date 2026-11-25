@@ -63,11 +63,13 @@ export const CollectionItem = Open({
   userAddedRegion: Type.Optional(
     Nullable(Open({ id: Uuid(), name: Type.String(), kind: Type.Enum(["region", "seaZone"]) })),
   ),
-  photographedHere: Type.Optional(
-    Type.Boolean({ description: "Region checklist rows: a live photo of it is filed in this region" }),
-  ),
-  photographedElsewhereOnly: Type.Optional(
-    Type.Boolean({ description: "Region checklist rows: photographed, but no photo of it is filed in this region" }),
+  photographedWhere: Type.Optional(
+    Nullable(
+      Type.Enum(["here", "elsewhere"], {
+        description:
+          "Region checklist rows: a photo of it was taken in this region, or located photos all outside it; null with none located",
+      }),
+    ),
   ),
 });
 

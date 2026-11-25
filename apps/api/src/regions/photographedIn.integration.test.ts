@@ -1,6 +1,7 @@
 // Runs only with TEST_DATABASE_URL pointing at a migrated, disposable database.
 // "Count photos from": a species counts as photographed on a region's checklist only with a live
-// photo in the viewed region's country or province. The list itself never changes with it.
+// photo in the viewed region's country or province. The list itself never changes with it. Also
+// each row's photographedWhere, for the Photos taken filter.
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import pg from "pg";
@@ -208,6 +209,59 @@ describe.skipIf(!url)("photographedIn on a region's checklist", () => {
     expect((await get(`/api/regions/${id.alberta}/species?photographedIn=planet`)).statusCode).toBe(400);
     expect((await get(`/api/regions/${id.alberta}/species/count?photographedIn=planet`)).statusCode).toBe(400);
   });
+
+  describe("photographedWhere", () => {
+    async function where(route: string) {
+      const res = await get(route);
+      expect(res.statusCode).toBe(200);
+      const items = res.json().items as Array<{ speciesId: string; photographedWhere?: string | null }>;
+      return Object.fromEntries(items.map((i) => [i.speciesId, i.photographedWhere]));
+    }
+
+    it("marks live photos in a province as here, located ones outside as elsewhere, unlocated as neither", async () => {
+      expect(await where(`/api/regions/${id.alberta}/species`)).toEqual({
+        [IN_ALBERTA]: "here",
+        // Its other photo, on the island, doesn't make it elsewhere.
+        [IN_GROUP_PROVINCE]: "elsewhere",
+        [SECONDARY]: "elsewhere",
+        // Another user's photo in Alberta doesn't count.
+        [ELSEWHERE]: "elsewhere",
+        // Trashed and hidden photos don't count; with no other photo, nothing is located.
+        [TRASHED]: null,
+        [HIDDEN]: null,
+        [NO_PLACE]: null,
+      });
+    });
+
+    it("counts provinces inside a country or group, and provinces shown under the continent", async () => {
+      expect(await where(`/api/regions/${id.country}/species`)).toMatchObject({
+        [IN_GROUP_PROVINCE]: "here",
+        [SECONDARY]: "here",
+        [IN_ALBERTA]: "here",
+        [ELSEWHERE]: "elsewhere",
+        [NO_PLACE]: null,
+      });
+      expect(await where(`/api/regions/${id.group}/species`)).toMatchObject({
+        [IN_GROUP_PROVINCE]: "here",
+        [IN_ALBERTA]: "elsewhere",
+      });
+    });
+
+    it("is independent of the Count photos from choice", async () => {
+      expect(await where(`/api/regions/${id.alberta}/species?photographedIn=province`)).toMatchObject({
+        [IN_ALBERTA]: "here",
+        [ELSEWHERE]: "elsewhere",
+      });
+    });
+
+    it("isn't on a continent's combined list", async () => {
+      const res = await get(`/api/regions/${id.hub}/aggregate-species`);
+      expect(res.statusCode).toBe(200);
+      const items = res.json().items as Array<Record<string, unknown>>;
+      expect(items.length).toBeGreaterThan(0);
+      expect(items.every((i) => !("photographedWhere" in i))).toBe(true);
+    });
+  });
 });
 
 // The scope changes only the photographed state and counts: the list is always the region's
@@ -341,7 +395,7 @@ describe.skipIf(!url)("photographedIn keeps the checklist", () => {
   });
 
   it("lists the same species with only photos from the country counting", async () => {
-    const { stats, states, items } = await view("?photographedIn=country");
+    const { stats, states } = await view("?photographedIn=country");
     expect(states).toEqual({
       // Photographed only in Belize: still on the checklist, as not photographed here.
       [LISTED_AWAY]: "unseen",
@@ -350,25 +404,6 @@ describe.skipIf(!url)("photographedIn keeps the checklist", () => {
       [MISSING]: "unseen",
     });
     expect(stats).toMatchObject({ total: 4, collected: 2 });
-    expect(items.every((i) => !("photographedWhere" in i))).toBe(true);
-  });
-
-  it("flags where each was photographed for the Show filter, the same in either scope", async () => {
-    const flags = (items: Array<Record<string, unknown>>) =>
-      Object.fromEntries(items.map((i) => [i.speciesId, [i.photographedHere, i.photographedElsewhereOnly]]));
-    const anywhere = await view("");
-    const inCountry = await view("?photographedIn=country");
-    const expected = {
-      [LISTED_AWAY]: [false, true],
-      [LISTED_HERE]: [true, false],
-      [VAGRANT_HERE]: [true, false],
-      [MISSING]: [false, false],
-    };
-    expect(flags(anywhere.items)).toEqual(expected);
-    expect(flags(inCountry.items)).toEqual(expected);
-    // The header follows only the Counting scope.
-    expect(anywhere.stats).toMatchObject({ total: 4, collected: 3 });
-    expect(inCountry.stats).toMatchObject({ total: 4, collected: 2 });
   });
 });
 

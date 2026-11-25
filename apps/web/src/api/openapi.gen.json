@@ -3020,13 +3020,14 @@
                               { "type": "null" }
                             ]
                           },
-                          "photographedHere": {
-                            "type": "boolean",
-                            "description": "Region checklist rows: a live photo of it is filed in this region"
-                          },
-                          "photographedElsewhereOnly": {
-                            "type": "boolean",
-                            "description": "Region checklist rows: photographed, but no photo of it is filed in this region"
+                          "photographedWhere": {
+                            "anyOf": [
+                              {
+                                "enum": ["here", "elsewhere"],
+                                "description": "Region checklist rows: a photo of it was taken in this region, or located photos all outside it; null with none located"
+                              },
+                              { "type": "null" }
+                            ]
                           }
                         },
                         "additionalProperties": true
@@ -8302,13 +8303,14 @@
                               { "type": "null" }
                             ]
                           },
-                          "photographedHere": {
-                            "type": "boolean",
-                            "description": "Region checklist rows: a live photo of it is filed in this region"
-                          },
-                          "photographedElsewhereOnly": {
-                            "type": "boolean",
-                            "description": "Region checklist rows: photographed, but no photo of it is filed in this region"
+                          "photographedWhere": {
+                            "anyOf": [
+                              {
+                                "enum": ["here", "elsewhere"],
+                                "description": "Region checklist rows: a photo of it was taken in this region, or located photos all outside it; null with none located"
+                              },
+                              { "type": "null" }
+                            ]
                           }
                         },
                         "additionalProperties": true
@@ -24250,13 +24252,14 @@
                               { "type": "null" }
                             ]
                           },
-                          "photographedHere": {
-                            "type": "boolean",
-                            "description": "Region checklist rows: a live photo of it is filed in this region"
-                          },
-                          "photographedElsewhereOnly": {
-                            "type": "boolean",
-                            "description": "Region checklist rows: photographed, but no photo of it is filed in this region"
+                          "photographedWhere": {
+                            "anyOf": [
+                              {
+                                "enum": ["here", "elsewhere"],
+                                "description": "Region checklist rows: a photo of it was taken in this region, or located photos all outside it; null with none located"
+                              },
+                              { "type": "null" }
+                            ]
                           }
                         },
                         "additionalProperties": true
@@ -24722,13 +24725,14 @@
                               { "type": "null" }
                             ]
                           },
-                          "photographedHere": {
-                            "type": "boolean",
-                            "description": "Region checklist rows: a live photo of it is filed in this region"
-                          },
-                          "photographedElsewhereOnly": {
-                            "type": "boolean",
-                            "description": "Region checklist rows: photographed, but no photo of it is filed in this region"
+                          "photographedWhere": {
+                            "anyOf": [
+                              {
+                                "enum": ["here", "elsewhere"],
+                                "description": "Region checklist rows: a photo of it was taken in this region, or located photos all outside it; null with none located"
+                              },
+                              { "type": "null" }
+                            ]
                           }
                         },
                         "additionalProperties": true
@@ -37997,13 +38001,14 @@
                               { "type": "null" }
                             ]
                           },
-                          "photographedHere": {
-                            "type": "boolean",
-                            "description": "Region checklist rows: a live photo of it is filed in this region"
-                          },
-                          "photographedElsewhereOnly": {
-                            "type": "boolean",
-                            "description": "Region checklist rows: photographed, but no photo of it is filed in this region"
+                          "photographedWhere": {
+                            "anyOf": [
+                              {
+                                "enum": ["here", "elsewhere"],
+                                "description": "Region checklist rows: a photo of it was taken in this region, or located photos all outside it; null with none located"
+                              },
+                              { "type": "null" }
+                            ]
                           }
                         },
                         "additionalProperties": true
