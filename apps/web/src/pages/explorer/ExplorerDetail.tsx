@@ -121,9 +121,9 @@ export default function ExplorerDetail({
         </nav>
       )}
       <div>
-        <h2 className="text-title-3 font-semibold text-ink wrap-anywhere">{label(node)}</h2>
+        <h2 className="text-title-3 font-semibold text-ink wrap-anywhere @lg:text-title-2">{label(node)}</h2>
         {isSpecies && node.commonName && label(node) !== node.name && (
-          <p className="text-callout text-muted italic wrap-anywhere">{node.name}</p>
+          <p className="text-callout text-muted italic wrap-anywhere @lg:text-body">{node.name}</p>
         )}
         {tierText && (
           <p className="text-footnote text-muted">{rarity ? <RarityChip node={node} text={tierText} /> : tierText}</p>
@@ -160,8 +160,8 @@ export default function ExplorerDetail({
         </div>
       ) : (
         mosaic.length > 0 && (
-          // Scrolls inside the pane, so the counts and actions below stay in reach.
-          <div className="max-h-[28rem] overflow-y-auto">
+          // Scrolls inside the pane, so the counts and actions below stay in reach; taller in a wide pane.
+          <div className="max-h-[28rem] overflow-y-auto @lg:max-h-[40rem]">
             <ul className={`grid gap-1 ${mosaic.length === 1 ? "grid-cols-1" : "grid-cols-3"}`}>
               {mosaic.map((leaf, i) => (
                 <li key={leaf.id} className={mosaic.length > 1 && i === 0 ? "col-span-2 row-span-2" : ""}>
@@ -200,7 +200,7 @@ export default function ExplorerDetail({
 
       {!isSpecies && <ProgressRing collected={node.collected} total={node.total} />}
       {node.photos > 0 && (
-        <p className="text-callout text-ink">
+        <p className="text-callout text-ink @lg:text-body">
           {t("explorer.photoCount", { count: node.photos, formatted: formatNumber(node.photos) })}
         </p>
       )}

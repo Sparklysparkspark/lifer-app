@@ -4,7 +4,8 @@
 // on a phone). The list is windowed over the expanded rows, so 10,000 species scroll like 100, and
 // its expansion, focus, selection and scroll survive opening a photo, a species page and coming back.
 // The region and the focused group live in the URL, each change its own history entry, so Back and
-// the swipe step out one layer at a time, leaving nothing selected. Species and groups can be added
+// the swipe step out one layer at a time and Forward steps back in; each entry also keeps its own
+// selection and open rows (in its history state). Species and groups can be added
 // to your targets or marked seen from the detail pane or a right-click (useTreeMarks).
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
@@ -121,7 +122,11 @@ export default function TaxaExplorer() {
   const navigate = useNavigate();
   const nameParts = useSpeciesNameParts();
   const [params, setParams] = useSearchParamsKeepingState();
-  const { state } = useLocation();
+  const { state, key } = useLocation();
+  // Each history entry keeps its own selection and open rows, so Back and Forward put them back.
+  const entry = state as { sel?: string | null; exp?: string[] | null } | null;
+  const navigationType = useNavigationType();
+  const restoring = navigationType === "POP" && !!entry && "sel" in entry;
   // Collection's param, so a region link means the same on both pages.
   const urlRegion = params.get("region");
   const regions = useRegionTree(urlRegion);
@@ -221,38 +226,47 @@ export default function TaxaExplorer() {
         ? "italic"
         : "";
 
-  const [expandedState, setExpanded] = useState<Set<string> | null>(memory.expanded);
+  const [expandedState, setExpanded] = useState<Set<string> | null>(() =>
+    restoring ? (entry?.exp ? new Set(entry.exp) : null) : memory.expanded,
+  );
   // Until the tree is opened or closed by hand, it opens on your photographed branches.
   const expanded = useMemo(
     () => expandedState ?? (index ? myBranches(index) : new Set<string>()),
     [expandedState, index],
   );
-  const [selected, select] = useState<string | null>(memory.selected);
+  const [selected, select] = useState<string | null>(() => (restoring ? (entry?.sel ?? null) : memory.selected));
   const focusState = params.get("focus");
-  // Back out of a group clears the selection, as the step-out controls below do.
-  const navigationType = useNavigationType();
   const restState = params.get("rest");
-  const [lastFocus, setLastFocus] = useState(focusState);
-  const [lastRest, setLastRest] = useState(restState);
-  if (focusState !== lastFocus || restState !== lastRest) {
-    setLastFocus(focusState);
-    setLastRest(restState);
-    const out =
-      focusState === lastFocus
-        ? !!lastRest?.startsWith(restState ?? "")
-        : !focusState || !!lastFocus?.startsWith(`${focusState}/`);
-    if (navigationType === "POP" && out) select(null);
+  const [lastKey, setLastKey] = useState(key);
+  if (key !== lastKey) {
+    setLastKey(key);
+    if (restoring) {
+      select(entry?.sel ?? null);
+      setExpanded(entry?.exp ? new Set(entry.exp) : null);
+    }
   }
+  // A row unmounted under the pointer never says it was left, so a new entry drops its preview.
+  useEffect(() => previewNow(null), [key]);
+  // The entry a step was just pushed from: the router shows the new one a render later.
+  const pushedFrom = useRef<string | null>(null);
   useEffect(() => {
     memory.expanded = expandedState;
     memory.selected = selected;
-  }, [expandedState, selected]);
+    const exp = expandedState ? [...expandedState] : null;
+    if (pushedFrom.current === key) return;
+    pushedFrom.current = null;
+    if (entry && "sel" in entry && entry.sel === selected && JSON.stringify(entry.exp ?? null) === JSON.stringify(exp))
+      return;
+    // In place, so selecting or opening a row is never a step of its own.
+    setParams((prev) => prev, { replace: true, state: { ...entry, sel: selected, exp } });
+  }, [expandedState, selected, entry, key, setParams]);
   // A new history entry per layer or region; backSteps lets the header's Back skip them all.
   const go = (raw: Record<string, string | null>) => {
     // A new focus leaves any "more groups" view behind.
     const updates = "focus" in raw && !("rest" in raw) ? { ...raw, rest: null } : raw;
     if (Object.entries(updates).every(([k, v]) => params.get(k) === v)) return;
     const steps = (state as { backSteps?: number } | null)?.backSteps ?? 1;
+    pushedFrom.current = key;
     setParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -454,8 +468,8 @@ export default function TaxaExplorer() {
       `/api${apiPath("/collection/tree", {}, { format: "csv", regionId })}`,
       "lifer-collection.csv",
     );
-  // A selection the new region's tree lacks is dropped.
-  if (selected && !index.byId.has(selected)) select(null);
+  // A selection the new region's tree lacks is dropped, once that tree is in.
+  if (!loading && selected && !index.byId.has(selected)) select(null);
   const selectedEntry = selected ? index.byId.get(selected) : undefined;
   const detail = selected && selectedEntry && (
     <ExplorerDetail
@@ -517,7 +531,8 @@ export default function TaxaExplorer() {
           ) : undefined
         }
       />
-      <main className="space-y-section p-page">
+      {/* Capped and centred, so on a big screen the pane sits near the tree, not at the window edge. */}
+      <main className="mx-auto w-full max-w-[120rem] space-y-section p-page">
         {tree.collected === 0 && !regionId ? (
           <EmptyState
             title={t("explorer.emptyTitle")}
@@ -525,7 +540,7 @@ export default function TaxaExplorer() {
           />
         ) : (
           <div
-            className="lg:grid lg:grid-cols-[minmax(0,1fr)_26rem] xl:grid-cols-[minmax(0,1fr)_30rem] lg:items-start lg:gap-8"
+            className="lg:grid lg:grid-cols-[minmax(0,1fr)_26rem] lg:items-start lg:gap-8 xl:grid-cols-[minmax(0,1fr)_30rem] 2xl:grid-cols-[minmax(0,1fr)_clamp(30rem,32vw,40rem)] 2xl:gap-10"
             data-uncollected-colour={uncollectedColour || undefined}
           >
             <div className={`min-w-0 transition-opacity ${loading ? "opacity-60" : ""}`} aria-busy={loading}>
@@ -995,7 +1010,7 @@ export default function TaxaExplorer() {
             </div>
             {wide ? (
               // A steady height, so previews of short and tall groups don't make the pane jump.
-              <aside className="sticky top-4 max-h-[calc(100dvh-2rem)] min-h-[min(36rem,calc(100dvh-2rem))] overflow-y-auto rounded-panel border border-line bg-surface p-4">
+              <aside className="@container sticky top-4 max-h-[calc(100dvh-2rem)] min-h-[min(36rem,calc(100dvh-2rem))] overflow-y-auto rounded-panel border border-line bg-surface p-4 2xl:p-6">
                 <CrashBoundary resetKey={`${params.toString()}|${selected ?? ""}`}>
                   <PreviewPane selected={detail ? selected : null} has={(id) => index.byId.has(id)} render={previewOf}>
                     {detail || <p className="text-callout text-muted">{t("explorer.detailEmpty")}</p>}

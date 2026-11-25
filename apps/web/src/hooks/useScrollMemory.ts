@@ -78,9 +78,12 @@ function write(historyKey: string, value: SavedScroll): void {
 export function useScrollMemory(ready: boolean): void {
   const { key } = useLocation();
   const navigationType = useNavigationType();
-  // Read once per history entry: only a Back/Forward (POP) returns to a saved spot.
-  const [saved] = useState(() => (navigationType === "POP" ? read(key) : null));
-  const restored = useRef(false);
+  // Read once per history entry: only a Back/Forward (POP) returns to a saved spot, also between
+  // entries of the same page (its URL-held layers or filters).
+  const [entry, setEntry] = useState(() => ({ key, saved: navigationType === "POP" ? read(key) : null }));
+  if (entry.key !== key && navigationType === "POP") setEntry({ key, saved: read(key) });
+  const { saved } = entry;
+  const restored = useRef<SavedScroll | null>(null);
 
   useEffect(() => {
     let frame = 0;
@@ -122,8 +125,8 @@ export function useScrollMemory(ready: boolean): void {
   }, [key]);
 
   useEffect(() => {
-    if (!ready || !saved || restored.current) return;
-    restored.current = true;
+    if (!ready || !saved || restored.current === saved) return;
+    restored.current = saved;
     return holdScroll(saved);
   }, [ready, saved]);
 }

@@ -448,18 +448,47 @@ describe("TaxaExplorer stepping back out", () => {
     expect(detailEmpty()).toBeTruthy();
   });
 
-  it("clears the selection on Back out of a group, and Forward back in keeps it clear", () => {
+  it("puts back each layer's own selection on Back and Forward", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Circle" }));
     fireEvent.click(screen.getByRole("button", { name: /^Testia, 3 of 4 species/ }));
     fireEvent.click(screen.getByRole("button", { name: /^Genus, 3 of 4 species/ }));
-    expect(screen.getByRole("heading", { name: "Genus" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Alpha common, 1 of 1/ }));
+    expect(screen.getByRole("heading", { name: "Alpha common" })).toBeTruthy();
+    const heading = () => screen.queryByRole("heading", { level: 2 })?.textContent ?? null;
+    const steps: [number, string | null, string | null][] = [
+      [-1, "Testia", "Testia"],
+      [-1, null, null],
+      [1, "Testia", "Testia"],
+      [1, "Genus", "Alpha common"],
+      [-1, "Testia", "Testia"],
+      [1, "Genus", "Alpha common"],
+    ];
+    for (const [delta, focus, shown] of steps) {
+      act(() => navigate(delta));
+      if (focus) expect(focused()).toContain(focus);
+      else expect(focused()).toBeNull();
+      expect(heading()).toBe(shown);
+    }
+  });
+
+  it("puts back each region's own open rows and selection on Back and Forward, without new entries", () => {
+    renderPage();
+    fireEvent.click(item(/Testia/));
+    expect(item(/^Genus/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Canada" }));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(screen.queryByRole("treeitem", { name: /^Genus/ })).toBeNull();
     act(() => navigate(-1));
-    expect(focused()).toContain("Testia");
-    expect(detailEmpty()).toBeTruthy();
+    expect(screen.getByTestId("url").textContent).toBe("");
+    expect(item(/^Genus/)).toBeTruthy();
+    expect(item(/Testia/).getAttribute("aria-selected")).toBe("true");
     act(() => navigate(1));
-    expect(focused()).toContain("Genus");
-    expect(detailEmpty()).toBeTruthy();
+    expect(screen.getByTestId("url").textContent).toContain("region=r-ca");
+    expect(screen.queryByRole("treeitem", { name: /^Genus/ })).toBeNull();
+    // Opening rows and selecting rewrote the entries in place: one more Back is Stats.
+    act(() => navigate(-2));
+    expect(screen.getByText("Stats page")).toBeTruthy();
   });
 
   it("clears the list's selection when its focus trail steps out", () => {
@@ -777,7 +806,7 @@ describe("TaxaExplorer selection and history", () => {
     act(() => genus.focus());
     fireEvent.click(genus);
     expect(focused()).toContain("Genus");
-    // Back swipe to the wider view: the clicked wedge is no longer selected.
+    // Back swipe to the wider view: the clicked wedge is no longer selected, its middle is.
     act(() => navigate(-1));
     expect(focused()).not.toContain("Genus");
     expect(screen.queryByRole("heading", { name: "Genus" })).toBeNull();
@@ -785,6 +814,7 @@ describe("TaxaExplorer selection and history", () => {
     expect(explorerMemory.selected).not.toBe("class:Testia/genus:Genus");
     // Forward re-enters the zoomed view; stepping out again leaves nothing selected.
     act(() => navigate(1));
+    expect(screen.getByRole("heading", { name: "Genus" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Step back out" }));
     expect(selectedArcs()).toEqual([]);
     // A reload on the wider view restores no selection.

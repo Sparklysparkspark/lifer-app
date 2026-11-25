@@ -2,7 +2,7 @@
 // Back returns to the saved spot even when the page is too short at first, and holds it while the
 // page settles.
 import { act, render } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useNavigate, type NavigateFunction } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useScrollMemory } from "./useScrollMemory";
 
@@ -109,5 +109,39 @@ describe("useScrollMemory", () => {
     maxScroll = 50_000;
     resize();
     expect(scrollY()).toBe(0);
+  });
+
+  it("returns to each entry's own spot on Back and Forward within the same page", () => {
+    maxScroll = 50_000;
+    sessionStorage.setItem("lifer:scroll:b", JSON.stringify({ y: 300 }));
+    let navigate: NavigateFunction = () => {};
+    function Nav() {
+      navigate = useNavigate();
+      return null;
+    }
+    render(
+      <MemoryRouter
+        initialIndex={0}
+        initialEntries={[
+          { pathname: "/explore", key: "entry" },
+          { pathname: "/explore", search: "?focus=x", key: "b" },
+        ]}
+      >
+        <Page ready />
+        <Nav />
+      </MemoryRouter>,
+    );
+    act(() => vi.advanceTimersByTime(100));
+    expect(scrollY()).toBe(900);
+    // A browser reports the restore as a scroll, which saves the spot for its own entry.
+    window.history.replaceState({ key: "entry" }, "");
+    act(() => void window.dispatchEvent(new Event("scroll")));
+    act(() => vi.advanceTimersByTime(20));
+    act(() => navigate(1));
+    act(() => vi.advanceTimersByTime(100));
+    expect(scrollY()).toBe(300);
+    act(() => navigate(-1));
+    act(() => vi.advanceTimersByTime(100));
+    expect(scrollY()).toBe(900);
   });
 });
