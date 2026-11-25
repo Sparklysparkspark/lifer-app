@@ -4,6 +4,7 @@
 import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
 import { pool, withTransaction } from "@lifer/core/db.js";
+import { packRegionIdSql } from "@lifer/core/regions/regionTree.js";
 import { EBIRD_SENSITIVE_SPECIES } from "@lifer/core/species/sensitiveSpecies.js";
 import { requireScope } from "../auth/session.js";
 import { IdParams, Nullable, Open, notFoundOnInvalidId, replies, Uuid, withSchemas } from "../lib/schema.js";
@@ -111,7 +112,7 @@ export async function phoneSyncRoutes(fastify: FastifyInstance): Promise<void> {
         pool.query<{ s: string[] }>(`SELECT species_naming_styles AS s FROM users WHERE id = $1`, [userId]),
         pool.query(
           `SELECT p.region AS name, array_agg(p.pack_id ORDER BY p.pack_id) AS pack_ids, sum(p.species_count)::int AS species_count,
-                (SELECT r.id FROM regions r WHERE r.name = p.region ORDER BY cardinality(r.external_codes) DESC LIMIT 1) AS region_id
+                (${packRegionIdSql("p.region")}) AS region_id
            FROM downloaded_packs p WHERE p.region IS NOT NULL GROUP BY p.region ORDER BY p.region`,
         ),
       ]);

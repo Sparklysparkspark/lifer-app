@@ -13,6 +13,13 @@ const childless = (alias: string) => `NOT EXISTS (SELECT 1 FROM regions k WHERE 
 export const descendantIdsSql = (region: string): string =>
   `SELECT d.id FROM regions d WHERE d.parent_id = ${region} OR d.home_country_id = ${region} OR d.parent_id IN (SELECT g.id FROM regions g WHERE g.parent_id = ${region})`;
 
+/** Id of the region a pack is named after: a country, or a province shown under its continent
+ *  (its parent has no codes). Never a province of the same name (Belize District in Belize). */
+export const packRegionIdSql = (name: string): string =>
+  `SELECT pack_r.id FROM regions pack_r LEFT JOIN regions pack_p ON pack_p.id = pack_r.parent_id
+   WHERE pack_r.name = ${name} AND COALESCE(array_length(pack_p.external_codes, 1), 0) = 0
+   ORDER BY pack_r.id LIMIT 1`;
+
 /** Ids of a country's provinces, grouped or not, including any shown under its continent. */
 export const provinceIdsSql = (country: string): string =>
   `SELECT p.id FROM regions p

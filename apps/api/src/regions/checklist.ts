@@ -279,9 +279,13 @@ const REGION_VIEW_JOINS = `LEFT JOIN region_species rs ON rs.species_id = s.id A
 const TAXON_FILTER_SQL = (taxonParam: string) =>
   `((${taxonParam}::text[] IS NULL) OR (${taxonParam} @> ARRAY['other-taxa']::text[] AND s.is_other_taxa = true) OR s.taxon_class = ANY(${taxonParam})) AND COALESCE(t.fully_extinct, false) = false`;
 
+// A species on your list shows despite the obscure filter, but a vagrant listing only when you
+// photographed it in this region: a stray photographed elsewhere isn't this region's.
+const OWNED_HERE_SQL = `((${ALREADY_OWNED_SQL} AND NOT ${REGION_VAGRANT_SQL}) OR s.id IN (SELECT species_id FROM photographed_here))`;
+
 // Needs `t`, `us`, `uas`, `rsh` and REGION_VIEW_JOINS.
 const regionViewFilterSql = (maxDepthM: number) => `${TAXON_FILTER_SQL(P.taxon)}
-           AND (${P.hideObscure} = false OR ${ALREADY_OWNED_SQL} OR ${ADDED_BY_USER_SQL} OR NOT (${obscureSpeciesSql(maxDepthM)} OR ${REGION_VAGRANT_SQL}))
+           AND (${P.hideObscure} = false OR ${OWNED_HERE_SQL} OR ${ADDED_BY_USER_SQL} OR NOT (${obscureSpeciesSql(maxDepthM)} OR ${REGION_VAGRANT_SQL}))
            AND ${NOT_ARCHIVED_SQL}
            AND ${NOT_REGION_HIDDEN_SQL}
            AND (rs.region_id IS NULL OR ${ADDED_BY_USER_SQL} OR s.id IN (${capturedInTreeSql(P.user, "true")}) OR ${taxonPackDownloadedSql(P.packRegion)})`;
@@ -578,7 +582,8 @@ export async function regionChecklistRoutes(fastify: FastifyInstance): Promise<v
          ${checklistItemJoins("$1")}
          LEFT JOIN region_species_hidden rsh ON rsh.user_id = $1 AND rsh.species_id = s.id AND rsh.region_id = rs.region_id
          WHERE ${TAXON_FILTER_SQL("$3")}
-           AND ($4 = false OR ${ALREADY_OWNED_SQL} OR ${ADDED_IN_TREE_SQL} OR NOT (${obscureSpeciesSql(maxDepthM)} OR ${REGION_VAGRANT_SQL}))
+           AND ($4 = false OR (${ALREADY_OWNED_SQL} AND NOT ${REGION_VAGRANT_SQL}) OR s.id IN (${capturedInTreeSql("$1", "true")})
+                OR ${ADDED_IN_TREE_SQL} OR NOT (${obscureSpeciesSql(maxDepthM)} OR ${REGION_VAGRANT_SQL}))
            AND ${NOT_ARCHIVED_SQL}
            AND ${NOT_REGION_HIDDEN_SQL}
            -- A species you've photographed or added yourself stays even without its group's pack.

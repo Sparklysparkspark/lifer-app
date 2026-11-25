@@ -2,7 +2,7 @@
 import { rmSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
-import { descendantIdsSql } from "@lifer/core/regions/regionTree.js";
+import { descendantIdsSql, packRegionIdSql } from "@lifer/core/regions/regionTree.js";
 import type { FastifyInstance } from "fastify";
 import { Type, type Static } from "typebox";
 import { subdivisionLabelFor } from "@lifer/shared";
@@ -53,9 +53,10 @@ async function computeDeleteImpact(packId: string): Promise<DeleteImpact | null>
   let seaZoneId: string | null = null;
   const checklistRegionsAffected: string[] = [];
   if (packRegionName) {
-    const regionRes = await pool.query<{ id: string; name: string }>(`SELECT id, name FROM regions WHERE name = $1`, [
-      packRegionName,
-    ]);
+    const regionRes = await pool.query<{ id: string; name: string }>(
+      `SELECT id, name FROM regions WHERE id = (${packRegionIdSql("$1")})`,
+      [packRegionName],
+    );
     if (regionRes.rows.length > 0) {
       const { id, name } = regionRes.rows[0];
       regionIds.push(id);
@@ -286,7 +287,7 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
       if (packRes.rows.length === 0) return reply.code(404).send({ error: "No downloaded region found with that id" });
       const { region, applied_province_region_ids: appliedIds } = packRes.rows[0];
       if (!region) return { provinces: [], subdivisionLabel: "Provinces" };
-      const regionRes = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [region]);
+      const regionRes = await pool.query<{ id: string }>(packRegionIdSql("$1"), [region]);
       const regionId = regionRes.rows[0]?.id;
       if (!regionId) return { provinces: [], subdivisionLabel: "Provinces" };
       const childrenRes = await pool.query<{ id: string; name: string; subdivision_type: string | null }>(
@@ -329,7 +330,7 @@ export async function packRemoveRoutes(fastify: FastifyInstance): Promise<void> 
       if (packRes.rows.length === 0) return reply.code(404).send({ error: "No downloaded region found with that id" });
       const { region, applied_province_region_ids: appliedIds } = packRes.rows[0];
       if (!region) return reply.code(400).send({ error: "This downloaded region has no provinces" });
-      const regionRes = await pool.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [region]);
+      const regionRes = await pool.query<{ id: string }>(packRegionIdSql("$1"), [region]);
       const regionId = regionRes.rows[0]?.id;
       if (!regionId) return reply.code(400).send({ error: "This download's region no longer exists" });
 

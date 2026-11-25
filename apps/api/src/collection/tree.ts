@@ -106,7 +106,8 @@ interface Row {
 // as GET /collection/count counts it. Photos are visible captures (the `captures` view hides trash);
 // the best one uses the shared order. It starts from the few species COLLECTION_WHERE can keep
 // rather than scanning the whole catalogue. With a region ($4), only the species on its checklist
-// or one inside it, or that you photographed or added there, less those you hid there. The ones
+// or one inside it (vagrant listings left out), or that you photographed or added there, less those
+// you hid there. The ones
 // inside it are looked up per candidate in region_species_rollup, or while that's being rebuilt
 // read from every row of the region's subtree, which is correct but takes seconds for a continent.
 type RegionSource = "rollup" | "subtree" | null;
@@ -126,9 +127,9 @@ const treeSql = (maxDepthM: number, region: RegionSource) => `WITH RECURSIVE ${
     ${
       region === "rollup"
         ? `SELECT species_id FROM candidates c
-      WHERE EXISTS (SELECT 1 FROM region_species x WHERE x.region_id = $4 AND x.species_id = c.species_id)
+      WHERE EXISTS (SELECT 1 FROM region_species x WHERE x.region_id = $4 AND x.species_id = c.species_id AND NOT x.is_vagrant)
         OR EXISTS (SELECT 1 FROM region_species_rollup x WHERE x.region_id = $4 AND x.species_id = c.species_id)`
-        : "SELECT species_id FROM region_species WHERE region_id IN (SELECT id FROM region_tree)"
+        : "SELECT species_id FROM region_species WHERE region_id IN (SELECT id FROM region_tree) AND NOT is_vagrant"
     }
     UNION ${capturedInTreeSql("$1", "true")}
     UNION ${userAddedInTreeSql("$1")}

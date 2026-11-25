@@ -165,6 +165,23 @@ describe.skipIf(!url)("applyPack checklist replacement", () => {
     expect(result.skippedNames).toEqual(["Zzpacka unknown"]);
   });
 
+  it("applies to the country, never a province that shares its name", async () => {
+    // Belize has a Belize District. A name lookup meets the district first here: an index on
+    // (name, parent_id) sorts the country's NULL parent last, and the update moves its row last.
+    const district = (
+      await db.query<{ id: string }>(
+        `INSERT INTO regions (name, parent_id, external_codes) VALUES ($1, $2, '{ZZP-ZZ}') RETURNING id`,
+        [COUNTRY, countryId],
+      )
+    ).rows[0].id;
+    await db.query(`UPDATE regions SET external_codes = external_codes WHERE id = $1`, [countryId]);
+    await apply({ type: "region", region: COUNTRY, taxon: "aves", species: [species("Zzpacka newcomer")] });
+    const rows = await db.query(`SELECT region_id FROM region_species WHERE species_id = $1`, [NEW_IN_PACK]);
+    expect(rows.rows).toEqual([{ region_id: countryId }]);
+    const touched = await db.query(`SELECT occurrence_computed_at FROM regions WHERE id = $1`, [district]);
+    expect(touched.rows[0].occurrence_computed_at).toBeNull();
+  });
+
   it("an all-taxa pack replaces every class", async () => {
     await apply({ type: "region", region: COUNTRY, taxon: null, species: [species("Zzpacka kept")] });
     expect(await checklist(COUNTRY)).toEqual(["Zzpacka kept"]);

@@ -1,10 +1,11 @@
 // region_species_rollup (migration 198): the species of each region's subtree that its own
-// checklist lacks, so a continent's species are one indexed read instead of every province's rows.
+// checklist lacks, vagrant listings left out, so a continent's species are one indexed read instead of every province's rows.
 // It is rebuilt in full, in the background, whenever region_checklist_version has moved on.
 import { pool, withTransaction } from "@lifer/core/db.js";
 import { log } from "@lifer/core/lib/log.js";
 
-const BUILT_KEY = "region_species_rollup_version";
+// v2 left vagrant listings out; a new key makes every install rebuild once.
+const BUILT_KEY = "region_species_rollup_version_v2";
 const CURRENT_VERSION_SQL = `(SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM region_checklist_version)`;
 // Any fixed key: a second process sharing the database skips a rebuild already running.
 const REBUILD_LOCK = 7_420_198;
@@ -27,8 +28,8 @@ const REBUILD_SQL = `INSERT INTO region_species_rollup (region_id, species_id)
     UNION SELECT t.root, r.id FROM regions r JOIN t ON r.parent_id = t.id
   )
   SELECT DISTINCT t.root, rs.species_id FROM t JOIN region_species rs ON rs.region_id = t.id
-  WHERE t.root <> t.id
-    AND NOT EXISTS (SELECT 1 FROM region_species own WHERE own.region_id = t.root AND own.species_id = rs.species_id)`;
+  WHERE t.root <> t.id AND NOT rs.is_vagrant
+    AND NOT EXISTS (SELECT 1 FROM region_species own WHERE own.region_id = t.root AND own.species_id = rs.species_id AND NOT own.is_vagrant)`;
 
 async function rebuild(): Promise<void> {
   const version = (await pool.query<{ v: string }>(`SELECT ${CURRENT_VERSION_SQL}::text AS v`)).rows[0].v;

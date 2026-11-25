@@ -609,9 +609,11 @@ async function foldDroppedDuplicateRegions(client: PoolClient): Promise<void> {
   await client.query(`CREATE INDEX ON region_tree (parent_id, name)`);
   await client.query(`ANALYZE region_tree`);
   // A dropped region matches a kept one of its name in its own slot (which the kept one needs),
-  // else a leaf one level apart (one copy under a group, the other beside that group). An
-  // ambiguous match folds nothing. Two eBird codes that differ are two places, never folded;
-  // compared before the update, since the seed may renumber the kept one's code.
+  // else a leaf one level apart (one copy under a group, the other beside that group), else the
+  // kept one with its name and eBird code anywhere (a pack once applied under a province sharing
+  // its country's name nested copies there). An ambiguous match folds nothing. Two eBird codes
+  // that differ are two places, never folded; compared before the update, since the seed may
+  // renumber the kept one's code.
   const sameCode = (a: string, b: string) => `(${a}.code IS NULL OR ${b}.code IS NULL OR ${a}.code = ${b}.code)`;
   await client.query(
     `CREATE TEMP TABLE region_fold ON COMMIT DROP AS
@@ -629,6 +631,8 @@ async function foldDroppedDuplicateRegions(client: PoolClient): Promise<void> {
        SELECT d.id, k.id, 2 FROM dropped d JOIN region_next k ON k.name = d.name
          JOIN region_tree p ON p.id = d.parent_id JOIN leaf ld ON ld.id = d.id JOIN leaf lk ON lk.id = k.id
         WHERE p.parent_id = k.parent_id AND ${sameCode("d", "k")}
+       UNION ALL
+       SELECT d.id, k.id, 3 FROM dropped d JOIN region_next k ON k.name = d.name AND k.code = d.code
      ),
      best AS (SELECT dup_id, min(rank) AS rank FROM cand GROUP BY dup_id)
      SELECT c.dup_id, min(c.keep_id::text)::uuid AS keep_id

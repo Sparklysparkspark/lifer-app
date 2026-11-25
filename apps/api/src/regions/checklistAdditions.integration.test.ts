@@ -333,6 +333,22 @@ describe.skipIf(!url)("checklist additions", () => {
     });
   });
 
+  it("shows a vagrant on your list only where you photographed it", async () => {
+    await db.query(`UPDATE region_species SET is_vagrant = true WHERE species_id = $1`, [LISTED]);
+    await db.query(`INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'collected')`, [
+      USER,
+      LISTED,
+    ]);
+    // Photographed in another country: a stray listing here isn't yours here.
+    expect(await ids(countryId)).not.toContain(LISTED);
+    await db.query(
+      `INSERT INTO captures_all (user_id, species_id, fingerprint, region_id) VALUES ($1, $2, 'zzadd-vagrant', $3)`,
+      [USER, LISTED, provinceId],
+    );
+    expect(await ids(provinceId)).toContain(LISTED);
+    expect(await ids(countryId)).toContain(LISTED);
+  });
+
   it("keeps each user's additions to themselves", async () => {
     await call("PUT", addition(provinceId, MISSING));
     expect((await checklist(provinceId, "other")).map((i) => i.speciesId)).not.toContain(MISSING);

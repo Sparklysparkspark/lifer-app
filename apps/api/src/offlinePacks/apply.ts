@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import * as tar from "tar";
 import type { PoolClient } from "pg";
-import { descendantIdsSql } from "@lifer/core/regions/regionTree.js";
+import { descendantIdsSql, packRegionIdSql } from "@lifer/core/regions/regionTree.js";
 import { RAW_CACHE_DIR } from "@lifer/core/config.js";
 import { fetchProvincesForCountry } from "@lifer/core/regions/regionBoundary.js";
 import { log } from "@lifer/core/lib/log.js";
@@ -697,7 +697,7 @@ export async function prefetchPackProvinces(
       "region download's manifest",
     );
     if (manifest.type !== "region" || !manifest.region) return null;
-    const res = await db.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [manifest.region]);
+    const res = await db.query<{ id: string }>(packRegionIdSql("$1"), [manifest.region]);
     return provincesForManifest(db, manifest, res.rows[0]?.id ?? null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -737,7 +737,7 @@ export async function applyPack(
     let regionId: string | null = null;
     let seaZoneId: string | null = null;
     if (manifest.type === "region" && manifest.region) {
-      const res = await db.query<{ id: string }>(`SELECT id FROM regions WHERE name = $1`, [manifest.region]);
+      const res = await db.query<{ id: string }>(packRegionIdSql("$1"), [manifest.region]);
       regionId = res.rows[0]?.id ?? null;
     } else if (manifest.type === "seaZone" && manifest.seaZone) {
       const res = await db.query<{ id: string }>(`SELECT id FROM sea_zones WHERE name = $1`, [manifest.seaZone]);

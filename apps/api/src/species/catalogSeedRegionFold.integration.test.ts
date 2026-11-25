@@ -261,6 +261,97 @@ describe.skipIf(!url)("catalog update folds dropped duplicate regions (integrati
   });
 });
 
+// A pack applied under a province that shares its country's name (Belize District in Belize)
+// nested copies of that province and its neighbours under it, which no seed lists.
+describe.skipIf(!url)("catalog update folds copies nested under a same-named province (integration)", () => {
+  const pool = new pg.Pool({ connectionString: url });
+  const q = (sql: string, params: unknown[] = []) => pool.query(sql, params);
+  const nid = (n: number) => `b2b20000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  const [CT, BZ, BZD, CAYO, G1, G2, G3] = [1, 2, 3, 4, 5, 6, 7].map(nid);
+  const ALL = [CT, BZ, BZD, CAYO, G1, G2, G3];
+  const [SP1, SP2] = [nid(101), nid(102)];
+  const USER3 = nid(201);
+  const row = (id: string, name: string, parent: string | null, code: string | null) =>
+    `${id}\t${name}\t${parent ?? "\\N"}\t${code ?? "\\N"}`;
+
+  function nestSeed(): string {
+    const dump = [
+      "COPY public.regions (id, name, parent_id, ebird_region_code) FROM stdin;",
+      row(CT, "Nestia Continent", null, null),
+      row(BZ, "Nestia", CT, null),
+      row(BZD, "Nestia", BZ, "NZ-NZ"),
+      row(CAYO, "Cayo", BZ, "NZ-CY"),
+      "\\.",
+      "",
+      "COPY public.region_species (region_id, species_id, is_vagrant, is_invasive) FROM stdin;",
+      `${BZD}\t${SP1}\tf\tf`,
+      "\\.",
+      "",
+    ].join("\n");
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "lifer-region-nest-")), "seed.sql.gz");
+    writeFileSync(file, gzipSync(dump));
+    return file;
+  }
+
+  const cleanup = async () => {
+    await q(`DELETE FROM users WHERE id = $1`, [USER3]);
+    for (const r of [...ALL].reverse()) await q(`DELETE FROM regions WHERE id = $1`, [r]);
+    await q(`DELETE FROM species WHERE id = ANY($1)`, [[SP1, SP2]]);
+  };
+  afterAll(async () => {
+    await cleanup();
+    await whenSpeciesSearchReady();
+    await pool.end();
+  });
+
+  it("folds each nested copy into the region with its name and eBird code, with the user's photos", async () => {
+    await cleanup();
+    await q(
+      `INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, 990301, 'Nestia prima', 'aves'), ($2, 990302, 'Nestia secunda', 'aves')`,
+      [SP1, SP2],
+    );
+    const local: Array<[string, string, string | null, string | null]> = [
+      [CT, "Nestia Continent", null, null],
+      [BZ, "Nestia", CT, null],
+      [BZD, "Nestia", BZ, "NZ-NZ"],
+      [CAYO, "Cayo", BZ, "NZ-CY"],
+      [G1, "Nestia", BZD, "NZ-NZ"],
+      [G2, "Nestia", G1, "NZ-NZ"],
+      [G3, "Cayo", G1, "NZ-CY"],
+    ];
+    for (const [id, name, parent, code] of local)
+      await q(`INSERT INTO regions (id, name, parent_id, ebird_region_code) VALUES ($1, $2, $3, $4)`, [
+        id,
+        name,
+        parent,
+        code,
+      ]);
+    // The country's whole list, applied to the copy.
+    await q(`INSERT INTO region_species (region_id, species_id) VALUES ($1, $2), ($1, $3)`, [G1, SP1, SP2]);
+    await q(`INSERT INTO users (id, email, password_hash) VALUES ($1, 'region-nest@test', 'x')`, [USER3]);
+    await q(
+      `INSERT INTO captures_all (user_id, species_id, fingerprint, region_id) VALUES ($1, $2, 'zznest-1', $3), ($1, $2, 'zznest-2', $4)`,
+      [USER3, SP1, G2, G3],
+    );
+
+    const merged = await applyCatalogSeedFile(pool, nestSeed(), null, noProgress);
+    expect(merged.regionsFolded).toBe(3);
+    const left = await q(`SELECT id FROM regions WHERE id = ANY($1) ORDER BY id`, [ALL]);
+    expect(left.rows.map((r) => r.id)).toEqual([CT, BZ, BZD, CAYO]);
+    const captures = await q(`SELECT fingerprint, region_id FROM captures_all WHERE user_id = $1 ORDER BY 1`, [USER3]);
+    expect(captures.rows).toEqual([
+      { fingerprint: "zznest-1", region_id: BZD },
+      { fingerprint: "zznest-2", region_id: CAYO },
+    ]);
+    // The seed's list for the district wins over the copy's.
+    const checklist = await q(`SELECT species_id FROM region_species WHERE region_id = $1`, [BZD]);
+    expect(checklist.rows).toEqual([{ species_id: SP1 }]);
+
+    const again = await applyCatalogSeedFile(pool, nestSeed(), null, noProgress);
+    expect(again.regionsFolded).toBeUndefined();
+  });
+});
+
 // Places that only look alike must never fold, and user data on both copies of a real duplicate
 // (and on a dropped region's children) must all survive.
 describe.skipIf(!url)("catalog update never folds look-alike regions (integration)", () => {

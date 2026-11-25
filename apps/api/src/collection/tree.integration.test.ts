@@ -249,6 +249,27 @@ describe.skipIf(!url)("collection tree", () => {
     expect((await get("/api/collection/tree?regionId=nope")).statusCode).toBe(400);
   });
 
+  it("leaves a vagrant listing out of a region you didn't photograph it in", async () => {
+    type N = { name: string; children: N[] };
+    const leaves = (nodes: N[]): string[] => nodes.flatMap((n) => (n.children.length ? leaves(n.children) : [n.name]));
+    const leavesIn = async (regionId: string) =>
+      leaves((await get(`/api/collection/tree?include=uncollected&regionId=${regionId}`)).json().tree);
+    // Delta is on your list, seen elsewhere; the province lists it only as a vagrant.
+    await db.query(`INSERT INTO region_species (region_id, species_id, is_vagrant) VALUES ($1, $2, true)`, [
+      PROVINCE,
+      SP_D,
+    ]);
+    try {
+      expect(await leavesIn(PROVINCE)).not.toContain("Rootus deltus");
+      await ensureRegionRollup();
+      expect(await regionRollupFresh()).toBe(true);
+      expect(await leavesIn(CONTINENT)).not.toContain("Rootus deltus");
+      expect(await leavesIn(COUNTRY)).not.toContain("Rootus deltus");
+    } finally {
+      await db.query(`DELETE FROM region_species WHERE region_id = $1 AND species_id = $2`, [PROVINCE, SP_D]);
+    }
+  });
+
   it("filters by a continent through the rollup, rebuilt after a pack install or removal, with hides and additions at once", async () => {
     type N = { name: string; children: N[] };
     const leaves = (nodes: N[]): string[] => nodes.flatMap((n) => (n.children.length ? leaves(n.children) : [n.name]));
