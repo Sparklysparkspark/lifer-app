@@ -1,4 +1,4 @@
-// The Stats page with photos: the insight cards, the chart controls, the photo filter's reload,
+// The Stats page with photos: the insight cards, photos over time, the chart controls, the photo filter's reload,
 // collection intelligence, archive health, year over year and the CSV export. Runs after
 // import.spec.ts: see pages-trip-detail.spec.ts. Its photos are the only ones from 2025 and 2026,
 // so they're the two years compared by default.
@@ -29,9 +29,17 @@ test("shows stats for the library and exports them", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.getByText("Top camera")).toBeVisible();
 
+  // Photos over time draws one bar per month, or per year; its screen reader table lists them.
+  await expect(page.getByRole("heading", { name: "Photos over time" })).toBeVisible();
+  const timeline = page.getByRole("table", { name: "Photos over time" });
+  await expect(timeline.getByRole("rowheader", { name: "December 2025" })).toBeAttached();
+  const groupBy = page.getByRole("group", { name: "Group by" });
+  await groupBy.getByRole("button", { name: "Years" }).click();
+  await expect(timeline.getByRole("rowheader", { name: "2025", exact: true })).toBeAttached();
+  await groupBy.getByRole("button", { name: "Months" }).click();
+  await expect(timeline.getByRole("rowheader", { name: "December 2025" })).toBeAttached();
+
   // Chart controls switch what each chart plots.
-  await page.getByLabel("Monthly metric").selectOption("keepers");
-  await expect(page.getByLabel("Monthly metric")).toHaveValue("keepers");
   await page.getByLabel("X axis").selectOption("iso");
   await page.getByLabel("Y axis").selectOption("aperture");
   await expect(page.getByLabel("X axis")).toHaveValue("iso");
@@ -50,7 +58,7 @@ test("shows stats for the library and exports them", async ({ page }) => {
   await expect(page.getByText("By animal group")).toBeVisible();
 
   // Year over year compares the two most recent years, and either can be changed.
-  const table = page.getByRole("table");
+  const table = page.getByRole("table").filter({ has: page.getByRole("columnheader", { name: "2025" }) });
   await expect(table.getByRole("columnheader", { name: "2026" })).toBeVisible();
   await expect(table.getByRole("columnheader", { name: "2025" })).toBeVisible();
   const compared = page.waitForResponse((res) =>

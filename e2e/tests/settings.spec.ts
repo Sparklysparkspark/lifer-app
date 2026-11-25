@@ -71,7 +71,7 @@ test("a file name preset persists and previews a name", async ({ page }) => {
 test("sensitive species can be turned off, and the list says so", async ({ page }) => {
   const label = "Hide locations of sensitive species";
   await page.goto("/settings/metadata");
-  await expect(page.getByRole("heading", { name: "Copyright and captions" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Copyright and credits" })).toBeVisible();
   const toggle = page.getByRole("switch", { name: label });
   await expect(toggle).toBeChecked();
   await toggle.click();

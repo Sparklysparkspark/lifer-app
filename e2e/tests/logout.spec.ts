@@ -24,7 +24,8 @@ test("logs in, logs out and logs back in", async ({ page }) => {
 
   await logIn(page, ACCOUNT.password);
   await expect(page).toHaveURL(/\/(\?.*)?$/);
-  await expect(page.getByText(/^\d+ of \d+ photographed$/)).toBeVisible();
+  // The page header's count; the class bands and cards say it too.
+  await expect(page.locator("[data-tour=collection-header]").getByText(/^\d+ of \d+ photographed$/)).toBeVisible();
 
   await page.getByRole("button", { name: "Account menu" }).click();
   await page.getByRole("menuitem", { name: "Log out" }).click();

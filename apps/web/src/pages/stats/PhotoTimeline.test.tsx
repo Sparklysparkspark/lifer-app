@@ -91,6 +91,20 @@ describe("PhotoTimeline", () => {
     ).toEqual(["2019", "2020", "2021"]);
   });
 
+  it("draws the range handles at real positions when a reload adds months", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const timeline = (m: typeof months) => (
+      <MemoryRouter>
+        <PhotoTimeline months={m} undated={0} range={null} onRangeChange={vi.fn()} />
+      </MemoryRouter>
+    );
+    const { rerender } = render(timeline(months.slice(0, 1)));
+    rerender(timeline(months));
+    expect(errors.mock.calls.filter((c) => c.join(" ").includes("NaN"))).toEqual([]);
+    expect(document.querySelector("svg [x='NaN'], svg [x1='NaN']")).toBeNull();
+    errors.mockRestore();
+  });
+
   it("with no dated photos, shows only the note", () => {
     renderTimeline({ months: [], undated: 1 });
     expect(screen.getByText("1 photo without a date")).toBeTruthy();

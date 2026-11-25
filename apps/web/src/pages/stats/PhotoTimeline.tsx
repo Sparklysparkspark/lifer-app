@@ -186,6 +186,8 @@ export default function PhotoTimeline({
                 />
               ))}
               <Brush
+                // Remounts when the bin count changes: recharts keeps the old scale for a render, so a new end index plots at NaN.
+                key={bins.length}
                 dataKey="key"
                 height={32}
                 startIndex={start}

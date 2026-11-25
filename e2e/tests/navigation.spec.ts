@@ -54,7 +54,8 @@ test("every top-level page loads cleanly", async ({ page }) => {
 
   // The logo goes back to the collection, the page the app opens on.
   await page.getByLabel("Collection").click();
-  await expect(page.getByText(/^\d+ of \d+ photographed$/)).toBeVisible();
+  // The page header's count; the class bands and cards say it too.
+  await expect(page.locator("[data-tour=collection-header]").getByText(/^\d+ of \d+ photographed$/)).toBeVisible();
 });
 
 test("missing files are 404s, while app routes get the web app", async ({ request }) => {
