@@ -36,6 +36,12 @@ The **Needs placing** list holds every photo without coordinates, grouped the wa
 
 Each group shows a few photos, its date and its region. Click a photo, in the group's thumbnails or under **Show photos**, to see it bigger; the arrow keys move through the rest of the group, and Esc comes back. To place only some of a group, click **Select** (or Cmd-click or Shift-click a photo; Ctrl-click on Windows and Linux): then a click ticks a photo, Shift-click ticks a range, the **Select** menu picks all or none, and **Done** leaves select mode.
 
+### Fixing a region {#change-region}
+
+If a group is filed under the wrong country or province, click **Change region** on it and pick the right one, such as Canada or British Columbia. It changes only that group, or only the photos you ticked in it, and leaves any point alone. The group moves under its new region in the list, the counts update, and the toast has **Undo**. In the Gallery, select photos and choose **Set region**; for one photo, its location in the viewer or photo menu does the same.
+
+Once every group of a trip is in the list, the trip's heading has **Place all** and **Change region** for the whole trip. **Place** and **Change region** on a group only touch that group.
+
 ## Placing photos {#placing}
 
 Photos from a camera or phone with GPS are on the map already. For the others, put a pin down, then place:
@@ -72,7 +78,7 @@ An online result isn't one of your places yet: picking one fills in the point, a
 
 ## Undo {#undo}
 
-Every location change (placing, removing, filing under a spot, typed coordinates) goes on one history. The toast after a change has **Undo**, and Cmd+Z on a Mac (Ctrl+Z elsewhere) on the map walks back up to 20 changes, putting back each photo's point, region, place name and accuracy. The history lasts until Lifer quits.
+Every location change (placing, removing, filing under a spot, typed coordinates, a region changed from Needs placing) goes on one history. The toast after a change has **Undo**, and Cmd+Z on a Mac (Ctrl+Z elsewhere) on the map walks back up to 20 changes, putting back each photo's point, region, place name and accuracy. The history lasts until Lifer quits.
 
 Placing more than 5,000 photos at once runs in the background, with progress and **Cancel** above the map. You can keep using Lifer meanwhile; a toast with **Undo** says when it's done.
 

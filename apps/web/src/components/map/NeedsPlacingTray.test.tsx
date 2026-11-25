@@ -16,6 +16,22 @@ vi.mock("../Lightbox", () => ({
   ),
 }));
 
+// The shared picker, reduced to its result: the user picks Canada.
+vi.mock("../SetRegionDialog", () => ({
+  default: ({ count, onSet, onClose }: { count: number; onSet: (id: string, label: string) => void; onClose: () => void }) => (
+    <div role="dialog" aria-label={`Set region of ${count}`}>
+      <button
+        onClick={() => {
+          onSet("canada", "");
+          onClose();
+        }}
+      >
+        Pick Canada
+      </button>
+    </div>
+  ),
+}));
+
 const { default: NeedsPlacingTray } = await import("./NeedsPlacingTray");
 
 const group = (key: string, tripId: string | null, count: number) => ({
@@ -41,7 +57,7 @@ function serve() {
 
 afterEach(() => vi.clearAllMocks());
 
-function renderTray(onPlace = vi.fn()) {
+function renderTray(onPlace = vi.fn(), onSetRegion = vi.fn().mockResolvedValue(true)) {
   render(
     <NeedsPlacingTray
       queryString="taxa=aves"
@@ -51,6 +67,7 @@ function renderTray(onPlace = vi.fn()) {
       refreshKey={0}
       busy={false}
       onPlace={onPlace}
+      onSetRegion={onSetRegion}
       onDragSource={() => {}}
     />,
   );
@@ -119,5 +136,58 @@ describe("NeedsPlacingTray", () => {
     expect(get.mock.calls.some((c) => String(c[0]).includes("unplaced/photos"))).toBe(false);
     await onPlace.mock.calls[0][0].ids();
     expect(String(get.mock.calls.find((c) => String(c[0]).includes("unplaced/photos"))?.[0])).toContain("key=k2");
+  });
+
+  it("changes the region of one row's photos only", async () => {
+    serve();
+    const onSetRegion = vi.fn().mockResolvedValue(true);
+    renderTray(vi.fn(), onSetRegion);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Change region" }))[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Pick Canada" }));
+    await waitFor(() => expect(onSetRegion).toHaveBeenCalledWith(["a", "b", "c", "d"], { id: "canada", label: "" }));
+    const fetched = get.mock.calls.map((c) => String(c[0])).filter((p) => p.includes("unplaced/photos"));
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0]).toContain("key=k2");
+  });
+
+  it("changes the region of the ticked photos when some are ticked", async () => {
+    serve();
+    const onSetRegion = vi.fn().mockResolvedValue(true);
+    renderTray(vi.fn(), onSetRegion);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Show photos" }))[0]);
+    await waitFor(() => expect(screen.getAllByTestId("photo-tile")).toHaveLength(4));
+    fireEvent.click(screen.getByRole("button", { name: "Select" }));
+    fireEvent.click(screen.getAllByRole("checkbox")[1]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Change region" })[0]);
+    expect(screen.getByRole("dialog", { name: "Set region of 1" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Pick Canada" }));
+    await waitFor(() => expect(onSetRegion).toHaveBeenCalledWith(["b"], { id: "canada", label: "" }));
+  });
+
+  it("offers Place all and Change region for a trip once all its groups are loaded", async () => {
+    get.mockImplementation((path: string) =>
+      path.startsWith("/gallery/map/unplaced/photos")
+        ? Promise.resolve({ captureIds: [path.includes("key=k1") ? "a" : "b"], photoIds: ["pa"] })
+        : Promise.resolve({ groups: [group("k1", "t1", 2), group("k2", "t1", 3)], nextCursor: null }),
+    );
+    const onPlace = vi.fn();
+    const onSetRegion = vi.fn().mockResolvedValue(true);
+    renderTray(onPlace, onSetRegion);
+    fireEvent.click(await screen.findByRole("button", { name: "Place 5 photos here" }));
+    expect(await onPlace.mock.calls[0][0].ids()).toEqual(["a", "b"]);
+    // Two rows and the trip heading.
+    const changes = screen.getAllByRole("button", { name: "Change region" });
+    expect(changes).toHaveLength(3);
+    fireEvent.click(changes[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Pick Canada" }));
+    await waitFor(() => expect(onSetRegion).toHaveBeenCalledWith(["a", "b"], { id: "canada", label: "" }));
+  });
+
+  it("leaves trip-wide actions off while part of the trip is on a later page", async () => {
+    serve();
+    renderTray();
+    await screen.findByText("Coast trip (5 photos)");
+    // One per row; none on the heading of a trip with a photo not loaded.
+    expect(screen.getAllByRole("button", { name: "Change region" })).toHaveLength(2);
   });
 });

@@ -23,6 +23,7 @@ import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { isTypingTarget } from "../hooks/useKeyboardShortcuts";
 import { useLocationJob, useUndoLocation } from "../hooks/useSavedSpots";
 import { useToast } from "../hooks/useToast";
+import { useAnnounceSuggestionChanges } from "../hooks/useAnnounceSuggestionChanges";
 import { reliefAvailable } from "../lib/pmtilesAvailable";
 import { ensurePmtilesProtocol, pmtilesStyle, tiltTerrain } from "../lib/pmtiles";
 import { MAP_FONT, token } from "../lib/mapStyle";
@@ -570,6 +571,7 @@ export default function PhotoMap({
   const { t } = useTranslation();
   const navigate = useNavigate();
   const toast = useToast();
+  const announceSuggestionChanges = useAnnounceSuggestionChanges();
   const { data, error, reload } = useApiResource<MapData>(`/gallery/map?${queryString}`);
   const spotsResource = useApiResource<{ spots: SavedSpot[] }>("/saved-spots");
   const spots = useMemo(() => spotsResource.data?.spots ?? [], [spotsResource.data]);
@@ -1433,8 +1435,9 @@ export default function PhotoMap({
     return c ? { lat: c.lat, lon: c.lng } : null;
   };
 
-  /** Sets (or with null clears) the point of these photos: a spot files them under it. */
-  async function setPoint(ids: string[], at: Pending | null): Promise<boolean> {
+  /** Sets (or with null clears) the point of these photos: a spot files them under it. With
+   *  `region`, only their region (and place name, if given) changes, in the same Undo history. */
+  async function setPoint(ids: string[], at: Pending | null, region?: { id: string; label: string }): Promise<boolean> {
     if (ids.length === 0) return false;
     setPlaceError(null);
     if (at?.spot)
@@ -1443,15 +1446,21 @@ export default function PhotoMap({
         // "Replace all" is the user's say-so to move camera GPS too; otherwise a photo keeps its own point.
         ...(replaceAll && { moveOwnPoints: true }),
       });
-    const body = { captureIds: ids, lat: at?.lat ?? null, lon: at?.lon ?? null };
+    const label = region?.label.trim();
+    const body = region
+      ? { captureIds: ids, lat: null, lon: null, keepPoint: true, regionId: region.id, ...(label && { locationLabel: label }) }
+      : { captureIds: ids, lat: at?.lat ?? null, lon: at?.lon ?? null };
     // The API runs these in the background; the job's own toast says when they're done.
+    // shortcut: that toast says Placed even for a region change; give the job a kind if that shows up.
     if (ids.length > SYNC_PLACE_MAX) return job.start("/captures/coordinates", body);
     setSaving(true);
     try {
       const res = await api.post("/captures/coordinates", body);
       refresh();
+      if (region) announceSuggestionChanges();
       const n = { count: res.updated, formatted: formatNumber(res.updated) };
-      toast.show(at ? t("gallery.map.placed", n) : t("gallery.map.removed", n), {
+      const done = region ? "gallery.map.tray.regionSet" : at ? "gallery.map.placed" : "gallery.map.removed";
+      toast.show(t(done, n), {
         tone: "success",
         actions: [{ label: t("gallery.map.undo"), onClick: () => void undo() }],
       });
@@ -1855,6 +1864,7 @@ export default function PhotoMap({
                   refreshKey={trayKey}
                   busy={busy}
                   onPlace={(source) => void placeSource(source)}
+                  onSetRegion={(ids, region) => setPoint(ids, null, region)}
                   onDragSource={(source) => (dragSource.current = source)}
                 />
               )}

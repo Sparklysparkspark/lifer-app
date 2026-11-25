@@ -15,9 +15,11 @@ import { useEscapeToClose } from "../../hooks/useEscapeToClose";
 import ProgressiveImg from "../ProgressiveImg";
 import SegmentedControl from "../SegmentedControl";
 import InlineSpinner from "../InlineSpinner";
+import SetRegionDialog from "../SetRegionDialog";
 
 export type PlacingGroup = ApiResponse<"/gallery/map/unplaced">["groups"][number];
 export type TrayState = "all" | "region" | "none";
+type SetRegion = (ids: string[], region: { id: string; label: string }) => Promise<unknown>;
 
 /** What a Place button or a drop on the map places: the ids are fetched only then. */
 export interface PlaceSource {
@@ -38,6 +40,7 @@ export default function NeedsPlacingTray({
   refreshKey,
   busy,
   onPlace,
+  onSetRegion,
   onDragSource,
 }: {
   queryString: string;
@@ -49,6 +52,8 @@ export default function NeedsPlacingTray({
   refreshKey: number;
   busy: boolean;
   onPlace: (source: PlaceSource) => void;
+  /** Files these photos under another region (a country or province), leaving any point alone. */
+  onSetRegion: SetRegion;
   /** A group (or its ticked photos) is being dragged towards the map; null when the drag ends. */
   onDragSource: (source: PlaceSource | null) => void;
 }) {
@@ -91,6 +96,22 @@ export default function NeedsPlacingTray({
     ids: async () => (ticked?.length ? ticked : (await photosOf(g)).captureIds),
   });
 
+  // A whole trip, once every one of its groups is loaded.
+  const tripSource = (tripId: string): PlaceSource | null => {
+    const parts = (groups ?? []).filter((g) => g.tripId === tripId);
+    const count = parts.reduce((n, g) => n + g.count, 0);
+    if (parts.length < 2 || count !== parts[0].tripCount) return null;
+    const one = parts.every((g) => g.regionId === parts[0].regionId);
+    return {
+      key: tripId,
+      count,
+      regionId: one ? parts[0].regionId : null,
+      regionName: one ? parts[0].regionName : null,
+      ids: async () => (await Promise.all(parts.map(photosOf))).flatMap((r) => r.captureIds),
+    };
+  };
+  const [regionFor, setRegionFor] = useState<PlaceSource | null>(null);
+
   const total = counts[state];
   return (
     <div className="space-y-3">
@@ -112,11 +133,18 @@ export default function NeedsPlacingTray({
           {groups.map((g, i) => (
             <li key={g.key}>
               {g.tripId !== groups[i - 1]?.tripId && (
-                <h3 className="break-words pt-3 pb-1 text-footnote font-semibold text-muted">
-                  {g.tripId
-                    ? `${g.tripName} ${t("gallery.map.tray.inTrip", { count: g.tripCount, formatted: formatNumber(g.tripCount) })}`
-                    : t("gallery.map.tray.noTrip")}
-                </h3>
+                <TripHeading
+                  title={
+                    g.tripId
+                      ? `${g.tripName} ${t("gallery.map.tray.inTrip", { count: g.tripCount, formatted: formatNumber(g.tripCount) })}`
+                      : t("gallery.map.tray.noTrip")
+                  }
+                  source={g.tripId ? tripSource(g.tripId) : null}
+                  pinDown={pinDown}
+                  busy={busy}
+                  onPlace={onPlace}
+                  onChangeRegion={setRegionFor}
+                />
               )}
               <GroupRow
                 group={g}
@@ -126,6 +154,7 @@ export default function NeedsPlacingTray({
                 source={(ticked) => groupSource(g, ticked)}
                 loadPhotos={() => photosOf(g)}
                 onPlace={onPlace}
+                onChangeRegion={setRegionFor}
                 onDragSource={onDragSource}
               />
             </li>
@@ -147,6 +176,56 @@ export default function NeedsPlacingTray({
           {t("gallery.map.showMore")}
         </Button>
       )}
+      {regionFor && (
+        <SetRegionDialog
+          count={regionFor.count}
+          suggestedRegionIds={[regionFor.regionId]}
+          onClose={() => setRegionFor(null)}
+          onSet={async (id, label) => {
+            try {
+              await onSetRegion(await regionFor.ids(), { id, label });
+            } catch (err) {
+              setError(errorMessage(err, t("gallery.map.loadFailed")));
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** A trip's heading; with all its groups loaded it also places or refiles the whole trip. */
+function TripHeading({
+  title,
+  source,
+  pinDown,
+  busy,
+  onPlace,
+  onChangeRegion,
+}: {
+  title: string;
+  source: PlaceSource | null;
+  pinDown: boolean;
+  busy: boolean;
+  onPlace: (source: PlaceSource) => void;
+  onChangeRegion: (source: PlaceSource) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="pt-3 pb-1">
+      <h3 className="break-words text-footnote font-semibold text-muted">{title}</h3>
+      {source && (
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => onPlace(source)}>
+            {pinDown
+              ? t("gallery.map.placing.place", { count: source.count, formatted: formatNumber(source.count) })
+              : t("gallery.map.tray.placeAll")}
+          </Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onChangeRegion(source)}>
+            {t("gallery.map.tray.changeRegion")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -159,6 +238,7 @@ function GroupRow({
   source,
   loadPhotos,
   onPlace,
+  onChangeRegion,
   onDragSource,
 }: {
   group: PlacingGroup;
@@ -168,6 +248,7 @@ function GroupRow({
   note: string | null;
   source: (ticked?: string[]) => PlaceSource;
   onPlace: (source: PlaceSource) => void;
+  onChangeRegion: (source: PlaceSource) => void;
   onDragSource: (source: PlaceSource | null) => void;
 }) {
   const { t } = useTranslation();
@@ -286,6 +367,9 @@ function GroupRow({
               {pinDown
                 ? t("gallery.map.placing.place", { count: placeCount, formatted: formatNumber(placeCount) })
                 : t("gallery.map.tray.place")}
+            </Button>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => onChangeRegion(source(chosen))}>
+              {t("gallery.map.tray.changeRegion")}
             </Button>
             <Button variant="ghost" size="sm" aria-expanded={open} onClick={() => void expand()}>
               {open ? t("gallery.map.tray.hidePhotos") : t("gallery.map.tray.showPhotos")}

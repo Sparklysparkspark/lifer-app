@@ -250,6 +250,20 @@ describe.skipIf(!url)("photo coordinates", () => {
     expect(undone.rows[0]).toEqual({ location_label: "Old name", region_id: null });
   });
 
+  it("refiles a photo with only a region under another region, still without a point", async () => {
+    const id = await addCapture(USER);
+    await db.query(`UPDATE captures_all SET lat = NULL, lon = NULL, location_source = NULL, region_id = $2 WHERE id = $1`, [
+      id,
+      COUNTRY,
+    ]);
+    await post({ captureIds: [id], lat: null, lon: null, keepPoint: true, regionId: PROVINCE });
+    const after = await db.query(`SELECT lat, lon, region_id FROM captures_all WHERE id = $1`, [id]);
+    expect(after.rows[0]).toEqual({ lat: null, lon: null, region_id: PROVINCE });
+    await app.inject({ method: "POST", url: "/api/captures/location/undo" });
+    const undone = await db.query(`SELECT region_id FROM captures_all WHERE id = $1`, [id]);
+    expect(undone.rows[0].region_id).toBe(COUNTRY);
+  });
+
   it("leaves the place name alone unless it is sent", async () => {
     const id = await addCapture(USER);
     await db.query(`UPDATE captures_all SET location_label = 'Kept' WHERE id = $1`, [id]);
