@@ -32,7 +32,7 @@ import {
   invalidatePackSizes,
   SMALL_SUFFIX,
 } from "./index.js";
-import { isUnreachable, retrying } from "../lib/remoteFetch.js";
+import { isUnreachable } from "../lib/remoteFetch.js";
 import { downloadPhotos, fetchPhotoStoreIndex, missingPhotos, type PhotoStoreIndex } from "./photoStore.js";
 import { applyPack, applyPackHotspots, prefetchPackProvinces, type RegionHotspots } from "./apply.js";
 import { startWithheldPhotoFetch } from "../species/withheldPhotos.js";
@@ -318,22 +318,18 @@ async function runDownloadJob(
       // Streamed with a stall timeout rather than a total cap; the signal aborts the body read
       // too, so cancel is immediate. A pack is a byte range of a pack store shard
       // (data-pipeline's pipeline/packStore.ts).
-      // Retried with backoff: a weak signal that stalls once still gets the pack.
+      // Retried with backoff inside: a weak signal that stalls once still gets the pack.
       const signal = AbortSignal.any([ctx.signal, downloads.signal, failed.signal]);
-      ({ bytes } = await retrying(
-        () =>
-          downloadResumable(entry.url, file, {
-            signal,
-            range: entry.range,
-            expectedSha256: entry.sha256,
-            label: `"${id}"`,
-            onProgress: (downloadedBytes, totalBytes) => {
-              Object.assign(lanes.download, { downloadedBytes, totalBytes });
-              refresh();
-            },
-          }),
-        { signal },
-      ));
+      ({ bytes } = await downloadResumable(entry.url, file, {
+        signal,
+        range: entry.range,
+        expectedSha256: entry.sha256,
+        label: `"${id}"`,
+        onProgress: (downloadedBytes, totalBytes) => {
+          Object.assign(lanes.download, { downloadedBytes, totalBytes });
+          refresh();
+        },
+      }));
     } catch (err) {
       rmSync(file, { force: true });
       ctx.throwIfCancelled();

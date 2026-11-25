@@ -2,6 +2,7 @@
 // when a previous attempt left a partial file, aborted only when the connection stalls (not after
 // a fixed total time, which a slow but healthy link can exceed), and verified against a sha256.
 // `pipeline` (not `pipe`) so a dropped connection rejects here instead of crashing the process.
+// Retried with backoff, each try resuming from the partial file.
 import { createHash } from "node:crypto";
 import {
   createReadStream,
@@ -15,10 +16,13 @@ import {
 } from "node:fs";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import { DiskFullError, ensureRoom, isDiskFull } from "./freeSpace.js";
 import { USER_AGENT } from "./http.js";
 
 export const DEFAULT_STALL_TIMEOUT_MS = 60_000;
+const DEFAULT_ATTEMPTS = 4;
+const DEFAULT_RETRY_DELAY_MS = 2_000;
 const CONNECT_TIMEOUT_MS = 30_000;
 
 export interface ResumableDownloadOptions {
@@ -33,6 +37,10 @@ export interface ResumableDownloadOptions {
   // whole shard. A ranged download resumes only when the server sent a validator (ETag or
   // Last-Modified) for that same range, so a stray partial file is never spliced in.
   range?: [number, number];
+  // Tries in all, waiting retryDelayMs, 2x, 4x... between them. Only failures another try could
+  // fix are retried: dropped connections, stalls, 5xx, 408 and 429.
+  attempts?: number;
+  retryDelayMs?: number;
 }
 
 export async function sha256OfFile(filePath: string): Promise<string> {
@@ -50,6 +58,11 @@ export class StallError extends Error {
   }
 }
 
+// A failure another try can't fix: a wrong answer, a 4xx, a corrupt file.
+function permanent(message: string): Error {
+  return Object.assign(new Error(message), { permanent: true });
+}
+
 function isValidRange(range: [number, number]): boolean {
   return Number.isSafeInteger(range[0]) && range[0] >= 0 && Number.isSafeInteger(range[1]) && range[1] > 0;
 }
@@ -62,11 +75,30 @@ export async function downloadResumable(
   destPath: string,
   opts: ResumableDownloadOptions = {},
 ): Promise<{ bytes: number; totalBytes: number | null }> {
+  const attempts = opts.attempts ?? DEFAULT_ATTEMPTS;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await downloadOnce(url, destPath, opts);
+    } catch (err) {
+      const fatal = opts.signal?.aborted || err instanceof DiskFullError || (err as { permanent?: boolean }).permanent;
+      if (fatal || attempt >= attempts) throw err;
+      await sleep((opts.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS) * 2 ** (attempt - 1), undefined, {
+        signal: opts.signal,
+      });
+    }
+  }
+}
+
+async function downloadOnce(
+  url: string,
+  destPath: string,
+  opts: ResumableDownloadOptions,
+): Promise<{ bytes: number; totalBytes: number | null }> {
   const label = opts.label ?? "the file";
   const stallMs = opts.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS;
   const range = opts.range;
   if (range && !isValidRange(range))
-    throw new Error(`Couldn't download ${label}: invalid byte range ${JSON.stringify(range)}`);
+    throw permanent(`Couldn't download ${label}: invalid byte range ${JSON.stringify(range)}`);
 
   if (opts.expectedSha256 && existsSync(destPath) && (await sha256OfFile(destPath)) === opts.expectedSha256) {
     const size = statSync(destPath).size;
@@ -133,16 +165,22 @@ export async function downloadResumable(
       if (stallTimer) clearTimeout(stallTimer);
       rmSync(partPath, { force: true });
       rmSync(validatorPath, { force: true });
-      return await downloadResumable(url, destPath, opts);
+      return await downloadOnce(url, destPath, opts);
     }
-    if (!res.ok || !res.body) throw new Error(`Couldn't download ${label}: HTTP ${res.status}`);
+    if (!res.ok || !res.body) {
+      await res.body?.cancel().catch(() => {});
+      const err = Object.assign(new Error(`Couldn't download ${label}: HTTP ${res.status}`), { status: res.status });
+      throw res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429
+        ? Object.assign(err, { permanent: true })
+        : err;
+    }
     if (
       range &&
       (res.status !== 206 || !res.headers.get("content-range")?.startsWith(`bytes ${range[0] + resumeFrom}-`))
     ) {
       badAnswer = true;
       await res.body.cancel().catch(() => {});
-      throw new Error(
+      throw permanent(
         `Couldn't download ${label}: the server didn't return the requested part of the file (HTTP ${res.status})`,
       );
     }
@@ -167,7 +205,7 @@ export async function downloadResumable(
         downloaded += chunk.length;
         if (range && downloaded > range[1]) {
           badAnswer = true;
-          return cb(new Error(`Couldn't download ${label}: more than the expected ${range[1]} bytes`));
+          return cb(permanent(`Couldn't download ${label}: more than the expected ${range[1]} bytes`));
         }
         armStall(stallMs);
         opts.onProgress?.(downloaded, totalBytes);
@@ -200,7 +238,7 @@ export async function downloadResumable(
     const actual = await sha256OfFile(partPath);
     if (actual !== opts.expectedSha256) {
       rmSync(partPath, { force: true });
-      throw new Error(`Couldn't download ${label}: the file was corrupted in transit (checksum mismatch). Try again.`);
+      throw permanent(`Couldn't download ${label}: the file was corrupted in transit (checksum mismatch). Try again.`);
     }
   }
   renameSync(partPath, destPath);

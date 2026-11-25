@@ -14,7 +14,7 @@ import { log } from "@lifer/core/lib/log.js";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { downloadResumable } from "@lifer/core/lib/resumableDownload.js";
 import path from "node:path";
-import { backoffMemo, HttpStatusError, remoteStateOf, retrying, type RemoteState } from "../lib/remoteFetch.js";
+import { backoffMemo, remoteStateOf, type RemoteState } from "../lib/remoteFetch.js";
 
 export type { PackIndex, PackIndexEntry } from "./schemas.js";
 export { assertTrustedPackUrl } from "./packPaths.js";
@@ -59,21 +59,14 @@ const LITE_URL = PACK_INDEX_URL?.endsWith("/pack-index.json")
 async function downloadIndexFile(url: string, savedPath: string, what: string): Promise<LoadedIndex> {
   const tmp = `${savedPath}.download`;
   await mkdir(path.dirname(savedPath), { recursive: true });
-  await retrying(
-    () =>
-      downloadResumable(url, tmp, {
-        stallTimeoutMs: STALL_MS,
-        label: what,
-        onProgress: (receivedBytes, totalBytes) => {
-          progress = { receivedBytes, totalBytes };
-        },
-      }).catch((err: unknown) => {
-        // Its HTTP errors as statuses, so a 404 isn't retried.
-        const status = /HTTP (\d{3})$/.exec((err as Error).message)?.[1];
-        throw status ? new HttpStatusError(Number(status), what) : err;
-      }),
-    { attempts: 3 },
-  );
+  await downloadResumable(url, tmp, {
+    stallTimeoutMs: STALL_MS,
+    label: what,
+    attempts: 3,
+    onProgress: (receivedBytes, totalBytes) => {
+      progress = { receivedBytes, totalBytes };
+    },
+  });
   let loaded: LoadedIndex;
   try {
     loaded = await loadIndexFile(tmp, savedPath === SAVED_INDEX_PATH ? { writeLiteTo: SAVED_LITE_PATH } : {});
@@ -105,7 +98,7 @@ function refresh(): { lite: Promise<PackIndex | null>; full: Promise<PackIndex> 
       return index;
     } catch (err) {
       // Not published (an older publish): the full index alone will do.
-      if (err instanceof HttpStatusError && err.status === 404) return null;
+      if ((err as { status?: number }).status === 404) return null;
       throw noteFailure(err, "the region download list");
     }
   })();

@@ -1,6 +1,6 @@
 // Pack photos come from the shared photo store (packages/data-pipeline/src/pipeline/photoStore.ts),
 // not the pack: an install fetches by byte range only the photos it doesn't have yet.
-import { fetchPatient, retrying } from "../lib/remoteFetch.js";
+import { fetchPatient } from "../lib/remoteFetch.js";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { downloadResumable } from "@lifer/core/lib/resumableDownload.js";
@@ -37,10 +37,11 @@ export async function fetchPhotoStoreIndex(
     const file = path.join(APP_DATA_DIR, "photo-store-index.json.gz");
     mkdirSync(APP_DATA_DIR, { recursive: true });
     rmSync(file, { force: true });
-    await retrying(
-      () => downloadResumable(indexUrl, file, { stallTimeoutMs: 30_000, label: "the reference photo index" }),
-      { attempts: 3 },
-    );
+    await downloadResumable(indexUrl, file, {
+      stallTimeoutMs: 30_000,
+      label: "the reference photo index",
+      attempts: 3,
+    });
     let index: PhotoStoreIndex;
     try {
       const text = (await gunzipAsync(readFileSync(file))).toString("utf8");

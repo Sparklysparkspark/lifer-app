@@ -66,7 +66,7 @@ import { registerHealthRoute } from "./lib/health.js";
 import { trustProxyHint } from "./lib/trustProxyHint.js";
 import { encryptStoredInatTokens } from "./inaturalist/tokenStore.js";
 import { encryptStoredShareTokens } from "./shares/routes.js";
-import { buildReport, saveCrashReport } from "./crashReports/report.js";
+import { buildReport, isUndiciPausedParserAssert, saveCrashReport } from "./crashReports/report.js";
 
 // How long background upkeep waits after the catalog is ready: the first screens load first.
 const STARTUP_QUIET_MS = 8_000;
@@ -123,7 +123,18 @@ process.on("unhandledRejection", (reason) => {
   reportedRejections.add(report.message);
   saveCrashReport(report);
 });
+// The known undici assertion leaves no state half-updated, so the process stays up. Saved as a
+// survived error at most hourly so the maintainer still sees it.
+let undiciAssertReportedAt = 0;
 process.on("uncaughtException", (err) => {
+  if (isUndiciPausedParserAssert(err)) {
+    app.log.warn({ err }, "Node fetch assertion after a server closed a busy download; kept running");
+    if (Date.now() - undiciAssertReportedAt < 60 * 60_000) return;
+    undiciAssertReportedAt = Date.now();
+    const report = buildReport("server-rejection", err);
+    saveCrashReport({ ...report, message: `Handled, kept running. ${report.message}` });
+    return;
+  }
   app.log.error({ err }, "Uncaught exception, exiting");
   saveCrashReport(buildReport("server-exception", err));
   process.exit(1);

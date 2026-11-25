@@ -136,6 +136,19 @@ export function buildReport(kind: CrashKind, error: unknown, now = new Date()): 
   })!;
 }
 
+/** Node 22's fetch (undici) throws this from a socket 'end' event when a server closes a
+ *  connection whose response is paused for backpressure. Nothing can catch it, but only that one
+ *  response is affected: its download's stall timeout fails it and the retry resumes it. */
+export function isUndiciPausedParserAssert(error: unknown): boolean {
+  const err = error as { code?: unknown; message?: unknown; stack?: unknown } | null;
+  if (err?.code !== "ERR_ASSERTION") return false;
+  const stack = String(err.stack ?? "");
+  return (
+    stack.includes("undici") &&
+    (stack.includes("Parser.finish") || String(err.message).includes("assert(!this.paused)"))
+  );
+}
+
 /** Saves one report and keeps only the newest few. Never throws: it runs while crashing. */
 export function saveCrashReport(report: CrashReport, dir = CRASH_DIR): void {
   if (!crashReportsEnabled()) return;

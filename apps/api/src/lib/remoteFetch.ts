@@ -118,8 +118,8 @@ function isRetryable(err: unknown, signal?: AbortSignal): boolean {
   return true;
 }
 
-/** Runs `fn` up to `attempts` times, waiting `baseMs`, 2x, 4x... between tries. A download that
- *  resumes from its partial file (downloadResumable) picks up where the last try stopped. */
+/** Runs `fn` up to `attempts` times, waiting `baseMs`, 2x, 4x... between tries. downloadResumable
+ *  retries on its own, so it needs no wrapping. */
 export async function retrying<T>(
   fn: () => Promise<T>,
   { attempts = 4, baseMs = 2_000, signal }: { attempts?: number; baseMs?: number; signal?: AbortSignal } = {},

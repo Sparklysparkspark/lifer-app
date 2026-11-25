@@ -35,7 +35,7 @@ Limits:
 
 **Settings > Offline data > Species catalog** runs `runCatalogUpdate` (`catalogSeedUpdate.ts`):
 
-1. Fetch the manifest from `CATALOG_MANIFEST_URL`, download the seed into `APP_DATA_DIR/catalog-downloads/` (resumable, checked against the manifest's SHA-256), delete older downloads.
+1. Fetch the manifest from `CATALOG_MANIFEST_URL`, download the seed into `APP_DATA_DIR/catalog-downloads/` (resumable and retried with backoff by `downloadResumable`, checked against the manifest's SHA-256), delete older downloads.
 2. Apply it in **one Postgres transaction**, holding the reference-data advisory lock (`packages/core/src/lib/referenceDataLock.ts`) so pack installs and vector installs wait:
    - Each table's data is streamed from the dump into a temporary table, then **upserted** into the real table on its primary key (`MERGE_TABLES`). Nothing is truncated. Columns the install's schema doesn't have yet are dropped with a warning, so an older install can take a newer seed.
    - Local file paths are never overwritten. A photo the install fetched itself for a withheld species is kept.

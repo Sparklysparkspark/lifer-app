@@ -12,6 +12,7 @@ const sha = createHash("sha256").update(body).digest("hex");
 let server: http.Server;
 let base: string;
 const rangeHeaders: string[] = [];
+const hits = new Map<string, number>();
 
 beforeAll(async () => {
   server = http.createServer((req, res) => {
@@ -26,7 +27,21 @@ beforeAll(async () => {
         .end("0123456789".slice(Number(m[1]), Number(m[2]) + 1));
       return;
     }
+    const hit = (hits.get(req.url!) ?? 0) + 1;
+    hits.set(req.url!, hit);
     if (req.url === "/missing") return void res.writeHead(404).end();
+    if (req.url === "/flaky" && hit === 1) return void res.writeHead(503).end();
+    if (req.url === "/stall-once" && hit === 1) {
+      res.writeHead(200, { "content-length": String(body.length), etag: '"v1"' });
+      res.write(body.subarray(0, 10));
+      return;
+    }
+    if (req.url === "/drop" && !req.headers.range) {
+      // Half the body, then the server closes the socket once the client has read it.
+      res.writeHead(200, { "content-length": String(body.length), etag: '"v1"' });
+      res.write(body.subarray(0, 50_000), () => setTimeout(() => res.socket?.destroy(), 100));
+      return;
+    }
     if (req.url === "/stall") {
       res.writeHead(200, { "content-length": String(body.length) });
       res.write(body.subarray(0, 10)); // then never finish
@@ -85,7 +100,9 @@ describe("downloadResumable", () => {
 
   it("aborts a stalled transfer and keeps the partial file", async () => {
     const dest = path.join(tmp(), "f.bin");
-    await expect(downloadResumable(`${base}/stall`, dest, { stallTimeoutMs: 300 })).rejects.toBeInstanceOf(StallError);
+    await expect(downloadResumable(`${base}/stall`, dest, { stallTimeoutMs: 300, attempts: 1 })).rejects.toBeInstanceOf(
+      StallError,
+    );
     expect(existsSync(`${dest}.part`)).toBe(true);
   });
 
@@ -104,8 +121,42 @@ describe("downloadResumable", () => {
 
   it("rejects on HTTP errors and leaves no file behind", async () => {
     const dest = path.join(tmp(), "missing.bin");
-    await expect(downloadResumable(`${base}/missing`, dest)).rejects.toThrow(/HTTP 404/);
+    await expect(downloadResumable(`${base}/missing`, dest, { retryDelayMs: 1 })).rejects.toMatchObject({
+      status: 404,
+    });
     expect(existsSync(dest)).toBe(false);
+    // A 404 isn't worth another try.
+    expect(hits.get("/missing")).toBe(1);
+  });
+});
+
+describe("downloadResumable retries", () => {
+  it("resumes with a Range request after the server closes the socket mid-body", async () => {
+    const dest = path.join(tmp(), "drop.bin");
+    await downloadResumable(`${base}/drop`, dest, { expectedSha256: sha, retryDelayMs: 1 });
+    expect(readFileSync(dest).equals(body)).toBe(true);
+    expect(hits.get("/drop")).toBe(2);
+    expect(rangeHeaders).toContain("bytes=50000-");
+  });
+
+  it("tries again after a stall, resuming the partial file", async () => {
+    const dest = path.join(tmp(), "stall-once.bin");
+    await downloadResumable(`${base}/stall-once`, dest, { expectedSha256: sha, stallTimeoutMs: 300, retryDelayMs: 1 });
+    expect(readFileSync(dest).equals(body)).toBe(true);
+    expect(rangeHeaders).toContain("bytes=10-");
+  });
+
+  it("tries again after a server error", async () => {
+    const dest = path.join(tmp(), "flaky.bin");
+    await downloadResumable(`${base}/flaky`, dest, { expectedSha256: sha, retryDelayMs: 1 });
+    expect(hits.get("/flaky")).toBe(2);
+  });
+
+  it("gives up after the last attempt", async () => {
+    const dest = path.join(tmp(), "f.bin");
+    await expect(
+      downloadResumable(`${base}/stall`, dest, { stallTimeoutMs: 100, attempts: 2, retryDelayMs: 1 }),
+    ).rejects.toBeInstanceOf(StallError);
   });
 });
 
@@ -166,7 +217,7 @@ describe("downloadResumable on a stalled connection", () => {
         ),
       );
       const dest = path.join(tmp(), "stalled.bin");
-      const done = downloadResumable("https://packs.invalid/big", dest, { stallTimeoutMs: 30_000 });
+      const done = downloadResumable("https://packs.invalid/big", dest, { stallTimeoutMs: 30_000, attempts: 1 });
       const outcome = done.then(
         () => "finished",
         (err: unknown) => err,

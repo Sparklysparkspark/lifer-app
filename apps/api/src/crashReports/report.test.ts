@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import {
   buildReport,
   deleteCrashReport,
+  isUndiciPausedParserAssert,
   listCrashReports,
   normalizeReport,
   redact,
@@ -179,5 +180,34 @@ describe("sendCrashReport", () => {
   it("gives up after the timeout", async () => {
     status = 0;
     await expect(sendCrashReport(report, undefined, url, 50)).rejects.toThrow();
+  });
+});
+
+describe("isUndiciPausedParserAssert", () => {
+  const assertion = (
+    stack: string,
+    message = "The expression evaluated to a falsy value:\n\n  assert(!this.paused)\n",
+  ) => Object.assign(new Error(message), { code: "ERR_ASSERTION", stack });
+  const undiciStack = [
+    "AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:",
+    "    at Parser.finish (node:internal/deps/undici/undici:6165:9)",
+    "    at Socket.<anonymous> (node:internal/deps/undici/undici:6499:36)",
+    "    at Socket.emit (node:events:531:35)",
+    "    at endReadableNT (node:internal/streams/readable:1698:12)",
+  ].join("\n");
+
+  it("matches the paused-parser assertion from Node's fetch", () => {
+    expect(isUndiciPausedParserAssert(assertion(undiciStack))).toBe(true);
+  });
+
+  it("leaves every other uncaught exception alone", () => {
+    expect(isUndiciPausedParserAssert(assertion("    at ourCode (index.js:1:1)"))).toBe(false);
+    expect(isUndiciPausedParserAssert(new Error("assert(!this.paused)"))).toBe(false);
+    expect(isUndiciPausedParserAssert(Object.assign(new Error("boom"), { stack: undiciStack }))).toBe(false);
+    expect(
+      isUndiciPausedParserAssert(assertion("    at Client.connect (node:internal/deps/undici/undici:1:1)", "other")),
+    ).toBe(false);
+    expect(isUndiciPausedParserAssert(null)).toBe(false);
+    expect(isUndiciPausedParserAssert("assert(!this.paused)")).toBe(false);
   });
 });

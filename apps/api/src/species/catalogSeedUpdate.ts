@@ -5,7 +5,6 @@
 // schema still loads), then merged into the real table in FK-safe order without overwriting
 // local file-path columns. Everything, including the recorded version, runs in one transaction.
 // Uses only the pg driver because no psql binary can be assumed.
-import { retrying } from "../lib/remoteFetch.js";
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { Transform } from "node:stream";
@@ -1086,20 +1085,15 @@ async function downloadSeed(
   const dest = path.join(CATALOG_DOWNLOAD_DIR, `lifer-catalog-seed-${manifest.version}.sql.gz`);
   ctx.update({ phase: "downloading", downloadedBytes: 0, totalBytes: manifest.seed?.bytes ?? null });
   try {
-    // Retried with backoff; each try resumes from the partial file.
-    await retrying(
-      () =>
-        downloadResumable(url, dest, {
-          signal: ctx.signal,
-          expectedSha256: sha256,
-          label: "the catalog update",
-          onProgress: (downloadedBytes, totalBytes) => {
-            ctx.update({ downloadedBytes, totalBytes });
-            noteSeedDownload(downloadedBytes, totalBytes);
-          },
-        }),
-      { signal: ctx.signal },
-    );
+    await downloadResumable(url, dest, {
+      signal: ctx.signal,
+      expectedSha256: sha256,
+      label: "the catalog update",
+      onProgress: (downloadedBytes, totalBytes) => {
+        ctx.update({ downloadedBytes, totalBytes });
+        noteSeedDownload(downloadedBytes, totalBytes);
+      },
+    });
   } catch (err) {
     noteSeedDownload(null, null);
     throw err;
