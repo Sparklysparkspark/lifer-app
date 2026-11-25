@@ -117,6 +117,8 @@ export interface SpeciesDetail {
   endemicCountryName: string | null;
   isArchived: boolean;
   regionBoundaryGeoJson: unknown;
+  hotspotRegionName: string | null;
+  hotspotAlternatives: Array<{ id: string; name: string }>;
   hotspotDistribution: "widespread" | "clustered" | null;
   hotspots: Array<{
     centroidLat: number;

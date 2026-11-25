@@ -1,5 +1,6 @@
 import { useEffect, useId, type CSSProperties, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
 import { useAnchoredBox } from "../../lib/anchoredBox";
 import { useExclusiveOpen } from "../../lib/exclusivePopover";
@@ -247,7 +248,22 @@ function SpeciesSightings({ detail, encounters }: { detail: SpeciesDetail; encou
           boundaryGeoJson={detail.regionBoundaryGeoJson}
           hotspots={detail.hotspots}
           scientificName={species.scientific_name}
+          regionName={detail.hotspotRegionName}
         />
+      )}
+      {/* Never swap in another region's map: say so, and offer where it does have hotspots. */}
+      {!clustered && !widespread && detail.hotspotRegionName && detail.hotspotAlternatives.length > 0 && (
+        <p className="text-footnote text-muted">
+          {t("hotspotMap.noneIn", { region: detail.hotspotRegionName })}{" "}
+          {detail.hotspotAlternatives.map((r, i) => (
+            <span key={r.id}>
+              {i > 0 && ", "}
+              <Link to={`?regionId=${r.id}`} className="hover:text-ink hover:underline">
+                {r.name}
+              </Link>
+            </span>
+          ))}
+        </p>
       )}
     </div>
   );
@@ -269,7 +285,8 @@ export function SpeciesOverview({
   // Without a chart or map (species added by hand from iNaturalist), the counts and links sit under
   // the notes instead of in a mostly empty side column.
   const hasData = (values: number[] | null) => !!values?.some((v) => v > 0);
-  const sideColumn = hasData(detail.weeklyFrequency) || detail.hotspots.length > 0;
+  const sideColumn =
+    hasData(detail.weeklyFrequency) || detail.hotspots.length > 0 || detail.hotspotAlternatives.length > 0;
   return (
     <Panel as="section">
       <h2>

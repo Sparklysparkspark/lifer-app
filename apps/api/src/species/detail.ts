@@ -15,7 +15,7 @@ import {
   fillDescriptionIfUnchecked,
 } from "@lifer/core/species/lazyEnrich.js";
 import { MEDIA_CACHE_BUST, EMBEDDING_MODEL_VERSION } from "@lifer/core/config.js";
-import { resolveOriginalPath } from "../storageVolumes/resolve.js";
+import { resolveOriginalPath, unmountedVolumeName } from "../storageVolumes/resolve.js";
 import { clusterIntoEncounters } from "../lib/clusterEncounters.js";
 import { cosineSimilarity } from "@lifer/core/species/embeddings.js";
 import { BURST_MAX_GAP_MS, BURST_SIMILARITY } from "./bursts.js";
@@ -100,9 +100,9 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
         ).rows[0]?.region_id ??
         null;
 
-      // The hotspot map may need a different region than the one navigated to. A country never
-      // has clusters, so it borrows the busiest province. A province with none for this species
-      // shows no map rather than another province's clusters. Seasonality keeps the given region.
+      // A requested country with no clusters of its own borrows its busiest child province, never
+      // a region elsewhere: the map must show the place the user came from. A province with none
+      // shows no map. Seasonality keeps the given region.
       const givenRegionHasHotspots =
         regionId != null &&
         (
@@ -111,21 +111,29 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
             id,
           ])
         ).rowCount! > 0;
-      const givenRegionIsCountry =
-        regionId != null &&
-        (await pool.query(`SELECT 1 FROM regions WHERE id = $1 AND sovereignty_group IS NOT NULL`, [regionId]))
-          .rowCount! > 0;
       const hotspotRegionId = givenRegionHasHotspots
         ? regionId
-        : givenRegionIsCountry
+        : regionId != null
           ? ((
               await pool.query<{ region_id: string }>(
-                `SELECT region_id FROM region_species_hotspots WHERE species_id = $1
-                 GROUP BY region_id ORDER BY SUM(point_count) DESC LIMIT 1`,
+                `SELECT h.region_id FROM region_species_hotspots h JOIN regions r ON r.id = h.region_id
+                 WHERE h.species_id = $1 AND r.parent_id = $2
+                 GROUP BY h.region_id ORDER BY SUM(h.point_count) DESC LIMIT 1`,
+                [id, regionId],
+              )
+            ).rows[0]?.region_id ?? null)
+          : null;
+      // Other regions with clusters, offered when the requested one has none.
+      const hotspotAlternatives =
+        regionId != null && hotspotRegionId == null
+          ? (
+              await pool.query<{ id: string; name: string }>(
+                `SELECT r.id, r.name FROM region_species_hotspots h JOIN regions r ON r.id = h.region_id
+                 WHERE h.species_id = $1 GROUP BY r.id, r.name ORDER BY SUM(h.point_count) DESC LIMIT 5`,
                 [id],
               )
-            ).rows[0]?.region_id ?? regionId)
-          : null;
+            ).rows
+          : [];
 
       let speciesRes = await pool.query(
         `SELECT s.*, t.*, r.tier, r.composite
@@ -264,10 +272,12 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
             )
           : Promise.resolve(null),
         // The hotspot region's extent, to tell "widespread" from "many spots in one corner".
-        hotspotRegionId
-          ? pool.query(`SELECT boundary_geojson FROM regions WHERE id = $1`, [hotspotRegionId])
+        // With no clusters it is still the requested region's outline, so the page shows where it looked.
+        (hotspotRegionId ?? regionId)
+          ? pool.query(`SELECT name, boundary_geojson FROM regions WHERE id = $1`, [hotspotRegionId ?? regionId])
           : Promise.resolve(null),
       ]);
+      const hotspotRegionName: string | undefined = regionBboxRes?.rows[0]?.name;
       const isArchived = archivedRes.rows.length > 0;
       const seasonality = monthlyFromWeekly(regionSpeciesRes?.rows[0]?.weekly_frequency);
       // Rarity ranked against this region's own checklist, alongside the global tier.
@@ -304,7 +314,10 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
                 () => false,
               )
             : false;
-          return { available: exists, volumeLabel: null };
+          return {
+            available: exists,
+            volumeLabel: exists || !resolved.path ? null : unmountedVolumeName(resolved.path),
+          };
         }),
       );
       // The volume columns only locate the original above. Derivative paths are never selected;
@@ -354,6 +367,8 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
         endemicCountryName: endemicLabel,
         isArchived,
         regionBoundaryGeoJson: regionBboxRes?.rows[0]?.boundary_geojson ?? null,
+        hotspotRegionName: hotspotRegionName ?? null,
+        hotspotAlternatives,
         ...(() => {
           const totalPoints = hotspots.reduce((sum: number, h) => sum + h.point_count, 0);
           const topShare = hotspots.length > 0 ? hotspots[0].point_count / totalPoints : 0;

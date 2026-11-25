@@ -29188,6 +29188,8 @@
                     "endemicCountryName",
                     "isArchived",
                     "regionBoundaryGeoJson",
+                    "hotspotRegionName",
+                    "hotspotAlternatives",
                     "hotspotDistribution",
                     "hotspots"
                   ],
@@ -29501,6 +29503,15 @@
                     "endemicCountryName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                     "isArchived": { "type": "boolean" },
                     "regionBoundaryGeoJson": {},
+                    "hotspotRegionName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "hotspotAlternatives": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "name"],
+                        "properties": { "id": { "type": "string", "format": "uuid" }, "name": { "type": "string" } }
+                      }
+                    },
                     "hotspotDistribution": {
                       "anyOf": [
                         { "enum": ["widespread", "clustered"], "description": "null without hotspots" },

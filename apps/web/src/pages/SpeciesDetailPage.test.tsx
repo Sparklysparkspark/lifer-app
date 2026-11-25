@@ -59,6 +59,8 @@ function speciesDetail(captures: Partial<SpeciesCapture>[], userSpecies: Species
     endemicCountryName: null,
     isArchived: false,
     regionBoundaryGeoJson: null,
+    hotspotRegionName: null,
+    hotspotAlternatives: [],
     hotspotDistribution: null,
     hotspots: [],
   } as unknown as SpeciesDetail;

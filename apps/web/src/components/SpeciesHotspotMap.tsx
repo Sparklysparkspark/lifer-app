@@ -51,7 +51,9 @@ export default function SpeciesHotspotMap({
   boundaryGeoJson,
   hotspots,
   scientificName,
+  regionName,
 }: {
+  regionName?: string | null;
   boundaryGeoJson: unknown;
   hotspots: SpeciesHotspot[];
   scientificName: string;
@@ -259,7 +261,7 @@ export default function SpeciesHotspotMap({
         className="flex w-full items-baseline justify-between gap-3 text-left text-callout text-ink"
       >
         <span className="font-medium">
-          {t("hotspotMap.title")}{" "}
+          {regionName ? t("hotspotMap.titleIn", { region: regionName }) : t("hotspotMap.title")}{" "}
           <span className="font-normal text-muted">
             {/* With a year or search filter on, the count says how many of them show. */}
             {filteredHotspots.length !== hotspots.length

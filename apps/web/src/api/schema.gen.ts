@@ -33716,6 +33716,12 @@ export interface paths {
               endemicCountryName: string | null;
               isArchived: boolean;
               regionBoundaryGeoJson: unknown;
+              hotspotRegionName: string | null;
+              hotspotAlternatives: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+              }[];
               hotspotDistribution: ("widespread" | "clustered") | null;
               hotspots: ({
                 centroidLat: number;

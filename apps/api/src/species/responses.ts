@@ -135,6 +135,8 @@ export const SpeciesDetail = Open({
   endemicCountryName: Text,
   isArchived: Type.Boolean(),
   regionBoundaryGeoJson: Type.Unknown(),
+  hotspotRegionName: Text,
+  hotspotAlternatives: Type.Array(Type.Object({ id: Uuid(), name: Type.String() })),
   hotspotDistribution: Nullable(Type.Enum(["widespread", "clustered"], { description: "null without hotspots" })),
   hotspots: Type.Array(
     Open({

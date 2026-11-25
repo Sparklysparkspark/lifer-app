@@ -138,6 +138,43 @@ describe.skipIf(!url)("GET /species/:id", () => {
     expect(encounters.firstPhotographedAt).toBe(body.captures[0].taken_at);
   });
 
+  it("shows the requested region on the map, never another country's", async () => {
+    const [CA, BZ, ON] = [
+      "ffffffff-0000-4000-8000-000000000621",
+      "ffffffff-0000-4000-8000-000000000622",
+      "ffffffff-0000-4000-8000-000000000623",
+    ];
+    const get = async (regionId: string) =>
+      (await app.inject({ method: "GET", url: `/api/species/${SPECIES}?regionId=${regionId}` })).json();
+    try {
+      await db.query(
+        `INSERT INTO regions (id, name, boundary_geojson) VALUES ($1, 'Zzcanada', '{"type":"Polygon","coordinates":[]}'), ($2, 'Zzbelize', NULL)`,
+        [CA, BZ],
+      );
+      await db.query(`INSERT INTO regions (id, name, parent_id) VALUES ($1, 'Zzontario', $2)`, [ON, CA]);
+      await db.query(
+        `INSERT INTO region_species_hotspots (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km) VALUES ($1, $2, 1, 1, 3, 1)`,
+        [BZ, SPECIES],
+      );
+      const canada = await get(CA);
+      expect(canada.hotspots).toEqual([]);
+      expect(canada.hotspotRegionName).toBe("Zzcanada");
+      expect(canada.regionBoundaryGeoJson).not.toBeNull();
+      expect(canada.hotspotAlternatives).toEqual([{ id: BZ, name: "Zzbelize" }]);
+      // A child province's clusters stand in for its country.
+      await db.query(
+        `INSERT INTO region_species_hotspots (region_id, species_id, centroid_lat, centroid_lon, point_count, bbox_diagonal_km) VALUES ($1, $2, 2, 2, 1, 1)`,
+        [ON, SPECIES],
+      );
+      const withChild = await get(CA);
+      expect(withChild.hotspotRegionName).toBe("Zzontario");
+      expect(withChild.hotspots).toHaveLength(1);
+    } finally {
+      await db.query(`DELETE FROM region_species_hotspots WHERE species_id = $1`, [SPECIES]);
+      await db.query(`DELETE FROM regions WHERE id = ANY($1::uuid[])`, [[ON, CA, BZ]]);
+    }
+  });
+
   // The stat line's lists agree with its counts: most used first, no blank rows, capped.
   it("lists cameras, lenses and places with photo counts next to the counts", async () => {
     const REGION = "ffffffff-0000-4000-8000-000000000621";

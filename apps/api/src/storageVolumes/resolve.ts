@@ -3,7 +3,7 @@
 // A volume is a 'drive' (desktop, identified by hardware UUID) or a 'root' (a server's
 // LIFER_LIBRARY_ROOTS). Both store paths relative to a root; they differ only in how connection
 // is checked.
-import { accessSync, constants, statSync } from "node:fs";
+import { accessSync, constants, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { pool } from "@lifer/core/db.js";
 import { SINGLE_USER_MODE } from "@lifer/core/config.js";
@@ -27,6 +27,14 @@ export function isReadableDir(p: string): boolean {
   } catch {
     return false;
   }
+}
+
+// The share or drive an untagged original sits on when it isn't mounted, so the UI can ask for
+// it by name instead of calling the file missing.
+// shortcut: macOS /Volumes only, extend for Linux /media and Windows drive letters if asked.
+export function unmountedVolumeName(filePath: string): string | null {
+  const name = /^\/Volumes\/([^/]+)\//.exec(filePath)?.[1];
+  return name && !existsSync(`/Volumes/${name}`) ? name : null;
 }
 
 // Longest active root containing absolutePath, if any. Nested roots are allowed; the most

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EncounterSummary, SpeciesOverview } from "./SpeciesFacts";
 import type { EncountersResponse, SpeciesDetail } from "./types";
@@ -33,6 +34,8 @@ const detail = {
   seasonality: null,
   weeklyFrequency: null,
   hotspots: [],
+  hotspotRegionName: null,
+  hotspotAlternatives: [],
 } as unknown as SpeciesDetail;
 
 describe("SpeciesOverview", () => {
@@ -42,6 +45,17 @@ describe("SpeciesOverview", () => {
     expect(screen.queryByText(/small wren/)).toBeNull();
     expect(screen.queryByText("9 g")).toBeNull();
     expect(screen.queryByText(/Summarised from/)).toBeNull();
+  });
+
+  it("names the requested region when it has no hotspots and links to regions that do", () => {
+    const d = { ...detail, hotspotRegionName: "Canada", hotspotAlternatives: [{ id: "bz", name: "Belize" }] };
+    render(
+      <MemoryRouter>
+        <SpeciesOverview detail={d} encounters={null} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/No hotspot data for this species in Canada/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Belize" }).getAttribute("href")).toBe("/?regionId=bz");
   });
 
   it("links to iNaturalist once, beside eBird", () => {
