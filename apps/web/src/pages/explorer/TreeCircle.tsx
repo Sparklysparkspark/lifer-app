@@ -2,12 +2,13 @@
 // groups inside it, each arc sized by its catalogue species and filled outward by your share.
 // Clicking a group zooms into it; the middle steps back out. Arrow keys move between arcs. A small
 // target marks the arcs holding species on your targets; right-click opens the marks menu. With
-// rarity on, each arc is shaded by its species' average tier instead of your share.
+// rarity on, a thin band along each arc's outer edge shows its species' average tier, apart from
+// the green of your share.
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatNumber } from "../../lib/format";
 import { matches } from "../../lib/keymap";
-import { RarityLegend } from "./RarityChip";
+import { RarityLegend, Swatch } from "./RarityChip";
 import { circleArcs, RARITY_FILL, rarityOf, rarityText, type Arc, type TreeIndex, type TreeNode } from "./treeModel";
 
 const SIZE = 600;
@@ -25,6 +26,11 @@ function arcPath(r0: number, r1: number, start: number, end: number): string {
   const large = span > Math.PI ? 1 : 0;
   return `M${point(r1, start)}A${r1} ${r1} 0 ${large} 1 ${point(r1, a1)}L${point(r0, a1)}A${r0} ${r0} 0 ${large} 0 ${point(r0, start)}Z`;
 }
+// The rarity band's width, and the canvas gap that keeps it off the share fill below it.
+const BAND = 8;
+const GAP = 2;
+// The empty part of an arc: in dark mode a step lighter than the line, so the green stands out 3:1.
+const EMPTY = "fill-line dark:fill-surface-muted";
 // The marker's distance in from an arc's outer edge, and the arc length it needs to fit.
 const MARK_INSET = 10;
 const MARK_ROOM = 18;
@@ -60,7 +66,7 @@ export default function TreeCircle({
   onZoomOut: (() => void) | null;
   /** Right-click on a group or species: its marks menu at the pointer. */
   onMenu: (id: string, point: { x: number; y: number }) => void;
-  /** Shade arcs by rarity rather than by your share. */
+  /** Add the rarity band to each arc. */
   rarity: boolean;
 }) {
   const { t } = useTranslation();
@@ -126,27 +132,32 @@ export default function TreeCircle({
               count: node.targetCount,
               formatted: formatNumber(node.targetCount),
             };
-            const rare = rarity && node ? rarityOf(node) : null;
+            const rare = rarity ? rarityOf(arc) : null;
             const base = counts
               ? t(counts.count > 0 ? "explorer.arcLabelTargets" : "explorer.arcLabel", counts)
               : t("explorer.moreGroups", { count: arc.more ?? 0 });
-            const name = rare ? `${base}. ${rarityText(t, node!)}` : base;
+            const name = rare && node ? `${base}. ${rarityText(t, node)}` : base;
             const strong = (arc.id && arc.id === selected) || (focused && i === active);
             const r0 = INNER + (arc.ring - 1) * RING;
-            const markR = r0 + RING - MARK_INSET;
+            // With rarity on, every arc keeps the band's room, so the rings stay aligned.
+            const top = r0 + RING - (rarity ? BAND + GAP : 0);
+            const markR = top - MARK_INSET;
             const mid = (arc.start + arc.end) / 2;
             const marked = arc.targetCount > 0 && (arc.end - arc.start) * markR >= MARK_ROOM;
             return (
               <g key={arc.id ?? `more-${arc.ring}-${arc.start}`}>
-                <path
-                  d={arcPath(r0, r0 + RING, arc.start, arc.end)}
-                  className={`pointer-events-none ${rare ? RARITY_FILL[rare.step] : "fill-line"}`}
-                />
+                <path d={arcPath(r0, top, arc.start, arc.end)} className={`pointer-events-none ${EMPTY}`} />
                 {/* Your share fills the arc outward from its inner edge, like a bar. */}
-                {!rarity && share > 0 && (
+                {share > 0 && (
                   <path
-                    d={arcPath(r0, r0 + RING * share, arc.start, arc.end)}
+                    d={arcPath(r0, r0 + (top - r0) * share, arc.start, arc.end)}
                     className={`pointer-events-none fill-accent ${node ? "" : "opacity-60"}`}
+                  />
+                )}
+                {rare && (
+                  <path
+                    d={arcPath(r0 + RING - BAND, r0 + RING, arc.start, arc.end)}
+                    className={`pointer-events-none ${RARITY_FILL[rare.step]}`}
                   />
                 )}
                 <path
@@ -225,6 +236,19 @@ export default function TreeCircle({
         </div>
       </div>
       <div className="mt-2 space-y-1">
+        <ul
+          aria-label={t("explorer.shareLegend")}
+          className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-footnote text-muted"
+        >
+          <li className="inline-flex items-center gap-1">
+            <Swatch className="bg-accent" />
+            {t("explorer.legendPhotographed")}
+          </li>
+          <li className="inline-flex items-center gap-1">
+            <Swatch className="bg-line ring-1 ring-control-line dark:bg-surface-muted" />
+            {t("explorer.legendNotYet")}
+          </li>
+        </ul>
         {rarity && <RarityLegend />}
         {arcs.some((a) => a.targetCount > 0) && (
           <p className="flex items-center justify-center gap-1.5 text-footnote text-muted">

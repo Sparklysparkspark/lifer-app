@@ -13,7 +13,7 @@ import { formatNumber } from "../../lib/format";
 import { tierLabel } from "../../lib/speciesGroups";
 import MarkCounts from "./MarkCounts";
 import RarityChip from "./RarityChip";
-import { ancestorIds, collectedLeaves, rarestFirst, type TreeIndex, type TreeNode } from "./treeModel";
+import { ancestorIds, collectedLeaves, rarestFirst, shownTier, type TreeIndex, type TreeNode } from "./treeModel";
 
 const PAGE = 30;
 const RAREST = 5;
@@ -57,6 +57,7 @@ export default function ExplorerDetail({
   onOpenPhotos,
   marks,
   rarity,
+  regionName,
 }: {
   index: TreeIndex;
   id: string;
@@ -70,6 +71,8 @@ export default function ExplorerDetail({
   marks: MenuAction[];
   /** Show the rarity line, as the View option does on the tree. */
   rarity: boolean;
+  /** The picked region, which a species' local tier is named after. */
+  regionName: string | null;
 }) {
   const { t } = useTranslation();
   const location = useLocation();
@@ -84,6 +87,16 @@ export default function ExplorerDetail({
   const mosaic = withPhotos.slice(0, shown);
   const more = withPhotos.length - mosaic.length;
   const crumbs = ancestorIds(index, id);
+  const rated = (tier: string | null | undefined): tier is string => !!tier && tier !== "unrated";
+  // As on species cards: the local tier leads, named after the region; the worldwide one follows
+  // only when it differs.
+  const tier = isSpecies ? shownTier(node) : null;
+  const local = rated(tier) && regionName && tier !== node.tier ? tier : null;
+  const tierText = local
+    ? t("explorer.rarity.local", { tier: tierLabel(local), place: regionName })
+    : rated(tier)
+      ? tierLabel(tier)
+      : null;
 
   return (
     <div className="space-y-4">
@@ -108,10 +121,13 @@ export default function ExplorerDetail({
         {isSpecies && node.commonName && label(node) !== node.name && (
           <p className="text-callout text-muted italic wrap-anywhere">{node.name}</p>
         )}
-        {isSpecies && node.tier && node.tier !== "unrated" && (
-          <p className="text-footnote text-muted">{tierLabel(node.tier)}</p>
+        {tierText && (
+          <p className="text-footnote text-muted">{rarity ? <RarityChip node={node} text={tierText} /> : tierText}</p>
         )}
-        {rarity && (
+        {local && rated(node.tier) && (
+          <p className="text-footnote text-muted">{t("explorer.rarity.worldwide", { tier: tierLabel(node.tier) })}</p>
+        )}
+        {rarity && !isSpecies && (
           <p className="mt-1">
             <RarityChip node={node} />
           </p>
@@ -194,8 +210,8 @@ export default function ExplorerDetail({
                 <Button variant="link" size="sm" onClick={() => onSelect(leaf.id)} className="min-w-0 text-left">
                   <span className="wrap-anywhere">{label(leaf.node)}</span>
                 </Button>
-                {leaf.node.tier && leaf.node.tier !== "unrated" && (
-                  <span className="shrink-0 text-footnote text-muted">{tierLabel(leaf.node.tier)}</span>
+                {rated(shownTier(leaf.node)) && (
+                  <span className="shrink-0 text-footnote text-muted">{tierLabel(shownTier(leaf.node)!)}</span>
                 )}
               </li>
             ))}

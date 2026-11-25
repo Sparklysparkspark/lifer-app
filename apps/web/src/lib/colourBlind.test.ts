@@ -4,7 +4,7 @@
 /// <reference types="node" />
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { RARITY_BG, RARITY_FILL } from "../pages/explorer/treeModel";
+import { RARITY_BG, RARITY_FILL, RARITY_STEPS } from "../pages/explorer/treeModel";
 
 const themeCss = readFileSync(new URL("../theme.css", import.meta.url), "utf8");
 const MIN_DELTA_E = 12;
@@ -138,27 +138,40 @@ describe("taxa colours for colour-blind viewers", () => {
   });
 });
 
-// The Tree of life's rarity scale: the accent at rising opacity over the canvas, one hue, so it must
-// read by lightness alone.
-describe("rarity scale", () => {
+// The Tree of life's circle: a green fill for what you have photographed, and a plum band on each
+// arc's outer edge for rarity. Rarity must read by lightness alone and never pass for the green.
+describe("Tree of life circle", () => {
   const light = tokens(themeCss.slice(themeCss.indexOf(":root"), themeCss.indexOf(".dark")));
   const dark = { ...light, ...tokens(themeCss.slice(themeCss.indexOf(".dark"), themeCss.indexOf("@theme"))) };
-  const alphas = RARITY_FILL.map((c) => Number(c.split("/")[1]) / 100);
-  const blend = (fg: string, bg: string, a: number) =>
-    `#${[1, 3, 5]
-      .map((i) => Math.round(a * parseInt(fg.slice(i, i + 2), 16) + (1 - a) * parseInt(bg.slice(i, i + 2), 16)))
-      .map((v) => v.toString(16).padStart(2, "0"))
-      .join("")}`;
+  // The empty part of an arc, as TreeCircle draws it in each theme.
+  const themes = [
+    ["light", light, light.line],
+    ["dark", dark, dark["surface-muted"]],
+  ] as const;
+  const steps = (theme: Record<string, string>) => RARITY_FILL.map((c) => theme[c.replace("fill-", "")]);
 
-  it("uses the same steps for arcs and list chips", () => {
+  it("uses the same steps for arcs and list chips, each a theme colour", () => {
     expect(RARITY_BG.map((c) => c.replace("bg-", "fill-"))).toEqual(RARITY_FILL);
+    for (const [, theme] of themes) expect(steps(theme).every(Boolean)).toBe(true);
   });
-  it.each([
-    ["light", light],
-    ["dark", dark],
-  ])("keeps each step at least 1.3:1 from the next in %s mode", (_mode, theme) => {
-    const steps = alphas.map((a) => blend(theme.accent, theme.canvas, a));
-    const close = steps.slice(1).filter((c, i) => contrast(c, steps[i]) < 1.3);
-    expect(close).toEqual([]);
+  it.each(themes)("keeps photographed at least 3:1 from not yet in %s mode", (_mode, theme, empty) => {
+    expect(contrast(theme.accent, empty)).toBeGreaterThanOrEqual(3);
+  });
+  it.each(themes)(
+    "keeps each rarity step at least 1.3:1 from the next, the first from the canvas, in %s mode",
+    (_mode, theme) => {
+      const scale = [theme.canvas, ...steps(theme)];
+      const close = scale.slice(1).filter((c, i) => contrast(c, scale[i]) < 1.3);
+      expect(close).toEqual([]);
+    },
+  );
+  it.each(themes)("keeps every rarity step apart from the photographed green in %s mode", (_mode, theme) => {
+    const tooClose = Object.keys(MATRICES).flatMap((kind) =>
+      steps(theme)
+        .map((c, i) => [RARITY_STEPS[i], deltaE2000(lab(c, kind), lab(theme.accent, kind))] as const)
+        .filter(([, d]) => d < MIN_DELTA_E)
+        .map(([tier, d]) => `${tier} (${kind}): ${d.toFixed(1)}`),
+    );
+    expect(tooClose).toEqual([]);
   });
 });

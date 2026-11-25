@@ -9,6 +9,7 @@ import {
   onlyTargets,
   rarityOf,
   rarestFirst,
+  shownTier,
   searchTree,
   visibleRows,
   type TreeNode,
@@ -142,6 +143,14 @@ describe("treeModel", () => {
     const index = indexTree(tree);
     expect(rarestFirst(collectedLeaves(index, "genus:G")).map((l) => l.node.name)).toEqual(["c", "a"]);
   });
+
+  it("ranks by the region's local tier where a species has one, as species cards do", () => {
+    // a is common worldwide but legendary in the picked region.
+    const a = { ...leaf("a", 1), tiers: { legendary: 1 } };
+    const index = indexTree([clade("genus", "G", [leaf("c", 1, "rare"), a])]);
+    expect(shownTier(a)).toBe("legendary");
+    expect(rarestFirst(collectedLeaves(index, "genus:G")).map((l) => l.node.name)).toEqual(["a", "c"]);
+  });
 });
 
 describe("marks", () => {
@@ -183,6 +192,13 @@ describe("marks", () => {
     expect(arcs.find((a) => a.id === "class:C/family:F")!.targetCount).toBe(2);
     const merged = circleArcs(indexTree(tree), "class:C", { rings: 1, minAngle: 10 });
     expect(merged).toMatchObject([{ id: null, more: 2, targetCount: 2 }]);
+  });
+
+  it("merges tiers onto a merged arc, so its rarity band still shows", () => {
+    const merged = circleArcs(indexTree(tree), "class:C", { rings: 1, minAngle: 10 });
+    const species = merged[0].total;
+    expect(Object.values(merged[0].tiers).reduce((n, c) => n + c, 0)).toBe(species);
+    expect(rarityOf(merged[0])).not.toBeNull();
   });
 });
 

@@ -4984,10 +4984,16 @@
     "showMorePhotos": "{count, plural, one {Show # more species} other {Show {formatted} more species}}",
     "rarity": {
       "show": "Show rarity",
-      "help": "Shades the circle and labels the list by how rare species are. With a region picked, its local rarity.",
+      "help": "Adds a rarity band to the outer edge of each circle segment and labels the list by how rare species are. With a region picked, its local rarity.",
       "group": "Mostly {tier}, {count, plural, one {# of {rated} rare or rarer} other {{formatted} of {rated} rare or rarer}}",
-      "legend": "Rarity, commonest to rarest"
-    }
+      "legend": "Rarity, commonest to rarest",
+      "edge": "Outer edge:",
+      "local": "{tier} in {place}",
+      "worldwide": "{tier} worldwide"
+    },
+    "shareLegend": "What the green fill shows",
+    "legendPhotographed": "Photographed",
+    "legendNotYet": "Not yet"
   },
   "review": {
     "title": "Review identifications",

@@ -596,6 +596,36 @@ describe("TaxaExplorer rarity, photos and Random", () => {
     expect(screen.queryByRole("list", { name: "Rarity, commonest to rarest" })).toBeNull();
   });
 
+  it("keeps the green photographed fill with rarity on, and puts rarity in its own band", () => {
+    const { container } = renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Circle" }));
+    const paths = (cls: string) => container.querySelectorAll(`svg path[class*="${cls}"]`).length;
+    expect(screen.getByRole("list", { name: "What the green fill shows" }).textContent).toBe("PhotographedNot yet");
+    expect(paths("fill-accent")).toBeGreaterThan(0);
+    expect(paths("fill-rarity-")).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "Canada" }));
+    expect(paths("fill-accent")).toBeGreaterThan(0);
+    // Testia averages Occasional; its species Alpha is Common.
+    expect(paths("fill-rarity-occasional")).toBeGreaterThan(0);
+    expect(paths("fill-rarity-common")).toBeGreaterThan(0);
+  });
+
+  it("names a species' local and worldwide rarity apart in the pane", () => {
+    const gamma = { ...species("Gamma", "p-g"), tiers: { legendary: 1 } };
+    treeData = {
+      ...tree,
+      tree: [{ ...tree.tree[0], children: [{ ...genus, children: [species("Alpha", "p-a"), gamma] }] }],
+    };
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Canada" }));
+    fireEvent.click(item(/Testia/));
+    fireEvent.click(item(/^Genus/));
+    fireEvent.click(item(/^Gamma/));
+    const pane = screen.getByRole("complementary");
+    expect(within(pane).getByText("Legendary in Canada")).toBeTruthy();
+    expect(within(pane).getByText("Rare worldwide")).toBeTruthy();
+  });
+
   it("labels list rows with their rarity when the option is on", () => {
     localStorage.setItem("lifer:explorer.rarity", "true");
     renderPage();

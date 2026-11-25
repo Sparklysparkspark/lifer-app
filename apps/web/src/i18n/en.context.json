@@ -1897,11 +1897,17 @@
     "randomHelp": "Tooltip on the Random species button in the Tree of life.",
     "showMorePhotos": "Link under the photo grid of a group in the Tree of life: shows photos of more of its species.",
     "rarity": {
-      "show": "View option switch: shade the circle and label rows by rarity tier (common to legendary).",
+      "show": "View option switch: add a rarity band to the circle and label rows by rarity tier (common to legendary).",
       "help": "Tooltip on the Show rarity switch. Local rarity is how rare a species is in the picked region.",
       "group": "On a group: {tier} is its average rarity tier name, like Uncommon; {rated} is how many of its species have a tier. Example: Mostly Uncommon, 4 of 20 rare or rarer.",
-      "legend": "Screen reader name of the rarity scale under the circle, which lists the tiers from Common to Legendary."
-    }
+      "legend": "Screen reader name of the rarity scale under the circle, which lists the tiers from Common to Legendary.",
+      "edge": "Lead-in before the rarity scale under the circle: the colours apply to the thin band on each segment's outer edge.",
+      "local": "Species detail in the Tree of life: its rarity tier in the picked region, like Legendary in Canada. {tier} is the tier name, {place} the region.",
+      "worldwide": "Species detail, under the local rarity when they differ: its rarity tier across its whole range, like Common worldwide."
+    },
+    "shareLegend": "Screen reader name of the legend under the circle that explains the green fill.",
+    "legendPhotographed": "Legend entry beside a green swatch: the green part of a circle segment is the share of its species you have photographed.",
+    "legendNotYet": "Legend entry beside a pale swatch: the empty part of a circle segment is the species you have not photographed yet."
   },
   "worksWith": {
     "title": "Settings group heading in Connected apps listing photo apps that read the species keywords Lifer writes into photos.",

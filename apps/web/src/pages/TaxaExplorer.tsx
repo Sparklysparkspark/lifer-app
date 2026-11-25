@@ -421,6 +421,7 @@ export default function TaxaExplorer() {
       onOpenPhotos={(nodes, start) => setLightbox({ index: start, slides: nodes.map((n) => slideFor(n, label(n))) })}
       marks={marksFor(selectedEntry.node, label(selectedEntry.node))}
       rarity={rarity}
+      regionName={regionId ? (regions.breadcrumb.at(-1)?.name ?? null) : null}
     />
   );
   const first = range?.[0] ?? 0;

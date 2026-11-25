@@ -159,9 +159,13 @@ const tierRank = (tier: string | null | undefined) => {
   return i < 0 ? TIER_ORDER.length : i;
 };
 
-/** Rarest photographed species first; ties keep tree order. */
+/** A species' tier as species cards show it: the picked region's local tier where it has one, else
+ *  its worldwide tier (the API counts a species under exactly that one). */
+export const shownTier = (node: TreeNode): string | null => Object.keys(node.tiers)[0] ?? node.tier ?? null;
+
+/** Rarest photographed species first, by their shown tier; ties keep tree order. */
 export function rarestFirst(leaves: IndexedNode[]): IndexedNode[] {
-  return [...leaves].sort((a, b) => tierRank(a.node.tier) - tierRank(b.node.tier));
+  return [...leaves].sort((a, b) => tierRank(shownTier(a.node)) - tierRank(shownTier(b.node)));
 }
 
 export type MarkAction = "target" | "untarget" | "seen" | "unseen";
@@ -195,10 +199,22 @@ export function onlyTargets(nodes: TreeNode[]): TreeNode[] {
 
 // Commonest first, so a higher step is rarer.
 export const RARITY_STEPS = ["common", "occasional", "uncommon", "rare", "legendary"] as const;
-// One hue in lightness steps (each at least 1.3:1 from the next in both themes, colourBlind.test.ts),
-// so the scale reads without telling colours apart. Literal for Tailwind.
-export const RARITY_FILL = ["fill-accent/20", "fill-accent/40", "fill-accent/60", "fill-accent/80", "fill-accent/100"];
-export const RARITY_BG = ["bg-accent/20", "bg-accent/40", "bg-accent/60", "bg-accent/80", "bg-accent/100"];
+// A plum scale in lightness steps, kept apart from the green of "photographed" and readable
+// without telling colours apart (colourBlind.test.ts). Literal for Tailwind.
+export const RARITY_FILL = [
+  "fill-rarity-common",
+  "fill-rarity-occasional",
+  "fill-rarity-uncommon",
+  "fill-rarity-rare",
+  "fill-rarity-legendary",
+];
+export const RARITY_BG = [
+  "bg-rarity-common",
+  "bg-rarity-occasional",
+  "bg-rarity-uncommon",
+  "bg-rarity-rare",
+  "bg-rarity-legendary",
+];
 
 export interface Rarity {
   /** Index into RARITY_STEPS of the rated species' mean tier. */
@@ -209,7 +225,7 @@ export interface Rarity {
 }
 
 /** A node's average rarity; null when none of its species has a tier. */
-export function rarityOf(node: TreeNode): Rarity | null {
+export function rarityOf(node: Pick<TreeNode, "tiers">): Rarity | null {
   let rated = 0;
   let sum = 0;
   let rarePlus = 0;
@@ -250,6 +266,8 @@ export interface Arc {
   collected: number;
   total: number;
   targetCount: number;
+  /** Species per tier, merged for a "more" arc so its rarity band still shows. */
+  tiers: Record<string, number>;
 }
 
 /** The Circle view's arcs: `rings` levels below `center` (or the whole tree), each child's angle
@@ -265,18 +283,29 @@ export function circleArcs(
     if (total === 0) return;
     const span = end - start;
     let at = start;
-    const thin = { id: null, ring, start: 0, end, more: 0, collected: 0, total: 0, targetCount: 0 };
+    const thin = {
+      id: null,
+      ring,
+      start: 0,
+      end,
+      more: 0,
+      collected: 0,
+      total: 0,
+      targetCount: 0,
+      tiers: {} as Record<string, number>,
+    };
     for (const id of ids) {
-      const { collected, total: species, targetCount } = index.byId.get(id)!.node;
+      const { collected, total: species, targetCount, tiers } = index.byId.get(id)!.node;
       const angle = (span * species) / total;
       if (angle < minAngle) {
         thin.more++;
         thin.collected += collected;
         thin.total += species;
         thin.targetCount += targetCount;
+        for (const [tier, n] of Object.entries(tiers)) thin.tiers[tier] = (thin.tiers[tier] ?? 0) + n;
         continue;
       }
-      out.push({ id, ring, start: at, end: at + angle, collected, total: species, targetCount });
+      out.push({ id, ring, start: at, end: at + angle, collected, total: species, targetCount, tiers });
       if (ring < rings) place(childrenOf(index, id, genus), ring + 1, at, at + angle);
       at += angle;
     }

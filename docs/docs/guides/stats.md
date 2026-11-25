@@ -63,7 +63,11 @@ The **Tree of life** groups the species in your downloaded regions by class, ord
 
 ### Rarity in the tree
 
-**Show rarity** under **View** shades each segment of the circle by how rare its species are, lighter for common and stronger for rarer, with the scale under the circle. A species shows its own tier; a group shows its average, like **Mostly Uncommon, 4 of 20 rare or rarer**, in the middle of the circle and when you point at it. In the list, rows get the same label. With a region picked, it uses that region's local rarity where the region has one (otherwise the species' overall rarity). It's on when you pick a region and off without one, until you change it; Lifer remembers your choice.
+In **Circle**, the green part of each segment is what you've photographed: a species is all green once you have it, and a group fills outward by its share. The pale part is what you haven't photographed yet.
+
+**Show rarity** under **View** adds a thin band along the outer edge of each segment, in plum: paler for common, deeper for rarer (brighter in dark mode), with the scale under the circle. The green fill stays as it is. A species' band shows its own tier; a group's shows its average, like **Mostly Uncommon, 4 of 20 rare or rarer**, in the middle of the circle and when you point at it. In the list, rows get the same label and colour. With a region picked, it uses that region's local rarity where the region has one (otherwise the species' worldwide rarity). It's on when you pick a region and off without one, until you change it; Lifer remembers your choice.
+
+With a region picked, a species' panel names both when they differ, like **Legendary in Canada** and **Common worldwide**, and **Rarest finds** ranks by the local one.
 
 ### Targets and seen in the tree
 
