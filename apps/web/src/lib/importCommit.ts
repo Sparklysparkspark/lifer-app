@@ -8,6 +8,10 @@ import type { StagedPlace } from "../components/importReview/importGroups";
 export interface CommittedImport {
   key: string;
   captureId: string;
+  /** Set when the file joined a photo already in Lifer (a RAW paired to an older edit): Undo takes
+   *  off only that file, and puts back the species this import changed. A null originalId means
+   *  the server didn't say which file it added, so Undo leaves the photo alone. */
+  joined?: { originalId: string | null; previousSpeciesId?: string };
 }
 
 export interface ImportTarget {
@@ -49,7 +53,9 @@ export interface SourceMove {
   sidecars?: number;
 }
 
-export type CommitOutcome = { kind: "imported"; captureId: string; sourceMove?: SourceMove } | { kind: "rejected" };
+export type CommitOutcome =
+  | { kind: "imported"; captureId: string; sourceMove?: SourceMove; joined?: { originalId: string | null } }
+  | { kind: "rejected" };
 
 /** Imports one row from its finished upload. A photo the server reads as a culling reject comes
  *  back without a capture: the import skips those. A RAW matching an imported JPEG is filed as
@@ -62,7 +68,13 @@ export async function commitImport(
       endpoint: "/uploads" | "/uploads/video",
       uploadId: string,
       addFields: (form: FormData) => void,
-    ) => Promise<{ captureId?: string; linkedExisting?: boolean; skipped?: "rejected"; sourceMove?: SourceMove }>;
+    ) => Promise<{
+      captureId?: string;
+      linkedExisting?: boolean;
+      linkedOriginalId?: string;
+      skipped?: "rejected";
+      sourceMove?: SourceMove;
+    }>;
   },
 ): Promise<CommitOutcome> {
   const fields = importFields(t);
@@ -73,30 +85,64 @@ export async function commitImport(
   // sent twice.
   const uploadId = await deps.ensureUploaded();
   const res = await deps.post(t.isVideo ? "/uploads/video" : "/uploads", uploadId, addFields);
-  return res.captureId
-    ? { kind: "imported", captureId: res.captureId, sourceMove: res.sourceMove }
-    : { kind: "rejected" };
+  if (!res.captureId) return { kind: "rejected" };
+  const joined = res.linkedExisting ? { originalId: res.linkedOriginalId ?? null } : undefined;
+  return { kind: "imported", captureId: res.captureId, sourceMove: res.sourceMove, joined };
 }
 
 export interface UndoResult {
   undone: CommittedImport[];
   failed: CommittedImport[];
+  /** Joined an older photo without saying which file it added: left exactly as it is. */
+  kept: CommittedImport[];
 }
 
-/** Deletes each capture of the last import. One that fails to delete is still on the server, so
- *  it's reported rather than treated as undone. */
-export async function undoImports(
-  batch: CommittedImport[],
-  deleteCapture: (captureId: string) => Promise<unknown>,
-  concurrency: number,
-): Promise<UndoResult> {
-  const ok = await mapWithConcurrency(batch, concurrency, async ({ captureId }) =>
-    deleteCapture(captureId).then(
+export interface UndoDeps {
+  /** Sends a photo this import created to the Trash. */
+  deleteCapture: (captureId: string) => Promise<unknown>;
+  /** Takes the RAW this import added off an older photo. */
+  undoLink: (originalId: string) => Promise<unknown>;
+  reassign: (captureId: string, speciesId: string) => Promise<unknown>;
+}
+
+/** Undoes the last import: photos it created go to the Trash, and a file it added to a photo
+ *  already in Lifer comes off that photo, which keeps everything else. One step that fails is
+ *  still on the server, so it's reported rather than treated as undone. */
+export async function undoImports(batch: CommittedImport[], deps: UndoDeps, concurrency: number): Promise<UndoResult> {
+  // A file that joined a photo this same import created goes to the Trash with that photo.
+  const created = new Set(batch.filter((c) => !c.joined).map((c) => c.captureId));
+  const stepOf = (c: CommittedImport) =>
+    created.has(c.captureId) ? `capture:${c.captureId}` : c.joined?.originalId ? `raw:${c.joined.originalId}` : null;
+  const steps = new Map<string, () => Promise<unknown>>();
+  for (const c of batch) {
+    const id = stepOf(c);
+    if (!id || steps.has(id)) continue;
+    const joined = c.joined;
+    steps.set(
+      id,
+      !joined || created.has(c.captureId)
+        ? () => deps.deleteCapture(c.captureId)
+        : async () => {
+            // Species first, so a failure leaves the RAW in place for another try.
+            if (joined.previousSpeciesId) await deps.reassign(c.captureId, joined.previousSpeciesId);
+            await deps.undoLink(joined.originalId!);
+          },
+    );
+  }
+  const ids = [...steps.keys()];
+  const ok = await mapWithConcurrency(ids, concurrency, (id) =>
+    steps.get(id)!().then(
       () => true,
       () => false,
     ),
   );
-  return { undone: batch.filter((_, i) => ok[i]), failed: batch.filter((_, i) => !ok[i]) };
+  const done = new Set(ids.filter((_, i) => ok[i]));
+  const result: UndoResult = { undone: [], failed: [], kept: [] };
+  for (const c of batch) {
+    const id = stepOf(c);
+    (id === null ? result.kept : done.has(id) ? result.undone : result.failed).push(c);
+  }
+  return result;
 }
 
 /** One entry of POST /places/apply. */

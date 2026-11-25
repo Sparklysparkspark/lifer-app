@@ -148,6 +148,9 @@ export const UploadResponses = {
     photoId: Nullable(Uuid({ description: "Null when a RAW was linked to a photo you already had" })),
     hidden: Type.Boolean(),
     linkedExisting: Type.Optional(Type.Boolean()),
+    linkedOriginalId: Type.Optional(
+      Uuid({ description: "With linkedExisting: the RAW file added to that photo, for POST /uploads/raw/undo-link" }),
+    ),
     sha256: Type.String({ description: "sha256 (hex) of the stored file's bytes, to verify the upload" }),
     rawSha256: Type.Optional(Type.String({ description: "sha256 of the RAW sent with the photo, when one was" })),
     sourceMove: Type.Optional(

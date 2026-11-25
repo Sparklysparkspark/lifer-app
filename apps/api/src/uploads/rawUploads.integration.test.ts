@@ -55,6 +55,7 @@ describe.skipIf(!url)("RAW uploads", () => {
 
   async function cleanup() {
     for (const u of [USER, OTHER_USER]) {
+      await db.query(`DELETE FROM albums WHERE user_id = $1`, [u]);
       await db.query(`DELETE FROM user_species WHERE user_id = $1`, [u]);
       await db.query(`DELETE FROM originals WHERE user_id = $1`, [u]);
       await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [u]);
@@ -227,5 +228,126 @@ describe.skipIf(!url)("RAW uploads", () => {
     );
     expect(after.rows[0]).toEqual({ species_id: PAGE_SPECIES, kinds: ["jpeg", "raw"] });
     expect(readdirSync(path.join(dataDir, "Birds", "Page Test Kingfisher", "RAW"))).toContain("6F9A8042.cr3");
+  }, 60_000);
+
+  // Undo of an import whose RAW joined an older photo takes off only that RAW: the photo, its
+  // species, rating and album stay, and a species the import changed goes back.
+  it("undoes a RAW that joined an older photo without touching the photo", async () => {
+    const album = await db.query<{ id: string }>(
+      `INSERT INTO albums (user_id, name) VALUES ($1, 'Undo test') RETURNING id`,
+      [USER],
+    );
+    const albumId = album.rows[0].id;
+    const jpg = await multipartBody({ speciesId: SPECIES, albumId }, [
+      { field: "file", name: "6F9A9001.jpg", bytes: await shot("jpeg", 60, "2024:05:04 09:00:00"), type: "image/jpeg" },
+    ]);
+    const filed = await app.inject({ method: "POST", url: "/api/uploads", ...jpg });
+    expect(filed.statusCode, filed.body).toBe(201);
+    const captureId = filed.json().captureId as string;
+    await db.query(`UPDATE captures SET quality_rating = 4 WHERE id = $1`, [captureId]);
+
+    const raw = await multipartBody({ speciesId: PAGE_SPECIES, mode: "store" }, [
+      { field: "file", name: "6F9A9001.cr3", bytes: await shot("jpeg", 61, "2024:05:04 09:00:00"), type: "" },
+    ]);
+    const linked = await app.inject({ method: "POST", url: "/api/uploads", ...raw });
+    expect(linked.statusCode, linked.body).toBe(201);
+    expect(linked.json()).toMatchObject({ captureId, linkedExisting: true });
+    const originalId = linked.json().linkedOriginalId as string;
+    const rawRef = (await db.query<{ ref: string }>(`SELECT ref FROM originals WHERE id = $1`, [originalId])).rows[0]
+      .ref;
+    expect(existsSync(rawRef)).toBe(true);
+    // The species page's review then files the photo under the page's species.
+    const auth = { cookies: { [cookieName]: TOKEN } };
+    const fix = await app.inject({
+      method: "PATCH",
+      url: `/api/captures/${captureId}/reassign`,
+      payload: { speciesId: PAGE_SPECIES },
+      ...auth,
+    });
+    expect(fix.statusCode, fix.body).toBe(200);
+
+    // What the web's Undo sends: the old species back, then the RAW off.
+    const back = await app.inject({
+      method: "PATCH",
+      url: `/api/captures/${captureId}/reassign`,
+      payload: { speciesId: SPECIES },
+      ...auth,
+    });
+    expect(back.statusCode, back.body).toBe(200);
+    const undo = await app.inject({
+      method: "POST",
+      url: "/api/uploads/raw/undo-link",
+      payload: { originalId },
+      ...auth,
+    });
+    expect(undo.statusCode, undo.body).toBe(200);
+
+    const after = await db.query<{ species_id: string; quality_rating: number; kinds: string[]; albums: number }>(
+      `SELECT c.species_id, c.quality_rating,
+              ARRAY(SELECT kind FROM originals WHERE capture_id = c.id) AS kinds,
+              (SELECT count(*)::int FROM album_captures WHERE capture_id = c.id AND album_id = $2) AS albums
+       FROM captures c WHERE c.id = $1`,
+      [captureId, albumId],
+    );
+    expect(after.rows[0]).toEqual({ species_id: SPECIES, quality_rating: 4, kinds: ["jpeg"], albums: 1 });
+    expect(existsSync(rawRef)).toBe(false);
+
+    // A second undo, or one aimed at the photo's own file, changes nothing.
+    const again = await app.inject({
+      method: "POST",
+      url: "/api/uploads/raw/undo-link",
+      payload: { originalId },
+      ...auth,
+    });
+    expect(again.statusCode).toBe(404);
+    const jpegId = (await db.query<{ id: string }>(`SELECT id FROM originals WHERE capture_id = $1`, [captureId]))
+      .rows[0].id;
+    const ownFile = await app.inject({
+      method: "POST",
+      url: "/api/uploads/raw/undo-link",
+      payload: { originalId: jpegId },
+      ...auth,
+    });
+    expect(ownFile.statusCode).toBe(404);
+    expect((await db.query(`SELECT 1 FROM originals WHERE id = $1`, [jpegId])).rowCount).toBe(1);
+  }, 60_000);
+
+  it("never takes the only file off a RAW-only photo, or another user's RAW", async () => {
+    const lone = await multipartBody({ speciesId: SPECIES, mode: "store" }, [
+      { field: "file", name: "6F9A9100.cr3", bytes: await shot("jpeg", 70, "2024:05:05 09:00:00"), type: "" },
+    ]);
+    const res = await app.inject({ method: "POST", url: "/api/uploads", ...lone });
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json()).toMatchObject({ linkedExisting: false });
+    const rawId = (
+      await db.query<{ id: string }>(`SELECT id FROM originals WHERE capture_id = $1`, [res.json().captureId])
+    ).rows[0].id;
+    const undo = await app.inject({
+      method: "POST",
+      url: "/api/uploads/raw/undo-link",
+      payload: { originalId: rawId },
+      cookies: { [cookieName]: TOKEN },
+    });
+    expect(undo.statusCode).toBe(404);
+    expect((await db.query(`SELECT 1 FROM originals WHERE id = $1`, [rawId])).rowCount).toBe(1);
+  }, 60_000);
+
+  // An import that created the photo: Undo sends the whole photo to the Trash, restorable.
+  it("undoes a new photo by sending it to the Trash", async () => {
+    const jpg = await multipartBody({ speciesId: SPECIES }, [
+      { field: "file", name: "6F9A9200.jpg", bytes: await shot("jpeg", 80, "2024:05:06 09:00:00"), type: "image/jpeg" },
+    ]);
+    const res = await app.inject({ method: "POST", url: "/api/uploads", ...jpg });
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().linkedExisting).toBeUndefined();
+    const captureId = res.json().captureId as string;
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/captures/${captureId}`,
+      cookies: { [cookieName]: TOKEN },
+    });
+    expect(del.statusCode, del.body).toBe(200);
+    const trashed = await db.query(`SELECT 1 FROM captures_all WHERE id = $1 AND deleted_at IS NOT NULL`, [captureId]);
+    expect(trashed.rowCount).toBe(1);
   }, 60_000);
 });

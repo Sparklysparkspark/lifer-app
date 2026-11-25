@@ -7,8 +7,10 @@ import type { FastifyInstance } from "fastify";
 import type { PoolClient } from "pg";
 import { pool } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
-import { withSchemas } from "../lib/schema.js";
-import { ORIGINALS_DIR } from "@lifer/core/config.js";
+import { Ok, Uuid, replies, withSchemas } from "../lib/schema.js";
+import { ORIGINALS_DIR, SINGLE_USER_MODE } from "@lifer/core/config.js";
+import { Type } from "typebox";
+import { moveToSystemTrash, removeOriginal } from "../lib/originalsWrite.js";
 import { generateDerivatives } from "@lifer/core/uploads/image.js";
 import {
   captureTimeFromTags,
@@ -24,7 +26,7 @@ import { syncCaptureXmpSidecars } from "./xmpSidecarSync.js";
 import { isRawExtension, isRawFile } from "@lifer/core/uploads/formats.js";
 import { speciesFolder } from "./managedFolders.js";
 import { insertCapture, insertOriginal } from "./captureRows.js";
-import { resolveChosenVolumeDestination } from "../storageVolumes/resolve.js";
+import { resolveChosenVolumeDestination, resolveOriginalPath } from "../storageVolumes/resolve.js";
 import { ensureDir } from "@lifer/core/lib/safeFs.js";
 import { moveFile, receiveToFile } from "../lib/stagedUploads.js";
 import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
@@ -80,7 +82,7 @@ async function fileRawWithCapture(
   time: CaptureTime | null,
   fingerprint: ExifFingerprint,
   chosenVolume: ChosenVolume | null,
-): Promise<void> {
+): Promise<string> {
   const folder = await speciesFolder(
     userId,
     match.species_id,
@@ -124,7 +126,7 @@ async function fileRawWithCapture(
   );
   const volumeRelativePath = chosenVolume ? dest.slice(chosenVolume.mountPath.length) : null;
   try {
-    await insertOriginal(pool, {
+    return await insertOriginal(pool, {
       userId,
       captureId: match.id,
       kind: "raw",
@@ -270,7 +272,7 @@ export async function handleRawPrimaryUpload(
   place: { regionId: string | null; locationLabel: string | null },
   // The culling app's marks, kept on a new capture; `hidden` imports it hidden (captures/hidden.ts).
   cull: { marks: CullMarks; hidden: boolean } = { marks: NO_CULL_MARKS, hidden: false },
-): Promise<{ captureId: string; photoId: string | null; linkedExisting: boolean }> {
+): Promise<{ captureId: string; photoId: string | null; linkedExisting: boolean; linkedOriginalId?: string }> {
   const tags = await readExifTags(file.path);
   const exif: ExtractedExif = await extractExif(file.path, tags);
   const time: CaptureTime | null = captureTimeFromTags(tags);
@@ -281,8 +283,18 @@ export async function handleRawPrimaryUpload(
 
   const matches = await findRawRelatedCaptures(userId, rawFileName, exif, fingerprint, time);
   if (matches.length === 1) {
-    await fileRawWithCapture(matches[0], file, rawFileName, userId, exif, time, fingerprint, chosenVolume);
-    return { captureId: matches[0].id, photoId: null, linkedExisting: true };
+    const linkedOriginalId = await fileRawWithCapture(
+      matches[0],
+      file,
+      rawFileName,
+      userId,
+      exif,
+      time,
+      fingerprint,
+      chosenVolume,
+    );
+    // The import's Undo removes just this file, never the photo it joined.
+    return { captureId: matches[0].id, photoId: null, linkedExisting: true, linkedOriginalId };
   }
 
   // No match (or an ambiguous one, left for manual review): a new capture under the species being
@@ -424,6 +436,36 @@ export async function handleRawPrimaryUpload(
 
 export async function rawUploadRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
+
+  // Undo of an import whose RAW joined a photo already in Lifer: only that RAW leaves, never the
+  // photo. Refused unless it is still a managed RAW beside another file of its capture.
+  const undoableRaw = `id = $1 AND user_id = $2 AND kind = 'raw' AND managed
+    AND EXISTS (SELECT 1 FROM originals s WHERE s.capture_id = originals.capture_id AND s.kind <> 'raw')`;
+  app.post(
+    "/uploads/raw/undo-link",
+    {
+      preValidation: requireAuth,
+      schema: { body: Type.Object({ originalId: Uuid() }, { additionalProperties: false }), response: replies(Ok) },
+    },
+    async (request, reply) => {
+      const params = [request.body.originalId, request.user!.id];
+      const found = await pool.query<{ ref: string; volume_id: string | null; volume_relative_path: string | null }>(
+        `SELECT ref, volume_id, volume_relative_path FROM originals WHERE ${undoableRaw}`,
+        params,
+      );
+      if (!found.rows[0]) return reply.code(404).send({ error: "That RAW is no longer part of a photo" });
+      // A disconnected drive would leave the file behind untracked, so nothing changes then.
+      const { path: file } = await resolveOriginalPath(found.rows[0]);
+      if (!file) return reply.code(409).send({ error: "The drive holding this RAW isn't connected" });
+      const removed = await pool.query(`DELETE FROM originals WHERE ${undoableRaw}`, params);
+      if (!removed.rowCount) return reply.code(404).send({ error: "That RAW is no longer part of a photo" });
+      // On the desktop it goes to the system Trash, where it can be put back.
+      await (SINGLE_USER_MODE ? moveToSystemTrash([file]) : removeOriginal(file)).catch((err: unknown) =>
+        log.warn({ err, file }, "Took an undone RAW off its photo but couldn't remove the file"),
+      );
+      return { ok: true };
+    },
+  );
   // One or many RAWs per request (file parts or `uploadIds`), each matched against imported
   // JPEGs. Only a unique match links; anything else is not kept.
   // Multipart: no body schema, the handler reads and checks each field as it streams in.

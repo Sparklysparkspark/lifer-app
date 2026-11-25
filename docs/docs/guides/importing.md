@@ -62,7 +62,7 @@ If a culling app marked some files rejected, a line above that says how many, wi
 
 Each row shows **Uploading…** then **✓ Imported**. If you assigned every row, Lifer takes you back to the Collection page, on the batch's region, and finishes uploading in the background. A small banner in the bottom-left corner shows progress, then what happened, like "12 photos filed under 5 species".
 
-When the batch is done, a message in the bottom-right corner says the same, with **View** (the species, or the region if you picked several species) and **Undo**, which removes the photos that batch just created. It works from whatever page you're on.
+When the batch is done, a message in the bottom-right corner says the same, with **View** (the species, or the region if you picked several species) and **Undo**, which sends the photos that batch just created to the [Trash](./trash.md) and takes back only what it added to photos you already had: a RAW that joined an older edited photo comes off it, and that photo keeps its species (put back if the import changed it), rating, albums and other files. It works from whatever page you're on.
 
 If you chose places for any groups, a second message says **Places set for N photos**, with **Undo**, which puts back every place that import set in one step and leaves the photos in your library.
 
@@ -246,7 +246,7 @@ Checking and importing photos needs room for previews and Lifer's database, on t
 
 - When space is tight, a note says so, and Lifer checks and imports one photo at a time, without keeping extra copies while you pick species. It's slower, but works the same.
 - Before the disk is full, Lifer pauses the import so your library and its database aren't harmed. Photos already imported stay imported, and the rest stay where they were. The note says how much to free; free it and press **Continue** to import the rest.
-- When the disk holding Lifer's data is nearly full, a line under the toolbar says so on every page.
+- When the disk holding Lifer's data is nearly full, a line under the toolbar says so. Dismiss it and it stays away on this device until the free space halves, drops under 5 GB, or a week passes. Settings > Storage always shows the free space, and an import that won't fit still tells you when you start it.
 
 ## Importing a folder again {#folder-again}
 

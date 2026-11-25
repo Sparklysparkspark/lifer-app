@@ -45,6 +45,15 @@ describe("commitImport", () => {
     expect(form.get("speciesId")).toBe("sp1");
   });
 
+  it("says which file joined a photo already in Lifer", async () => {
+    const post = vi.fn().mockResolvedValue({ captureId: "old", linkedExisting: true, linkedOriginalId: "o1" });
+    await expect(commitImport(photo, { ensureUploaded: async () => "up1", post })).resolves.toEqual({
+      kind: "imported",
+      captureId: "old",
+      joined: { originalId: "o1" },
+    });
+  });
+
   it("reports a photo the server skipped as a culling reject", async () => {
     const post = vi.fn().mockResolvedValue({ skipped: "rejected" });
     await expect(commitImport(photo, { ensureUploaded: async () => "up1", post })).resolves.toEqual({
@@ -68,12 +77,65 @@ describe("undo", () => {
     { key: "c", captureId: "c3" },
   ];
 
+  const deps = () => ({
+    deleteCapture: vi.fn((id: string) => (id === "c2" ? Promise.reject(new Error("500")) : Promise.resolve())),
+    undoLink: vi.fn((_id: string) => Promise.resolve()),
+    reassign: vi.fn((_capture: string, _species: string) => Promise.resolve()),
+  });
+
   it("splits deleted captures from ones still on the server", async () => {
-    const deleteCapture = vi.fn((id: string) => (id === "c2" ? Promise.reject(new Error("500")) : Promise.resolve()));
-    const result = await undoImports(batch, deleteCapture, 2);
-    expect(deleteCapture).toHaveBeenCalledTimes(3);
+    const d = deps();
+    const result = await undoImports(batch, d, 2);
+    expect(d.deleteCapture).toHaveBeenCalledTimes(3);
     expect(result.undone.map((u) => u.key)).toEqual(["a", "c"]);
     expect(result.failed).toEqual([{ key: "b", captureId: "c2" }]);
+  });
+
+  it("takes only the added RAW off an older photo and puts its species back", async () => {
+    const d = deps();
+    const result = await undoImports(
+      [{ key: "raw", captureId: "old", joined: { originalId: "o1", previousSpeciesId: "sp0" } }],
+      d,
+      2,
+    );
+    expect(d.deleteCapture).not.toHaveBeenCalled();
+    expect(d.reassign).toHaveBeenCalledWith("old", "sp0");
+    expect(d.undoLink).toHaveBeenCalledWith("o1");
+    expect(result.undone.map((u) => u.key)).toEqual(["raw"]);
+  });
+
+  it("keeps the RAW when its species can't be put back, so undo can be tried again", async () => {
+    const d = { ...deps(), reassign: vi.fn(() => Promise.reject(new Error("500"))) };
+    const result = await undoImports(
+      [{ key: "raw", captureId: "old", joined: { originalId: "o1", previousSpeciesId: "sp0" } }],
+      d,
+      2,
+    );
+    expect(d.undoLink).not.toHaveBeenCalled();
+    expect(result.failed.map((u) => u.key)).toEqual(["raw"]);
+  });
+
+  it("leaves an older photo alone when the server didn't say which file joined it", async () => {
+    const d = deps();
+    const result = await undoImports([{ key: "raw", captureId: "old", joined: { originalId: null } }], d, 2);
+    expect(d.deleteCapture).not.toHaveBeenCalled();
+    expect(d.undoLink).not.toHaveBeenCalled();
+    expect(result.kept.map((u) => u.key)).toEqual(["raw"]);
+  });
+
+  it("trashes a photo this import created once, with a RAW that joined it in the same import", async () => {
+    const d = deps();
+    const result = await undoImports(
+      [
+        { key: "jpg", captureId: "c1" },
+        { key: "raw", captureId: "c1", joined: { originalId: "o1" } },
+      ],
+      d,
+      2,
+    );
+    expect(d.deleteCapture).toHaveBeenCalledTimes(1);
+    expect(d.undoLink).not.toHaveBeenCalled();
+    expect(result.undone.map((u) => u.key)).toEqual(["jpg", "raw"]);
   });
 
   it("puts only undone rows back to ready, so a failed one can't be imported twice", () => {

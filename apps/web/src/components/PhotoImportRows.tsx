@@ -1054,13 +1054,18 @@ export default function PhotoImportRows({
           return;
         }
         const captureId = outcome.captureId;
+        const joined: CommittedImport["joined"] = outcome.joined && { ...outcome.joined };
         // A RAW joins the photo it belongs to; a species picked for it here corrects that photo.
         if (row.rawMatch && captureId === row.rawMatch.captureId && row.speciesId !== row.rawMatch.speciesId) {
+          const previousSpeciesId = row.rawMatch.speciesId;
           await api
             .patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: row.speciesId! })
+            .then(() => {
+              if (joined) joined.previousSpeciesId = previousSpeciesId;
+            })
             .catch((err: unknown) => toast.error(errorMessage(err, t("import.rows.reassignFailed"))));
         }
-        for (const key of keys) committed.push({ key, captureId });
+        for (const key of keys) committed.push({ key, captureId, joined });
         if (outcome.sourceMove?.moved) movedCount++;
         else if (outcome.sourceMove) stayedCount++;
         sidecarCount += outcome.sourceMove?.sidecars ?? 0;
@@ -1188,28 +1193,35 @@ export default function PhotoImportRows({
     return { cleared, sidecars };
   }
 
-  // A capture that couldn't be deleted is still on the server, so its row stays imported (and
+  // A photo that couldn't be undone is still on the server, so its row stays imported (and
   // undoable) rather than going back to "ready", where importing it again would duplicate it.
-  // Undo can run from the page and from the toast, so skip captures already deleted by the other.
-  const undoneCaptureIds = useRef(new Set<string>());
+  // Undo can run from the page and from the toast, so skip rows the other already handled.
+  const settledKeys = useRef(new Set<string>());
   async function undoBatch(all: CommittedImport[]) {
-    const batch = all.filter((c) => !undoneCaptureIds.current.has(c.captureId));
+    const batch = all.filter((c) => !settledKeys.current.has(c.key));
     if (batch.length === 0) return;
-    const { undone: undonePhotos, failed } = await undoImports(
-      uniqueCaptures(batch),
-      (captureId) => api.delete(apiPath("/captures/{id}", { id: captureId })),
+    const { undone, failed, kept } = await undoImports(
+      batch,
+      {
+        deleteCapture: (captureId) => api.delete(apiPath("/captures/{id}", { id: captureId })),
+        undoLink: (originalId) => api.post("/uploads/raw/undo-link", { originalId }),
+        reassign: (captureId, speciesId) =>
+          api.patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId }),
+      },
       UPLOAD_CONCURRENCY,
     );
-    for (const u of undonePhotos) undoneCaptureIds.current.add(u.captureId);
-    const undone = batch.filter((c) => undoneCaptureIds.current.has(c.captureId));
+    for (const c of [...undone, ...kept]) settledKeys.current.add(c.key);
     if (undone.length > 0) {
       reportImportsRemoved();
       photosDeleted();
     }
     setRows((prev) => resetUndoneRows(prev, undone));
-    setLastBatch((prev) => prev.filter((c) => !undoneCaptureIds.current.has(c.captureId)));
+    setLastBatch((prev) => prev.filter((c) => !settledKeys.current.has(c.key)));
     if (failed.length > 0) {
-      toast.error(t("import.rows.undoPartlyFailed", { count: failed.length }));
+      toast.error(t("import.rows.undoPartlyFailed", { count: uniqueCaptures(failed).length }));
+    }
+    if (kept.length > 0) {
+      toast.show(t("import.rows.undoKept", { count: uniqueCaptures(kept).length }));
     }
   }
   const doneCount = rows.filter((r) => r.status === "done").length;
