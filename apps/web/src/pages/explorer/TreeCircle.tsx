@@ -1,10 +1,11 @@
 // The Tree of life as a circle (sunburst): the focused group in the middle, three rings of the
 // groups inside it, each arc sized by its catalogue species and filled outward by your share.
-// Clicking a group zooms into it; the middle steps back out. Arrow keys move between arcs. A small
+// Clicking a group zooms into it; the middle steps back out. An "N more groups" arc, standing in
+// for groups too thin to draw, zooms into just those groups, laid out across the whole circle. Arrow keys move between arcs. A small
 // target marks the arcs holding species on your targets; right-click opens the marks menu. With
 // rarity on, a thin band along each arc's outer edge shows its species' average tier, apart from
 // the green of your share.
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatNumber } from "../../lib/format";
 import { matches } from "../../lib/keymap";
@@ -52,6 +53,8 @@ export default function TreeCircle({
   selected,
   label,
   onPick,
+  onMore,
+  top,
   onZoomOut,
   onMenu,
   rarity,
@@ -63,6 +66,10 @@ export default function TreeCircle({
   label: (node: TreeNode) => string;
   /** An arc was clicked or chosen: select it, and zoom into it when it is a group. */
   onPick: (id: string) => void;
+  /** An "N more groups" arc was clicked or chosen. */
+  onMore: (arc: Arc) => void;
+  /** Set when the circle shows just the groups a "more" arc merged, instead of `center`'s children. */
+  top: string[] | null;
   onZoomOut: (() => void) | null;
   /** Right-click on a group or species: its marks menu at the pointer. */
   onMenu: (id: string, point: { x: number; y: number }) => void;
@@ -70,19 +77,35 @@ export default function TreeCircle({
   rarity: boolean;
 }) {
   const { t } = useTranslation();
-  const arcs = useMemo(() => circleArcs(index, center, { rings: RINGS, genus }), [index, center, genus]);
+  const arcs = useMemo(
+    () => circleArcs(index, center, { rings: RINGS, genus, top: top ?? undefined }),
+    [index, center, genus, top],
+  );
   const [hover, setHover] = useState<Arc | null>(null);
   const [activeAt, setActive] = useState(0);
   // A zoom or a View change gives new arcs; the roving focus then starts again at the first.
   const active = activeAt < arcs.length ? activeAt : 0;
   const [focused, setFocused] = useState(false);
   const refs = useRef<(SVGPathElement | null)[]>([]);
+  const svgRef = useRef<SVGSVGElement>(null);
+  // A new view (zoom, Back, a swipe) drops the arc focus ring, so it can't pass for a selection.
+  const viewKey = `${center ?? ""}|${top?.length ?? ""}`;
+  const [lastView, setLastView] = useState(viewKey);
+  if (viewKey !== lastView) {
+    setLastView(viewKey);
+    setFocused(false);
+  }
+  useEffect(() => {
+    if (svgRef.current?.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
+  }, [viewKey]);
 
   const centerNode = center ? index.byId.get(center)?.node : null;
-  const roots = index.roots.map((id) => index.byId.get(id)!.node);
-  const shown = hover ?? (focused ? arcs[active] : null);
+  const roots = (top ?? index.roots).map((id) => index.byId.get(id)!.node);
+  // A hovered arc from before a region change can name a group the new tree lacks.
+  const hovered = hover && (!hover.id || index.byId.has(hover.id)) ? hover : null;
+  const shown = hovered ?? (focused ? arcs[active] : null);
   const shownNode = shown?.id ? index.byId.get(shown.id)!.node : null;
-  const readout = shown && !shown.id ? null : (shownNode ?? centerNode);
+  const readout = shown && !shown.id ? null : (shownNode ?? (top ? null : centerNode));
   const totals = readout ?? {
     collected: roots.reduce((n, r) => n + r.collected, 0),
     total: roots.reduce((n, r) => n + r.total, 0),
@@ -106,15 +129,41 @@ export default function TreeCircle({
       else move(arcs.findIndex((a) => a.ring === arc.ring - 1 && inside(arc, a)));
     } else if (matches(e, "choose") || matches(e, "toggle")) {
       if (arc.id) onPick(arc.id);
+      else if (arc.total > 0) onMore(arc);
     } else return;
     e.preventDefault();
   };
 
   return (
-    // As big as the column allows while the whole circle fits the window's height.
-    <div className="mx-auto w-full max-w-[max(20rem,calc(100dvh-17rem))]">
+    // As big as the column allows while the legend and the whole circle fit the window's height.
+    <div className="mx-auto w-full max-w-[max(20rem,calc(100dvh-21rem))]">
+      <div className="mb-2 space-y-1">
+        <ul
+          aria-label={t("explorer.shareLegend")}
+          className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-footnote text-muted"
+        >
+          <li className="inline-flex items-center gap-1">
+            <Swatch className="bg-accent" />
+            {t("explorer.legendPhotographed")}
+          </li>
+          <li className="inline-flex items-center gap-1">
+            <Swatch className="bg-line ring-1 ring-control-line dark:bg-surface-muted" />
+            {t("explorer.legendNotYet")}
+          </li>
+        </ul>
+        {rarity && <RarityLegend />}
+        {arcs.some((a) => a.targetCount > 0) && (
+          <p className="flex items-center justify-center gap-1.5 text-footnote text-muted">
+            <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden="true">
+              <TargetMark x={8} y={8} />
+            </svg>
+            {t("explorer.marks.legend")}
+          </p>
+        )}
+      </div>
       <div className="relative">
         <svg
+          ref={svgRef}
           viewBox={`0 0 ${SIZE} ${SIZE}`}
           className="block h-auto w-full"
           role="group"
@@ -133,9 +182,10 @@ export default function TreeCircle({
               formatted: formatNumber(node.targetCount),
             };
             const rare = rarity ? rarityOf(arc) : null;
+            const more = !node && arc.total > 0;
             const base = counts
               ? t(counts.count > 0 ? "explorer.arcLabelTargets" : "explorer.arcLabel", counts)
-              : t("explorer.moreGroups", { count: arc.more ?? 0 });
+              : t(more ? "explorer.moreGroupsAction" : "explorer.moreGroups", { count: arc.more ?? 0 });
             const name = rare && node ? `${base}. ${rarityText(t, node)}` : base;
             const strong = (arc.id && arc.id === selected) || (focused && i === active);
             const r0 = INNER + (arc.ring - 1) * RING;
@@ -165,19 +215,19 @@ export default function TreeCircle({
                     refs.current[i] = el;
                   }}
                   d={arcPath(r0, r0 + RING, arc.start, arc.end)}
-                  role={node ? "button" : "img"}
+                  role={node || more ? "button" : "img"}
                   aria-label={name}
-                  tabIndex={node ? (i === active ? 0 : -1) : undefined}
+                  tabIndex={node || more ? (i === active ? 0 : -1) : undefined}
                   onFocus={() => (setActive(i), setFocused(true))}
                   onBlur={() => setFocused(false)}
                   onMouseEnter={() => setHover(arc)}
-                  onClick={() => arc.id && onPick(arc.id)}
+                  onClick={() => (arc.id ? onPick(arc.id) : more && onMore(arc))}
                   onContextMenu={(e) => {
                     if (!arc.id) return;
                     e.preventDefault();
                     onMenu(arc.id, { x: e.clientX, y: e.clientY });
                   }}
-                  className={`fill-transparent outline-none focus-visible:stroke-ink ${node ? "cursor-pointer hover:fill-ink/10" : ""} ${
+                  className={`fill-transparent outline-none focus-visible:stroke-ink ${node || more ? "cursor-pointer hover:fill-ink/10" : ""} ${
                     strong ? "stroke-ink" : "stroke-canvas"
                   }`}
                   strokeWidth={strong ? 3 : 1}
@@ -220,7 +270,9 @@ export default function TreeCircle({
               ? label(readout)
               : shown
                 ? t("explorer.moreGroups", { count: shown.more ?? 0 })
-                : t("explorer.allGroups")}
+                : top
+                  ? t("explorer.moreGroups", { count: top.length })
+                  : t("explorer.allGroups")}
           </p>
           {(readout || !shown) && (
             <p className="text-caption text-muted tabular-nums sm:text-footnote">
@@ -234,30 +286,6 @@ export default function TreeCircle({
             <p className="line-clamp-2 text-caption text-muted sm:text-footnote">{rarityText(t, readout)}</p>
           )}
         </div>
-      </div>
-      <div className="mt-2 space-y-1">
-        <ul
-          aria-label={t("explorer.shareLegend")}
-          className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-footnote text-muted"
-        >
-          <li className="inline-flex items-center gap-1">
-            <Swatch className="bg-accent" />
-            {t("explorer.legendPhotographed")}
-          </li>
-          <li className="inline-flex items-center gap-1">
-            <Swatch className="bg-line ring-1 ring-control-line dark:bg-surface-muted" />
-            {t("explorer.legendNotYet")}
-          </li>
-        </ul>
-        {rarity && <RarityLegend />}
-        {arcs.some((a) => a.targetCount > 0) && (
-          <p className="flex items-center justify-center gap-1.5 text-footnote text-muted">
-            <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden="true">
-              <TargetMark x={8} y={8} />
-            </svg>
-            {t("explorer.marks.legend")}
-          </p>
-        )}
       </div>
     </div>
   );

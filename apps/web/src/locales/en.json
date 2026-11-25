@@ -4950,6 +4950,9 @@
     "arcLabel": "{name}, {collected} of {total} species",
     "arcLabelTargets": "{name}, {collected} of {total} species, {count, plural, one {# target} other {{formatted} targets}}",
     "moreGroups": "{count, plural, one {# more group} other {# more groups}}",
+    "moreGroupsAction": "{count, plural, one {# more group, click to see it} other {# more groups, click to see them}}",
+    "focusGone": "{group} isn't in this view, so this shows {shown}.",
+    "focusGoneRegion": "No {group} recorded in {region}, so this shows {shown}.",
     "rank": {
       "class": "Class",
       "order": "Order",

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   ancestorIds,
   circleArcs,
+  REST_PAGE,
+  restChain,
+  restOf,
   collectedLeaves,
   markable,
   myBranches,
@@ -246,5 +249,29 @@ describe("circleArcs", () => {
       ring2.reduce((n, a) => n + a.end - a.start, 0),
       2 * Math.PI,
     );
+  });
+
+  it("turns a more arc back into the groups it merged, and pages a huge set", () => {
+    const index = indexTree(big);
+    const arcs = circleArcs(index, "class:Aves", { rings: 2, minAngle: 0.1 });
+    const more = arcs.find((a) => a.id === null)!;
+    expect(more).toMatchObject({ more: 10, parent: "class:Aves/order:O0", offset: 0, ring: 2 });
+    const kids = index.byId.get("class:Aves/order:O0")!.childIds;
+    expect(restOf(index, kids, 0)).toHaveLength(10);
+    expect(restOf(index, kids, 4)).toHaveLength(6);
+    expect(restChain(index, "class:Aves/order:O0", false, [0, 4]).map((l) => l.length)).toEqual([10, 6]);
+    expect(restChain(index, "class:Aves/order:O0", false, [10, 4])).toEqual([]);
+
+    // 3,000 equal genera: each layer draws a page and merges the rest, so it always makes progress.
+    const family = clade(
+      "family",
+      "Huge",
+      Array.from({ length: 3000 }, (_, i) => clade("genus", `G${i}`, [leaf(`s${i}`, 0)])),
+    );
+    const huge = indexTree([family]);
+    const top = huge.byId.get("family:Huge")!.childIds;
+    const page = circleArcs(huge, null, { rings: 1, top });
+    expect(page.filter((a) => a.id).length).toBe(REST_PAGE);
+    expect(page.find((a) => !a.id)).toMatchObject({ more: 3000 - REST_PAGE, offset: REST_PAGE });
   });
 });

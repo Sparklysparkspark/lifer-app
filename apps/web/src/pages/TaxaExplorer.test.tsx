@@ -663,3 +663,134 @@ describe("TaxaExplorer rarity, photos and Random", () => {
     expect(within(pane()).getAllByRole("button", { name: /^Open photo of/ })).toHaveLength(40);
   });
 });
+
+// One huge order and three single-species orders: the small ones are too thin to draw in the circle.
+const group = (rank: string, name: string, total: number, children: unknown[]) => ({
+  rank,
+  name,
+  collected: 0,
+  total,
+  photos: 0,
+  targetCount: 0,
+  seenCount: 0,
+  tiers: { common: total },
+  photoId: null,
+  children,
+});
+const thinTree = (orders: string[]) => ({
+  collected: 1,
+  tree: [
+    group(
+      "class",
+      "Big",
+      2003,
+      orders.map((o) => group("order", o, o === "Huge" ? 2000 : 1, [species(`S${o}`, null, 0)])),
+    ),
+  ],
+});
+
+describe("TaxaExplorer more-groups arcs", () => {
+  const more = () => screen.getByRole("button", { name: "3 more groups, click to see them" });
+  const openBig = () => {
+    treeData = thinTree(["Huge", "T1", "T2", "T3"]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Circle" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Big, / }));
+  };
+
+  it("zooms into the merged groups on click, steps out with the middle and Back", () => {
+    openBig();
+    fireEvent.click(more());
+    expect(screen.getByTestId("url").textContent).toContain("rest=");
+    expect(focused()).toContain("3 more groups");
+    expect(screen.getByRole("button", { name: /^T1, 1 of 1|^T1, 0 of 1/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Huge/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Step back out" }));
+    expect(focused()).not.toContain("more groups");
+    fireEvent.click(more());
+    act(() => navigate(-1));
+    expect(focused()).not.toContain("more groups");
+    expect(screen.getByRole("button", { name: /^Huge/ })).toBeTruthy();
+  });
+
+  it("opens from the keyboard and the trail steps out", () => {
+    openBig();
+    const arc = more();
+    act(() => arc.focus());
+    fireEvent.keyDown(arc, { key: "Enter" });
+    expect(focused()).toContain("3 more groups");
+    fireEvent.click(
+      within(screen.getByRole("navigation", { name: "Focused group" })).getByRole("button", { name: "Big" }),
+    );
+    expect(focused()).not.toContain("more groups");
+  });
+
+  it("restores a more view from the link", () => {
+    treeData = thinTree(["Huge", "T1", "T2", "T3"]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Circle" }));
+    act(() => navigate("/explore?focus=class%3ABig&rest=1"));
+    expect(focused()).toContain("3 more groups");
+  });
+});
+
+describe("TaxaExplorer region change while focused", () => {
+  const swap = (inCanada: string[], view: "circle" | "list") => {
+    treeData = thinTree(["Huge", "T1", "T2", "T3"]);
+    regionAnswer = { data: thinTree(inCanada), error: null };
+    explorerMemory.selected = "class:Big/order:Huge/species:SHuge";
+    if (view === "circle") localStorage.setItem("lifer:explorer.view", JSON.stringify("circle"));
+    renderPage();
+    act(() => navigate("/explore?focus=class%3ABig%2Forder%3AHuge"));
+    if (view === "circle") fireEvent.mouseEnter(screen.getByRole("button", { name: /^SHuge common|^SHuge/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Canada" }));
+  };
+
+  it("steps up with a note when the focused group is missing there, in the circle", () => {
+    swap(["T1"], "circle");
+    expect(screen.getByText("No Huge recorded in Canada, so this shows Big.")).toBeTruthy();
+    expect(focused()).toContain("Big");
+    expect(detailEmpty()).toBeTruthy();
+  });
+
+  it("steps up with a note in the list too, and keeps the group when it is still there", () => {
+    swap(["T1"], "list");
+    expect(screen.getByText(/No Huge recorded in Canada/)).toBeTruthy();
+    cleanup();
+    swap(["Huge"], "circle");
+    expect(screen.queryByText(/recorded in Canada/)).toBeNull();
+    expect(focused()).toContain("Huge");
+  });
+});
+
+describe("TaxaExplorer selection and history", () => {
+  const testia = () => screen.getByRole("button", { name: /^Testia, 3 of 4 species/ });
+  const selectedArcs = () =>
+    screen.getAllByRole("button").filter((b) => b.tagName === "path" && b.getAttribute("stroke-width") === "3");
+
+  it("leaves no wedge selected after a swipe back out, a Forward and a reload", () => {
+    localStorage.setItem("lifer:explorer.view", JSON.stringify("circle"));
+    renderPage();
+    act(() => testia().focus());
+    fireEvent.click(testia());
+    const genus = screen.getByRole("button", { name: /^Genus, 3 of 4 species/ });
+    act(() => genus.focus());
+    fireEvent.click(genus);
+    expect(focused()).toContain("Genus");
+    // Back swipe to the wider view: the clicked wedge is no longer selected.
+    act(() => navigate(-1));
+    expect(focused()).not.toContain("Genus");
+    expect(screen.queryByRole("heading", { name: "Genus" })).toBeNull();
+    expect(selectedArcs()).toEqual([]);
+    expect(explorerMemory.selected).not.toBe("class:Testia/genus:Genus");
+    // Forward re-enters the zoomed view; stepping out again leaves nothing selected.
+    act(() => navigate(1));
+    fireEvent.click(screen.getByRole("button", { name: "Step back out" }));
+    expect(selectedArcs()).toEqual([]);
+    // A reload on the wider view restores no selection.
+    cleanup();
+    renderPage();
+    expect(selectedArcs()).toEqual([]);
+    expect(detailEmpty()).toBeTruthy();
+  });
+});

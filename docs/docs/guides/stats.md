@@ -59,13 +59,15 @@ The **Tree of life** groups the species in your downloaded regions by class, ord
 - With the keyboard, the arrow keys move, Right opens a group, Left closes it or moves up, Enter shows a row in the panel and Space opens its photo.
 - Pick a country above the tree, then an area inside it, to see only that region's species: the counts, the faded species, the panel and **Export CSV** all follow it. Groups with nothing there disappear. **All regions** shows everything again.
 - In **Circle**, click a group to zoom into it and the middle to step back out. **Focus on this group** in the panel does the same in the list. Back, the trackpad swipe and the back shortcut step out one group at a time, leaving nothing selected; the **Stats** link at the top leaves the page.
+- In **Circle**, a segment labelled **N more groups** stands in for groups too thin to draw. Click it (or press Enter) to see just those groups across the whole circle; the trail above the circle ends in **N more groups**, and the middle, Back and the trail step out one layer. A very large set pages: the biggest groups first, then another **N more groups**.
+- If you pick a region that has none of the group you were looking at, the tree shows the nearest larger group and says so; the species you had selected is dropped when it isn't in that region.
 - **Show genera** under **View** adds the genus level. Point at it for what a genus is.
 
 ### Rarity in the tree
 
 In **Circle**, the green part of each segment is what you've photographed: a species is all green once you have it, and a group fills outward by its share. The pale part is what you haven't photographed yet.
 
-**Show rarity** under **View** adds a thin band along the outer edge of each segment, in plum: paler for common, deeper for rarer (brighter in dark mode), with the scale under the circle. The green fill stays as it is. A species' band shows its own tier; a group's shows its average, like **Mostly Uncommon, 4 of 20 rare or rarer**, in the middle of the circle and when you point at it. In the list, rows get the same label and colour. With a region picked, it uses that region's local rarity where the region has one (otherwise the species' worldwide rarity). It's on when you pick a region and off without one, until you change it; Lifer remembers your choice.
+**Show rarity** under **View** adds a thin band along the outer edge of each segment, in orange: paler for common, deeper for rarer (brighter in dark mode), with the scale in the key above the circle. The green fill stays as it is. A species' band shows its own tier; a group's shows its average, like **Mostly Uncommon, 4 of 20 rare or rarer**, in the middle of the circle and when you point at it. In the list, rows get the same label and colour. With a region picked, it uses that region's local rarity where the region has one (otherwise the species' worldwide rarity). It's on when you pick a region and off without one, until you change it; Lifer remembers your choice.
 
 With a region picked, a species' panel names both when they differ, like **Legendary in Canada** and **Common worldwide**, and **Rarest finds** ranks by the local one.
 

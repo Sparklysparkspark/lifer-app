@@ -1871,6 +1871,9 @@
     "arcLabel": "Screen reader name of one ring segment in the circle view, like Owls, 3 of 12 species.",
     "arcLabelTargets": "Screen reader name of a ring segment holding species on your targets, like Owls, 3 of 12 species, 2 targets. Targets are species you want to photograph.",
     "moreGroups": "A ring segment standing in for groups too small to draw separately.",
+    "moreGroupsAction": "Screen reader name of the ring segment that stands in for groups too small to draw separately; activating it shows just those groups. Plural forms of: N more groups.",
+    "focusGone": "Note above the tree when the group you were looking at is not in the current view (for example after Show only my targets). {group} is the group's name, {shown} the larger group shown instead, or All groups.",
+    "focusGoneRegion": "Note above the tree after you pick a region that has none of the group you were looking at. {group} is the group's name, {region} the region, {shown} the larger group shown instead, or All groups.",
     "rank": {
       "class": "Taxonomic rank, shown small above a group's name.",
       "order": "Taxonomic rank.",

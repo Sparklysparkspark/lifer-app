@@ -52,6 +52,7 @@ import TreeCircle from "./explorer/TreeCircle";
 import { useTreeMarks } from "./explorer/useTreeMarks";
 import {
   ancestorIds,
+  restChain,
   collectedLeaves,
   explorerMemory as memory,
   indexTree,
@@ -210,17 +211,26 @@ export default function TaxaExplorer() {
   const focusState = params.get("focus");
   // Back out of a group clears the selection, as the step-out controls below do.
   const navigationType = useNavigationType();
+  const restState = params.get("rest");
   const [lastFocus, setLastFocus] = useState(focusState);
-  if (focusState !== lastFocus) {
+  const [lastRest, setLastRest] = useState(restState);
+  if (focusState !== lastFocus || restState !== lastRest) {
     setLastFocus(focusState);
-    if (navigationType === "POP" && (!focusState || lastFocus?.startsWith(`${focusState}/`))) select(null);
+    setLastRest(restState);
+    const out =
+      focusState === lastFocus
+        ? !!lastRest?.startsWith(restState ?? "")
+        : !focusState || !!lastFocus?.startsWith(`${focusState}/`);
+    if (navigationType === "POP" && out) select(null);
   }
   useEffect(() => {
     memory.expanded = expandedState;
     memory.selected = selected;
   }, [expandedState, selected]);
   // A new history entry per layer or region; backSteps lets the header's Back skip them all.
-  const go = (updates: Record<string, string | null>) => {
+  const go = (raw: Record<string, string | null>) => {
+    // A new focus leaves any "more groups" view behind.
+    const updates = "focus" in raw && !("rest" in raw) ? { ...raw, rest: null } : raw;
     if (Object.entries(updates).every(([k, v]) => params.get(k) === v)) return;
     const steps = (state as { backSteps?: number } | null)?.backSteps ?? 1;
     setParams(
@@ -236,9 +246,22 @@ export default function TaxaExplorer() {
     );
   };
   // A focus on a genus while genera are hidden falls back to its family.
-  const focusEntry = focusState ? index?.byId.get(focusState) : undefined;
-  const focus = focusEntry ? (!genus && focusEntry.node.rank === "genus" ? focusEntry.parentId : focusState) : null;
+  // A focus another region's tree lacks steps up to its nearest group that is there; the URL keeps it,
+  // so Back to the old region returns to it.
+  let focusAt = focusState;
+  while (focusAt && !index?.byId.has(focusAt))
+    focusAt = focusAt.includes("/") ? focusAt.slice(0, focusAt.lastIndexOf("/")) : null;
+  const focusEntry = focusAt ? index?.byId.get(focusAt) : undefined;
+  const focus = focusEntry ? (!genus && focusEntry.node.rank === "genus" ? focusEntry.parentId : focusAt) : null;
+  const focusGone = !!focusState && !loading && !!index && focusAt !== focusState;
 
+  // "More groups" layers over the focus, each the offset of its slice (see restOf); circle only.
+  const offsets = (restState ? restState.split(".") : []).map(Number).filter((n) => Number.isInteger(n) && n >= 0);
+  const layers = useMemo(
+    () => (index && view === "circle" && !focusGone ? restChain(index, focus, genus, offsets) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [index, view, focus, genus, restState, focusGone],
+  );
   const [active, setActive] = useState<string | null>(memory.selected);
   const [query, setQuery] = useState("");
   const [listOpen, setListOpen] = useState(false);
@@ -325,7 +348,16 @@ export default function TaxaExplorer() {
     zoomTo(id);
     select(null);
   };
-  const zoomOut = focus ? () => stepOut(shownPath(focus).at(-1) ?? null) : null;
+  const setLayers = (n: number) => {
+    go({ rest: offsets.slice(0, n).join(".") || null });
+    window.scrollTo(0, 0);
+    select(null);
+  };
+  const zoomOut = layers.length
+    ? () => setLayers(layers.length - 1)
+    : focus
+      ? () => stepOut(shownPath(focus).at(-1) ?? null)
+      : null;
   const openMenu = (id: string) => (e: React.MouseEvent) => {
     const { node } = index.byId.get(id)!;
     if (marksFor(node, label(node)).length === 0) return;
@@ -402,6 +434,8 @@ export default function TaxaExplorer() {
       `/api${apiPath("/collection/tree", {}, { format: "csv", regionId })}`,
       "lifer-collection.csv",
     );
+  // A selection the new region's tree lacks is dropped.
+  if (selected && !index.byId.has(selected)) select(null);
   const selectedEntry = selected ? index.byId.get(selected) : undefined;
   const detail = selected && selectedEntry && (
     <ExplorerDetail
@@ -666,7 +700,16 @@ export default function TaxaExplorer() {
                   )}
                 </div>
               </div>
-              {focus && (
+              {focusGone && (
+                <p role="status" className="mb-2 text-footnote text-muted">
+                  {t(regionId ? "explorer.focusGoneRegion" : "explorer.focusGone", {
+                    group: focusState!.slice(focusState!.lastIndexOf(":") + 1),
+                    shown: focus ? label(index.byId.get(focus)!.node) : t("explorer.allGroups"),
+                    region: regions.breadcrumb.at(-1)?.name ?? "",
+                  })}
+                </p>
+              )}
+              {(focus || layers.length > 0) && (
                 <nav
                   aria-label={t("explorer.focusPath")}
                   className="sticky top-[var(--mac-title-bar,0px)] z-10 mb-2 flex flex-wrap items-center gap-x-1 bg-canvas py-1.5 text-footnote"
@@ -674,18 +717,34 @@ export default function TaxaExplorer() {
                   <Button variant="link" size="sm" onClick={() => stepOut(null)}>
                     {t("explorer.allGroups")}
                   </Button>
-                  {[...shownPath(focus), focus].map((id) => (
+                  {(focus ? [...shownPath(focus), focus] : []).map((id) => (
                     <span key={id} className="flex min-w-0 items-center gap-1">
                       <span aria-hidden="true" className="text-muted">
                         /
                       </span>
-                      {id === focus ? (
+                      {id === focus && layers.length === 0 ? (
                         <span aria-current="location" className="font-semibold text-ink wrap-anywhere">
                           {label(index.byId.get(id)!.node)}
                         </span>
                       ) : (
-                        <Button variant="link" size="sm" onClick={() => stepOut(id)}>
+                        <Button variant="link" size="sm" onClick={() => (id === focus ? setLayers(0) : stepOut(id))}>
                           {label(index.byId.get(id)!.node)}
+                        </Button>
+                      )}
+                    </span>
+                  ))}
+                  {layers.map((ids, i) => (
+                    <span key={i} className="flex min-w-0 items-center gap-1">
+                      <span aria-hidden="true" className="text-muted">
+                        /
+                      </span>
+                      {i === layers.length - 1 ? (
+                        <span aria-current="location" className="font-semibold text-ink">
+                          {t("explorer.moreGroups", { count: ids.length })}
+                        </span>
+                      ) : (
+                        <Button variant="link" size="sm" onClick={() => setLayers(i + 1)}>
+                          {t("explorer.moreGroups", { count: ids.length })}
                         </Button>
                       )}
                     </span>
@@ -708,6 +767,7 @@ export default function TaxaExplorer() {
                 <TreeCircle
                   index={index}
                   center={focus}
+                  top={layers.at(-1) ?? null}
                   genus={genus}
                   selected={selected}
                   label={label}
@@ -716,6 +776,13 @@ export default function TaxaExplorer() {
                   onMenu={(id, point) => {
                     const { node } = index.byId.get(id)!;
                     if (marksFor(node, label(node)).length > 0) menu.setOpenKey({ id, point });
+                  }}
+                  onMore={(arc) => {
+                    // A first-ring arc merges the current layer's groups; a deeper one, a group's children.
+                    if (arc.ring === 1) go({ rest: [...offsets.slice(0, layers.length), arc.offset!].join(".") });
+                    else go({ focus: arc.parent!, rest: String(arc.offset) });
+                    window.scrollTo(0, 0);
+                    select(null);
                   }}
                   onPick={(id) => {
                     const entry = index.byId.get(id)!;

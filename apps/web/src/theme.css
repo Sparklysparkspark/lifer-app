@@ -33,13 +33,13 @@
   --color-taxa-insects: #895f18;
   --color-taxa-arachnids: #80506a;
   --color-taxa-other: #46423a;
-  /* The Tree of life's rarity band, commonest to rarest: plum, so it never reads as the green of
+  /* The Tree of life's rarity band, commonest to rarest: orange, so it never reads as the green of
      "photographed", and darker per step (colourBlind.test.ts). */
-  --color-rarity-common: #e0b6d0;
-  --color-rarity-occasional: #c588b0;
-  --color-rarity-uncommon: #a55f8f;
-  --color-rarity-rare: #82396d;
-  --color-rarity-legendary: #5b1b49;
+  --color-rarity-common: #f0c8a6;
+  --color-rarity-occasional: #e7a574;
+  --color-rarity-uncommon: #d7803d;
+  --color-rarity-rare: #b8581f;
+  --color-rarity-legendary: #7d3410;
   /* Calm map: paper land, a soft water hue, a hint of landcover, crisp relief and borders. Pins and
      labels keep their contrast on land, water and forest (contrast.test.ts). */
   --color-map-land: #f1ebdd;
@@ -86,11 +86,11 @@
   --color-taxa-arachnids: #d3a3bf;
   --color-taxa-other: #aeb2be;
   /* Brighter per step on the dark canvas. */
-  --color-rarity-common: #5e3050;
-  --color-rarity-occasional: #884b75;
-  --color-rarity-uncommon: #b26b9b;
-  --color-rarity-rare: #d692bf;
-  --color-rarity-legendary: #f1c0e0;
+  --color-rarity-common: #5a2f18;
+  --color-rarity-occasional: #8a4a24;
+  --color-rarity-uncommon: #bd6a34;
+  --color-rarity-rare: #e8914f;
+  --color-rarity-legendary: #ffc79a;
   --color-map-land: #2b2e2c;
   --color-map-water: #141d26;
   --color-map-forest: #284224;
