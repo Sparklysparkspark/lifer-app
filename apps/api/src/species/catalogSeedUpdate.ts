@@ -787,8 +787,14 @@ export async function applyCatalogSeedFile(
     catalogLoad = { processed: total2, total: total2 };
     // The fast path skipped the statement triggers that tell cached collection views and the
     // region rollup to refresh.
-    if (filledEmpty)
+    if (filledEmpty) {
       await client.query(`SELECT nextval('collection_data_version'), nextval('region_checklist_version')`);
+      // Nor the row trigger that stores each outline's boxes (migration 200) for regionAt.
+      await client.query(
+        `UPDATE regions SET outline_boxes = region_outline_boxes(boundary_geojson)
+          WHERE boundary_geojson IS NOT NULL AND outline_boxes IS NULL`,
+      );
+    }
     if (version != null && !onlyTables) await setInstallSetting(client, CATALOG_SEED_VERSION_KEY, version);
     await client.query("COMMIT");
     invalidateSuggestionCache();

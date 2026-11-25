@@ -4,7 +4,6 @@ import { pool } from "@lifer/core/db.js";
 import {
   exteriorRingsFromGeometry,
   pointInRing,
-  ringBoundingBox,
   type BoundingBox,
   type Point,
 } from "@lifer/core/lib/geometry.js";
@@ -23,10 +22,9 @@ type Geometry = { type: string; coordinates: unknown };
 const geometryOf = (g: unknown) =>
   (g && typeof g === "object" && "geometry" in g ? (g as { geometry: unknown }).geometry : g) as Geometry | null;
 
-// Only each outline's bounding boxes stay in memory, stamped like GET /regions/boundaries; the
-// outlines themselves are read for the few regions whose box holds the point.
+// Only each outline's bounding boxes (migration 200) stay in memory, stamped like GET
+// /regions/boundaries; the outlines themselves are read for the few regions whose box holds the point.
 let boxesCache: { stamp: string; boxes: Promise<RegionBox[]> } | null = null;
-const PAGE = 50;
 
 async function regionBoxes(): Promise<RegionBox[]> {
   const stampRes = await pool.query<{ stamp: string }>(
@@ -48,23 +46,15 @@ async function loadBoxes(): Promise<RegionBox[]> {
     for (let p = parentOf.get(id); p && depth < 10; p = parentOf.get(p)) depth++;
     return depth;
   };
-  const out: RegionBox[] = [];
-  // A page at a time, so every outline is never parsed at once.
-  for (let after = ""; ;) {
-    const res = await pool.query<{ id: string; name: string; boundary_geojson: unknown }>(
-      `SELECT id::text AS id, name, boundary_geojson FROM regions
-        WHERE boundary_geojson IS NOT NULL AND id::text > $1 ORDER BY id::text LIMIT ${PAGE}`,
-      [after],
-    );
-    for (const r of res.rows) {
-      const geometry = geometryOf(r.boundary_geojson);
-      if (!geometry?.type) continue;
-      const boxes = exteriorRingsFromGeometry(geometry).map(ringBoundingBox);
-      if (boxes.length > 0) out.push({ id: r.id, name: r.name, depth: depthOf(r.id), boxes });
-    }
-    if (res.rows.length < PAGE) return out;
-    after = res.rows[res.rows.length - 1].id;
-  }
+  const res = await pool.query<{ id: string; name: string; outline_boxes: number[][] }>(
+    `SELECT id::text AS id, name, outline_boxes FROM regions WHERE jsonb_array_length(outline_boxes) > 0`,
+  );
+  return res.rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    depth: depthOf(r.id),
+    boxes: r.outline_boxes.map(([minLon, minLat, maxLon, maxLat]) => ({ minLon, minLat, maxLon, maxLat })),
+  }));
 }
 
 const inBox = (lat: number, lon: number, b: BoundingBox) =>

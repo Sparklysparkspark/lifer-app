@@ -353,6 +353,7 @@ export async function savedSpotRoutes(fastify: FastifyInstance): Promise<void> {
     SELECT c.id FROM captures c
     WHERE c.user_id = $1 AND c.lat IS NOT NULL AND c.lon IS NOT NULL
       AND lower(c.location_label) IS DISTINCT FROM lower($4)
+      AND c.lat BETWEEN $2::float8 - $5::float8 / 111000.0 AND $2::float8 + $5::float8 / 111000.0
       AND 6371000 * 2 * asin(sqrt(
             power(sin(radians(c.lat::float8 - $2::float8) / 2), 2) +
             cos(radians($2::float8)) * cos(radians(c.lat::float8)) *
