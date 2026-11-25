@@ -114,6 +114,23 @@ export async function smartAlbumCaptureIds(
   return (await albumMembers(albumId, userId, seen)).map((r) => r.capture_id);
 }
 
+/** A smart album's picked cover while its rules still match it, else null so it falls back to its
+ *  first match as a new one does. A pick they no longer match is cleared for good; a trashed one
+ *  never reaches here (cover_p), so a restore brings it back. */
+async function smartCover(
+  albumId: string,
+  pick: { photoId: string | null; captureId: string | null },
+  members: AlbumMember[],
+): Promise<string | null> {
+  if (!pick.photoId || members.some((m) => m.capture_id === pick.captureId)) return pick.photoId;
+  await pool.query(
+    `UPDATE albums SET cover_photo_id = NULL, cover_crop_x = NULL, cover_crop_y = NULL, cover_crop_size = NULL
+      WHERE id = $1 AND cover_photo_id = $2`,
+    [albumId, pick.photoId],
+  );
+  return null;
+}
+
 export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
 
@@ -128,8 +145,7 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
               -- cover_p resolves NULL when cover_photo_id's own capture has been trashed (see
               -- the /albums/:id route's own comment on this trap), falls back to the album's
               -- own most-recently-added photo via "fallback", same default an unset cover uses.
-              cover_p.id AS resolved_cover_photo_id,
-              (cover_p.id IS NOT NULL) AS cover_is_manual_pick,
+              cover_p.id AS resolved_cover_photo_id, cover_p.capture_id AS cover_capture_id,
               fallback.photo_id AS fallback_cover_photo_id,
               -- EVERY non-trashed photo in the album, not just a handful, this doubles as both
               -- the fallback-fill pool AND the validity check for a manually-picked slot (a
@@ -146,7 +162,7 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
               ) AS quad_candidate_photo_ids
        FROM albums a
        LEFT JOIN LATERAL (
-         SELECT p.id FROM photos p JOIN captures c ON c.id = p.capture_id WHERE p.id = a.cover_photo_id
+         SELECT p.id, c.id AS capture_id FROM photos p JOIN captures c ON c.id = p.capture_id WHERE p.id = a.cover_photo_id
        ) cover_p ON true
        LEFT JOIN LATERAL (
          SELECT c.current_photo_id AS photo_id
@@ -167,26 +183,30 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
         ),
       );
       return {
-        albums: res.rows.map((r) => {
-          const items = smartItems.get(r.id);
-          const fallbackCover = items ? (items[0]?.photo_id ?? null) : r.fallback_cover_photo_id;
-          const quadCandidates = items ? items.map((i) => i.photo_id) : (r.quad_candidate_photo_ids ?? []);
-          return applyDefaultCoverCrops({
-            id: r.id,
-            name: r.name,
-            description: r.description,
-            coverPhotoId: r.resolved_cover_photo_id ?? fallbackCover ?? null,
-            coverLayout: r.cover_layout,
-            // The crop was framed for the trashed photo, so it's wrong for the fallback.
-            coverCropX: !r.cover_is_manual_pick || r.cover_crop_x == null ? null : Number(r.cover_crop_x),
-            coverCropY: !r.cover_is_manual_pick || r.cover_crop_y == null ? null : Number(r.cover_crop_y),
-            coverCropSize: !r.cover_is_manual_pick || r.cover_crop_size == null ? null : Number(r.cover_crop_size),
-            quadSlots: resolveQuadSlots(r.quad_photo_ids, r.quad_crops, quadCandidates),
-            createdAt: r.created_at,
-            rules: storedRules(r.rules),
-            captureCount: items ? items.length : Number(r.capture_count),
-          });
-        }),
+        albums: await Promise.all(
+          res.rows.map(async (r) => {
+            const items = smartItems.get(r.id);
+            const fallbackCover = items ? (items[0]?.photo_id ?? null) : r.fallback_cover_photo_id;
+            const quadCandidates = items ? items.map((i) => i.photo_id) : (r.quad_candidate_photo_ids ?? []);
+            const pick = { photoId: r.resolved_cover_photo_id, captureId: r.cover_capture_id };
+            const picked = items ? await smartCover(r.id, pick, items) : pick.photoId;
+            return applyDefaultCoverCrops({
+              id: r.id,
+              name: r.name,
+              description: r.description,
+              coverPhotoId: picked ?? fallbackCover ?? null,
+              coverLayout: r.cover_layout,
+              // The crop was framed for the picked photo, so it's wrong for the fallback.
+              coverCropX: picked == null || r.cover_crop_x == null ? null : Number(r.cover_crop_x),
+              coverCropY: picked == null || r.cover_crop_y == null ? null : Number(r.cover_crop_y),
+              coverCropSize: picked == null || r.cover_crop_size == null ? null : Number(r.cover_crop_size),
+              quadSlots: resolveQuadSlots(r.quad_photo_ids, r.quad_crops, quadCandidates),
+              createdAt: r.created_at,
+              rules: storedRules(r.rules),
+              captureCount: items ? items.length : Number(r.capture_count),
+            });
+          }),
+        ),
       };
     },
   );
@@ -312,7 +332,7 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
                 a.quad_photo_ids, a.quad_crops, a.rules,
                 (SELECT count(*) FROM album_exclusions ae JOIN captures c ON c.id = ae.capture_id
                   WHERE ae.album_id = a.id) AS excluded_count,
-                cover_p.id AS resolved_cover_photo_id,
+                cover_p.id AS resolved_cover_photo_id, cover_p.capture_id AS cover_capture_id,
                 (
                   SELECT array_agg(sub.photo_id) FROM (
                     SELECT c.current_photo_id AS photo_id
@@ -323,7 +343,7 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
                 ) AS quad_candidate_photo_ids
          FROM albums a
          LEFT JOIN LATERAL (
-           SELECT p.id FROM photos p JOIN captures c ON c.id = p.capture_id WHERE p.id = a.cover_photo_id
+           SELECT p.id, c.id AS capture_id FROM photos p JOIN captures c ON c.id = p.capture_id WHERE p.id = a.cover_photo_id
          ) cover_p ON true
          WHERE a.id = $1 AND a.user_id = $2`,
         [request.params.id, userId],
@@ -347,25 +367,20 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
         items = rows;
       }
 
+      const pick = { photoId: album.resolved_cover_photo_id, captureId: album.cover_capture_id };
+      const picked: string | null = album.rules ? await smartCover(album.id, pick, items) : pick.photoId;
       return applyDefaultCoverCrops({
         id: album.id,
         name: album.name,
         description: album.description,
         // Falls back to the first item once the manual pick's capture is gone.
-        coverPhotoId: album.resolved_cover_photo_id ?? items[0]?.photo_id ?? null,
+        coverPhotoId: picked ?? items[0]?.photo_id ?? null,
         coverLayout: album.cover_layout,
-        coverPicked: album.resolved_cover_photo_id != null,
+        coverPicked: picked != null,
         // The crop belongs to the picked photo, so drop it when we fell back to another.
-        coverCropX:
-          album.resolved_cover_photo_id == null ? null : album.cover_crop_x == null ? null : Number(album.cover_crop_x),
-        coverCropY:
-          album.resolved_cover_photo_id == null ? null : album.cover_crop_y == null ? null : Number(album.cover_crop_y),
-        coverCropSize:
-          album.resolved_cover_photo_id == null
-            ? null
-            : album.cover_crop_size == null
-              ? null
-              : Number(album.cover_crop_size),
+        coverCropX: picked == null || album.cover_crop_x == null ? null : Number(album.cover_crop_x),
+        coverCropY: picked == null || album.cover_crop_y == null ? null : Number(album.cover_crop_y),
+        coverCropSize: picked == null || album.cover_crop_size == null ? null : Number(album.cover_crop_size),
         quadSlots: resolveQuadSlots(
           album.quad_photo_ids,
           album.quad_crops,
@@ -435,7 +450,9 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
            rules = COALESCE($9::jsonb, rules),
            updated_at = now()
          WHERE id = $1 AND user_id = $2
-         RETURNING id, name, description, cover_photo_id, cover_layout, created_at, rules`,
+         RETURNING id, name, description, cover_photo_id, cover_layout, created_at, rules,
+                   (SELECT c.id FROM photos p JOIN captures c ON c.id = p.capture_id
+                     WHERE p.id = cover_photo_id) AS cover_capture_id`,
         [
           request.params.id,
           userId,
@@ -449,11 +466,21 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
         ],
       );
       const r = res.rows[0];
+      // New rules can leave the picked cover out; it gives way to the first match at once.
+      // A trashed cover (no capture) is left for a restore, as the GETs leave it.
+      const cover =
+        rules && r.cover_capture_id
+          ? await smartCover(
+              r.id,
+              { photoId: r.cover_photo_id, captureId: r.cover_capture_id },
+              await albumMembers(r.id, userId),
+            )
+          : r.cover_photo_id;
       return {
         id: r.id,
         name: r.name,
         description: r.description,
-        coverPhotoId: r.cover_photo_id,
+        coverPhotoId: cover,
         coverLayout: r.cover_layout,
         createdAt: r.created_at,
         rules: r.rules,

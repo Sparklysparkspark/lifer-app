@@ -48,13 +48,14 @@ export default function StarRangePicker({ value, onChange }: { value: StarRange;
   return (
     <div className="space-y-2">
       <div
-        className="flex items-center gap-1"
+        className="flex items-center"
         onPointerLeave={() => (dragging.current = false)}
         role="group"
         aria-label={t("gallery.toolbar.rating")}
       >
         {STARS.map((star) => (
-          // raw-control: each star is one glyph of this shared control, 44 px wide for touch.
+          // raw-control: each star is one glyph of this shared control. Narrow, full-height hit areas
+          // that touch, so the stars sit together with no dead gap between them.
           <button
             key={star}
             type="button"
@@ -77,7 +78,7 @@ export default function StarRangePicker({ value, onChange }: { value: StarRange;
               // Keyboard activation has no pointer events; a mouse click already ran press().
               if (e.detail === 0) press(star);
             }}
-            className={`h-11 w-11 rounded-control text-title3 leading-none transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+            className={`h-11 w-6 rounded-control text-title-2 leading-none transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
               star >= lo && star <= hi ? STAR_ON : STAR_OFF
             }`}
           >

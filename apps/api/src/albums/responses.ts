@@ -54,6 +54,13 @@ export const AlbumSpecies = Open({ items: Type.Array(CollectionItem) });
 
 export const AlbumSuggestionList = Open({
   dismissedCount: Type.Integer({ description: "How many dismissed suggestions could be restored" }),
+  startMatches: Type.Object(
+    {
+      photoCount: Type.Integer(),
+      previewPhotoIds: Type.Array(Uuid(), { maxItems: 8 }),
+    },
+    { description: "What a new smart album's starting rules match, so the builder shows it before counting" },
+  ),
   suggestions: Type.Array(
     Open({
       id: Type.String({ description: "Stable for the same suggestion, to dismiss it by" }),

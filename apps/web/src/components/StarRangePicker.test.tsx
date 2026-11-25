@@ -27,6 +27,18 @@ describe("StarRangePicker", () => {
     expect(onChange).toHaveBeenLastCalledWith({ min: 2, max: 2, unrated: false });
   });
 
+  it("keeps the stars together: touching hit areas narrower than tall, no gap", () => {
+    render(<StarRangePicker value={none} onChange={vi.fn()} />);
+    const group = screen.getByRole("group");
+    expect(group.className).not.toMatch(/\bgap-/);
+    for (const star of screen.getAllByRole("button", { name: /stars?$/ })) {
+      expect(star.className).toMatch(/\bh-11\b/);
+      expect(star.className).toMatch(/\bw-6\b/);
+      // A real type token: an unknown size class silently falls back to the small inherited text.
+      expect(star.className).toMatch(/\btext-title-2\b/);
+    }
+  });
+
   it("clear and unrated", () => {
     const onChange = vi.fn();
     render(<StarRangePicker value={{ min: 3, max: null, unrated: false }} onChange={onChange} />);

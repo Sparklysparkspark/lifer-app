@@ -29,6 +29,15 @@ const PREVIEW_PHOTOS = 8;
 
 // A new smart album starts where the Gallery does: photos only, RAW-only ones included.
 const NEW_ALBUM_RULES: SmartAlbumRules = { version: 2, query: { excludeVideo: "1" } };
+const NEW_ALBUM_QUERY = rulesQueryParams(NEW_ALBUM_RULES.query).toString();
+// Waits for a pause in filter changes, so a run of clicks counts once.
+const COUNT_DELAY_MS = 300;
+
+interface Suggestions {
+  suggestions: AlbumSuggestion[];
+  dismissedCount: number;
+  startMatches: { photoCount: number; previewPhotoIds: string[] };
+}
 
 // Picks a smart album's rules with the Gallery's own filter controls, counting matches as they
 // change. Without albumId it creates the album; with one it saves that album's rules.
@@ -46,11 +55,9 @@ export default function SmartAlbumBuilder({
   const { t } = useTranslation();
   const toast = useToast();
   // Only a new album starts from a suggestion.
-  const suggestionsRes = useApiResource<{ suggestions: AlbumSuggestion[]; dismissedCount: number }>(
-    albumId ? null : "/albums/suggestions",
-  );
+  const suggestionsRes = useApiResource<Suggestions>(albumId ? null : "/albums/suggestions");
   const [showDismissed, setShowDismissed] = useState(false);
-  const dismissedRes = useApiResource<{ suggestions: AlbumSuggestion[]; dismissedCount: number }>(
+  const dismissedRes = useApiResource<Suggestions>(
     showDismissed && !albumId ? "/albums/suggestions?dismissed=true" : null,
   );
   const suggestions = showDismissed ? (dismissedRes.data?.suggestions ?? []) : (suggestionsRes.data?.suggestions ?? []);
@@ -68,26 +75,45 @@ export default function SmartAlbumBuilder({
 
   // The count the album would have, from the same Gallery requests it will run.
   const queryString = rulesQueryParams(nextRules.query).toString();
-  // Kept with the query it answers, so a changed filter shows "counting" until its own answer.
+  // Kept with the query it answers, so a changed filter dims the last answer until its own arrives.
   const [counted, setCounted] = useState<{ query: string; count: number; previewIds: string[] } | null>(null);
-  const count = counted?.query === queryString ? counted.count : null;
-  const previewIds = counted?.query === queryString ? counted.previewIds : null;
+  // The starting rules' matches come counted with the suggestions, so a new album needn't wait.
+  const startMatches = suggestionsRes.data?.startMatches;
+  const startAnswer =
+    !albumId && startMatches
+      ? { query: NEW_ALBUM_QUERY, count: startMatches.photoCount, previewIds: startMatches.previewPhotoIds }
+      : null;
+  const fromStart = queryString === NEW_ALBUM_QUERY ? startAnswer : null;
+  const shown = fromStart ?? counted ?? startAnswer;
+  const mustCount = !fromStart;
+  const pending = mustCount && counted?.query !== queryString;
   useEffect(() => {
+    if (!mustCount) return;
     const controller = new AbortController();
     const query = new URLSearchParams(queryString);
     const preview = (items: Array<{ photoId: string }>) => items.slice(0, PREVIEW_PHOTOS).map((i) => i.photoId);
-    const request = query.get("q")
-      ? api
-          .get(apiPath("/gallery/search", {}, query), { signal: controller.signal })
-          .then((res) => ({ count: res.items.length, previewIds: preview(res.items) }))
-      : api
-          .get(apiPath("/gallery", {}, new URLSearchParams([...query, ["limit", String(PREVIEW_PHOTOS)]])), {
-            signal: controller.signal,
-          })
-          .then((res) => ({ count: res.total ?? 0, previewIds: preview(res.items) }));
-    request.then((n) => setCounted({ query: queryString, ...n })).catch(ignore("Couldn't count the matching photos"));
-    return () => controller.abort();
-  }, [queryString]);
+    const request = () =>
+      query.get("q")
+        ? api
+            .get(apiPath("/gallery/search", {}, query), { signal: controller.signal })
+            .then((res) => ({ count: res.items.length, previewIds: preview(res.items) }))
+        : api
+            .get(apiPath("/gallery", {}, new URLSearchParams([...query, ["limit", String(PREVIEW_PHOTOS)]])), {
+              signal: controller.signal,
+            })
+            .then((res) => ({ count: res.total ?? 0, previewIds: preview(res.items) }));
+    const timer = setTimeout(
+      () =>
+        void request()
+          .then((n) => setCounted({ query: queryString, ...n }))
+          .catch(ignore("Couldn't count the matching photos")),
+      COUNT_DELAY_MS,
+    );
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [queryString, mustCount]);
 
   async function save() {
     setSaving(true);
@@ -158,7 +184,7 @@ export default function SmartAlbumBuilder({
     >
       <div className="space-y-3 text-footnote">
         <p className="text-callout text-muted">{t("albums.smart.intro")}</p>
-        <MatchPreview count={count} photoIds={previewIds} />
+        <MatchPreview count={shown?.count ?? null} photoIds={shown?.previewIds ?? null} pending={pending} />
         {(suggestions.length > 0 || showDismissed || (suggestionsRes.data?.dismissedCount ?? 0) > 0) && (
           <>
             <AlbumSuggestionsRow
@@ -185,12 +211,23 @@ export default function SmartAlbumBuilder({
   );
 }
 
-// The first photos the rules match, with the count, so a change to the filters shows its effect
-// at once. The strip keeps its height while counting so the dialog doesn't jump.
-function MatchPreview({ count, photoIds }: { count: number | null; photoIds: string[] | null }) {
+// The first photos the rules match, with the count. While a change is counted the last answer
+// stays, dimmed, and the strip keeps its height so the dialog doesn't jump.
+function MatchPreview({
+  count,
+  photoIds,
+  pending,
+}: {
+  count: number | null;
+  photoIds: string[] | null;
+  pending: boolean;
+}) {
   const { t } = useTranslation();
   return (
-    <div className="space-y-1.5">
+    <div
+      className={`space-y-1.5 transition-opacity ${pending && count != null ? "opacity-60" : ""}`}
+      aria-busy={pending}
+    >
       <p className="text-callout font-medium text-ink" aria-live="polite">
         {count == null ? t("albums.smart.counting") : t("albums.smart.matches", { count })}
       </p>

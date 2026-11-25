@@ -125,6 +125,35 @@ describe("SmartAlbumBuilder", () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith("/albums/suggestions/lifers/restore"));
   });
 
+  it("opens with the starting count the suggestions carry, and keeps it dimmed while a change counts", async () => {
+    let answer: (v: unknown) => void = () => {};
+    get.mockImplementation((path: string) =>
+      path === "/albums/suggestions"
+        ? Promise.resolve({
+            suggestions: [lifers],
+            dismissedCount: 0,
+            startMatches: { photoCount: 59183, previewPhotoIds: ["s1"] },
+          })
+        : path.startsWith("/gallery/search")
+          ? new Promise((resolve) => (answer = resolve))
+          : Promise.resolve({ items: [], total: 0, tags: [], places: [] }),
+    );
+    renderBuilder();
+    const started = await screen.findByText(i18n.t("albums.smart.matches", { count: 59183 }));
+    expect(document.querySelector('img[src="/api/photos/s1/thumb"]')).not.toBeNull();
+    // Past the count delay, the starting rules were never counted again.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(get.mock.calls.some((c) => /^\/gallery(\?|\/search)/.test(String(c[0])))).toBe(false);
+
+    fireEvent.change(screen.getByLabelText(i18n.t("gallery.toolbar.searchLabel")), { target: { value: "owls" } });
+    await waitFor(() => expect(get.mock.calls.some((c) => String(c[0]).startsWith("/gallery/search"))).toBe(true));
+    expect(started.closest("[aria-busy]")?.getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByText(i18n.t("albums.smart.matches", { count: 59183 }))).toBeTruthy();
+    expect(screen.getByRole("button", { name: i18n.t("albums.smart.create") })).not.toHaveProperty("disabled", true);
+    answer({ items: [{ photoId: "o1" }] });
+    await screen.findByText(i18n.t("albums.smart.matches", { count: 1 }));
+  });
+
   it("shows the match count and the first matches at the top, with repeated filter values", async () => {
     get.mockImplementation((path: string) =>
       Promise.resolve(

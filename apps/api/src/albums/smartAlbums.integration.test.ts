@@ -199,6 +199,53 @@ describe.skipIf(!url)("smart albums", () => {
     clearCaches();
   });
 
+  it("keeps its cover one of its matches when its rules or photos change", async () => {
+    const bird = await addCapture(OWNER, BIRD, 5);
+    const mammal = await addCapture(OWNER, MAMMAL, 5);
+    const album = (await call("POST", "/api/albums", { name: "Top", rules: { version: 2, query: {} } })).json();
+    const cover = async () => {
+      const listed = (await call("GET", "/api/albums")).json().albums.find((a: { id: string }) => a.id === album.id);
+      const detail = (await call("GET", `/api/albums/${album.id}`)).json();
+      expect(listed.coverPhotoId).toBe(detail.coverPhotoId);
+      return { photoId: detail.coverPhotoId, picked: detail.coverPicked, cropX: detail.coverCropX };
+    };
+
+    // A picked cover that still matches stays, crop and all.
+    await call("PATCH", `/api/albums/${album.id}`, { coverPhotoId: mammal.photoId });
+    await call("PATCH", `/api/albums/${album.id}/cover-crop`, { x: 10, y: 10, size: 50 });
+    await call("PATCH", `/api/albums/${album.id}`, { rules: { version: 2, query: { onlyTopRated: "1" } } });
+    expect(await cover()).toEqual({ photoId: mammal.photoId, picked: true, cropX: 10 });
+
+    // Rules that leave it out hand the cover to a match, and the stale pick is gone for good.
+    const patched = await call("PATCH", `/api/albums/${album.id}`, { rules: RULES });
+    expect(patched.json().coverPhotoId).toBeNull();
+    expect(await cover()).toEqual({ photoId: bird.photoId, picked: false, cropX: null });
+    const stored = await db.query(`SELECT cover_photo_id, cover_crop_x FROM albums WHERE id = $1`, [album.id]);
+    expect(stored.rows[0]).toEqual({ cover_photo_id: null, cover_crop_x: null });
+
+    // A cover saved before this rule (or one an edit to the photo dropped) heals on the next look.
+    await db.query(`UPDATE albums SET cover_photo_id = $2 WHERE id = $1`, [album.id, mammal.photoId]);
+    expect((await cover()).photoId).toBe(bird.photoId);
+    expect((await db.query(`SELECT cover_photo_id FROM albums WHERE id = $1`, [album.id])).rows[0].cover_photo_id).toBe(
+      null,
+    );
+
+    // An excluded cover gives way too; a trashed one is kept for a restore.
+    await call("PATCH", `/api/albums/${album.id}`, { coverPhotoId: bird.photoId });
+    await db.query(`UPDATE captures_all SET deleted_at = now() WHERE id = $1`, [bird.captureId]);
+    clearCaches();
+    expect((await cover()).photoId).toBeNull();
+    await db.query(`UPDATE captures_all SET deleted_at = NULL WHERE id = $1`, [bird.captureId]);
+    clearCaches();
+    expect(await cover()).toMatchObject({ photoId: bird.photoId, picked: true });
+    await call("POST", `/api/albums/${album.id}/exclusions`, { captureIds: [bird.captureId] });
+    expect((await cover()).photoId).toBeNull();
+
+    await db.query(`DELETE FROM albums WHERE id = $1`, [album.id]);
+    await db.query(`DELETE FROM captures_all WHERE id = ANY($1)`, [[bird.captureId, mammal.captureId]]);
+    clearCaches();
+  });
+
   it("lists the owner's live matches, minus exclusions, and refuses hand edits", async () => {
     const topBird = await addCapture(OWNER, BIRD, 5);
     const okBird = await addCapture(OWNER, BIRD, 3);

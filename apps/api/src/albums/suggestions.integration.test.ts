@@ -38,11 +38,20 @@ describe.skipIf(!url)("album suggestions", () => {
   let cookieName: string;
   let thumb: string;
   let clearCaches: () => void;
+  let suggestionCounts: typeof import("./suggestions.js");
 
   const call = (method: "GET" | "POST", route: string, payload?: unknown, token = TOKEN) =>
     app.inject({ method, url: route, payload: payload as object, cookies: { [cookieName]: token } });
-  const suggestions = async (token = TOKEN): Promise<Suggestion[]> => {
+  // Counts are cached and recounted in the background, so most checks start from a fresh count.
+  async function forgetCounts() {
     clearCaches();
+    await suggestionCounts.clearAlbumSuggestionCounts();
+    await db.query(`DELETE FROM install_settings WHERE key = ANY($1)`, [
+      [OWNER, OTHER].map((u) => `album_suggestions_counted:${u}`),
+    ]);
+  }
+  const suggestions = async (token = TOKEN): Promise<Suggestion[]> => {
+    await forgetCounts();
     const res = await call("GET", "/api/albums/suggestions", undefined, token);
     expect(res.statusCode).toBe(200);
     return res.json().suggestions;
@@ -91,6 +100,7 @@ describe.skipIf(!url)("album suggestions", () => {
     await db.query(`DELETE FROM install_settings WHERE key = ANY($1)`, [
       [OWNER, OTHER].map((u) => `album_suggestions_dismissed:${u}`),
     ]);
+    await forgetCounts();
   }
 
   async function cleanup() {
@@ -114,6 +124,7 @@ describe.skipIf(!url)("album suggestions", () => {
     ({ SESSION_COOKIE_NAME: cookieName } = await import("@lifer/core/config.js"));
     const { albumRoutes } = await import("./routes.js");
     clearCaches = (await import("../gallery/routes.js")).clearGallerySearchCaches;
+    suggestionCounts = await import("./suggestions.js");
 
     await cleanup();
     for (const [id, email, token] of [
@@ -182,6 +193,38 @@ describe.skipIf(!url)("album suggestions", () => {
     expect(best!.previewPhotoIds).toContain(eighth.photoId);
     // One country is the whole library, so it isn't offered.
     expect((await ids()).some((id) => id.startsWith("country-"))).toBe(false);
+  });
+
+  it("answers from the last count at once, recounting behind it, and keeps it over a restart", async () => {
+    for (let i = 0; i < 8; i++) await addCapture({});
+    const first = (await call("GET", "/api/albums/suggestions")).json();
+    expect(first.suggestions.map((s: Suggestion) => s.id)).toEqual(["needs-rating", "missing-region"]);
+    expect(first.startMatches.photoCount).toBe(8);
+    expect(first.startMatches.previewPhotoIds).toHaveLength(8);
+
+    // A new import: the next open still shows the last count, without waiting for a recount.
+    for (let i = 0; i < 8; i++) await addCapture({ rating: 5 });
+    clearCaches();
+    const stale = (await call("GET", "/api/albums/suggestions")).json();
+    expect(stale.suggestions.map((s: Suggestion) => s.id)).toEqual(["needs-rating", "missing-region"]);
+    expect(stale.startMatches.photoCount).toBe(8);
+
+    // That open started a recount; once it lands the import shows.
+    await suggestionCounts.recountAlbumSuggestions(OWNER);
+    const fresh = (await call("GET", "/api/albums/suggestions")).json();
+    expect(fresh.suggestions.map((s: Suggestion) => s.id)).toContain("best-of-2023");
+    expect(fresh.startMatches.photoCount).toBe(16);
+
+    // After a restart the saved count answers at once too.
+    await suggestionCounts.clearAlbumSuggestionCounts();
+    const restarted = (await call("GET", "/api/albums/suggestions")).json();
+    expect(restarted.suggestions).toEqual(fresh.suggestions);
+
+    // An album made from one hides it straight away, before any recount.
+    const best = fresh.suggestions.find((s: Suggestion) => s.id === "best-of-2023");
+    await call("POST", "/api/albums", { name: "Best", rules: best.rules });
+    const after = (await call("GET", "/api/albums/suggestions")).json();
+    expect(after.suggestions.map((s: Suggestion) => s.id)).not.toContain("best-of-2023");
   });
 
   it("leaves out an album of the whole library, but not tidying it", async () => {

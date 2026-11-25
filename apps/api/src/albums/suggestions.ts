@@ -4,6 +4,7 @@
 import { pool } from "@lifer/core/db.js";
 import { log } from "@lifer/core/lib/log.js";
 import { getInstallSetting, setInstallSetting } from "../lib/installSettings.js";
+import { libraryStamp } from "../gallery/routes.js";
 import { GROUP_TERMS, speciesInGroup } from "../gallery/searchTaxonSynonyms.js";
 import {
   ALBUM_MEMBER_COLUMNS,
@@ -248,33 +249,54 @@ async function candidates(userId: string): Promise<Candidate[]> {
   ].filter((c) => c !== null);
 }
 
-/** The suggestions to show: enough photos, not dismissed, not already an album, capped. With
- *  `dismissed`, the dismissed ones that would otherwise show, so any can be restored.
- *  `dismissedCount` is how many of those there are, without counting their photos. */
-export async function albumSuggestions(
-  userId: string,
-  { dismissed: onlyDismissed = false }: { dismissed?: boolean } = {},
-): Promise<{ suggestions: AlbumSuggestion[]; dismissedCount: number }> {
-  const [all, dismissed, existing, library] = await Promise.all([
+interface StartMatches {
+  photoCount: number;
+  previewPhotoIds: string[];
+}
+
+/** Every candidate counted, kept with the library stamp it was counted at. */
+interface Counted {
+  stamp: string;
+  start: StartMatches;
+  candidates: AlbumSuggestion[];
+}
+
+// Counting every candidate takes seconds on a big library, so New smart album is answered from the
+// last count while a changed library is recounted in the background. Kept in install settings too,
+// so the first open after a restart is instant.
+const countedKey = (userId: string) => `album_suggestions_counted:${userId}`;
+const counted = new Map<string, Counted>();
+const recounting = new Map<string, Promise<Counted>>();
+
+/** Test hook: forget the in-memory counts once any recount has landed (the saved copy stays). */
+export async function clearAlbumSuggestionCounts(): Promise<void> {
+  await Promise.allSettled(recounting.values());
+  counted.clear();
+}
+
+// Trip names label suggestions, and renaming a trip doesn't touch its photos.
+async function suggestionStamp(userId: string): Promise<string> {
+  const trips = await pool.query<{ at: string | null }>(
+    `SELECT max(updated_at)::text AS at FROM trips WHERE user_id = $1`,
+    [userId],
+  );
+  return `${await libraryStamp(userId)}|${trips.rows[0]?.at ?? ""}`;
+}
+
+async function countAll(userId: string, stamp: string): Promise<Counted> {
+  const [all, library] = await Promise.all([
     candidates(userId),
-    dismissedIds(userId),
-    pool.query<{ rules: SmartAlbumRulesInput }>(`SELECT rules FROM albums WHERE user_id = $1 AND rules IS NOT NULL`, [
-      userId,
-    ]),
     smartAlbumRows<AlbumMember>({ version: 2, query: BASE_QUERY }, userId, undefined, ALBUM_MEMBER_COLUMNS),
   ]);
-  const skip = new Set(dismissed);
-  const taken = new Set(existing.rows.map((r) => rulesKey(upgradeRules(r.rules))));
-  const fresh = all.filter((c) => !taken.has(rulesKey(c.rules)));
-  const dismissedCount = fresh.filter((c) => skip.has(c.id)).length;
-  const open = fresh.filter((c) => skip.has(c.id) === onlyDismissed);
-  const counted = await Promise.all(
-    open.map(async (c) => {
+  let failed = false;
+  const rows = await Promise.all(
+    all.map(async (c) => {
       try {
         const rows = await smartAlbumRows<AlbumMember>(c.rules, userId, undefined, ALBUM_MEMBER_COLUMNS);
         return { ...c, photoCount: rows.length, previewPhotoIds: rows.slice(0, 4).map((r) => r.photo_id) };
       } catch (err) {
         // One candidate failing (a picture model not loaded yet) never hides the others.
+        failed = true;
         log.warn({ suggestion: c.id, err: err instanceof Error ? err.message : err }, "Couldn't count a suggestion");
         return null;
       }
@@ -284,7 +306,91 @@ export async function albumSuggestions(
   const worthIt = (s: AlbumSuggestion) =>
     s.photoCount >= MIN_SUGGESTION_PHOTOS && (s.photoCount < library.length || HOUSEKEEPING.has(s.kind));
   return {
-    suggestions: counted.filter((s): s is AlbumSuggestion => !!s && worthIt(s)).slice(0, MAX_SUGGESTIONS),
-    dismissedCount,
+    // A failed candidate leaves the stamp blank, so the next look counts again.
+    stamp: failed ? "" : stamp,
+    start: { photoCount: library.length, previewPhotoIds: library.slice(0, 8).map((r) => r.photo_id) },
+    candidates: rows.filter((s): s is AlbumSuggestion => !!s && worthIt(s)),
+  };
+}
+
+/** Recounts when the library changed since the last count. One run per user at a time. */
+export function recountAlbumSuggestions(userId: string): Promise<Counted> {
+  let run = recounting.get(userId);
+  if (!run) {
+    run = (async () => {
+      const [stamp, last] = await Promise.all([suggestionStamp(userId), lastCounts(userId)]);
+      if (last?.stamp === stamp) return last;
+      const next = await countAll(userId, stamp);
+      counted.set(userId, next);
+      await setInstallSetting(pool, countedKey(userId), next);
+      return next;
+    })().finally(() => recounting.delete(userId));
+    recounting.set(userId, run);
+  }
+  return run;
+}
+
+function recountLater(userId: string): void {
+  recountAlbumSuggestions(userId).catch((err: unknown) =>
+    log.warn({ err: err instanceof Error ? err.message : err }, "Couldn't count album suggestions"),
+  );
+}
+
+/** The last counts, from memory or the saved copy. */
+async function lastCounts(userId: string): Promise<Counted | undefined> {
+  if (!counted.has(userId)) {
+    const saved = await getInstallSetting<Counted>(pool, countedKey(userId));
+    // A copy saved in another shape is recounted rather than trusted.
+    if (Array.isArray(saved?.candidates) && saved.start && !counted.has(userId)) counted.set(userId, saved);
+  }
+  return counted.get(userId);
+}
+
+/** The last counts at once, recounting behind them; only a user never counted waits. */
+async function latestCounts(userId: string): Promise<Counted> {
+  const last = await lastCounts(userId);
+  if (!last) return recountAlbumSuggestions(userId);
+  recountLater(userId);
+  return last;
+}
+
+// Picks up imports and edits without anyone opening the dialog, so the next open is current.
+const RECOUNT_EVERY_MS = 2 * 60_000;
+setInterval(() => {
+  for (const userId of counted.keys()) recountLater(userId);
+}, RECOUNT_EVERY_MS).unref();
+
+/** Counts every user's suggestions in the background, one user at a time, so a first open is current. */
+export async function warmAlbumSuggestions(): Promise<void> {
+  const users = await pool.query<{ id: string }>(`SELECT id FROM users`);
+  for (const { id } of users.rows) {
+    await lastCounts(id);
+    await recountAlbumSuggestions(id).catch((err: unknown) =>
+      log.warn({ err: err instanceof Error ? err.message : err }, "Couldn't count album suggestions"),
+    );
+  }
+}
+
+/** The suggestions to show: enough photos, not dismissed, not already an album, capped. With
+ *  `dismissed`, the dismissed ones that would otherwise show, so any can be restored.
+ *  Dismissals and existing albums are applied here, so they take effect before any recount. */
+export async function albumSuggestions(
+  userId: string,
+  { dismissed: onlyDismissed = false }: { dismissed?: boolean } = {},
+): Promise<{ suggestions: AlbumSuggestion[]; dismissedCount: number; startMatches: StartMatches }> {
+  const [last, dismissed, existing] = await Promise.all([
+    latestCounts(userId),
+    dismissedIds(userId),
+    pool.query<{ rules: SmartAlbumRulesInput }>(`SELECT rules FROM albums WHERE user_id = $1 AND rules IS NOT NULL`, [
+      userId,
+    ]),
+  ]);
+  const skip = new Set(dismissed);
+  const taken = new Set(existing.rows.map((r) => rulesKey(upgradeRules(r.rules))));
+  const fresh = last.candidates.filter((c) => !taken.has(rulesKey(c.rules)));
+  return {
+    suggestions: fresh.filter((c) => skip.has(c.id) === onlyDismissed).slice(0, MAX_SUGGESTIONS),
+    dismissedCount: fresh.filter((c) => skip.has(c.id)).length,
+    startMatches: last.start,
   };
 }

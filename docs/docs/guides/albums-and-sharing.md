@@ -61,6 +61,8 @@ Suggestions can include:
 
 A suggestion appears only once it would hold at least 8 photos, and never when you already have an album with the same rules. To change one before making it, click its **⋯** > **Customize**: its rules fill in below, change anything you like, then click **Create smart album**. To stop seeing one, click its **⋯** > **Dismiss**. Below the suggestions, **Or choose your own rules** builds one from scratch.
 
+Suggestions are counted in the background, so they're there the moment the dialog opens. After an import or other changes they catch up within a couple of minutes on their own, and as you change your own rules the last count stays, dimmed, until the new one arrives.
+
 On the album page, a line under the title sums up its rules, like "Photos matching: Birds · Flight shots · 5 stars". Click it, or **⋯** > **Edit rules**, to change them; the album updates at once. A long summary is shortened to one line: point at it to read it all.
 
 You decide what belongs:
@@ -70,6 +72,8 @@ You decide what belongs:
 
 Photos can't be added to a smart album by hand, so smart albums don't appear in **Add to album** menus. To include more photos, edit its rules. Export, share links and the **Species** view all use the album's current matches.
 
+A smart album's cover and grid tiles are always photos it holds. If you change its rules, exclude a photo, or a photo stops matching, a cover you chose that no longer belongs is replaced by the album's first match. A cover you chose that still matches stays.
+
 ## Viewing an album
 
 The toolbar has **View**, **Filters**, **Select**, the share button (on a server) and **⋯** for everything else.
@@ -77,7 +81,7 @@ The toolbar has **View**, **Filters**, **Select**, the share button (on a server
 - **View** > **Show** switches between **Photos** (every photo) and **Species** (one card per species in the album, each showing the album's own best photo of it: the highest rated, or the first in the album's order).
 - In the Photos view, **View** also has **Sort** (**Newest first**, **Oldest first**, **Highest rated first** and **Lowest rated first**; albums don't have a custom order), the thumbnail **Size**, and **Labels**, **Camera info** and **Ratings** under each photo. These three are the same on every page with photos, and a choice made on one page carries over to the others.
 - **Filters** (Photos view) are the same as the Gallery's: **Animals**, **Rating**, **Number of animals**, **Rarity**, **Shot type**, **Region**, **Place name**, **Tag**, **Date**, **Media type** (when the album has videos) and **RAW files**.
-- Each photo's **⋯** menu also has **View species**, **Download original** and **Download RAW**, and on the desktop app **Reveal in Finder**.
+- Each photo's **⋯** menu also has **View species**, **Download original** and **Download RAW**, and on the desktop app **Show in Finder**.
 - To search inside an album, press <kbd>Cmd</kbd>+<kbd>K</kbd> (<kbd>Ctrl</kbd>+<kbd>K</kbd>) on its page. See [quick search](./gallery-and-search.md#quick-search).
 
 ## Export an album

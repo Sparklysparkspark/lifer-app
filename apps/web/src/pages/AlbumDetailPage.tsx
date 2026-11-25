@@ -48,6 +48,8 @@ import AlbumSharePanel from "./album/AlbumSharePanel";
 import AlbumCoverEditor from "./album/AlbumCoverEditor";
 import AlbumPhotoGrid from "./album/AlbumPhotoGrid";
 import ExportAlbumModal from "./album/ExportAlbumModal";
+import ApplePhotosDialog from "../components/ApplePhotosDialog";
+import { useApplePhotosAvailable } from "../hooks/useApplePhotosAvailable";
 import SmartAlbumBuilder from "./album/SmartAlbumBuilder";
 import AlbumExclusionsModal from "./album/AlbumExclusionsModal";
 import SmartAlbumLabel from "../components/SmartAlbumLabel";
@@ -156,6 +158,8 @@ function AlbumDetail() {
   // Imports link new captures into the album; files stay wherever the library stores them.
   const [showImportPanel, setShowImportPanel] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [sendingToPhotos, setSendingToPhotos] = useState(false);
+  const applePhotos = useApplePhotosAvailable();
   // Which quad tile (0-3) is mid pick-a-photo or crop; only one at a time.
   const [pickingQuadSlot, setPickingQuadSlot] = useState<number | null>(null);
   // A photo chosen as cover while the cover is a quad grid: the user picks which tile it replaces.
@@ -431,6 +435,9 @@ function AlbumDetail() {
                   <MenuItem onSelect={() => setEditingRules(true)}>{t("albums.smart.editRules")}</MenuItem>
                 )}
                 <MenuItem onSelect={() => setExporting(true)}>{t("albums.export.action")}</MenuItem>
+                {applePhotos && (
+                  <MenuItem onSelect={() => setSendingToPhotos(true)}>{t("applePhotos.action")}</MenuItem>
+                )}
                 {!isServerMode && (
                   <MenuLink href={docsUrl("/install/connect-desktop-to-server")}>
                     {t("albums.detail.shareNeedsServer")}
@@ -535,6 +542,7 @@ function AlbumDetail() {
 
       {shares.showPanel && isServerMode && <AlbumSharePanel shares={shares} smart={!!album.rules} />}
       {exporting && <ExportAlbumModal albumId={album.id} albumName={album.name} onClose={() => setExporting(false)} />}
+      {sendingToPhotos && <ApplePhotosDialog albumId={album.id} onClose={() => setSendingToPhotos(false)} />}
       {editingRules && (
         <SmartAlbumBuilder
           albumId={album.id}
