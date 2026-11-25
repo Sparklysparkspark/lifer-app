@@ -6,7 +6,8 @@ import { parseEnum } from "../../lib/parseEnum";
 
 const SORT_BY_VALUES: readonly SortBy[] = ["taxonomic", "name", "scientific", "rarity", "localRarity"];
 const GROUP_BY_VALUES: readonly GroupBy[] = ["none", "broad", "group", "tier", "localTier"];
-const STATE_FILTERS = ["all", "collected", "seen", "target", "unseen"] as const;
+// "here" and "elsewhere" narrow by where the photos were filed, apart from the Counting scope.
+const STATE_FILTERS = ["all", "collected", "seen", "target", "unseen", "here", "elsewhere"] as const;
 export type StateFilter = (typeof STATE_FILTERS)[number];
 // For a yes-or-no trait (introduced, endemic, vagrant): no filter, only those, or none of them.
 const TRAIT_FILTERS = ["any", "only", "hide"] as const;

@@ -307,6 +307,13 @@ export default function CollectionToolbar({
               {t("collection.toolbar.showTargets")}
             </option>
             <option value="unseen">{t("collection.toolbar.showUnseen")}</option>
+            {/* Only a region checklist's rows know where their photos were filed; kept while chosen. */}
+            {(photoPlaces || url.stateFilter === "here" || url.stateFilter === "elsewhere") && (
+              <>
+                <option value="here">{t("collection.toolbar.showHere")}</option>
+                <option value="elsewhere">{t("collection.toolbar.showElsewhere")}</option>
+              </>
+            )}
           </Select>
           {url.stateFilter === "target" && !!targetLists?.length && (
             <Select

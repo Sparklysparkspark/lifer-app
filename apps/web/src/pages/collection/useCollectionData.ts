@@ -286,6 +286,8 @@ export function useCollectionData({
           if (i.state !== patched.state) {
             if (i.state === "seen") seen--;
             if (patched.state === "seen") seen++;
+            if (i.state === "collected") collected--;
+            if (patched.state === "collected") collected++;
           }
           return patched;
         });

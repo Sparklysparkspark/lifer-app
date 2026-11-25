@@ -242,3 +242,20 @@ describe("target list filter", () => {
     expect(run(new Set(["b", "c"]))).toEqual(["b"]);
   });
 });
+
+describe("Show photographed here or elsewhere only", () => {
+  const items = [
+    item({ speciesId: "here", scientificName: "A a", state: "collected", photographedHere: true }),
+    // Counting only this region's photos greys it, but it was still photographed elsewhere.
+    item({ speciesId: "away", scientificName: "B b", state: "unseen", photographedElsewhereOnly: true }),
+    item({ speciesId: "none", scientificName: "C c", state: "unseen" }),
+  ];
+  const run = (stateFilter: ItemFilters["stateFilter"]) =>
+    filterCollectionItems(items, { ...base, stateFilter, search: "" }, new Map()).map((i) => i.speciesId);
+
+  it("narrows by where the photos were taken, whatever the Counting scope", () => {
+    expect(run("here")).toEqual(["here"]);
+    expect(run("elsewhere")).toEqual(["away"]);
+    expect(run("all")).toEqual(["here", "away", "none"]);
+  });
+});

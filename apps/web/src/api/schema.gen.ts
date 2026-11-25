@@ -2493,6 +2493,10 @@ export interface paths {
                       [key: string]: unknown;
                     })
                   | null;
+                /** @description Region checklist rows: a live photo of it is filed in this region */
+                photographedHere?: boolean;
+                /** @description Region checklist rows: photographed, but no photo of it is filed in this region */
+                photographedElsewhereOnly?: boolean;
               } & {
                 [key: string]: unknown;
               })[];
@@ -8948,6 +8952,10 @@ export interface paths {
                       [key: string]: unknown;
                     })
                   | null;
+                /** @description Region checklist rows: a live photo of it is filed in this region */
+                photographedHere?: boolean;
+                /** @description Region checklist rows: photographed, but no photo of it is filed in this region */
+                photographedElsewhereOnly?: boolean;
               } & {
                 [key: string]: unknown;
               })[];
@@ -26681,6 +26689,10 @@ export interface paths {
                       [key: string]: unknown;
                     })
                   | null;
+                /** @description Region checklist rows: a live photo of it is filed in this region */
+                photographedHere?: boolean;
+                /** @description Region checklist rows: photographed, but no photo of it is filed in this region */
+                photographedElsewhereOnly?: boolean;
               } & {
                 [key: string]: unknown;
               })[];
@@ -27210,6 +27222,10 @@ export interface paths {
                       [key: string]: unknown;
                     })
                   | null;
+                /** @description Region checklist rows: a live photo of it is filed in this region */
+                photographedHere?: boolean;
+                /** @description Region checklist rows: photographed, but no photo of it is filed in this region */
+                photographedElsewhereOnly?: boolean;
               } & {
                 [key: string]: unknown;
               })[];
@@ -42735,6 +42751,10 @@ export interface paths {
                       [key: string]: unknown;
                     })
                   | null;
+                /** @description Region checklist rows: a live photo of it is filed in this region */
+                photographedHere?: boolean;
+                /** @description Region checklist rows: photographed, but no photo of it is filed in this region */
+                photographedElsewhereOnly?: boolean;
               } & {
                 [key: string]: unknown;
               })[];

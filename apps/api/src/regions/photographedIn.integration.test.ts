@@ -350,8 +350,25 @@ describe.skipIf(!url)("photographedIn keeps the checklist", () => {
       [MISSING]: "unseen",
     });
     expect(stats).toMatchObject({ total: 4, collected: 2 });
-    // One scope control: rows no longer carry a separate where-photographed flag.
     expect(items.every((i) => !("photographedWhere" in i))).toBe(true);
+  });
+
+  it("flags where each was photographed for the Show filter, the same in either scope", async () => {
+    const flags = (items: Array<Record<string, unknown>>) =>
+      Object.fromEntries(items.map((i) => [i.speciesId, [i.photographedHere, i.photographedElsewhereOnly]]));
+    const anywhere = await view("");
+    const inCountry = await view("?photographedIn=country");
+    const expected = {
+      [LISTED_AWAY]: [false, true],
+      [LISTED_HERE]: [true, false],
+      [VAGRANT_HERE]: [true, false],
+      [MISSING]: [false, false],
+    };
+    expect(flags(anywhere.items)).toEqual(expected);
+    expect(flags(inCountry.items)).toEqual(expected);
+    // The header follows only the Counting scope.
+    expect(anywhere.stats).toMatchObject({ total: 4, collected: 3 });
+    expect(inCountry.stats).toMatchObject({ total: 4, collected: 2 });
   });
 });
 

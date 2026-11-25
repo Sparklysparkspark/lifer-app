@@ -174,10 +174,11 @@ describe("useCollectionData", () => {
     });
     const { result } = renderHook(() => useCollectionData({ ...base, regionId: "r1" }));
     await waitFor(() => expect(result.current.items).toHaveLength(3));
+    // Seen to photographed in place moves the header's photographed count too.
     act(() => result.current.applyChange("c", { state: "collected" } as never));
-    expect(result.current.regionStats).toEqual({ total: 3, collected: 2, seen: 0 });
+    expect(result.current.regionStats).toEqual({ total: 3, collected: 3, seen: 0 });
     act(() => result.current.applyChange(["a"], "removed"));
     expect(result.current.items?.map((i) => i.speciesId)).toEqual(["b", "c"]);
-    expect(result.current.regionStats).toEqual({ total: 2, collected: 1, seen: 0 });
+    expect(result.current.regionStats).toEqual({ total: 2, collected: 2, seen: 0 });
   });
 });

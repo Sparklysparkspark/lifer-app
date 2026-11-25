@@ -629,6 +629,8 @@
       "showSeen": "Seen only",
       "showTargets": "Targets",
       "showUnseen": "Not yet photographed",
+      "showHere": "Photographed here",
+      "showElsewhere": "Photographed elsewhere only",
       "showing": "Showing {shown} of {total}",
       "sizeColumns": "{count, plural, one {# column} other {# columns}}",
       "sizeLabel": "Species card size",

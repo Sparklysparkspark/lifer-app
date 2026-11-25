@@ -79,6 +79,10 @@ export interface CollectionRow {
   raw_only?: boolean | null;
   /** PHOTO_COUNT_JOIN; absent from routes that don't join it (trips, albums). */
   photo_count?: number | null;
+  /** Region rows only (checklist.ts): a live photo filed in the viewed region, and photographed
+   *  with none there. */
+  photographed_here?: boolean;
+  photographed_elsewhere_only?: boolean;
 }
 
 /** Per-species photo count, grouped once (not a subquery per row). Same rule as the species
@@ -180,6 +184,10 @@ export function toCollectionItem(row: CollectionRow, maxDepthM: number = TECHNIC
     heard: row.heard === true,
     suggested: row.suggested === true,
     ...(row.photo_count !== undefined && { photoCount: row.photo_count ?? 0 }),
+    ...(row.photographed_here !== undefined && {
+      photographedHere: row.photographed_here,
+      photographedElsewhereOnly: !!row.photographed_elsewhere_only,
+    }),
     // Only region rows carry it, so GET /collection items are unchanged.
     ...(row.user_added_region_id !== undefined && {
       userAddedRegion: row.user_added_region_id

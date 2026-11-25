@@ -79,7 +79,11 @@ export function filterCollectionItems(
       ? items
       : stateFilter === "target"
         ? items.filter((i) => i.isTarget && (!targetListSpecies || targetListSpecies.has(i.speciesId)))
-        : items.filter((i) => i.state === stateFilter);
+        : stateFilter === "here"
+          ? items.filter((i) => i.photographedHere)
+          : stateFilter === "elsewhere"
+            ? items.filter((i) => i.photographedElsewhereOnly)
+            : items.filter((i) => i.state === stateFilter);
   if (taxa?.size) filtered = filtered.filter((i) => !!i.taxonClass && taxa.has(i.taxonClass));
   filtered = byTrait(filtered, introduced, (i) => i.introduced);
   filtered = byTrait(filtered, endemic, (i) => i.endemic);

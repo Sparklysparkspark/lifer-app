@@ -101,6 +101,10 @@ export interface CollectionItem {
    *  here. Where it was added, for removing it (DELETE /regions/:regionId/checklist-additions/:speciesId,
    *  or /sea-zones/:seaZoneId/... when `kind` is "seaZone"). Null otherwise. */
   userAddedRegion?: { id: string; name: string; kind: "region" | "seaZone" } | null;
+  /** Region checklist rows only, whatever the Counting scope: a live photo of it is filed in the
+   *  viewed region (or one inside it), or you've photographed it with none filed there. */
+  photographedHere?: boolean;
+  photographedElsewhereOnly?: boolean;
 }
 
 // Response shape for GET /api/collection/stats (spec §9 Phase 4).
