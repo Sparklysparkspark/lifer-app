@@ -335,8 +335,8 @@ export default function CollectionToolbar({
           )}
           {/* Only a country, group or province checklist knows where each photo was taken. */}
           {photosTakenOffered && (
-            <div className="mt-1.5 space-y-1">
-              <FilterFieldLabel>{t("collection.toolbar.photosTaken")}</FilterFieldLabel>
+            <div className="mt-2 border-t border-line pt-2">
+              <FilterSectionHeading>{t("collection.toolbar.photosTaken")}</FilterSectionHeading>
               <Select
                 aria-label={t("collection.toolbar.photosTaken")}
                 value={url.photosTakenFilter}
