@@ -172,6 +172,66 @@ describe.skipIf(!url)("stats route validation", () => {
     }
   });
 
+  it("counts keepers per month and class, and a month range narrows the stats to match its bars", async () => {
+    const bird = "eeeeeeee-0000-4000-8000-000000000654";
+    const frog = "eeeeeeee-0000-4000-8000-000000000655";
+    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[bird, frog]]);
+    await db.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, common_name, taxon_class)
+       VALUES ($1, 916541, 'Avis tempora', 'Time Bird', 'aves'), ($2, 916551, 'Rana tempora', 'Time Frog', 'amphibia')`,
+      [bird, frog],
+    );
+    let n = 0;
+    const capture = async (
+      species: string,
+      takenAt: string | null,
+      extra: { rating?: number; trashed?: boolean } = {},
+    ) => {
+      const c = await db.query<{ id: string }>(
+        `INSERT INTO captures_all (user_id, species_id, fingerprint, taken_at, identification_state, quality_rating, deleted_at)
+         VALUES ($1, $2, $3, $4, 'confirmed', $5, $6) RETURNING id`,
+        [OWNER, species, `stats-timeline-${n++}`, takenAt, extra.rating ?? null, extra.trashed ? new Date() : null],
+      );
+      await db.query(
+        `INSERT INTO originals (capture_id, kind, ref_type, ref, managed, content_hash, file_size)
+         VALUES ($1, 'jpeg', 'path', $2, false, $2, 1)`,
+        [c.rows[0].id, `stats-timeline-${n}.jpg`],
+      );
+    };
+    try {
+      await capture(bird, "2023-03-10T12:00:00Z");
+      await capture(bird, "2023-03-20T12:00:00Z");
+      await capture(frog, "2023-03-21T12:00:00Z");
+      await capture(frog, "2024-07-01T12:00:00Z");
+      await capture(bird, null);
+      // Neither an ID shot rated 1 star nor a trashed photo counts.
+      await capture(bird, "2023-03-11T12:00:00Z", { rating: 1 });
+      await capture(frog, "2023-03-12T12:00:00Z", { trashed: true });
+
+      expect((await get("/api/stats/timeline")).json()).toEqual({
+        months: [
+          { month: "2023-03", taxonClass: "amphibia", count: 1 },
+          { month: "2023-03", taxonClass: "aves", count: 2 },
+          { month: "2024-07", taxonClass: "amphibia", count: 1 },
+        ],
+        undated: 1,
+      });
+      expect((await get("/api/stats")).json().totalKeepers).toBe(5);
+      const march = (await get("/api/stats?from=2023-03&to=2023-03")).json();
+      expect([march.totalKeepers, march.countriesPhotographed.count]).toEqual([3, 0]);
+      expect((await get("/api/stats?from=2024-01")).json().totalKeepers).toBe(1);
+      expect((await get("/api/stats?to=2023-12")).json().totalKeepers).toBe(3);
+      expect((await get("/api/stats/export.csv?from=2024-07&to=2024-07")).body.split("\n")).toHaveLength(2);
+
+      for (const query of ["from=2023-13", "to=2023-3", "from=2023-03'--"]) {
+        expect([query, (await get(`/api/stats?${query}`)).statusCode]).toEqual([query, 400]);
+      }
+    } finally {
+      await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [OWNER]);
+      await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[bird, frog]]);
+    }
+  });
+
   it("filters the gear breakdown by camera or lens", async () => {
     expect((await get("/api/stats/gear-species-breakdown")).json()).toEqual({ breakdown: [] });
     expect((await get("/api/stats/gear-species-breakdown?camera=EOS%20R5")).json()).toEqual({ breakdown: [] });

@@ -57,9 +57,9 @@ const stats = {
   rediscoveredSpecies: [],
 };
 
-function renderPage() {
+function renderPage(entry = "/stats") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[entry]}>
       <StatsPage />
     </MemoryRouter>,
   );
@@ -84,15 +84,15 @@ describe("StatsPage", () => {
     const toggle = rawSwitch();
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     expect(screen.getByText("Counting 1 photo, RAW included.")).toBeTruthy();
-    expect(useStatsData).toHaveBeenLastCalledWith("all", true);
+    expect(useStatsData).toHaveBeenLastCalledWith("all", true, null);
 
     fireEvent.click(toggle);
-    expect(useStatsData).toHaveBeenLastCalledWith("all", false);
-    expect(useStatsDownloads).toHaveBeenLastCalledWith("all", false);
+    expect(useStatsData).toHaveBeenLastCalledWith("all", false, null);
+    expect(useStatsDownloads).toHaveBeenLastCalledWith("all", false, null);
     expect(screen.getByText("Counting 1 photo, edited only.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("radio", { name: "Top rated (5-star)" }));
-    expect(useStatsData).toHaveBeenLastCalledWith("topRated", false);
+    expect(useStatsData).toHaveBeenLastCalledWith("topRated", false, null);
 
     cleanup();
     renderPage();
@@ -113,5 +113,22 @@ describe("StatsPage", () => {
     expect([set.textContent, set.dataset.ids]).toEqual(["3 photos, 400-500mm", "a,b"]);
     expect(get).toHaveBeenCalledWith(expect.stringMatching(/^\/stats\/exif-bucket\?.*dim=focalLength.*bucket=5/));
     await waitFor(() => expect(screen.getByTestId("photo-set").dataset.ids).toBe("a,b,c"));
+  });
+
+  it("narrows the stats to the dates in the address, and keeps the timeline up when they hold no photos", () => {
+    const range = { from: "2020-02", to: "2020-03" };
+    useStatsData.mockReturnValue({
+      stats: { ...stats, totalKeepers: 0 },
+      loadError: null,
+      portfolio: null,
+      years: {},
+      timeline: { months: [{ month: "2019-05", taxonClass: "aves", count: 4 }], undated: 0 },
+    });
+    renderPage("/stats?dates=2020-02..2020-03");
+    expect(useStatsData).toHaveBeenLastCalledWith("all", true, range);
+    expect(useStatsDownloads).toHaveBeenLastCalledWith("all", true, range);
+    expect(screen.getByRole("heading", { name: "Photos over time" })).toBeTruthy();
+    expect(screen.getByText("No photos in these dates")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "All dates" })).toBeTruthy();
   });
 });

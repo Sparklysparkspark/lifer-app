@@ -29,13 +29,11 @@ import {
   EXIF_METRICS,
   GEAR_METRICS,
   GEAR_TYPES,
-  MONTHLY_METRICS,
   SCATTER_AXES,
   groupScatterPoints,
   type ExifMetric,
   type GearMetric,
   type GearType,
-  type MonthlyMetric,
   type ScatterAxisKey,
 } from "./statsHelpers";
 import type { ScatterPoint, StatsResponse } from "./types";
@@ -104,30 +102,12 @@ const SCATTER_AXIS_OPTIONS = (prefix: string, t: TFunction) =>
     label: t("stats.options.axisOption", { axis: prefix, field: t(a.labelKey) }),
   }));
 
-export function MonthlyChart({
-  perMonth,
-  metric,
-  onMetricChange,
-}: {
-  perMonth: StatsResponse["perMonth"];
-  metric: MonthlyMetric;
-  onMetricChange: (metric: MonthlyMetric) => void;
-}) {
+export function MonthlyChart({ perMonth }: { perMonth: StatsResponse["perMonth"] }) {
   const { t } = useTranslation();
   return (
     <ChartCard
       title={t("stats.charts.byMonth")}
-      controls={
-        <div className="flex items-center gap-2">
-          <OptionSelect
-            ariaLabel={t("stats.charts.monthlyMetric")}
-            value={metric}
-            onChange={(v) => onMetricChange(v as MonthlyMetric)}
-            options={translateOptions(MONTHLY_METRICS, t)}
-          />
-          <InfoTip paragraphs={KEEPER_INFO_PARAGRAPHS.map((key) => t(key))} align="right" />
-        </div>
-      }
+      controls={<InfoTip paragraphs={KEEPER_INFO_PARAGRAPHS.map((key) => t(key))} align="right" />}
     >
       <ResponsiveContainer width="100%" height={220}>
         <AreaChart data={perMonth}>
@@ -146,8 +126,8 @@ export function MonthlyChart({
             allowDecimals={false}
             domain={[0, "dataMax"]}
           />
-          <Tooltip content={<ValueTooltip name={metricLabel(MONTHLY_METRICS, metric, t)} formatLabel={fullMonth} />} />
-          <Area type="monotone" dataKey={metric} stroke={ACCENT} fill={ACCENT} fillOpacity={0.15} strokeWidth={2} />
+          <Tooltip content={<ValueTooltip name={t("stats.options.newLifers")} formatLabel={fullMonth} />} />
+          <Area type="monotone" dataKey="newLifers" stroke={ACCENT} fill={ACCENT} fillOpacity={0.15} strokeWidth={2} />
         </AreaChart>
       </ResponsiveContainer>
     </ChartCard>

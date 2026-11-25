@@ -23,15 +23,16 @@
   --color-control-line: #d2c5a7;
   --color-link: #4e5a45;
   /* One colour per broad taxa group (visual language option B), also the chart series order. Each
-     passes 4.5:1 on canvas, surface and surface-muted (contrast.test.ts). */
-  --color-taxa-birds: #4d6b4a;
-  --color-taxa-mammals: #925639;
-  --color-taxa-reptiles: #5c6928;
+     passes 4.5:1 on canvas, surface and surface-muted (contrast.test.ts). Birds, mammals, reptiles,
+     fish and other also differ in lightness so they stay apart under colour blindness (colourBlind.test.ts). */
+  --color-taxa-birds: #516e54;
+  --color-taxa-mammals: #692c0f;
+  --color-taxa-reptiles: #6a6924;
   --color-taxa-amphibians: #356f65;
-  --color-taxa-fish: #3b6580;
+  --color-taxa-fish: #096f84;
   --color-taxa-insects: #895f18;
   --color-taxa-arachnids: #80506a;
-  --color-taxa-other: #65655e;
+  --color-taxa-other: #46423a;
   /* Calm map: paper land, a soft water hue, a hint of landcover, crisp relief and borders. Pins and
      labels keep their contrast on land, water and forest (contrast.test.ts). */
   --color-map-land: #f1ebdd;
@@ -69,14 +70,14 @@
   --color-control: #2a2d2f;
   --color-control-line: #4a4f52;
   --color-link: #b3c0a5;
-  --color-taxa-birds: #a7c79f;
-  --color-taxa-mammals: #e0a583;
-  --color-taxa-reptiles: #c3d174;
+  --color-taxa-birds: #c5e4d4;
+  --color-taxa-mammals: #e4a295;
+  --color-taxa-reptiles: #f3dc8c;
   --color-taxa-amphibians: #86cbbd;
-  --color-taxa-fish: #8fb7d4;
+  --color-taxa-fish: #85d0ff;
   --color-taxa-insects: #e6bb62;
   --color-taxa-arachnids: #d3a3bf;
-  --color-taxa-other: #b6b6ad;
+  --color-taxa-other: #aeb2be;
   --color-map-land: #2b2e2c;
   --color-map-water: #141d26;
   --color-map-forest: #284224;

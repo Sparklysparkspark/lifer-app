@@ -23,7 +23,6 @@ import {
   type ExifMetric,
   type GearMetric,
   type GearType,
-  type MonthlyMetric,
   type ScatterAxisKey,
 } from "./stats/statsHelpers";
 import { useStatsData } from "./stats/useStatsData";
@@ -45,6 +44,9 @@ import {
 import CollectionIntelligence from "./stats/CollectionIntelligence";
 import { useSpeciesName } from "../lib/speciesName";
 import { useScrollMemory } from "../hooks/useScrollMemory";
+import { useUrlParam } from "../hooks/useSearchParamsKeepingState";
+import PhotoTimeline from "./stats/PhotoTimeline";
+import { parseRangeParam, rangeParam } from "./stats/timeline";
 import { useReadyMarker } from "../lib/readyMarker";
 import { connectionMessage } from "../lib/userMessage";
 
@@ -77,15 +79,17 @@ export default function StatsPage() {
   const [gearType, setGearType] = useState<GearType>("cameras");
   const [gearMetric, setGearMetric] = useState<GearMetric>("photoCount");
   const [exifMetric, setExifMetric] = useState<ExifMetric>("focalLength");
-  const [monthlyMetric, setMonthlyMetric] = useState<MonthlyMetric>("newLifers");
   const [scatterX, setScatterX] = useState<ScatterAxisKey>("focalLength");
   const [scatterY, setScatterY] = useState<ScatterAxisKey>("shutterSeconds");
   const [lightbox, setLightbox] = useState<{ slides: LightboxSlide[]; index: number } | null>(null);
   // A chart mark's photos as a grid (a scatter dot's View all, an EXIF bar).
   const [photoSet, setPhotoSet] = useState<PhotoSet | null>(null);
-  const downloads = useStatsDownloads(filter, includeRaw);
+  // The timeline's picked dates, in the URL so Back and reload keep them.
+  const [datesParam, setDatesParam] = useUrlParam("dates");
+  const range = useMemo(() => parseRangeParam(datesParam), [datesParam]);
+  const downloads = useStatsDownloads(filter, includeRaw, range);
   const namingStyles = useSettings().settings?.speciesNamingStyles ?? [];
-  const data = useStatsData(filter, includeRaw);
+  const data = useStatsData(filter, includeRaw, range);
   const { stats, loadError } = data;
   useScrollMemory(!!stats);
   useReadyMarker(!!stats);
@@ -125,7 +129,7 @@ export default function StatsPage() {
         apiPath(
           "/stats/exif-bucket",
           {},
-          { dim, bucket: index + 1, filter, ...(includeRaw ? {} : { includeRaw: "0" as const }) },
+          { dim, bucket: index + 1, filter, ...(includeRaw ? {} : { includeRaw: "0" as const }), ...range },
         ),
       )
       .then((r) =>
@@ -157,7 +161,15 @@ export default function StatsPage() {
 
   const headlines = headlineStats(stats);
   // An empty library has nothing to filter or export; an empty filter still needs its picker.
-  const noKeepers = stats.totalKeepers === 0 && filter === "all" && includeRaw;
+  const noKeepers = stats.totalKeepers === 0 && filter === "all" && includeRaw && !range;
+  const timeline = data.timeline && (data.timeline.months.length > 0 || data.timeline.undated > 0) && (
+    <PhotoTimeline
+      months={data.timeline.months}
+      undated={data.timeline.undated}
+      range={range}
+      onRangeChange={(next) => setDatesParam(rangeParam(next))}
+    />
+  );
 
   return (
     <div className="flex-1 bg-canvas">
@@ -211,7 +223,14 @@ export default function StatsPage() {
         </div>
       )}
 
-      {stats.totalKeepers === 0 ? (
+      {stats.totalKeepers === 0 && range ? (
+        // Dates with no photos keep the timeline up, so the range can be changed back.
+        <div className="mx-auto max-w-5xl space-y-section p-page">
+          {timeline}
+          {/* The timeline's All dates is the way back; a second button would repeat it. */}
+          <EmptyState compact title={t("stats.timeline.emptyRange")} />
+        </div>
+      ) : stats.totalKeepers === 0 ? (
         <EmptyState
           icon={NO_STATS_ICON}
           title={t("stats.empty.title")}
@@ -222,8 +241,9 @@ export default function StatsPage() {
         <div className="mx-auto max-w-5xl space-y-section p-page">
           {/* The life-list count is the page's headline number, so it leads. */}
           <CollectionStatsPanel />
+          {timeline}
           <StatsHighlights stats={stats} headlines={headlines} />
-          <MonthlyChart perMonth={stats.perMonth} metric={monthlyMetric} onMetricChange={setMonthlyMetric} />
+          <MonthlyChart perMonth={stats.perMonth} />
           <PhotoScatterChart
             points={scatterPoints}
             shutterTicks={scatterShutterTicks}

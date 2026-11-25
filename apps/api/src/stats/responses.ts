@@ -107,6 +107,14 @@ export const PhotographyDna = Open({
   medianIso: Nullable(Type.Number()),
 });
 
+export const StatsTimeline = Open({
+  months: Type.Array(
+    Open({ month: Type.String({ description: "YYYY-MM" }), taxonClass: Nullable(Type.String()), count: Count }),
+    { description: "Photos per month and taxon class, months with none left out" },
+  ),
+  undated: Type.Integer({ minimum: 0, description: "Photos without a date" }),
+});
+
 export const ExifBucketPhotos = Open({
   photoIds: Type.Array(Uuid(), { description: "Every photo in the bar, newest first (up to 50,000)" }),
 });

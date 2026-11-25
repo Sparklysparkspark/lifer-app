@@ -31,6 +31,20 @@ export function photoFilterFragment(filter: PhotoFilter): string {
   return "";
 }
 
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** Photos taken from one month through another (YYYY-MM, both included), either end open. Months
+ *  read like the per-month series, so a range agrees with its bars; undated photos fall outside. */
+export function monthRangeFragment(range: { from?: string; to?: string } = {}): string {
+  const { from, to } = range;
+  // Spliced into SQL, so checked here as well as by the route schema.
+  for (const month of [from, to]) if (month != null && !MONTH.test(month)) throw new Error("month must be YYYY-MM");
+  return (
+    (from ? ` AND to_char(c.taken_at, 'YYYY-MM') >= '${from}'` : "") +
+    (to ? ` AND to_char(c.taken_at, 'YYYY-MM') <= '${to}'` : "")
+  );
+}
+
 // Promise.all that waits for every query before rejecting, so none is still running on the shared
 // client when the caller releases it.
 async function allSettledOrThrow<T extends readonly unknown[] | []>(
@@ -458,15 +472,34 @@ export function overviewInsights(input: InsightInputs): string[] {
   return insights;
 }
 
+/** Photos per month and taxon class across the whole timeline, and how many have no date. */
+export async function loadTimeline(db: Db, userId: string, scope: string) {
+  const res = await db.query<{ month: string | null; taxon_class: string | null; count: number }>(
+    `SELECT to_char(c.taken_at, 'YYYY-MM') AS month, s.taxon_class, COUNT(*)::int AS count
+     FROM captures c JOIN species s ON s.id = c.species_id
+     WHERE c.user_id = $1 AND ${scope}
+     GROUP BY 1, 2 ORDER BY 1, 2`,
+    [userId],
+  );
+  return {
+    months: res.rows
+      .filter((r) => r.month != null)
+      .map((r) => ({ month: r.month!, taxonClass: r.taxon_class, count: r.count })),
+    undated: res.rows.reduce((sum, r) => (r.month == null ? sum + r.count : sum), 0),
+  };
+}
+
 export async function loadStatsOverview(
   db: Db,
   userId: string,
   filter: PhotoFilter,
   maxDepthM: number,
   includeRaw = true,
+  range: { from?: string; to?: string } = {},
 ) {
   const keepers = keeperFilter(includeRaw);
-  const scope = `${keepers} ${photoFilterFragment(filter)}`;
+  // The per-month series stays whole, since it is a timeline itself.
+  const scope = `${keepers} ${photoFilterFragment(filter)}${monthRangeFragment(range)}`;
   const pending = [
     loadPerMonth(db, userId, keepers),
     loadGearUsage(db, userId, scope),

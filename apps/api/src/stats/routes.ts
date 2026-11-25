@@ -11,13 +11,18 @@ import {
   keeperFilter,
   loadExifBucketPhotoIds,
   loadStatsOverview,
+  loadTimeline,
+  monthRangeFragment,
   photoFilterFragment,
   type PhotoFilter,
 } from "./overview.js";
-import { ExifBucketPhotos, StatsOverview } from "./responses.js";
+import { ExifBucketPhotos, StatsOverview, StatsTimeline } from "./responses.js";
 import { sensitiveForKey } from "../companion/privacy.js";
 
-const FilterQuery = Type.Object({
+const MonthQuery = (description: string) =>
+  Type.Optional(Type.String({ pattern: "^\\d{4}-(0[1-9]|1[0-2])$", description }));
+
+const KeeperQuery = {
   filter: Type.Optional(
     Type.Enum(["all", "featured", "topRated"], {
       description: "all (default), featured (species cover photos) or topRated (5 stars)",
@@ -26,7 +31,17 @@ const FilterQuery = Type.Object({
   includeRaw: Type.Optional(
     Type.Enum(["0", "1"], { description: "0 to leave out photos whose only original is a RAW (default 1)" }),
   ),
+};
+
+const FilterQuery = Type.Object({
+  ...KeeperQuery,
+  from: MonthQuery("First month counted, YYYY-MM; photos without a date are left out of any range"),
+  to: MonthQuery("Last month counted, YYYY-MM"),
 });
+
+type Filters = { filter?: PhotoFilter; includeRaw?: "0" | "1"; from?: string; to?: string };
+const scopeOf = (q: Filters) =>
+  `${keeperFilter(q.includeRaw !== "0")} ${photoFilterFragment(q.filter ?? "all")}${monthRangeFragment(q)}`;
 
 export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
@@ -48,6 +63,7 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
           request.query.filter ?? "all",
           maxDepthM,
           request.query.includeRaw !== "0",
+          request.query,
         );
       } finally {
         client.release();
@@ -65,7 +81,7 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
   app.get("/stats/export.csv", filtered, async (request, reply) => {
     const userId = request.user!.id;
     const filter: PhotoFilter = request.query.filter ?? "all";
-    const scope = `${keeperFilter(request.query.includeRaw !== "0")} ${photoFilterFragment(filter)}`;
+    const scope = scopeOf(request.query);
 
     const res = await pool.query<{
       capture_id: string;
@@ -187,10 +203,19 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (request) => {
-      const { filter = "all", includeRaw, dim, bucket } = request.query;
-      const scope = `${keeperFilter(includeRaw !== "0")} ${photoFilterFragment(filter)}`;
-      return { photoIds: await loadExifBucketPhotoIds(pool, request.user!.id, scope, dim, bucket) };
+      const { dim, bucket } = request.query;
+      return { photoIds: await loadExifBucketPhotoIds(pool, request.user!.id, scopeOf(request.query), dim, bucket) };
     },
+  );
+
+  // The whole timeline for the Stats page's date brush, so it ignores from and to.
+  app.get(
+    "/stats/timeline",
+    {
+      preValidation: requireScope("stats.read"),
+      schema: { querystring: Type.Object(KeeperQuery), response: replies(StatsTimeline) },
+    },
+    async (request) => loadTimeline(pool, request.user!.id, scopeOf(request.query)),
   );
 
   await app.register(statsInsightRoutes);

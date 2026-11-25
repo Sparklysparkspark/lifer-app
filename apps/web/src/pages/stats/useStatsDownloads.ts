@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { downloadFile } from "../../lib/downloadFile";
 import { statsCsvFilename } from "./statsHelpers";
+import type { MonthRange } from "./timeline";
 import type { PhotoFilter } from "./types";
 
 // The CSV export, and downloading every photo behind an EXIF bar. Both report into one error line.
-export function useStatsDownloads(filter: PhotoFilter, includeRaw = true) {
+export function useStatsDownloads(filter: PhotoFilter, includeRaw = true, range: MonthRange | null = null) {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [bucketDownloading, setBucketDownloading] = useState(false);
@@ -27,9 +28,14 @@ export function useStatsDownloads(filter: PhotoFilter, includeRaw = true) {
     setExportError(null);
     try {
       const filename = statsCsvFilename(filter, new Date());
-      await downloadFile(`/api/stats/export.csv?filter=${filter}${includeRaw ? "" : "&includeRaw=0"}`, filename, {
+      const dates = range ? `&from=${range.from}&to=${range.to}` : "";
+      await downloadFile(
+        `/api/stats/export.csv?filter=${filter}${includeRaw ? "" : "&includeRaw=0"}${dates}`,
         filename,
-      });
+        {
+          filename,
+        },
+      );
     } catch (err) {
       setExportError(err instanceof Error ? err.message : "Couldn't export stats");
     } finally {

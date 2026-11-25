@@ -18,9 +18,12 @@ Click **Photos** at the top to choose what counts: **All keepers**, **Featured o
 ## What's on the page
 
 - At the top, your life list: **Total photographed**, how many species at each rarity (**By rarity**), and how many you first photographed each year (**By year**), always across your whole library. **By rarity** counts each species' overall rarity. Pick a region from its menu, like **In Canada**, to count local rarity there instead, among the species you photographed in that region. Click a rarity to open the Gallery on its photos.
+- **Photos over time:** how many photos you took each month, each bar split by animal group: birds, mammals, reptiles and amphibians, fish and sea life, and other. The legend gives each group's count. **Years** shows one bar per year instead. Rest the pointer on a bar for its counts. Photos without a date can't be placed on it; the line under the chart says how many there are.
+  - Drag the handles of the strip under the chart (or focus one and press the Left and Right arrow keys) to pick a range of dates. The chart zooms in on it, and everything below it counts only photos from those dates: the counts, gear, settings, time of day and countries. **Your collection** still covers your whole library. Photos without a date are left out while a range is picked.
+  - **Show on map** opens the [photo map](./photo-map.md) with just those dates. **All dates** goes back to everything. The range is part of the page address, so Back and reload keep it.
 - **At a glance:** **Top camera**, **Favorite focal length**, **Peak shooting time** and **Best month**, plus short insights like your best month for new lifers.
 - **Seen again after 25 years**, **Rarely recorded species** and **Species not seen in 25 years** you've photographed, if any. See [badges](./collection-and-checklists.md#badges).
-- **By month:** new lifers or total keepers over time.
+- **By month:** new lifers over time.
 - **Your photo distribution:** a scatter chart of any two of focal length, aperture, ISO and shutter speed. Photos taken at the same settings share one dot, which grows with the count. Hover a dot to see its species and thumbnails, then click a thumbnail to open that photo, with arrows through every photo in the dot. **View all** shows them all as a grid. Click **Filters** to narrow the chart by body, lens, year or date range.
 - **Gear usage:** photos or species by camera, lens, or camera and lens together.
 - **EXIF distribution:** photos by focal length, ISO, aperture or shutter speed, or species by focal length. Click a bar to see all of its photos as a grid, with **Download all**. Click a photo to open it, with arrows through the rest; Esc goes back to the grid.
@@ -60,4 +63,4 @@ The **Tree of life** groups the species in your downloaded regions by class, ord
 
 ## Export to CSV
 
-Click **Export CSV** to save a spreadsheet of your keepers (matching the choices at the top) with species, date, camera, lens, settings, rating and country. The desktop app asks where to save it. In a browser it downloads.
+Click **Export CSV** to save a spreadsheet of your keepers (matching the choices at the top and any dates picked on **Photos over time**) with species, date, camera, lens, settings, rating and country. The desktop app asks where to save it. In a browser it downloads.

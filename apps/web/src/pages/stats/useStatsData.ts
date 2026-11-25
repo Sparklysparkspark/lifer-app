@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import { apiPath } from "../../api/client";
+import { apiPath, type ApiResponse } from "../../api/client";
 import { useApiResource, useApiRoute } from "../../lib/resource";
 import { yearsPhotographed } from "./statsHelpers";
+import type { MonthRange } from "./timeline";
 import type {
   ArchiveHealthResponse,
   PhotoFilter,
@@ -16,14 +17,17 @@ const EMPTY_PORTFOLIO: SpeciesPortfolioResponse = { species: [] };
 // Everything the Stats page loads. The main stats follow the photo filter; the collection
 // sections always cover the whole library. Each request is cancelled when it's superseded, and
 // a page opened again starts from the last answers while it refetches (useApiResource).
-export function useStatsData(filter: PhotoFilter, includeRaw = true) {
-  const main = useApiResource<StatsResponse>(
-    apiPath("/stats", {}, { filter, ...(includeRaw ? {} : { includeRaw: "0" as const }) }),
-  );
+// The timeline always covers every date; a picked range narrows the main stats.
+export function useStatsData(filter: PhotoFilter, includeRaw = true, range: MonthRange | null = null) {
+  const keepers = { filter, ...(includeRaw ? {} : { includeRaw: "0" as const }) };
+  const main = useApiResource<StatsResponse>(apiPath("/stats", {}, { ...keepers, ...range }));
   // A new filter keeps the last stats up until its own answer lands.
   const [lastStats, setLastStats] = useState<StatsResponse | null>(main.data);
   if (main.data && main.data !== lastStats) setLastStats(main.data);
   const stats = main.data ?? lastStats;
+  const timelineRes = useApiResource<ApiResponse<"/stats/timeline">>(apiPath("/stats/timeline", {}, keepers));
+  const [lastTimeline, setLastTimeline] = useState(timelineRes.data);
+  if (timelineRes.data && timelineRes.data !== lastTimeline) setLastTimeline(timelineRes.data);
   // What the last load threw; the page words it (EmptyState, connectionMessage).
   const loadError: unknown = main.error;
 
@@ -48,7 +52,8 @@ export function useStatsData(filter: PhotoFilter, includeRaw = true) {
     stats,
     loadError,
     retry: () => void main.reload(),
-    sectionError: !!(archiveHealth.error || photographyDna.error || yearComparison.error),
+    sectionError: !!(archiveHealth.error || photographyDna.error || yearComparison.error || timelineRes.error),
+    timeline: timelineRes.data ?? lastTimeline,
     portfolio,
     archiveHealth: archiveHealth.data,
     photographyDna: photographyDna.data,

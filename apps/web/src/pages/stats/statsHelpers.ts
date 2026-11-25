@@ -34,12 +34,6 @@ export const EXIF_METRICS = [
 ] as const;
 export type ExifMetric = (typeof EXIF_METRICS)[number]["value"];
 
-export const MONTHLY_METRICS = [
-  { value: "newLifers", labelKey: "stats.options.newLifers" },
-  { value: "keepers", labelKey: "stats.options.totalKeepers" },
-] as const;
-export type MonthlyMetric = (typeof MONTHLY_METRICS)[number]["value"];
-
 // Camera-dial speeds out to 1/128000 so fast electronic shutters still get labeled ticks.
 const NICE_SHUTTER_DENOMINATORS = [30, 60, 125, 250, 500, 1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000];
 
