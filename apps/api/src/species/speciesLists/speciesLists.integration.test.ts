@@ -392,6 +392,59 @@ describe.skipIf(!url)("lists from iNaturalist", () => {
     await db.query(`DELETE FROM captures_all WHERE fingerprint = 'zzlist-fp'`);
   });
 
+  it("targets every species a list adds, page by page, and takes the targets back", async () => {
+    const [sp4, sp10] = [await idOf(4), await idOf(10)];
+    await db.query(
+      `INSERT INTO user_species (user_id, species_id, state) VALUES ($1, $2, 'collected')
+       ON CONFLICT (user_id, species_id) DO UPDATE SET state = 'collected'`,
+      [USER, sp4],
+    );
+    const targetsNow = async () =>
+      (
+        await db.query<{ id: string }>(
+          `SELECT s.id FROM user_species us JOIN species s ON s.id = us.species_id
+            WHERE us.user_id = $1 AND us.is_target AND s.scientific_name LIKE 'Zzlist %'`,
+          [USER],
+        )
+      ).rows.map((r) => r.id);
+
+    const res = await call("POST", "/species-lists", createBody({ targets: { name: "Spider targets" } }));
+    expect(res.statusCode).toBe(200);
+    const { list } = res.json();
+    expect(list.targetListId).toEqual(expect.any(String));
+    await idle();
+    const onList = await db.query(`SELECT count(*)::int AS n FROM target_list_species WHERE list_id = $1`, [
+      list.targetListId,
+    ]);
+    // Every species but the photographed one.
+    expect(onList.rows[0].n).toBe(N - 1);
+    expect((await targetsNow()).length).toBe(N - 1);
+    expect(await targetsNow()).not.toContain(sp4);
+
+    const undone = await call("POST", `/species-lists/${list.id}/untarget`);
+    expect(undone.json().list.targetListId).toBeNull();
+    // The one the user flagged by hand stays a target; the emptied target list goes.
+    expect(await targetsNow()).toEqual([sp10]);
+    expect((await db.query(`SELECT 1 FROM target_lists WHERE id = $1`, [list.targetListId])).rowCount).toBe(0);
+
+    // An existing list targets what it holds already, at once.
+    const again = await call(
+      "POST",
+      "/species-lists",
+      createBody({ placeId: PROVINCE_PLACE, placeName: PROVINCE, nativeOnly: true, targets: { photographed: true } }),
+    );
+    expect(again.json()).toMatchObject({ created: false, list: { name: `Spiders of ${PROVINCE}` } });
+    const province = await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM species_list_members WHERE list_id = $1`,
+      [again.json().list.id],
+    );
+    expect((await targetsNow()).length).toBe(province.rows[0].n);
+    const named = await db.query(`SELECT name FROM target_lists WHERE id = $1`, [again.json().list.targetListId]);
+    expect(named.rows[0].name).toBe(`Spiders of ${PROVINCE}`);
+    await call("POST", `/species-lists/${again.json().list.id}/untarget`);
+    expect((await call("POST", "/species-lists/00000000-0000-4000-8000-000000000000/untarget")).statusCode).toBe(404);
+  });
+
   it("searches places in Lifer's regions first and reports iNaturalist refusing politely", async () => {
     const exact = await call("GET", `/species-lists/search/places?q=${encodeURIComponent(COUNTRY)}`);
     expect(exact.json()).toEqual({

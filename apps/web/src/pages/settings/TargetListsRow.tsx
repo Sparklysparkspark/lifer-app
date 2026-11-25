@@ -5,7 +5,7 @@ import Button from "../../components/Button";
 import FormMessage from "../../components/FormMessage";
 import Menu, { MenuItem, MenuLink, MenuPanel } from "../../components/Menu";
 import RenameModal from "../../components/RenameModal";
-import TargetListImportModal from "../../components/TargetListImportModal";
+import AddTargetsModal from "../../components/AddTargetsModal";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { formatNumber } from "../../lib/format";
@@ -13,7 +13,7 @@ import { targetListsChanged, useTargetLists, type TargetList } from "../../lib/t
 import SearchInput from "../../components/SearchInput";
 import { SettingRow } from "./shared";
 
-/** Target lists: import one, and view, rename or delete each. Sits beside the eBird import. */
+/** Target lists: add targets, and view, rename or delete each list. Sits beside the eBird import. */
 // Past this many lists, a filter box.
 const FILTER_AT = 8;
 
@@ -51,7 +51,7 @@ export default function TargetListsRow() {
         description={t("targetLists.settings.description")}
         control={
           <Button variant="secondary" size="sm" onClick={() => setImporting(true)}>
-            {t("targetLists.importAction")}
+            {t("targetLists.addAction")}
           </Button>
         }
       >
@@ -104,7 +104,7 @@ export default function TargetListsRow() {
             }
           />
         ))}
-      {importing && <TargetListImportModal onClose={() => setImporting(false)} />}
+      {importing && <AddTargetsModal onClose={() => setImporting(false)} />}
       {renaming && (
         <RenameModal
           title={t("targetLists.renameTitle")}

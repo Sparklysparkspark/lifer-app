@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, apiPath, type ApiResponse } from "../api/client";
 import { useToast } from "../hooks/useToast";
+import { singularQuery } from "@lifer/shared";
 import i18n from "../i18n";
 import { errorMessage } from "./errorMessage";
 
@@ -119,4 +120,55 @@ export function useSpeciesLists(enabled = true) {
   const remove = useCallback((id: string) => setLists((prev) => prev?.filter((l) => l.id !== id) ?? prev), []);
 
   return { lists, error, reload: load, replace, remove };
+}
+
+const SEARCH_DEBOUNCE_MS = 300;
+const SPECIES_RANKS = new Set(["species", "subspecies", "variety", "form", "hybrid"]);
+
+export type Found<T> = { query: string; results: T[]; error?: unknown; unavailable?: string | null };
+
+// A group (lists live above species rank) first, else iNaturalist's top hit.
+export const bestTaxon = (hits: TaxonHit[]) => hits.find((h) => !SPECIES_RANKS.has(h.rank ?? "")) ?? hits[0] ?? null;
+
+// The region the Collection shows when the phrase names no place; otherwise a Lifer region, then a
+// real administrative place, ahead of parks and towns with the same name.
+export function bestPlace(hits: PlaceHit[], preferRegionId: string | null): PlaceHit | null {
+  return (
+    (preferRegionId && hits.find((h) => h.regionId === preferRegionId)) ||
+    hits.find((h) => h.regionId) ||
+    hits.find((h) => h.adminLevel !== null) ||
+    hits[0] ||
+    null
+  );
+}
+
+/** Debounced search for `query`, tagged with the query it answers so a stale reply never shows. */
+export function useSearch<T>(query: string | null, run: (q: string, signal: AbortSignal) => Promise<Found<T>>) {
+  const [found, setFound] = useState<Found<T> | null>(null);
+  useEffect(() => {
+    if (!query || query.length < 2) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      run(query, controller.signal)
+        .then((res) => !controller.signal.aborted && setFound(res))
+        .catch((error: unknown) => !controller.signal.aborted && setFound({ query, results: [], error }));
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query, run]);
+  return found && found.query === query ? found : null;
+}
+
+export async function runTaxa(q: string, signal: AbortSignal): Promise<Found<TaxonHit>> {
+  let results = await searchTaxa(q, signal);
+  // Plurals are stripped only when the plain words find nothing (plan: "Common plurals").
+  const single = singularQuery(q);
+  if (results.length === 0 && single !== q && single.length >= 2) results = await searchTaxa(single, signal);
+  return { query: q, results };
+}
+export async function runPlaces(q: string, signal: AbortSignal): Promise<Found<PlaceHit>> {
+  const res = await searchPlaces(q, signal);
+  return { query: q, results: res.results, unavailable: res.inatUnavailable };
 }

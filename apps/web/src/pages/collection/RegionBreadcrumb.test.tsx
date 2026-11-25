@@ -197,7 +197,7 @@ describe("RegionBreadcrumb Add species menu items", () => {
     anyTaxa = true;
     packs = both();
     renderRegion();
-    expect(itemNames()).toEqual(["Download species lists", "Add other species", "Import target list"]);
+    expect(itemNames()).toEqual(["Download species lists", "Add other species", "Add targets"]);
   });
 
   it("with the iNaturalist search off, a region still offers Add other species (the search tab)", () => {
@@ -209,7 +209,7 @@ describe("RegionBreadcrumb Add species menu items", () => {
   it("with the iNaturalist search off and no region checklist, there is nothing to add", () => {
     packs = both();
     renderHub();
-    expect(itemNames()).toEqual(["Download species lists", "Import target list"]);
+    expect(itemNames()).toEqual(["Download species lists", "Add targets"]);
   });
 
   it("Add other species opens the one dialog", () => {

@@ -20,6 +20,7 @@ const list = (extra: object = {}) => ({
   fetchingNow: false,
   photosReady: 795,
   hidden: false,
+  targetListId: null,
   createdAt: "2026-11-25T00:00:00Z",
   updatedAt: "2026-11-25T00:00:00Z",
   lastRefreshedAt: null,
@@ -67,6 +68,24 @@ function wrap(ui: React.ReactNode) {
 }
 
 describe("SpeciesListRow", () => {
+  it("offers Remove these targets only on a list that targets its species", async () => {
+    const untargeted = list({ targetListId: null });
+    post.mockResolvedValue({ list: untargeted });
+    const onChanged = vi.fn();
+    const { unmount } = wrap(<SpeciesListRow list={list() as never} onChanged={onChanged} onRemoved={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    await screen.findByRole("menuitem", { name: "Remove list" });
+    expect(screen.queryByRole("menuitem", { name: "Remove these targets" })).toBeNull();
+    unmount();
+
+    wrap(<SpeciesListRow list={list({ targetListId: CANADA }) as never} onChanged={onChanged} onRemoved={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove these targets" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledWith(untargeted));
+    expect(post).toHaveBeenCalledWith(`/species-lists/${list().id}/untarget`);
+    expect(toast.success).toHaveBeenCalledWith("The species of Spiders of Canada are no longer targets.");
+  });
+
   it("removes after a confirm that names the exact consequence", async () => {
     del.mockResolvedValue({ removedSpecies: 783, kept: 12 });
     const onRemoved = vi.fn();

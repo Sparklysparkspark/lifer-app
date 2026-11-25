@@ -126,6 +126,17 @@ describe("AddSpeciesListModal", () => {
     expect(toast.success).toHaveBeenCalledWith("Adding Spiders of Canada...");
   });
 
+  it("also targets the list's species when asked", async () => {
+    renderModal();
+    type("spiders of Canada");
+    const add = await screen.findByRole("button", { name: "Add 795 species to Canada" });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Also add these species to my targets" }));
+    fireEvent.click(add);
+    await waitFor(() =>
+      expect(post).toHaveBeenLastCalledWith("/species-lists", expect.objectContaining({ targets: {} })),
+    );
+  });
+
   it("previews again with native species only", async () => {
     renderModal();
     type("spiders of Canada");

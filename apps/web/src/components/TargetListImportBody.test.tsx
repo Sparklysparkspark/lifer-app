@@ -46,7 +46,7 @@ vi.mock("../hooks/useRegions", () => ({
 }));
 vi.mock("./RegionBrowser", () => ({ default: () => null }));
 
-const { default: TargetListImportModal } = await import("./TargetListImportModal");
+const { default: AddTargetsModal } = await import("./AddTargetsModal");
 const { ToastContext } = await import("../hooks/useToast");
 const toast = { success: vi.fn(), error: vi.fn(), info: vi.fn(), show: vi.fn(), dismiss: vi.fn() };
 
@@ -61,7 +61,7 @@ function renderModal() {
   render(
     <MemoryRouter>
       <ToastContext.Provider value={toast}>
-        <TargetListImportModal regionId={S(8)} onClose={onClose} onImported={onImported} />
+        <AddTargetsModal initialTab="import" regionId={S(8)} onClose={onClose} onChanged={onImported} />
       </ToastContext.Provider>
     </MemoryRouter>,
   );
@@ -74,7 +74,7 @@ async function dropFile() {
   await screen.findByText(/matched, 1 to pick, 1 not found/);
 }
 
-describe("TargetListImportModal", () => {
+describe("TargetListImportBody", () => {
   it("previews the file for the browsed region and offers one file, not a folder", async () => {
     renderModal();
     expect(screen.queryByText("Choose a folder")).toBeNull();

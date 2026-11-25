@@ -15,7 +15,7 @@ import Menu, { MenuItem, MenuLink, MenuNote, MenuPanel } from "../../components/
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { groupsForCountries, useConnection, usePackIndex } from "../../lib/packIndex";
 import AddGroupsModal from "./AddGroupsModal";
-import TargetListImportModal from "../../components/TargetListImportModal";
+import AddTargetsModal from "../../components/AddTargetsModal";
 import AddOtherSpeciesModal, { useAddOtherSpeciesTabs } from "./AddOtherSpeciesModal";
 import { SPECIES_DOWNLOADS_PATH } from "../../lib/speciesDownloads";
 
@@ -242,8 +242,8 @@ export default function RegionBreadcrumb({
 }
 
 /** Add species: download species lists (animal groups for the countries in view, with a way on to
- *  more countries), add other species (search, a group from iNaturalist, a pasted list), or import
- *  a target list. */
+ *  more countries), add other species (search, a group from iNaturalist, a pasted list), or add
+ *  targets (a group by name, or an imported list). */
 function AddSpeciesMenu({
   countries,
   onlyDownloaded,
@@ -308,7 +308,7 @@ function AddSpeciesMenu({
           {canAddOther && (
             <MenuItem onSelect={() => setAddingOther(true)}>{t("collection.addGroups.addOther")}</MenuItem>
           )}
-          <MenuItem onSelect={() => setImportingTargets(true)}>{t("targetLists.importAction")}</MenuItem>
+          <MenuItem onSelect={() => setImportingTargets(true)}>{t("targetLists.addAction")}</MenuItem>
         </MenuPanel>
       </Menu>
       {choosingGroups && (
@@ -334,10 +334,11 @@ function AddSpeciesMenu({
         />
       )}
       {importingTargets && (
-        <TargetListImportModal
+        <AddTargetsModal
           regionId={regionId}
+          regionName={listRegion?.name}
           onClose={() => setImportingTargets(false)}
-          onImported={onChecklistChanged}
+          onChanged={onChecklistChanged}
         />
       )}
     </>

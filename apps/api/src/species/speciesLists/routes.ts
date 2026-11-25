@@ -2,14 +2,16 @@
 // Preen and other integrations never receive iNaturalist-derived species data from them.
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { Type, type Static } from "typebox";
-import { pool } from "@lifer/core/db.js";
+import { pool, withTransaction } from "@lifer/core/db.js";
+import { NAME_MAX_LENGTH } from "@lifer/shared";
+import { removeFromList } from "../../collection/targetLists.js";
 import { requireAuth } from "../../auth/session.js";
 import { DateTime, IdParams, Nullable, notFoundOnInvalidId, replies, Uuid, withSchemas } from "../../lib/schema.js";
 import { isUuid } from "../../lib/validate.js";
 import { findChecklistRegion, noChecklistError } from "../../regions/checklistAdditions.js";
 import { requireAnyTaxaSearchEnabled } from "../otherTaxa.js";
 import { InatUnavailableError, LIST_SIZE_CAP, PER_PAGE, previewList, searchPlaces, searchTaxa } from "./inat.js";
-import { deleteList, listForUser, listsForUser, type SpeciesListRow } from "./store.js";
+import { deleteList, listForUser, listsForUser, targetSpecies, type SpeciesListRow } from "./store.js";
 import { kickSpeciesLists, speciesListJob, stopListIfRunning } from "./worker.js";
 
 const SpeciesList = Type.Object({
@@ -35,6 +37,7 @@ const SpeciesList = Type.Object({
   fetchingNow: Type.Boolean(),
   photosReady: Type.Integer({ description: "Members with a downloaded reference photo" }),
   hidden: Type.Boolean(),
+  targetListId: Nullable(Uuid({ description: "The target list its species also go on, null when off" })),
   createdAt: DateTime(),
   updatedAt: DateTime(),
   lastRefreshedAt: Nullable(DateTime()),
@@ -55,6 +58,16 @@ const CreateBody = Type.Object(
     placeName: Type.String({ minLength: 1, maxLength: 500 }),
     regionId: Type.Optional(Uuid({ description: "Default: the region with this iNaturalist place" })),
     name: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
+    targets: Type.Optional(
+      Type.Object(
+        {
+          listId: Type.Optional(Uuid({ description: "Default: a new target list named after the list" })),
+          name: Type.Optional(Type.String({ minLength: 1, maxLength: NAME_MAX_LENGTH })),
+          photographed: Type.Optional(Type.Boolean({ description: "Also target species already photographed" })),
+        },
+        { additionalProperties: false, description: "Every species the list adds also becomes a target" },
+      ),
+    ),
   },
   { additionalProperties: false },
 );
@@ -109,6 +122,7 @@ const toApi = (l: SpeciesListRow & { photos_ready: number }): SpeciesListOut => 
   fetchingNow: speciesListJob.status.running && speciesListJob.status.listId === l.id,
   photosReady: l.photos_ready,
   hidden: l.hidden,
+  targetListId: l.target_list_id,
   createdAt: l.created_at.toISOString(),
   updatedAt: l.updated_at.toISOString(),
   lastRefreshedAt: l.last_refreshed_at?.toISOString() ?? null,
@@ -213,6 +227,47 @@ export async function speciesListRoutes(fastify: FastifyInstance): Promise<void>
             [userId, b.taxonId, b.placeId, regionId],
           )
         ).rows[0].id;
+      if (b.targets) {
+        const t = b.targets;
+        const ok = await withTransaction(async (db) => {
+          const list = await db.query<{ name: string }>(`SELECT name FROM species_lists WHERE id = $1 FOR UPDATE`, [
+            id,
+          ]);
+          let targetListId = t.listId;
+          if (targetListId) {
+            const owned = await db.query(`SELECT 1 FROM target_lists WHERE id = $1 AND user_id = $2`, [
+              targetListId,
+              userId,
+            ]);
+            if (!owned.rowCount) return false;
+          } else
+            targetListId = (
+              await db.query<{ id: string }>(
+                `INSERT INTO target_lists (user_id, name, region_id) VALUES ($1, $2, $3) RETURNING id`,
+                [userId, t.name?.trim() || list.rows[0].name, regionId],
+              )
+            ).rows[0].id;
+          await db.query(`UPDATE species_lists SET target_list_id = $2, target_photographed = $3 WHERE id = $1`, [
+            id,
+            targetListId,
+            t.photographed ?? false,
+          ]);
+          // An existing list's species so far; the worker targets each later page.
+          const members = await db.query<{ species_id: string }>(
+            `SELECT species_id FROM species_list_members WHERE list_id = $1`,
+            [id],
+          );
+          await targetSpecies(
+            db,
+            userId,
+            targetListId,
+            members.rows.map((r) => r.species_id),
+            t.photographed ?? false,
+          );
+          return true;
+        });
+        if (!ok) return reply.code(404).send({ error: "Target list not found" });
+      }
       if (created) kickSpeciesLists();
       return { list: toApi((await listForUser(id, userId))!), created };
     },
@@ -280,6 +335,46 @@ export async function speciesListRoutes(fastify: FastifyInstance): Promise<void>
         return { list: toApi((await listForUser(id, userId))!) };
       },
     );
+
+  // Undo of "Also add these species to my targets": its species come off the target list (and stop
+  // being targets unless something else holds them), later pages add none, and a target list left
+  // empty goes.
+  app.post(
+    "/species-lists/:id/untarget",
+    { ...byId, schema: { params: IdParams, response: replies(OneList) } },
+    async (request, reply) => {
+      const { id } = request.params;
+      const userId = request.user!.id;
+      const found = await withTransaction(async (db) => {
+        const list = await db.query<{ target_list_id: string | null }>(
+          `SELECT target_list_id FROM species_lists WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+          [id, userId],
+        );
+        if (!list.rows[0]) return false;
+        const targetListId = list.rows[0].target_list_id;
+        if (!targetListId) return true;
+        const members = await db.query<{ species_id: string }>(
+          `SELECT species_id FROM species_list_members WHERE list_id = $1`,
+          [id],
+        );
+        await removeFromList(
+          db,
+          userId,
+          targetListId,
+          members.rows.map((r) => r.species_id),
+        );
+        await db.query(`UPDATE species_lists SET target_list_id = NULL WHERE id = $1`, [id]);
+        await db.query(
+          `DELETE FROM target_lists l WHERE l.id = $1
+             AND NOT EXISTS (SELECT 1 FROM target_list_species t WHERE t.list_id = l.id)`,
+          [targetListId],
+        );
+        return true;
+      });
+      if (!found) return notFound(reply);
+      return { list: toApi((await listForUser(id, userId))!) };
+    },
+  );
 
   // Removes the list. Species you photographed or marked stay on the checklist as your own
   // additions; species only this list added go, with their rows once nothing else uses them.

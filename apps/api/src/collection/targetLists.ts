@@ -51,8 +51,32 @@ const ImportResult = Type.Object({
   leftAlone: Type.Integer({ description: "Species already seen or photographed, left as they were" }),
 });
 
+/** Puts species on a list and makes them targets; answers the ones the list didn't hold yet. */
+export async function addToList(db: PoolClient, userId: string, listId: string, speciesIds: string[]) {
+  // `direct` carries over from another list that holds the species, else is whether the user had
+  // flagged it already.
+  const added = await db.query<{ species_id: string }>(
+    `INSERT INTO target_list_species (list_id, species_id, direct)
+     SELECT $1, s.id, COALESCE(
+       (SELECT bool_or(t.direct) FROM target_list_species t JOIN target_lists l ON l.id = t.list_id
+        WHERE l.user_id = $3 AND t.species_id = s.id),
+       (SELECT us.is_target FROM user_species us WHERE us.user_id = $3 AND us.species_id = s.id),
+       false)
+     FROM unnest($2::uuid[]) s(id)
+     ON CONFLICT DO NOTHING RETURNING species_id`,
+    [listId, speciesIds, userId],
+  );
+  const ids = added.rows.map((r) => r.species_id);
+  await db.query(
+    `INSERT INTO user_species (user_id, species_id, is_target) SELECT $1, UNNEST($2::uuid[]), true
+     ON CONFLICT (user_id, species_id) DO UPDATE SET is_target = true WHERE NOT user_species.is_target`,
+    [userId, ids],
+  );
+  return ids;
+}
+
 /** Takes species off a list and clears the target flag where nothing else holds it. */
-async function removeFromList(db: PoolClient, userId: string, listId: string, speciesIds: string[] | null) {
+export async function removeFromList(db: PoolClient, userId: string, listId: string, speciesIds: string[] | null) {
   // The CTE's delete isn't visible to the NOT EXISTS, hence the explicit list_id check.
   const released = await db.query<{ species_id: string }>(
     `WITH gone AS (
@@ -289,25 +313,7 @@ export async function targetListRoutes(fastify: FastifyInstance): Promise<void> 
             if (await addToRegionChecklist(db, userId, regionId, id)) checklistSpeciesIds.push(id);
           }
         }
-        // `direct` carries over from another list that holds the species, else is whether the
-        // user had flagged it already.
-        const added = await db.query<{ species_id: string }>(
-          `INSERT INTO target_list_species (list_id, species_id, direct)
-           SELECT $1, s.id, COALESCE(
-             (SELECT bool_or(t.direct) FROM target_list_species t JOIN target_lists l ON l.id = t.list_id
-              WHERE l.user_id = $3 AND t.species_id = s.id),
-             (SELECT us.is_target FROM user_species us WHERE us.user_id = $3 AND us.species_id = s.id),
-             false)
-           FROM unnest($2::uuid[]) s(id)
-           ON CONFLICT DO NOTHING RETURNING species_id`,
-          [listId, ids, userId],
-        );
-        const addedSpeciesIds = added.rows.map((r) => r.species_id);
-        await db.query(
-          `INSERT INTO user_species (user_id, species_id, is_target) SELECT $1, UNNEST($2::uuid[]), true
-           ON CONFLICT (user_id, species_id) DO UPDATE SET is_target = true WHERE NOT user_species.is_target`,
-          [userId, addedSpeciesIds],
-        );
+        const addedSpeciesIds = await addToList(db, userId, listId, ids);
         return {
           listId,
           createdList: !existingId,

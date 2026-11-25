@@ -6,6 +6,7 @@ import { requireScope } from "../auth/session.js";
 import { Nullable, Uuid, replies, withSchemas } from "../lib/schema.js";
 import { log } from "@lifer/core/lib/log.js";
 import { GROUP_TERMS, normalizeWordForm } from "@lifer/shared";
+import { speciesInGroupSql } from "./speciesInGroupSql.js";
 
 const SearchQuery = Type.Object({
   q: Type.Optional(Type.String({ description: "Search text. Empty returns your most recently photographed species" })),
@@ -77,17 +78,10 @@ const SPECIES_SEARCH_SQL = `
     SELECT s.id AS species_id, true AS literal, 30 AS score FROM species s
     WHERE length($1) >= 3 AND lifer_search_norm(s.family) LIKE $2 || '%'
   ),
-  -- speciesInGroup (searchTaxonSynonyms.ts) in SQL; no rows when $5 is null.
+  -- No rows when $5 is null.
   group_hits AS (
     SELECT s.id AS species_id, true AS literal, 60 AS score
-    FROM jsonb_to_record($5::jsonb) AS g(classes text[], orders text[], families text[], "excludeClasses" text[],
-           "excludeOrders" text[], "excludeFamilies" text[], "excludeNameWords" text[], "includeNameWords" text[])
-    JOIN species s
-      ON lower(s.taxon_class) = ANY(g.classes) OR lower(s.taxon_order) = ANY(g.orders) OR lower(s.family) = ANY(g.families)
-    WHERE NOT COALESCE(lower(s.taxon_class) = ANY(g."excludeClasses") OR lower(s.taxon_order) = ANY(g."excludeOrders")
-                       OR lower(s.family) = ANY(g."excludeFamilies"), false)
-      AND NOT COALESCE(lower(s.common_name) ~ ('\\m(' || array_to_string(g."excludeNameWords", '|') || ')\\M'), false)
-      AND COALESCE(lower(s.common_name) ~ ('\\m(' || array_to_string(g."includeNameWords", '|') || ')\\M'), true)
+    ${speciesInGroupSql("$5")}
   ),
   hits AS (
     SELECT species_id, BOOL_OR(literal) AS literal, MAX(score) AS score

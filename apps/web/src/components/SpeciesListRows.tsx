@@ -7,6 +7,7 @@ import { useRegions } from "../hooks/useRegions";
 import { useToast } from "../hooks/useToast";
 import { formatRelativeTime } from "../lib/format";
 import { listCallError, listErrorMessage, type SpeciesList } from "../lib/speciesLists";
+import { targetListsChanged } from "../lib/targetLists";
 import Button from "./Button";
 import Menu, { MenuItems, MenuPanel, type MenuAction } from "./Menu";
 import ProgressBar from "./ProgressBar";
@@ -58,7 +59,7 @@ export function SpeciesListRow({
   const confirm = useConfirm();
   const menu = useDropdownMenu();
   const { regions } = useRegions();
-  const [busy, setBusy] = useState<Action | "hide" | "remove" | null>(null);
+  const [busy, setBusy] = useState<Action | "hide" | "remove" | "untarget" | null>(null);
   const [renaming, setRenaming] = useState(false);
   const regionName = regions?.find((r) => r.id === list.regionId)?.name ?? list.place.name;
 
@@ -88,6 +89,20 @@ export function SpeciesListRow({
         toast.show(t("speciesLists.toast.hidden", { name: list.name }), {
           actions: [{ label: t("common.undo"), onClick: () => void setHidden(false) }],
         });
+    } catch (err) {
+      toast.error(listCallError(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Undo of "Also add these species to my targets", any time later.
+  async function untarget() {
+    setBusy("untarget");
+    try {
+      onChanged((await api.post(apiPath("/species-lists/{id}/untarget", { id: list.id }))).list);
+      targetListsChanged();
+      toast.success(t("speciesLists.toast.untargeted", { name: list.name }));
     } catch (err) {
       toast.error(listCallError(err));
     } finally {
@@ -137,6 +152,7 @@ export function SpeciesListRow({
     ...(list.status === "offline"
       ? [{ label: t("speciesLists.actions.pause"), onSelect: () => void run("pause") }]
       : []),
+    ...(list.targetListId ? [{ label: t("speciesLists.actions.untarget"), onSelect: () => void untarget() }] : []),
     { label: t("speciesLists.actions.rename"), onSelect: () => setRenaming(true) },
     list.hidden
       ? { label: t("speciesLists.actions.show"), onSelect: () => void setHidden(false) }

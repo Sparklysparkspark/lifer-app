@@ -13,9 +13,9 @@ import Checkbox from "./Checkbox";
 import FilePickArea from "./FilePickArea";
 import FormMessage from "./FormMessage";
 import InlineSpinner from "./InlineSpinner";
-import Modal from "./Modal";
 import RegionBrowser from "./RegionBrowser";
 import Select from "./Select";
+import { ModalFooter, useModalSubmit } from "./SlotModal";
 import { NameField } from "./TextField";
 
 type Preview = ApiResponse<"/target-lists/preview", "post">;
@@ -26,8 +26,8 @@ const MAX_UNMATCHED_SHOWN = 30;
 const FIELD_LABEL = "block space-y-1 text-callout text-muted";
 
 /** Import a CSV of species into a new or existing target list: pick, review the matches, save.
- *  Shared by the Collection's Add species menu and Settings. Undo is in the toast afterwards. */
-export default function TargetListImportModal({
+ *  The Import a list tab of Add targets. Undo is in the toast afterwards. */
+export default function TargetListImportBody({
   regionId: viewedRegionId = null,
   onClose,
   onImported,
@@ -146,39 +146,34 @@ export default function TargetListImportModal({
     return shown === o.scientificName ? shown : `${shown} (${o.scientificName})`;
   };
 
+  useModalSubmit((e) => {
+    e.preventDefault();
+    void save();
+  });
+
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t("targetLists.import.title")}
-      onSubmit={(e) => {
-        e.preventDefault();
-        void save();
-      }}
-      footerStart={
-        preview && (
+    <>
+      {preview && (
+        <ModalFooter start>
           <Button variant="secondary" onClick={() => setPreview(null)} disabled={saving}>
             {t("targetLists.import.back")}
           </Button>
-        )
-      }
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            {t("common.cancel")}
+        </ModalFooter>
+      )}
+      <ModalFooter>
+        <Button variant="secondary" onClick={onClose}>
+          {t("common.cancel")}
+        </Button>
+        {preview && (
+          <Button
+            type="submit"
+            loading={saving}
+            disabled={chosen.importIds.length === 0 || (!existing && !name.trim())}
+          >
+            {t("targetLists.import.confirm", { count: chosen.importIds.length })}
           </Button>
-          {preview && (
-            <Button
-              type="submit"
-              loading={saving}
-              disabled={chosen.importIds.length === 0 || (!existing && !name.trim())}
-            >
-              {t("targetLists.import.confirm", { count: chosen.importIds.length })}
-            </Button>
-          )}
-        </>
-      }
-    >
+        )}
+      </ModalFooter>
       <div className="space-y-4">
         {!preview ? (
           <>
@@ -311,6 +306,6 @@ export default function TargetListImportModal({
         )}
         <FormMessage error={error} />
       </div>
-    </Modal>
+    </>
   );
 }

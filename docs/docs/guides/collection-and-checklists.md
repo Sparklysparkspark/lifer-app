@@ -99,6 +99,19 @@ To archive a whole family at once, set **Group** to **Family group** and click *
 
 To target or mark a whole class, order or family as seen, use the [Tree of life](./stats.md#tree-of-life).
 
+### Targeting a whole group {#target-a-group}
+
+To make every raptor, owl or warbler of a place a target at once, click **+ Add species > Add targets** in the Collection (or **Add targets** in **Settings > Species and import > Target lists**), on the **Target a group** tab.
+
+1. Type a group and a place, like `raptors of BC`, `owls`, `hawks and eagles in Ontario`, `sharks near Belize` or `mushrooms of BC`. With no place in the words, Lifer uses the region you're viewing. Everyday words work (`birds of prey`, `waterfowl`, `shorebirds`, `songbirds`, `big cats`, `bats`, `snakes`, `frogs`), and so do order and family names like `Strigidae`.
+2. Check the **Group** and **Place** chips and the count, like **Targets 23 species you haven't photographed**. Species you've already photographed are left out unless you turn on **Include species I've already photographed**.
+3. Under **Add to**, pick one of your target lists, or keep **New list named raptors of BC**.
+4. Click **Add 23 targets**. The message afterwards offers **Undo**.
+
+Groups Lifer's own checklists cover (birds, mammals, reptiles, amphibians, fish and marine life) come from the checklists you've downloaded, so they work offline. Other groups, like plants, insects, spiders and fungi, need [Search iNaturalist for other species](../settings.md#any-taxa-search) on: Lifer adds them as a [list from iNaturalist](#species-lists) in the background, and each species becomes a target as it arrives. To take those targets back later, choose **Remove these targets** from the list's menu in **Settings > Species and import > Species lists**.
+
+The **Import a list** tab of the same dialog imports a CSV of species names into a target list instead.
+
 You can't hide or archive species you've already photographed.
 
 After you hide or archive a species, mark it as seen or add it to your targets, a message at the bottom of the screen offers **Undo**.
@@ -279,14 +292,14 @@ Add every species of a group seen in a place in one go, like all the spiders of 
 1. Open a region in the Collection and click **+ Add species > Add other species**, on the **A group from iNaturalist** tab. It's also offered when you filter to a group like **Insects** that has no species there yet.
 2. Type what you want, like `spiders of Canada`, `pine trees of BC` or `butterflies in Ontario`, or tap a starter such as **Spiders** or **Ferns**. With no place in the words, Lifer uses the region you're viewing.
 3. Lifer reads the words as two chips: a **Group** and a **Place**. If it guessed wrong (`bees` can match cattle), click the chip and pick another match. Places with a Lifer checklist are marked.
-4. Check the count and the example species, and turn on **Native species only** to leave out introduced species.
+4. Check the count and the example species, and turn on **Native species only** to leave out introduced species. Tick **Also add these species to my targets** to put every species the list adds, now and in later batches, on a new target list named after it.
 5. Click **Add 795 species to Canada**. The dialog closes at once and the list fills in the background.
 
 While a list is being added, its progress shows above the region's species, with **Pause** and **Resume**. Lifer then downloads one reference photo per species so it can suggest them for your photos; **Photos and identification ready** means that's done. Only Research Grade sightings count, so very rarely seen species may be missing.
 
 - **Big lists** (over 5,000 species, like insects of Canada) are added 5,000 species at a time, a batch at a time over a few hours. **Continue** starts the next batch now. A smaller group is faster: beetles rather than insects.
 - **Trees, shrubs and wildflowers** aren't groups on iNaturalist, so they can't be a list. Pick a real group instead, like conifers, oaks or maples.
-- **Your lists** are in **Settings > Species and import > Species lists**, finished and hidden ones included. Each has **Update list** (to pick up newly recorded species), **Rename**, **Hide from Collection** and **Remove list**.
+- **Your lists** are in **Settings > Species and import > Species lists**, finished and hidden ones included. Each has **Update list** (to pick up newly recorded species), **Rename**, **Hide from Collection** and **Remove list**, and **Remove these targets** on a list that adds its species to your targets.
 - **Remove list** takes off the species the list added. Species you photographed or marked stay. Removing can't be undone; add the list again to get it back.
 
 To add your own list of names instead, use the **Paste a list of names** tab of the same dialog and paste one name per line. The dialog opens on the tab you used last.

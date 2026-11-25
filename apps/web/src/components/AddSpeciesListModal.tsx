@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { isGrowthFormQuery, parseListPhrase, singularQuery } from "@lifer/shared";
+import { isGrowthFormQuery, parseListPhrase } from "@lifer/shared";
 import { api } from "../api/client";
 import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { useRegions } from "../hooks/useRegions";
@@ -11,15 +11,20 @@ import {
   LIST_BATCH_SIZE,
   listCallError,
   listErrorMessage,
-  searchPlaces,
-  searchTaxa,
+  bestPlace,
+  bestTaxon,
+  runPlaces,
+  runTaxa,
   STARTER_LISTS,
+  useSearch,
   type ListPreview,
   type PlaceHit,
   type TaxonHit,
 } from "../lib/speciesLists";
 import { useSpeciesName } from "../lib/speciesName";
+import { targetListsChanged } from "../lib/targetLists";
 import Button from "./Button";
+import Checkbox from "./Checkbox";
 import FormMessage from "./FormMessage";
 import Menu, { MenuItem, MenuPanel } from "./Menu";
 import SlotModal, { ModalFooter, useModalSubmit } from "./SlotModal";
@@ -28,59 +33,8 @@ import ProgressiveImg from "./ProgressiveImg";
 import SearchInput from "./SearchInput";
 import Switch from "./Switch";
 
-const DEBOUNCE_MS = 300;
-const SPECIES_RANKS = new Set(["species", "subspecies", "variety", "form", "hybrid"]);
-
-type Found<T> = { query: string; results: T[]; error?: unknown; unavailable?: string | null };
-
-// A group (lists live above species rank) first, else iNaturalist's top hit.
-const bestTaxon = (hits: TaxonHit[]) => hits.find((h) => !SPECIES_RANKS.has(h.rank ?? "")) ?? hits[0] ?? null;
-
-// The region the Collection shows when the phrase names no place; otherwise a Lifer region, then a
-// real administrative place, ahead of parks and towns with the same name.
-function bestPlace(hits: PlaceHit[], preferRegionId: string | null): PlaceHit | null {
-  return (
-    (preferRegionId && hits.find((h) => h.regionId === preferRegionId)) ||
-    hits.find((h) => h.regionId) ||
-    hits.find((h) => h.adminLevel !== null) ||
-    hits[0] ||
-    null
-  );
-}
-
-/** Debounced search for `query`, tagged with the query it answers so a stale reply never shows. */
-function useSearch<T>(query: string | null, run: (q: string, signal: AbortSignal) => Promise<Found<T>>) {
-  const [found, setFound] = useState<Found<T> | null>(null);
-  useEffect(() => {
-    if (!query || query.length < 2) return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      run(query, controller.signal)
-        .then((res) => !controller.signal.aborted && setFound(res))
-        .catch((error: unknown) => !controller.signal.aborted && setFound({ query, results: [], error }));
-    }, DEBOUNCE_MS);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [query, run]);
-  return found && found.query === query ? found : null;
-}
-
-async function runTaxa(q: string, signal: AbortSignal): Promise<Found<TaxonHit>> {
-  let results = await searchTaxa(q, signal);
-  // Plurals are stripped only when the plain words find nothing (plan: "Common plurals").
-  const single = singularQuery(q);
-  if (results.length === 0 && single !== q && single.length >= 2) results = await searchTaxa(single, signal);
-  return { query: q, results };
-}
-async function runPlaces(q: string, signal: AbortSignal): Promise<Found<PlaceHit>> {
-  const res = await searchPlaces(q, signal);
-  return { query: q, results: res.results, unavailable: res.inatUnavailable };
-}
-
 /** A chip showing the current pick that opens the other matches to choose from. */
-function PickChip<T>({
+export function PickChip<T>({
   label,
   value,
   options,
@@ -91,7 +45,7 @@ function PickChip<T>({
   label: string;
   value: string;
   options: T[];
-  keyOf: (o: T) => number;
+  keyOf: (o: T) => string | number;
   render: (o: T) => React.ReactNode;
   onPick: (o: T) => void;
 }) {
@@ -160,6 +114,7 @@ export function AddSpeciesListBody({
 
   const [text, setText] = useState("");
   const [nativeOnly, setNativeOnly] = useState(false);
+  const [alsoTarget, setAlsoTarget] = useState(false);
   // A pick from a chip (or a starter) holds while the words it was made for stay the same.
   const [taxonPick, setTaxonPick] = useState<{ query: string; hit: TaxonHit } | null>(null);
   const [placePick, setPlacePick] = useState<{ query: string; hit: PlaceHit } | null>(null);
@@ -221,8 +176,11 @@ export function AddSpeciesListBody({
         placeName: place.name,
         nativeOnly,
         regionId: place.regionId ?? undefined,
+        // A new target list named after the list; the worker targets each page as it arrives.
+        ...(alsoTarget ? { targets: {} } : {}),
       });
       onClose();
+      if (alsoTarget) targetListsChanged();
       toast.success(
         res.created
           ? t("speciesLists.toast.adding", { name: res.list.name })
@@ -382,6 +340,11 @@ export function AddSpeciesListBody({
             {t("speciesLists.add.nativeOnly")}
             <Switch checked={nativeOnly} onChange={setNativeOnly} label={t("speciesLists.add.nativeOnly")} />
           </label>
+        )}
+        {taxon && place && (
+          <Checkbox checked={alsoTarget} onChange={setAlsoTarget}>
+            {t("speciesLists.add.alsoTarget")}
+          </Checkbox>
         )}
         {result && (
           <div className="space-y-2 text-callout">

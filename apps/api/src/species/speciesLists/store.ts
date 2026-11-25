@@ -4,6 +4,7 @@ import type { PoolClient } from "pg";
 import { pool, withTransaction } from "@lifer/core/db.js";
 import { log } from "@lifer/core/lib/log.js";
 import { deleteUnreferencedFiles } from "../../offlinePacks/remove.js";
+import { addToList } from "../../collection/targetLists.js";
 import type { ListSpecies } from "./inat.js";
 
 export type ListStatus = "queued" | "running" | "paused" | "offline" | "done" | "failed";
@@ -26,6 +27,8 @@ export interface SpeciesListRow {
   next_page: number;
   next_batch_at: Date | null;
   hidden: boolean;
+  target_list_id: string | null;
+  target_photographed: boolean;
   created_at: Date;
   updated_at: Date;
   last_refreshed_at: Date | null;
@@ -66,8 +69,14 @@ export async function savePage(
   last: boolean,
 ): Promise<boolean> {
   return withTransaction(async (db) => {
-    const list = await db.query<{ user_id: string; region_id: string; status: string }>(
-      `SELECT user_id, region_id, status FROM species_lists WHERE id = $1 FOR UPDATE`,
+    const list = await db.query<{
+      user_id: string;
+      region_id: string;
+      status: string;
+      target_list_id: string | null;
+      target_photographed: boolean;
+    }>(
+      `SELECT user_id, region_id, status, target_list_id, target_photographed FROM species_lists WHERE id = $1 FOR UPDATE`,
       [listId],
     );
     const row = list.rows[0];
@@ -127,6 +136,14 @@ export async function savePage(
          ON CONFLICT DO NOTHING`,
         [row.user_id, row.region_id, members.map(([id]) => id)],
       );
+      if (row.target_list_id)
+        await targetSpecies(
+          db,
+          row.user_id,
+          row.target_list_id,
+          members.map(([id]) => id),
+          row.target_photographed,
+        );
     }
 
     await db.query(
@@ -141,6 +158,27 @@ export async function savePage(
     );
     return true;
   });
+}
+
+/** Puts species on a target list, leaving photographed ones off unless `photographed`. */
+export async function targetSpecies(
+  db: PoolClient,
+  userId: string,
+  targetListId: string,
+  speciesIds: string[],
+  photographed: boolean,
+): Promise<string[]> {
+  const open = photographed
+    ? speciesIds
+    : (
+        await db.query<{ id: string }>(
+          `SELECT t.id FROM unnest($1::uuid[]) AS t(id)
+            WHERE NOT EXISTS (SELECT 1 FROM user_species us
+                               WHERE us.user_id = $2 AND us.species_id = t.id AND us.state = 'collected')`,
+          [speciesIds, userId],
+        )
+      ).rows.map((r) => r.id);
+  return addToList(db, userId, targetListId, open);
 }
 
 /** Removes a list. Its checklist additions go, except where the user photographed or marked the
