@@ -1,7 +1,7 @@
 // The species page: GET /species/:id and the per-species lists and marks around it.
 import { monthlyFromWeekly } from "@lifer/core/species/seasonality.js";
 import { existsSync } from "node:fs";
-import { access as fsAccess, readFile as fsReadFile } from "node:fs/promises";
+import { readFile as fsReadFile } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";
 import { Type, type TSchema } from "typebox";
 import { pool } from "@lifer/core/db.js";
@@ -15,7 +15,8 @@ import {
   fillDescriptionIfUnchecked,
 } from "@lifer/core/species/lazyEnrich.js";
 import { MEDIA_CACHE_BUST, EMBEDDING_MODEL_VERSION } from "@lifer/core/config.js";
-import { resolveOriginalPath, unmountedVolumeName } from "../storageVolumes/resolve.js";
+import { resolveOriginalPath } from "../storageVolumes/resolve.js";
+import { checkFile, unmountedShareOf } from "../storageVolumes/networkShares.js";
 import { clusterIntoEncounters } from "../lib/clusterEncounters.js";
 import { cosineSimilarity } from "@lifer/core/species/embeddings.js";
 import { BURST_MAX_GAP_MS, BURST_SIMILARITY } from "./bursts.js";
@@ -300,25 +301,36 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
       // Whether each original is still reachable, checked live and concurrently. A volume-tagged
       // one is resolved first, so an unplugged drive shows its label instead of "missing".
       const originalStatuses = await Promise.all(
-        capturesRes.rows.map(async (c): Promise<{ available: boolean | null; volumeLabel: string | null }> => {
-          if (!c.original_ref) return { available: null, volumeLabel: null };
-          const resolved = await resolveOriginalPath({
-            ref: c.original_ref,
-            volume_id: c.original_volume_id,
-            volume_relative_path: c.original_volume_relative_path,
-          });
-          if (!resolved.connected) return { available: false, volumeLabel: resolved.volumeLabel ?? null };
-          const exists = resolved.path
-            ? await fsAccess(resolved.path).then(
-                () => true,
-                () => false,
-              )
-            : false;
-          return {
-            available: exists,
-            volumeLabel: exists || !resolved.path ? null : unmountedVolumeName(resolved.path),
-          };
-        }),
+        capturesRes.rows.map(
+          async (
+            c,
+          ): Promise<{
+            available: boolean | null;
+            volumeLabel: string | null;
+            sharePath: string | null;
+            notResponding: boolean;
+          }> => {
+            const none = { volumeLabel: null, sharePath: null, notResponding: false };
+            if (!c.original_ref) return { available: null, ...none };
+            const resolved = await resolveOriginalPath({
+              ref: c.original_ref,
+              volume_id: c.original_volume_id,
+              volume_relative_path: c.original_volume_relative_path,
+            });
+            if (!resolved.connected) return { available: false, ...none, volumeLabel: resolved.volumeLabel ?? null };
+            if (!resolved.path) return { available: false, ...none };
+            const state = await checkFile(resolved.path);
+            if (state === "ok") return { available: true, ...none };
+            // An unmounted share is named (and offered for connecting when its address is known).
+            const share = state === "missing" ? await unmountedShareOf(resolved.path) : null;
+            return {
+              available: false,
+              volumeLabel: share?.name ?? null,
+              sharePath: share?.sharePath ?? null,
+              notResponding: state === "not_responding",
+            };
+          },
+        ),
       );
       // The volume columns only locate the original above. Derivative paths are never selected;
       // the original's own location (original_ref, raw_ref) stays, for reveal and copy path.
@@ -329,6 +341,8 @@ export async function speciesDetailRoutes(fastify: FastifyInstance): Promise<voi
           duration_seconds: c.duration_seconds == null ? null : Number(c.duration_seconds),
           original_available: originalStatuses[i].available,
           original_volume_label: originalStatuses[i].volumeLabel,
+          original_share_path: originalStatuses[i].sharePath,
+          original_not_responding: originalStatuses[i].notResponding,
         }),
       );
 

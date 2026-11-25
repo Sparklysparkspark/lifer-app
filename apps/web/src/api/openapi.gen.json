@@ -29387,6 +29387,8 @@
                           "original_kind",
                           "original_available",
                           "original_volume_label",
+                          "original_share_path",
+                          "original_not_responding",
                           "has_raw_original",
                           "raw_ref",
                           "region_id",
@@ -29427,6 +29429,19 @@
                           "original_kind": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "original_available": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
                           "original_volume_label": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "original_share_path": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "description": "Mount point of an unmounted network share Lifer can connect for this original"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "original_not_responding": {
+                            "type": "boolean",
+                            "description": "The original's share didn't answer in time"
+                          },
                           "has_raw_original": { "type": "boolean" },
                           "raw_ref": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "region_id": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] },
@@ -32217,6 +32232,181 @@
         "parameters": [
           { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
         ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "required": ["ok"], "properties": { "ok": { "type": "boolean" } } }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/storage-volumes/library-locations": {
+      "get": {
+        "summary": "GET /storage-volumes/library-locations",
+        "tags": ["storage-volumes"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["locations"],
+                  "properties": {
+                    "locations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["mountPath", "name", "status", "connectable", "mountedAt", "serverConnected"],
+                        "properties": {
+                          "mountPath": {
+                            "type": "string",
+                            "description": "The share or drive's mount point, as the library's file paths name it"
+                          },
+                          "name": { "type": "string" },
+                          "status": { "enum": ["connected", "not_connected", "not_responding"] },
+                          "connectable": {
+                            "type": "boolean",
+                            "description": "Lifer remembers the share's address and can ask the OS to mount it"
+                          },
+                          "mountedAt": {
+                            "anyOf": [
+                              { "type": "string", "description": "Where the share is mounted now, when that differs" },
+                              { "type": "null" }
+                            ]
+                          },
+                          "serverConnected": {
+                            "type": "boolean",
+                            "description": "Another share on the same server is mounted"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/storage-volumes/library-locations/connect": {
+      "post": {
+        "summary": "POST /storage-volumes/library-locations/connect",
+        "tags": ["storage-volumes"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["mountPath"],
+                "properties": { "mountPath": { "type": "string", "minLength": 1 } },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["mountPath", "name", "status", "connectable", "mountedAt", "serverConnected"],
+                  "properties": {
+                    "mountPath": {
+                      "type": "string",
+                      "description": "The share or drive's mount point, as the library's file paths name it"
+                    },
+                    "name": { "type": "string" },
+                    "status": { "enum": ["connected", "not_connected", "not_responding"] },
+                    "connectable": {
+                      "type": "boolean",
+                      "description": "Lifer remembers the share's address and can ask the OS to mount it"
+                    },
+                    "mountedAt": {
+                      "anyOf": [
+                        { "type": "string", "description": "Where the share is mounted now, when that differs" },
+                        { "type": "null" }
+                      ]
+                    },
+                    "serverConnected": {
+                      "type": "boolean",
+                      "description": "Another share on the same server is mounted"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/storage-volumes/library-locations/reveal": {
+      "post": {
+        "summary": "POST /storage-volumes/library-locations/reveal",
+        "tags": ["storage-volumes"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["mountPath"],
+                "properties": { "mountPath": { "type": "string", "minLength": 1 } },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK",

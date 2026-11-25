@@ -993,6 +993,20 @@
     "fallback": "Info toast when the editor chosen in Settings was uninstalled. {name} is the editor used instead.",
     "pickFailed": "Error toast after choosing an app with Other... in Settings > General > Edit photos with."
   },
+  "libraryLocations": {
+    "label": "Settings > Storage heading: the drives and network shares (NAS) that hold the user's photo library.",
+    "description": "Description under the Library locations heading.",
+    "connect": "Button and menu item: mount a network share (NAS) so its photos can be opened. {name} is the share's name, like home or media.",
+    "connecting": "Toast while the computer mounts a network share. {name} is the share's name. The operating system may show its own password dialog.",
+    "connected": "Toast after a network share was mounted. {name} is the share's name.",
+    "failed": "Toast when mounting a network share failed or was cancelled. {name} is the share's name.",
+    "notResponding": "Status of a network share that is mounted but stopped answering (a dead network connection).",
+    "serverConnected": "Note after Not connected: the NAS server itself is reachable (another of its shares is mounted), but this share hasn't been opened.",
+    "someOriginalsOn": "Line above a species' photos when some original files are on a network share that isn't mounted. {name} is the share's name.",
+    "bannerNotConnected": "Notice under the toolbar when a drive or network share holding the library isn't mounted. {name} is its name.",
+    "bannerNotResponding": "Notice under the toolbar when a mounted network share stopped answering. {name} is its name.",
+    "dismiss": "Accessible label of the close button on the library location notice; once closed it never shows again for that share."
+  },
   "photoMenu": {
     "feature": "Menu item: set this photo as the species' featured photo, the one its card shows.",
     "correctId": "Menu item: move the photo to the species it really shows.",
@@ -1393,6 +1407,7 @@
       "filterEdited": "Filter on a species page's photos: edited photos (JPEG/HEIC etc.), with how many there are.",
       "bestShot": "Badge on the featured photo of a species.",
       "unavailableConnect": "Hover text on a dot marking a photo whose original is on a disconnected drive. {volume} is the drive's name.",
+      "unavailableNotResponding": "Hover text on a dot marking a photo whose original is on a network share (NAS) that is mounted but stopped answering.",
       "fromTrip": "Heading of the section of a species page listing photos taken on one trip, shown when the page was opened from that trip. {trip} is the trip's name.",
       "otherPhotos": "Heading of the section after the trip's photos on a species page: the species' photos from anywhere else."
     },

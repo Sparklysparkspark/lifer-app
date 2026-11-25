@@ -8,6 +8,8 @@ import SendToInatMenuItem from "./SendToInatMenuItem";
 import { downloadWithToast } from "../lib/downloadFile";
 import { useToast } from "../hooks/useToast";
 import { useRevealOriginal } from "../hooks/useRevealOriginal";
+import { useDeploymentMode } from "../hooks/useDeploymentMode";
+import { useConnectLocation } from "../lib/libraryLocations";
 import { isPhotoVersionsOpen, openPhotoVersions } from "../lib/photoVersions";
 import { fileNameOf, photoFilePaths } from "../lib/photoFilePaths";
 
@@ -27,6 +29,8 @@ export interface PhotoMenuPhoto {
   /** False when the original's drive is disconnected or the file is gone. */
   originalAvailable?: boolean | null;
   originalVolumeLabel?: string | null;
+  /** Mount point of the unmounted network share holding the original, when Lifer can connect it. */
+  originalSharePath?: string | null;
   hasRaw?: boolean;
   inatObservationId?: string | null;
 }
@@ -100,6 +104,8 @@ export default function PhotoMenu({
   const kind = photo.kind ?? "image";
   const files = photoFilePaths(photo.originalRef, photo.rawRef);
   const unavailable = !!photo.originalRef && photo.originalAvailable === false;
+  const desktop = useDeploymentMode() === "desktop";
+  const connectLocation = useConnectLocation();
   const download = (path: string, name: string) =>
     act(() => void downloadWithToast(toast, `/api/photos/${photo.photoId}/${path}?download=1`, name));
   const copyPath = (path: string) =>
@@ -154,7 +160,11 @@ export default function PhotoMenu({
           )}
         </MenuSection>
         <MenuSection>
-          {unavailable ? (
+          {unavailable && desktop && photo.originalSharePath && photo.originalVolumeLabel ? (
+            <MenuItem onSelect={act(() => void connectLocation(photo.originalSharePath!, photo.originalVolumeLabel!))}>
+              {t("libraryLocations.connect", { name: photo.originalVolumeLabel })}
+            </MenuItem>
+          ) : unavailable ? (
             <MenuNote>
               {photo.originalVolumeLabel
                 ? t("photoMenu.connectVolume", { volume: photo.originalVolumeLabel })

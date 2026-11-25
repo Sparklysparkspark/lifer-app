@@ -215,11 +215,3 @@ describe("drives: shared mounted-volume listing and batch resolving", () => {
     expect(identity.listMountedVolumes).toHaveBeenCalledTimes(1);
   });
 });
-
-describe("unmountedVolumeName", () => {
-  it("names a /Volumes share that isn't mounted, and nothing else", async () => {
-    const { unmountedVolumeName } = await load(true);
-    expect(unmountedVolumeName("/Volumes/lifer-test-not-mounted/Trips/a.cr3")).toBe("lifer-test-not-mounted");
-    expect(unmountedVolumeName(path.join(tmp, "a.jpg"))).toBeNull();
-  });
-});

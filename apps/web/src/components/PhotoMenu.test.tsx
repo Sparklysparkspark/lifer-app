@@ -22,6 +22,13 @@ vi.mock("../hooks/useRevealOriginal", () => ({
   },
 }));
 
+vi.mock("../hooks/useDeploymentMode", () => ({ useDeploymentMode: () => "desktop" }));
+const post = vi.fn();
+vi.mock("../api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/client")>()),
+  api: { post: (...a: unknown[]) => post(...a) },
+}));
+
 afterEach(cleanup);
 
 const photo: PhotoMenuPhoto = {
@@ -109,6 +116,19 @@ describe("PhotoMenu", () => {
     renderMenu({ photo: { ...photo, originalAvailable: false, originalVolumeLabel: "Photos SSD" } });
     expect(screen.getByText('Connect "Photos SSD" to view this original')).toBeTruthy();
     expect(items()).toEqual(["Similar photos", "Versions", "Send to iNaturalist"]);
+  });
+
+  it("connects the network share holding an unreachable original in one click", async () => {
+    post.mockResolvedValue({ mountPath: "/Volumes/home", name: "home", status: "connected" });
+    const onClose = vi.fn();
+    renderMenu({
+      photo: { ...photo, originalAvailable: false, originalVolumeLabel: "home", originalSharePath: "/Volumes/home" },
+      onClose,
+    });
+    fireEvent.click(screen.getByRole("menuitem", { name: 'Connect "home"' }));
+    expect(onClose).toHaveBeenCalled();
+    expect(post).toHaveBeenCalledWith("/storage-volumes/library-locations/connect", { mountPath: "/Volumes/home" });
+    expect(await screen.findByText('"home" is connected.')).toBeTruthy();
   });
 
   it("closes the menu before acting, and names the media kind", () => {

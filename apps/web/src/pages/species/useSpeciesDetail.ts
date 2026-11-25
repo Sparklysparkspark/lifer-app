@@ -3,6 +3,7 @@ import { api, apiPath } from "../../api/client";
 import { useUploadQueue } from "../../lib/uploadQueue";
 import type { EncountersResponse, SpeciesCapture, SpeciesDetail, UnmatchedRaw } from "./types";
 import { ignore } from "../../lib/ignore";
+import { LIBRARY_LOCATION_CONNECTED } from "../../lib/libraryLocations";
 
 const UNAVAILABLE_POLL_START_MS = 8000;
 const UNAVAILABLE_POLL_MAX_MS = 60000;
@@ -134,9 +135,12 @@ export function useSpeciesDetail(id: string | undefined, regionId: string | null
     }
     schedule();
     document.addEventListener("visibilitychange", onVisibilityChange);
+    // A share connected from any page: look again now instead of at the next poll.
+    window.addEventListener(LIBRARY_LOCATION_CONNECTED, load);
     return () => {
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener(LIBRARY_LOCATION_CONNECTED, load);
     };
   }, [hasUnavailableOriginal, load]);
 

@@ -3,12 +3,13 @@
 // A volume is a 'drive' (desktop, identified by hardware UUID) or a 'root' (a server's
 // LIFER_LIBRARY_ROOTS). Both store paths relative to a root; they differ only in how connection
 // is checked.
-import { accessSync, constants, existsSync, statSync } from "node:fs";
+import { accessSync, constants, statSync } from "node:fs";
 import path from "node:path";
 import { pool } from "@lifer/core/db.js";
 import { SINGLE_USER_MODE } from "@lifer/core/config.js";
 import { canonicalPath, isWithin } from "@lifer/core/lib/pathContainment.js";
 import { listMountedVolumes, mountPathFor, getVolumeId, type MountedVolume } from "./volumeIdentity.js";
+import { remapToMountedShare } from "./networkShares.js";
 
 export const VOLUME_ORIGINALS_SUBDIR = "Lifer Originals";
 
@@ -27,14 +28,6 @@ export function isReadableDir(p: string): boolean {
   } catch {
     return false;
   }
-}
-
-// The share or drive an untagged original sits on when it isn't mounted, so the UI can ask for
-// it by name instead of calling the file missing.
-// shortcut: macOS /Volumes only, extend for Linux /media and Windows drive letters if asked.
-export function unmountedVolumeName(filePath: string): string | null {
-  const name = /^\/Volumes\/([^/]+)\//.exec(filePath)?.[1];
-  return name && !existsSync(`/Volumes/${name}`) ? name : null;
 }
 
 // Longest active root containing absolutePath, if any. Nested roots are allowed; the most
@@ -159,7 +152,7 @@ function resolveAgainst(
   original: OriginalLocation,
   volume: { row: VolumeRow; mountPath: string | null } | undefined,
 ): ResolvedOriginal {
-  if (!original.volume_id) return { path: original.ref, connected: true };
+  if (!original.volume_id) return { path: remapToMountedShare(original.ref), connected: true };
   if (!volume) return { path: original.ref, connected: true }; // volume was deleted (the FK already nulls volume_id); defensive fallback
   if (!volume.mountPath || original.volume_relative_path == null) {
     return { path: null, connected: false, volumeLabel: volume.row.label };
@@ -174,7 +167,7 @@ function resolveAgainst(
 // Without a volume_id, `ref` is the path. With one, `ref` only caches the last path; the real one
 // is recomputed from the volume's current state, which can change between requests.
 export async function resolveOriginalPath(original: OriginalLocation): Promise<ResolvedOriginal> {
-  if (!original.volume_id) return { path: original.ref, connected: true };
+  if (!original.volume_id) return resolveAgainst(original, undefined);
   const res = await pool.query<VolumeRow>(
     `SELECT kind, label, platform_volume_id, root_path, removed_at FROM storage_volumes WHERE id = $1`,
     [original.volume_id],

@@ -23,6 +23,9 @@ import { SettingRow, SettingsGroup } from "./shared";
 import FolderPath from "../../components/FolderPath";
 import ArchiveHealthRows from "./ArchiveHealthRows";
 import MovedPhotosGroup from "./MovedPhotosGroup";
+import ConnectShareButton from "../../components/ConnectShareButton";
+import { revealPlace } from "../../lib/platform";
+import { fetchLibraryLocations, LIBRARY_LOCATION_CONNECTED, type LibraryLocation } from "../../lib/libraryLocations";
 
 export default function StorageSettings() {
   const { t } = useTranslation();
@@ -32,6 +35,7 @@ export default function StorageSettings() {
         <StorageLocationRow />
         <FreeSpaceRow />
         <StorageVolumesRows />
+        <LibraryLocationRows />
         <ArchiveHealthRows />
       </SettingsGroup>
       <MovedPhotosGroup />
@@ -421,6 +425,66 @@ export function StorageVolumesRows() {
                 </MenuPanel>
               </Menu>
             )
+          }
+        />
+      ))}
+    </>
+  );
+}
+
+// Every drive and share holding library photos, with whether Lifer can reach it now. Only shown
+// when the library spans more than this computer's own disk.
+export function LibraryLocationRows() {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const desktop = useDeploymentMode() === "desktop";
+  const [locations, setLocations] = useState<LibraryLocation[]>([]);
+
+  useEffect(() => {
+    const load = () => void fetchLibraryLocations().then(setLocations, ignore("Couldn't load the library locations"));
+    load();
+    window.addEventListener("focus", load);
+    window.addEventListener(LIBRARY_LOCATION_CONNECTED, load);
+    return () => {
+      window.removeEventListener("focus", load);
+      window.removeEventListener(LIBRARY_LOCATION_CONNECTED, load);
+    };
+  }, []);
+
+  if (locations.length === 0) return null;
+  const reveal = (mountPath: string) =>
+    api
+      .post("/storage-volumes/library-locations/reveal", { mountPath })
+      .catch(() => toast.error(t("species.edits.revealFailed")));
+  return (
+    <>
+      <SettingRow label={t("libraryLocations.label")} description={t("libraryLocations.description")} />
+      {locations.map((l) => (
+        <SettingRow
+          key={l.mountPath}
+          label={l.name}
+          description={
+            <>
+              {l.status === "not_responding" ? (
+                <span className="text-footnote text-muted">{t("libraryLocations.notResponding")}</span>
+              ) : (
+                <ConnectedLabel connected={l.status === "connected"} />
+              )}
+              {" · "}
+              <FolderPath path={l.mountedAt ?? l.mountPath} className="inline" />
+              {l.status === "not_connected" && l.serverConnected && ` · ${t("libraryLocations.serverConnected")}`}
+            </>
+          }
+          control={
+            desktop &&
+            (l.status === "connected" ? (
+              <Button variant="secondary" size="sm" onClick={() => void reveal(l.mountPath)}>
+                {t("photoMenu.revealInFinder", { place: revealPlace() })}
+              </Button>
+            ) : (
+              l.status === "not_connected" &&
+              l.connectable && <ConnectShareButton mountPath={l.mountPath} name={l.name} />
+            ))
           }
         />
       ))}

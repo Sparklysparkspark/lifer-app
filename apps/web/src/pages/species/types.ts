@@ -156,6 +156,9 @@ export interface SpeciesCapture {
   original_available: boolean | null;
   // The disconnected external drive holding this original; null when the file is simply missing.
   original_volume_label: string | null;
+  // Mount point of that share when Lifer can connect it (desktop), and whether it stopped answering.
+  original_share_path: string | null;
+  original_not_responding: boolean;
   has_raw_original: boolean;
   raw_ref: string | null;
   region_id: string | null;

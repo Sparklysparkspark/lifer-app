@@ -2435,6 +2435,20 @@
     "fallback": "The photo editor you chose isn't on this computer anymore, so photos open in {name}. Choose another in Settings > General.",
     "pickFailed": "Couldn't use that app. Choose another one."
   },
+  "libraryLocations": {
+    "label": "Library locations",
+    "description": "Drives and network shares holding your photos.",
+    "connect": "Connect \"{name}\"",
+    "connecting": "Connecting \"{name}\". Your computer may ask for the share's password.",
+    "connected": "\"{name}\" is connected.",
+    "failed": "Couldn't connect \"{name}\". Check that the server is on, then try again.",
+    "notResponding": "Not responding",
+    "serverConnected": "The server is connected, but this share isn't open",
+    "someOriginalsOn": "Some originals are on \"{name}\", which isn't connected.",
+    "bannerNotConnected": "Photos on \"{name}\" can't be opened because it isn't connected.",
+    "bannerNotResponding": "\"{name}\" isn't responding, so some photos can't be opened.",
+    "dismiss": "Don't show again"
+  },
   "photoMenu": {
     "versions": "Versions",
     "addToAlbum": "Add to album",
@@ -3630,6 +3644,7 @@
       "uploading": "Uploading",
       "bestShot": "Best shot",
       "unavailableConnect": "Original unavailable. Connect \"{volume}\" to view it",
+      "unavailableNotResponding": "Original unavailable. Its network share isn't responding",
       "unavailableMissing": "Original unavailable. The file couldn't be found at its saved location",
       "fromTrip": "From {trip}",
       "fromThisTrip": "From this trip",

@@ -103,6 +103,22 @@ Plug the drive back in and Lifer notices it on its own.
 
 To bring photos from several drives together later, see [Import a library](../settings.md#reimport).
 
+### Network drives {#network-drives}
+
+Photos on a NAS (a network share such as `smb://truenas.local/home`) work like photos on any other drive. Your computer can be signed in to the NAS with only some of its shares open, and a share's photos can only be opened while that share is open.
+
+Lifer notes which share each network folder comes from the first time it sees it open. When a share holding your photos isn't open:
+
+- A line under the toolbar says so, with **Connect "home"**. Close it and it won't come back for that share.
+- The species page says which share the originals are on, with the same button, and the photo's **⋯** menu offers it too.
+- **Settings > Storage > Library locations** lists every drive and share holding your photos as **Connected**, **Not connected** or **Not responding**, with **Connect** or **Show in Finder**.
+
+**Connect** asks your computer to open the share, the same as opening it in Finder or File Explorer. If it needs your password, your computer asks for it in its own window, and its keychain keeps it. Lifer never sees or stores a password. Once the share is open, the photos come back on their own.
+
+If the share opens under another name (macOS uses `home-1` when an old `home` folder is in the way), Lifer still finds your photos there. A share that stops answering, say after the NAS went to sleep, shows as **Not responding** instead of making Lifer wait.
+
+A share Lifer has never seen open can't be connected from Lifer. Open it once in Finder or File Explorer, and Lifer remembers it from then on.
+
 ## Moved photos {#moved-photos}
 
 Move or rename photos with Finder, File Explorer or another app, and Lifer finds them again. It only updates where it looks for each photo. It never moves, renames or changes your files.

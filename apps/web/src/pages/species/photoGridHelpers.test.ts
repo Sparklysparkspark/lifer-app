@@ -32,6 +32,8 @@ function capture(id: string, partial: Partial<SpeciesCapture> = {}): SpeciesCapt
     original_kind: "jpeg",
     original_available: null,
     original_volume_label: null,
+    original_share_path: null,
+    original_not_responding: false,
     has_raw_original: false,
     raw_ref: null,
     region_id: null,

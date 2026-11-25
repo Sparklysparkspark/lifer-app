@@ -14,6 +14,8 @@ import SegmentedControl from "../../components/SegmentedControl";
 import SelectModeToggle from "../../components/SelectModeToggle";
 import Button from "../../components/Button";
 import FormMessage from "../../components/FormMessage";
+import ConnectShareButton from "../../components/ConnectShareButton";
+import { useDeploymentMode } from "../../hooks/useDeploymentMode";
 import { PhotoViewMenu } from "../../components/PhotoGridControls";
 import { usePhotoGridSize } from "../../hooks/usePhotoGridSize";
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
@@ -95,6 +97,8 @@ export default function SpeciesPhotoGrid({
   const editingCapture = editing && captures.find((c) => c.id === editing.captureId);
 
   const counts = useMemo(() => captureCounts(captures), [captures]);
+  const desktop = useDeploymentMode() === "desktop";
+  const unmountedShare = captures.find((c) => c.original_share_path && c.original_volume_label);
   const photoFilter = chosenFilter ?? (counts.edited > 0 ? "edited" : "all");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const navigate = useNavigate();
@@ -212,6 +216,7 @@ export default function SpeciesPhotoGrid({
           originalManaged: c.original_managed,
           originalAvailable: c.original_available,
           originalVolumeLabel: c.original_volume_label,
+          originalSharePath: c.original_share_path,
           hasRaw: c.has_raw_original,
           inatObservationId: c.inat_observation_id,
         }}
@@ -295,6 +300,16 @@ export default function SpeciesPhotoGrid({
           />
         )}
         <FormMessage error={edits.reassignError} className="mb-2" />
+        {/* The tiles only get a dot; one line says which share to connect, with the button. */}
+        {desktop && unmountedShare && (
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-footnote text-muted">
+            <p>{t("libraryLocations.someOriginalsOn", { name: unmountedShare.original_volume_label })}</p>
+            <ConnectShareButton
+              mountPath={unmountedShare.original_share_path!}
+              name={unmountedShare.original_volume_label!}
+            />
+          </div>
+        )}
       </div>
 
       {captures.length === 0 && pendingUploadCount === 0 ? (
@@ -340,9 +355,11 @@ export default function SpeciesPhotoGrid({
                     <span
                       className="absolute bottom-1.5 left-1.5 h-2.5 w-2.5 rounded-full bg-red-600 shadow"
                       title={
-                        c.original_volume_label
-                          ? t("species.photoGrid.unavailableConnect", { volume: c.original_volume_label })
-                          : t("species.photoGrid.unavailableMissing")
+                        c.original_not_responding
+                          ? t("species.photoGrid.unavailableNotResponding")
+                          : c.original_volume_label
+                            ? t("species.photoGrid.unavailableConnect", { volume: c.original_volume_label })
+                            : t("species.photoGrid.unavailableMissing")
                       }
                     />
                   )}

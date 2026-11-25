@@ -93,6 +93,10 @@ export const SpeciesDetail = Open({
       original_kind: Text,
       original_available: Nullable(Type.Boolean()),
       original_volume_label: Text,
+      original_share_path: Nullable(
+        Type.String({ description: "Mount point of an unmounted network share Lifer can connect for this original" }),
+      ),
+      original_not_responding: Type.Boolean({ description: "The original's share didn't answer in time" }),
       has_raw_original: Type.Boolean(),
       raw_ref: Text,
       region_id: Nullable(Uuid()),

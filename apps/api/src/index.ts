@@ -28,6 +28,7 @@ import { installSchemas, replyToValidationError } from "./lib/schema.js";
 import { migrateDerivativesLocation } from "./uploads/migrateDerivativesLocation.js";
 import { adoptFlatLibraryLayout } from "./uploads/adoptFlatLibraryLayout.js";
 import { syncLibraryRootsFromEnv } from "./storageVolumes/syncLibraryRoots.js";
+import { initNetworkShares } from "./storageVolumes/networkShares.js";
 import { runEmbeddingBackfill } from "./species/embeddingBackfill.js";
 import { scheduleArchiveHealth } from "./originals/health.js";
 import { scheduleMovedPhotos } from "./movedPhotos/relink.js";
@@ -281,6 +282,8 @@ startMaintenance(app.log);
 // Logs when the library folder goes missing under a running server.
 watchLibraryFolder();
 if (SINGLE_USER_MODE) startWatchedFolders();
+// Which network share each mount point came from, so a share mounted under a new name still resolves.
+if (SINGLE_USER_MODE) initNetworkShares().catch((err) => app.log.warn({ err }, "Reading the network shares failed"));
 
 // Background, best-effort startup work: never delays listening, and a failure only means the
 // feature waits for the next restart (or a manual retry in Settings).

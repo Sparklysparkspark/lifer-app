@@ -11,7 +11,9 @@ import { listMountedVolumes, mountPathFor, getVolumeId, isSameVolumeAsDataDir } 
 import { isReadableDir } from "./resolve.js";
 import { DATA_DIR } from "@lifer/core/config.js";
 import path from "node:path";
-import { AddedStorageVolume, StorageVolumeList } from "./responses.js";
+import { AddedStorageVolume, LibraryLocation, LibraryLocationList, StorageVolumeList } from "./responses.js";
+import { connectShare, libraryLocations } from "./networkShares.js";
+import { revealFile } from "../originals/browse.js";
 
 // A label must have something besides spaces, since it's trimmed before saving.
 const Label = Type.String({ pattern: "\\S" });
@@ -84,6 +86,50 @@ export async function storageVolumesRoutes(fastify: FastifyInstance): Promise<vo
         });
       }
       return { volumes: results };
+    },
+  );
+
+  // Shares and drives holding library files, each with whether it's reachable now.
+  app.get(
+    "/storage-volumes/library-locations",
+    { preValidation: requireAuth, schema: { response: replies(LibraryLocationList) } },
+    async (request) => ({ locations: await libraryLocations(request.user!.id) }),
+  );
+
+  // Mounts a remembered share through the OS. The request names a mount point only; the address
+  // is whatever Lifer saw that mount point come from, never something the page sends.
+  app.post(
+    "/storage-volumes/library-locations/connect",
+    {
+      preValidation: [requireAuth, desktopOnly],
+      schema: {
+        body: Type.Object({ mountPath: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+        response: replies(LibraryLocation),
+      },
+    },
+    async (request, reply) => {
+      const location = await connectShare(request.user!.id, request.body.mountPath);
+      if (!location) return reply.code(404).send({ error: "Lifer doesn't know which share that is" });
+      return location;
+    },
+  );
+
+  // Show in Finder for a library location, only one of this user's and only while it's reachable.
+  app.post(
+    "/storage-volumes/library-locations/reveal",
+    {
+      preValidation: [requireAuth, desktopOnly],
+      schema: {
+        body: Type.Object({ mountPath: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+        response: replies(Ok),
+      },
+    },
+    async (request, reply) => {
+      const location = (await libraryLocations(request.user!.id)).find((l) => l.mountPath === request.body.mountPath);
+      if (!location) return reply.code(404).send({ error: "Lifer doesn't know which share that is" });
+      if (location.status !== "connected") return reply.code(409).send({ error: "That share isn't connected" });
+      await revealFile(location.mountedAt ?? location.mountPath);
+      return { ok: true };
     },
   );
 

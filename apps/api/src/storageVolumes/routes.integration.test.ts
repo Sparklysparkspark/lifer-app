@@ -127,6 +127,18 @@ describe.skipIf(!url)("desktop-only storage and migration routes", () => {
     expect([res.statusCode, res.json()]).toEqual([400, { error: "path must be an absolute folder path" }]);
   });
 
+  it("connects only a share Lifer remembers, never an address from the request", async () => {
+    const unknown = await call("POST", "/api/storage-volumes/library-locations/connect", {
+      mountPath: "/Volumes/lifer-test-never-seen-741",
+    });
+    expect([unknown.statusCode, unknown.json()]).toEqual([404, { error: "Lifer doesn't know which share that is" }]);
+    const withUrl = await call("POST", "/api/storage-volumes/library-locations/connect", {
+      mountPath: "/Volumes/x",
+      url: "smb://evil/share",
+    });
+    expect([withUrl.statusCode, withUrl.json()]).toEqual([400, invalid(/^Invalid body: unexpected field url$/)]);
+  });
+
   it("needs confirm: true to delete the local library, and then still the push gate", async () => {
     for (const payload of [{}, { confirm: false }, { confirm: "true" }, { confirm: true, all: true }]) {
       const res = await call("POST", "/api/settings/delete-local-library", payload);

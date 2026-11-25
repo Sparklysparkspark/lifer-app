@@ -62,7 +62,7 @@ describe("SpeciesHotspotMap", () => {
         regionName="Canada"
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Locality map: Canada" }));
+    fireEvent.click(screen.getByRole("button", { name: /Locality map: Canada/ }));
     expect(screen.queryByText(/locations/)).toBeNull();
     expect(screen.queryByPlaceholderText(/Filter by coordinates/)).toBeNull();
     expect(screen.queryByText("No locations match this filter.")).toBeNull();
