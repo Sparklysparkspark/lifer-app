@@ -252,6 +252,10 @@
   "errors": {
     "api": {
       "desktop_only": "API error code desktop_only: the server refused an action that only the desktop app (with its local library) can do.",
+      "missing_scope": "API error code missing_scope: an app key lacks a permission the action needs.",
+      "not_imported_by_key": "API error code not_imported_by_key: an app key may only add species to photos it imported itself.",
+      "primary_species": "API error code primary_species: the species to add is already the photo's main species.",
+      "unknown_species": "API error code unknown_species: the species id given is not in the catalog.",
       "folder_unavailable": "API error code folder_unavailable: the folder picked as a place photos live isn't reachable (an unplugged drive or a network share that isn't connected), so it wasn't added.",
       "immich_too_old": "API error code immich_too_old: linking an Immich photo server that runs a version older than Lifer supports. The English server message names both versions.",
       "immich_unreachable": "API error code immich_unreachable: any failure talking to the linked Immich photo server (offline, wrong address, API key rejected or missing permissions).",

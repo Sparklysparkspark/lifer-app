@@ -749,6 +749,10 @@
   "errors": {
     "api": {
       "desktop_only": "Only available in the desktop app",
+      "missing_scope": "This key doesn't have permission to do that",
+      "not_imported_by_key": "This key can only tag photos it imported",
+      "primary_species": "That's already this photo's primary species",
+      "unknown_species": "That species isn't in Lifer's catalog",
       "folder_unavailable": "This folder isn't available right now. Connect the drive or share, then try again.",
       "immich_too_old": "This Immich is too old to link. Update it and try again.",
       "immich_unreachable": "Couldn't connect to Immich. Check the address and API key.",
@@ -3262,7 +3266,7 @@
         "usageTermsPlaceholder": "Optional, for example: All rights reserved",
         "description": "Written into new photos, and updated when a photo's species or place changes.",
         "help": {
-          "where": "Lifer writes these into JPEG, TIFF, PNG, DNG and HEIC files themselves, and into an .xmp sidecar for RAW files and videos, where Lightroom and other apps read them.",
+          "where": "Lifer writes these into JPEG, TIFF, PNG, DNG, HEIC, AVIF and JPEG 2000 files themselves, and into an .xmp sidecar for RAW files and videos, where Lightroom and other apps read them.",
           "empty": "Empty fields write nothing. A variable with no value for a photo is left out, along with its comma or brackets.",
           "kept": "A caption typed in another app is never replaced."
         },
@@ -5254,7 +5258,7 @@
     },
     "insideFiles": {
       "label": "Write keywords inside photo files",
-      "description": "JPEG, TIFF, PNG, DNG, WebP and HEIC. When off, a sidecar file goes beside each one instead.",
+      "description": "JPEG, TIFF, PNG, DNG, WebP, HEIC, AVIF and JPEG 2000. When off, a sidecar file goes beside each one instead.",
       "help": {
         "changes": "Writing inside a file changes its modified date and checksum. Archive health expects these changes and never reports them as damage.",
         "sidecar": "Lightroom and Apple Photos only read keywords inside these files. Keywords already inside a file stay there."

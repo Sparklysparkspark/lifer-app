@@ -126,7 +126,7 @@ describe("API documentation", () => {
     let checked = 0;
     for (const section of sections) {
       const heading = /^`(GET|POST|PATCH|PUT|DELETE) (\/api\/[^`?\s]*)`/.exec(section);
-      const table = /^\| Query \|[^\n]*\n\|[-| ]+\|\n((?:\|[^\n]*\n)+)/m.exec(section);
+      const table = /^\| Query +\|[^\n]*\n\|[-| ]+\|\n((?:\|[^\n]*\n)+)/m.exec(section);
       if (!heading || !table) continue;
       const names = [...table[1].matchAll(/^\| `(\w+)/gm)].map((m) => m[1]).sort();
       const route = routeFor(heading[1], heading[2]);
@@ -138,7 +138,7 @@ describe("API documentation", () => {
 
   it("shows request bodies with fields their routes accept", () => {
     // Rows like | `PATCH /api/captures/{id}/rating` | `{ "rating": 1-5 }`, ... |
-    const rows = [...guide.matchAll(/^\| `(POST|PATCH|PUT) (\/api\/[^`]+)` \| `(\{[^`]*\})`/gm)];
+    const rows = [...guide.matchAll(/^\| `(POST|PATCH|PUT) (\/api\/[^`]+)` +\| +`(\{[^`]*\})`/gm)];
     expect(rows.length).toBeGreaterThan(3);
     for (const [, method, p, example] of rows) {
       const body = routeFor(method, p)?.schema?.body;
