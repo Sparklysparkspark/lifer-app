@@ -241,3 +241,9 @@ species, in this republish if the maintainer wants it (offline, minutes), otherw
 Add the Colombia freshwater checklist next and look for similar national lists. Keep new species
 rows and removals as review lists for now. Do mammals (MDD) after fish; ask the Reptile Database and
 AmphibiaWeb for permission before building those.
+
+## Decisions (2026-11-25)
+
+1. Marine fish that FishBase adds go on the country row.
+2. Timing: not part of the republish now being built; build it right after that one is published (the maintainer asked to look at the current catalog in the app first).
+3. Colombia's national GBIF checklist is a published checklist dataset, not occurrence data, so it does not break the rule against fetching new GBIF data.
