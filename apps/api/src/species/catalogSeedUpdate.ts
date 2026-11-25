@@ -466,6 +466,7 @@ export async function normalizeSeedIucnStatus(client: PoolClient, seedColumns: s
 // - rows are inserted parent before child, each with its real parent_id from the start;
 // - a region whose id changed upstream is matched by (name, parent) and keeps its local id, and
 //   region_species rows are remapped onto that local id before they merge.
+// - a local region the seed dropped that duplicates one it keeps is folded into it first.
 async function mergeSelfReferencingTable(
   client: PoolClient,
   table: string,
@@ -526,6 +527,15 @@ async function mergeSelfReferencingTable(
     if ((matched.rowCount ?? 0) + (inserted.rowCount ?? 0) === 0) break;
   }
 
+  await client.query(
+    `CREATE TEMP TABLE region_next ON COMMIT DROP AS
+     SELECT r.local_id AS id, s.${ident(nameCol)}::text AS name, ${resolvedParent("s")}::uuid AS parent_id,
+            l.ebird_region_code AS code
+       FROM ${ident(tmpName(table))} s JOIN region_id_remap r ON r.seed_id = s.${ident(pk)}::uuid
+       JOIN ${ident(table)} l ON l.id = r.local_id`,
+  );
+  await foldDroppedDuplicateRegions(client);
+
   // Update every other column, joined through the remap since a name-matched row's local id can
   // differ from the seed's.
   const updatable = cols.filter((c) => c.name !== pk);
@@ -561,6 +571,231 @@ async function mergeSelfReferencingTable(
 
   const countRes = await client.query<{ n: string }>(`SELECT count(*) AS n FROM ${ident(tmpName(table))}`);
   return Number(countRes.rows[0].n);
+}
+
+// Region ids held outside foreign keys. A derived table (the rollup) just loses the rows.
+const REGION_ID_COLUMNS = [
+  { table: "regions", column: "home_country_id" },
+  { table: "regions", column: "populous_child_id" },
+  { table: "gazetteer_places", column: "country_region_id" },
+  { table: "gazetteer_places", column: "province_region_id" },
+];
+// Stores that keep region ids inside JSON: smart album rules, applied pack provinces, undo steps.
+const REGION_ID_JSON_COLUMNS = [
+  { table: "albums", column: "rules" },
+  { table: "downloaded_packs", column: "applied_province_region_ids" },
+  { table: "change_batches", column: "undo" },
+  { table: "portfolios", column: "spec" },
+  { table: "install_settings", column: "value" },
+];
+const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+
+// The 2026-10 catalog listed about 2,900 provinces twice, under the country and under its group.
+// A later seed keeps one copy (often moving it into the slot the other holds) and drops the other.
+// The dropped copy (a local region no seed row maps onto) is folded into the kept one: everything
+// pointing at it moves over, then it's deleted. Without this the move breaks UNIQUE(name,
+// parent_id) and rolls back the whole update. Needs region_next (each kept region's id, name and
+// new parent) and leaves region_fold for the caller to count.
+async function foldDroppedDuplicateRegions(client: PoolClient): Promise<void> {
+  const started = Date.now();
+  await client.query(`CREATE INDEX ON region_next (name)`);
+  await client.query(`ANALYZE region_next`);
+  // The tree as the seed leaves it: kept regions under their new parents, the rest where they are.
+  await client.query(
+    `CREATE TEMP TABLE region_tree ON COMMIT DROP AS
+     SELECT id, name, parent_id, code, true AS kept FROM region_next
+     UNION ALL SELECT r.id, r.name, r.parent_id, r.ebird_region_code, false FROM regions r WHERE NOT EXISTS (SELECT 1 FROM region_next n WHERE n.id = r.id)`,
+  );
+  await client.query(`CREATE INDEX ON region_tree (id)`);
+  await client.query(`CREATE INDEX ON region_tree (parent_id, name)`);
+  await client.query(`ANALYZE region_tree`);
+  // A dropped region matches a kept one of its name in its own slot (which the kept one needs),
+  // else a leaf one level apart (one copy under a group, the other beside that group). An
+  // ambiguous match folds nothing. Two eBird codes that differ are two places, never folded;
+  // compared before the update, since the seed may renumber the kept one's code.
+  const sameCode = (a: string, b: string) => `(${a}.code IS NULL OR ${b}.code IS NULL OR ${a}.code = ${b}.code)`;
+  await client.query(
+    `CREATE TEMP TABLE region_fold ON COMMIT DROP AS
+     WITH dropped AS (SELECT id, name, parent_id, code FROM region_tree WHERE NOT kept),
+     leaf AS (SELECT id FROM region_tree t WHERE NOT EXISTS (SELECT 1 FROM region_tree c WHERE c.parent_id = t.id)),
+     cand AS (
+       SELECT d.id AS dup_id, k.id AS keep_id, 1 AS rank
+         FROM dropped d JOIN region_next k ON k.name = d.name AND k.parent_id IS NOT DISTINCT FROM d.parent_id
+        WHERE ${sameCode("d", "k")}
+       UNION ALL
+       SELECT d.id, k.id, 2 FROM dropped d JOIN region_next k ON k.name = d.name
+         JOIN region_tree p ON p.id = k.parent_id JOIN leaf ld ON ld.id = d.id JOIN leaf lk ON lk.id = k.id
+        WHERE p.parent_id = d.parent_id AND ${sameCode("d", "k")}
+       UNION ALL
+       SELECT d.id, k.id, 2 FROM dropped d JOIN region_next k ON k.name = d.name
+         JOIN region_tree p ON p.id = d.parent_id JOIN leaf ld ON ld.id = d.id JOIN leaf lk ON lk.id = k.id
+        WHERE p.parent_id = k.parent_id AND ${sameCode("d", "k")}
+     ),
+     best AS (SELECT dup_id, min(rank) AS rank FROM cand GROUP BY dup_id)
+     SELECT c.dup_id, min(c.keep_id::text)::uuid AS keep_id
+       FROM cand c JOIN best b ON b.dup_id = c.dup_id AND b.rank = c.rank
+      GROUP BY c.dup_id HAVING count(DISTINCT c.keep_id) = 1`,
+  );
+  await client.query(`ALTER TABLE region_fold ADD PRIMARY KEY (dup_id)`);
+  // A dropped region's own dropped children fold into the kept region's same-named children, then
+  // chains (a child folding into a region that itself folds) resolve to the end of the chain.
+  for (let round = 0; round < 20; round++) {
+    const added = await client.query(
+      `INSERT INTO region_fold (dup_id, keep_id)
+       SELECT c.id, min(kc.id::text)::uuid FROM region_fold f
+         JOIN region_tree c ON c.parent_id = f.dup_id AND NOT c.kept
+         JOIN region_tree kc ON kc.parent_id = f.keep_id AND kc.name = c.name AND kc.id <> c.id
+        WHERE ${sameCode("c", "kc")}
+        GROUP BY c.id
+       ON CONFLICT (dup_id) DO NOTHING`,
+    );
+    if ((added.rowCount ?? 0) === 0) break;
+  }
+  for (let round = 0; round < 20; round++) {
+    const moved = await client.query(
+      `UPDATE region_fold f SET keep_id = g.keep_id FROM region_fold g WHERE f.keep_id = g.dup_id AND g.dup_id <> f.dup_id`,
+    );
+    if ((moved.rowCount ?? 0) === 0) break;
+  }
+  await client.query(`DELETE FROM region_fold WHERE keep_id = dup_id OR keep_id IN (SELECT dup_id FROM region_fold)`);
+  if (Number((await client.query(`SELECT count(*) AS n FROM region_fold`)).rows[0].n) === 0) return;
+  await client.query(`ANALYZE region_fold`);
+
+  // A pack's hotspots are one set per region and species: the kept region's set wins.
+  await client.query(
+    `DELETE FROM region_species_hotspots d USING region_fold f
+      WHERE d.region_id = f.dup_id
+        AND EXISTS (SELECT 1 FROM region_species_hotspots k WHERE k.region_id = f.keep_id AND k.species_id = d.species_id)`,
+  );
+  // A tier the user set on both copies keeps the one set last (setting one replaces its row).
+  await client.query(
+    `DELETE FROM user_tier_overrides k USING user_tier_overrides d, region_fold f
+      WHERE d.region_id = f.dup_id AND k.region_id = f.keep_id
+        AND k.user_id = d.user_id AND k.species_id = d.species_id AND k.created_at < d.created_at`,
+  );
+  const fks = await client.query<{ tbl: string; col: string }>(
+    `SELECT c.conrelid::regclass::text AS tbl, a.attname AS col
+       FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+      WHERE c.contype = 'f' AND c.confrelid = 'public.regions'::regclass AND cardinality(c.conkey) = 1
+        AND NOT (c.conrelid = 'public.regions'::regclass AND a.attname = 'parent_id')`,
+  );
+  for (const { tbl, col } of fks.rows) await repointRegionColumn(client, tbl, col);
+
+  // Children the seed doesn't place move under the kept region; ones it does get their parent below.
+  await client.query(
+    `UPDATE regions r SET parent_id = f.keep_id FROM region_fold f
+      WHERE r.parent_id = f.dup_id
+        AND NOT EXISTS (SELECT 1 FROM region_next n WHERE n.id = r.id)
+        AND NOT EXISTS (SELECT 1 FROM region_fold g WHERE g.dup_id = r.id)`,
+  );
+  for (const { table, column } of REGION_ID_COLUMNS)
+    await client.query(
+      `UPDATE ${ident(table)} t SET ${ident(column)} = f.keep_id FROM region_fold f WHERE t.${ident(column)} = f.dup_id`,
+    );
+  await client.query(`DELETE FROM region_species_rollup x USING region_fold f WHERE x.region_id = f.dup_id`);
+  await repointRegionIdsInJson(client);
+  const folded = await client.query(`DELETE FROM regions r USING region_fold f WHERE r.id = f.dup_id`);
+  log.info({ folded: folded.rowCount, ms: Date.now() - started }, "Folded duplicate regions into the ones kept");
+}
+
+// Moves one foreign key column's rows from each dropped region to its kept one. Where the kept
+// region already has the row (a unique key), the kept row stays, takes any value only the dropped
+// row had, and the dropped row goes. Set-based for plain unique keys; a key built on an expression
+// or a predicate is resolved row by row (only small user tables have one).
+async function repointRegionColumn(client: PoolClient, table: string, column: string): Promise<void> {
+  const t = ident(table);
+  const c = ident(column);
+  const indexes = await client.query<{ cols: string[] | null; def: string }>(
+    `SELECT CASE WHEN i.indexprs IS NULL AND i.indpred IS NULL
+                 THEN ARRAY(SELECT a.attname::text FROM unnest(i.indkey) k JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k)
+            END AS cols,
+            pg_get_indexdef(i.indexrelid) AS def
+       FROM pg_index i WHERE i.indrelid = $1::regclass AND i.indisunique`,
+    [`public.${table}`],
+  );
+  const mentions = (def: string) => new RegExp(`[(, ]"?${column}"?[),: ]`).test(def);
+  const plain = indexes.rows.filter((i) => i.cols?.includes(column) && !/NULLS NOT DISTINCT/.test(i.def));
+  const rowByRow = indexes.rows.some((i) => !plain.includes(i) && mentions(i.def));
+
+  if (rowByRow) {
+    const rows = await client.query<{ ctid: string; keep_id: string }>(
+      `SELECT t.ctid::text AS ctid, f.keep_id FROM ${t} t JOIN region_fold f ON t.${c} = f.dup_id`,
+    );
+    for (const row of rows.rows) {
+      await client.query("SAVEPOINT repoint_region");
+      try {
+        await client.query(`UPDATE ${t} SET ${c} = $1 WHERE ctid = $2::tid`, [row.keep_id, row.ctid]);
+        await client.query("RELEASE SAVEPOINT repoint_region");
+      } catch (err) {
+        await client.query("ROLLBACK TO SAVEPOINT repoint_region");
+        if ((err as { code?: string }).code !== "23505") throw err;
+        await client.query(`DELETE FROM ${t} WHERE ctid = $1::tid`, [row.ctid]);
+      }
+    }
+    return;
+  }
+
+  if (plain.length > 0) {
+    const sameKey = (cols: string[], a: string, b: string) =>
+      cols.filter((k) => k !== column).map((k) => `${a}.${ident(k)} = ${b}.${ident(k)}`);
+    const key = plain[0].cols!;
+    const others = (await columnTypes(client, table)).keys();
+    const fillable = [...others].filter(
+      (k) => !key.includes(k) && !plain.some((i) => i.cols!.includes(k)) && k !== column,
+    );
+    if (fillable.length > 0) {
+      await client.query(
+        `UPDATE ${t} k SET ${fillable.map((k) => `${ident(k)} = COALESCE(k.${ident(k)}, d.${ident(k)})`).join(", ")}
+           FROM ${t} d JOIN region_fold f ON d.${c} = f.dup_id
+          WHERE ${["k." + c + " = f.keep_id", ...sameKey(key, "k", "d")].join(" AND ")}
+            AND (${fillable.map((k) => `(k.${ident(k)} IS NULL AND d.${ident(k)} IS NOT NULL)`).join(" OR ")})`,
+      );
+    }
+    // Collides with the kept region's row, or with another dropped copy's row folding into it.
+    const clash = plain.map((i) => {
+      const keyMatch = (a: string, b: string) => [...sameKey(i.cols!, a, b)].join(" AND ") || "true";
+      return `EXISTS (SELECT 1 FROM ${t} k WHERE k.${c} = f.keep_id AND ${keyMatch("k", "d")})
+           OR EXISTS (SELECT 1 FROM ${t} o JOIN region_fold g ON o.${c} = g.dup_id
+                       WHERE g.keep_id = f.keep_id AND ${keyMatch("o", "d")} AND (o.${c}, o.ctid) < (d.${c}, d.ctid))`;
+    });
+    await client.query(`DELETE FROM ${t} d USING region_fold f WHERE d.${c} = f.dup_id AND (${clash.join(" OR ")})`);
+  }
+  await client.query(`UPDATE ${t} t SET ${c} = f.keep_id FROM region_fold f WHERE t.${c} = f.dup_id`);
+}
+
+// Rewrites dropped region ids to kept ones inside JSON values, wherever they appear in a string,
+// and drops a list's repeats the rewrite made. These stores are small.
+async function repointRegionIdsInJson(client: PoolClient): Promise<void> {
+  const fold = new Map(
+    (await client.query<{ dup_id: string; keep_id: string }>(`SELECT dup_id, keep_id FROM region_fold`)).rows.map(
+      (r) => [r.dup_id, r.keep_id],
+    ),
+  );
+  const rewrite = (value: unknown): unknown => {
+    if (typeof value === "string") return value.replace(UUID_PATTERN, (id) => fold.get(id) ?? id);
+    if (Array.isArray(value)) {
+      const out = value.map(rewrite);
+      const changed = out.some((v, i) => v !== value[i]);
+      return changed && out.every((v) => typeof v === "string") ? [...new Set(out)] : out;
+    }
+    if (value && typeof value === "object")
+      return Object.fromEntries(Object.entries(value).map(([k, v]) => [rewrite(k) as string, rewrite(v)]));
+    return value;
+  };
+  for (const { table, column } of REGION_ID_JSON_COLUMNS) {
+    const c = ident(column);
+    const rows = await client.query<{ ctid: string; value: unknown }>(
+      `SELECT t.ctid::text AS ctid, t.${c} AS value FROM ${ident(table)} t
+        WHERE t.${c} IS NOT NULL AND EXISTS (
+          SELECT 1 FROM regexp_matches(t.${c}::text, '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', 'g') m
+            JOIN region_fold f ON f.dup_id = m[1]::uuid)`,
+    );
+    for (const row of rows.rows)
+      await client.query(`UPDATE ${ident(table)} SET ${c} = $1::jsonb WHERE ctid = $2::tid`, [
+        JSON.stringify(rewrite(row.value)),
+        row.ctid,
+      ]);
+  }
 }
 
 // species_reference_photos is keyed by (species_id, photo_url), not id, because ids are per
@@ -730,6 +965,10 @@ export async function applyCatalogSeedFile(
         continue;
       }
       merged[spec.table] = await mergeGenericTable(client, spec, loaded.get(spec.table)!, new Set(loaded.keys()));
+      if (spec.table === "regions") {
+        const folded = Number((await client.query(`SELECT count(*) AS n FROM region_fold`)).rows[0].n);
+        if (folded > 0) merged.regionsFolded = folded;
+      }
       if (spec.table === "sea_zones") merged.seaZoneAdditionsMoved = await restoreSeaZoneAdditions(client);
       if (spec.table === "gazetteer_places") {
         const gone = await client.query(
