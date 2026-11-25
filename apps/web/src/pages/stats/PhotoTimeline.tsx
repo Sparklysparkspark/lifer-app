@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation } from "react-router-dom";
-import { Bar, BarChart, Brush, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import Button from "../../components/Button";
 import SegmentedControl from "../../components/SegmentedControl";
 import { usePersistedState } from "../../hooks/usePersistedState";
@@ -9,9 +9,12 @@ import { backStateFor } from "../../lib/backLabel";
 import { buttonClasses } from "../../lib/buttonClasses";
 import { formatNumber } from "../../lib/format";
 import { ChartCard } from "./StatsUi";
+import TimelineRange from "./TimelineRange";
 import {
+  axisTicks,
   binLabel,
   galleryDates,
+  MIN_BINS,
   rangeIndices,
   rangeOf,
   timelineBins,
@@ -25,11 +28,14 @@ import {
 
 const MUTED = "var(--color-muted)";
 const STACK = "photos";
-const LINE = "var(--color-line)";
+const Y_AXIS_WIDTH = 44;
 // Long enough that a drag or a run of arrow presses reloads the page's stats once.
 const COMMIT_DELAY_MS = 350;
-// Above this many bars a segment is a few pixels wide, so the gaps between them would hide the colour.
-const MAX_OUTLINED_BARS = 80;
+const MAX_BAR_PX = 24;
+const RADIUS_PX = 4;
+const COMPACT: Intl.NumberFormatOptions = { notation: "compact" };
+// Past this many bars a bar is a few pixels wide, and the gaps between its slices would read as stripes.
+const MAX_GAPPED_BARS = 80;
 
 function TimelineTooltip({
   active,
@@ -43,8 +49,8 @@ function TimelineTooltip({
   const bin = payload?.[0]?.payload;
   if (!active || !bin) return null;
   return (
-    <div className="rounded-panel border border-line bg-surface px-2 py-1.5 text-footnote shadow-md">
-      <p className="font-medium text-ink">{binLabel(bin.key, true)}</p>
+    <div className="rounded-panel border border-line bg-surface px-2.5 py-2 text-footnote shadow-md">
+      <p className="mb-0.5 font-medium text-ink">{binLabel(bin.key, true)}</p>
       {TIMELINE_GROUPS.filter((g) => bin[g] > 0).map((g) => (
         <p key={g} className="flex items-center gap-1.5 text-muted">
           <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: TIMELINE_GROUP_COLOURS[g] }} />
@@ -58,8 +64,33 @@ function TimelineTooltip({
   );
 }
 
-/** Photos per month (or year), stacked by animal group, with a brush that picks the dates the rest
- *  of the page counts. */
+type SegmentProps = { x?: number; y?: number; width?: number; height?: number; payload?: TimelineBin };
+
+/** One group's slice of a stacked bar: the top slice gets rounded corners, the others a 1px gap above,
+ *  and an empty bin a hairline on the baseline. Bins outside the picked dates fade. */
+function segment(group: (typeof TIMELINE_GROUPS)[number], picked: (key: string) => boolean, gapPx: number) {
+  const top = (bin: TimelineBin) => [...TIMELINE_GROUPS].reverse().find((g) => bin[g] > 0);
+  return function Segment({ x = 0, y = 0, width = 0, height = 0, payload }: SegmentProps) {
+    if (!payload) return null;
+    const opacity = picked(payload.key) ? 1 : 0.3;
+    if (payload.total === 0)
+      return group === TIMELINE_GROUPS[0] ? (
+        <rect x={x} y={y - 1} width={width} height={1} fill="var(--color-line)" opacity={opacity} />
+      ) : null;
+    if (payload[group] === 0 || height <= 0) return null;
+    const fill = TIMELINE_GROUP_COLOURS[group];
+    if (top(payload) !== group) {
+      const gap = height > 2 ? gapPx : 0;
+      return <rect x={x} y={y + gap} width={width} height={height - gap} fill={fill} opacity={opacity} />;
+    }
+    const r = Math.min(RADIUS_PX, width / 3, height);
+    const d = `M${x},${y + height}V${y + r}Q${x},${y} ${x + r},${y}H${x + width - r}Q${x + width},${y} ${x + width},${y + r}V${y + height}Z`;
+    return <path d={d} fill={fill} opacity={opacity} />;
+  };
+}
+
+/** Photos per month (or year), stacked by animal group, with a strip under it that picks the dates
+ *  the rest of the page counts. */
 export default function PhotoTimeline({
   months,
   undated,
@@ -76,7 +107,7 @@ export default function PhotoTimeline({
   const [granularity, setGranularity] = usePersistedState<Granularity>("stats.timelineGranularity", "month");
   const bins = useMemo(() => timelineBins(months, granularity), [months, granularity]);
   const committed = useMemo(() => rangeIndices(bins, range, granularity), [bins, range, granularity]);
-  // The brush moves at once; the page's stats follow once it settles.
+  // The strip moves at once; the page's stats follow once it settles.
   const [draft, setDraft] = useState(committed);
   const [shown, setShown] = useState(committed);
   if (shown !== committed) {
@@ -85,17 +116,28 @@ export default function PhotoTimeline({
   }
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
+  const [chartWidth, setChartWidth] = useState(800);
 
   const labels: Record<string, string> = {
     ...Object.fromEntries(TIMELINE_GROUPS.map((g) => [g, t(TIMELINE_GROUP_LABEL_KEYS[g])])),
     total: t("stats.timeline.total"),
   };
   const [start, end] = draft;
+  // The chart shows the picked dates, centred in a year (or five) of context that stays faint.
+  const minView = MIN_BINS[granularity];
+  const pad = Math.max(0, minView - (end - start + 1));
+  const viewStart = pad ? Math.min(Math.max(0, start - Math.ceil(pad / 2)), bins.length - minView) : start;
+  const viewEnd = pad ? viewStart + minView - 1 : end;
+  const view = bins.slice(viewStart, viewEnd + 1);
+  const pickedKeys = new Set(bins.slice(start, end + 1).map((b) => b.key));
+  const picked = (key: string) => pickedKeys.has(key);
   const visible = bins.slice(start, end + 1);
   const groupTotals = TIMELINE_GROUPS.map((g) => [g, visible.reduce((sum, b) => sum + b[g], 0)] as const).filter(
     ([, count]) => count > 0,
   );
-  // Until the brush moves, the picked months name themselves, even ones outside the photos.
+  const withPhotos = bins.filter((b) => b.total > 0);
+  const compactAxis = Math.max(...view.map((b) => b.total)) >= 10_000;
+  // Until the strip moves, the picked months name themselves, even ones outside the photos.
   const shownRange = draft === committed ? range : rangeOf(bins, start, end, granularity);
   const [fromKey, toKey] = shownRange
     ? granularity === "year" && draft !== committed
@@ -106,16 +148,16 @@ export default function PhotoTimeline({
     ? fromKey === toKey
       ? binLabel(fromKey)
       : t("stats.timeline.range", { from: binLabel(fromKey), to: binLabel(toKey) })
-    : null;
-  // Year labels under months; once the brush narrows to two years or less, every month gets one.
-  const yearTicks =
-    granularity === "month" && visible.length > 24
-      ? visible.filter((b, i) => i === 0 || b.key.endsWith("-01")).map((b) => b.key)
-      : undefined;
+    : withPhotos.length === 1
+      ? t("stats.timeline.onlyPeriod", { period: binLabel(withPhotos[0].key) })
+      : null;
+  const ticks = axisTicks(
+    view.map((b) => b.key),
+    chartWidth - Y_AXIS_WIDTH,
+  );
+  const tickByKey = new Map(ticks.map((tick) => [tick.key, tick]));
 
-  function moveBrush(next: { startIndex?: number; endIndex?: number }) {
-    const s = next.startIndex ?? start;
-    const e = next.endIndex ?? end;
+  function moveRange(s: number, e: number) {
     setDraft([s, e]);
     clearTimeout(timer.current);
     timer.current = setTimeout(() => onRangeChange(rangeOf(bins, s, e, granularity)), COMMIT_DELAY_MS);
@@ -142,69 +184,89 @@ export default function PhotoTimeline({
     >
       {bins.length > 0 && (
         <>
-          <ul className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-footnote text-muted">
+          <ul className="-mt-1 mb-4 flex flex-wrap gap-1.5 text-footnote text-muted">
             {groupTotals.map(([g, count]) => (
-              <li key={g} className="flex items-center gap-1.5">
+              <li key={g} className="flex items-center gap-1.5 rounded-full bg-surface-muted px-2 py-0.5">
                 <span
                   aria-hidden
-                  className="h-2.5 w-2.5 rounded-full"
+                  className="h-2 w-2 rounded-full"
                   style={{ backgroundColor: TIMELINE_GROUP_COLOURS[g] }}
                 />
                 {labels[g]} <span className="tabular-nums text-ink">{formatNumber(count)}</span>
               </li>
             ))}
           </ul>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={bins} barCategoryGap={visible.length > MAX_OUTLINED_BARS ? 0 : "15%"}>
+          <ResponsiveContainer width="100%" height={240} onResize={(w) => setChartWidth(w)}>
+            <BarChart
+              data={view}
+              barCategoryGap={view.length > MAX_GAPPED_BARS ? "10%" : "22%"}
+              maxBarSize={MAX_BAR_PX}
+              margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
+            >
+              <CartesianGrid vertical={false} stroke="var(--color-line)" strokeOpacity={0.7} />
               <XAxis
                 dataKey="key"
-                ticks={yearTicks}
-                tickFormatter={(key: string) => (yearTicks ? key.slice(0, 4) : binLabel(key))}
-                tick={{ fontSize: 11, fill: MUTED }}
+                ticks={ticks.map((tick) => tick.key)}
+                interval={0}
                 tickLine={false}
-                axisLine={{ stroke: LINE }}
-                minTickGap={24}
+                axisLine={false}
+                height={view.length > 0 && ticks.some((tick) => tick.year) ? 34 : 22}
+                tick={({
+                  x,
+                  y,
+                  payload,
+                }: {
+                  x?: number | string;
+                  y?: number | string;
+                  payload?: { value?: unknown };
+                }) => {
+                  const tick = tickByKey.get(String(payload?.value));
+                  x = Number(x);
+                  y = Number(y);
+                  return tick ? (
+                    <text x={x} y={y + 4} textAnchor="middle" fontSize={11} fill={MUTED} className="tabular-nums">
+                      <tspan x={x} dy="0.71em">
+                        {tick.label}
+                      </tspan>
+                      {tick.year && (
+                        <tspan x={x} dy="1.25em" fontWeight={500}>
+                          {tick.year}
+                        </tspan>
+                      )}
+                    </text>
+                  ) : (
+                    <g />
+                  );
+                }}
               />
               <YAxis
-                tick={{ fontSize: 11, fill: MUTED }}
+                tick={{ fontSize: 11, fill: MUTED, className: "tabular-nums" }}
                 tickLine={false}
                 axisLine={false}
                 allowDecimals={false}
-                width={48}
-                tickFormatter={(v: number) => formatNumber(v)}
+                tickCount={5}
+                width={Y_AXIS_WIDTH}
+                // One style per axis: all in full, or all compact once the top reaches 10,000.
+                tickFormatter={(v: number) => formatNumber(v, compactAxis ? COMPACT : undefined)}
               />
-              <Tooltip content={<TimelineTooltip labels={labels} />} cursor={{ fill: "var(--color-surface-muted)" }} />
+              <Tooltip
+                content={<TimelineTooltip labels={labels} />}
+                cursor={{ fill: "var(--color-surface-muted)", radius: RADIUS_PX }}
+              />
               {TIMELINE_GROUPS.map((g) => (
                 <Bar
                   key={g}
                   dataKey={g}
                   stackId={STACK}
-                  fill={TIMELINE_GROUP_COLOURS[g]}
-                  stroke={visible.length <= MAX_OUTLINED_BARS ? "var(--color-surface)" : undefined}
-                  strokeWidth={1}
                   isAnimationActive={false}
+                  shape={segment(g, picked, view.length > MAX_GAPPED_BARS ? 0 : 1)}
                 />
               ))}
-              <Brush
-                // Remounts when the bin count changes: recharts keeps the old scale for a render, so a new end index plots at NaN.
-                key={bins.length}
-                dataKey="key"
-                height={32}
-                startIndex={start}
-                endIndex={end}
-                onChange={moveBrush}
-                tickFormatter={(key: string) => binLabel(key)}
-                stroke={MUTED}
-                fill="var(--color-surface-muted)"
-                travellerWidth={10}
-                ariaLabel={t("stats.timeline.brushLabel", { range: rangeText ?? t("stats.timeline.allDates") })}
-              >
-                <BarChart data={bins}>
-                  <Bar dataKey="total" fill={MUTED} isAnimationActive={false} />
-                </BarChart>
-              </Brush>
             </BarChart>
           </ResponsiveContainer>
+          <div className="mt-2">
+            <TimelineRange bins={bins} start={start} end={end} onChange={moveRange} />
+          </div>
           {/* A table ignores sr-only's 1px width, so a wrapper hides it. */}
           <div className="sr-only">
             <table>
@@ -221,17 +283,15 @@ export default function PhotoTimeline({
                 </tr>
               </thead>
               <tbody>
-                {bins
-                  .filter((b) => b.total > 0)
-                  .map((b) => (
-                    <tr key={b.key}>
-                      <th scope="row">{binLabel(b.key, true)}</th>
-                      {TIMELINE_GROUPS.map((g) => (
-                        <td key={g}>{formatNumber(b[g])}</td>
-                      ))}
-                      <td>{formatNumber(b.total)}</td>
-                    </tr>
-                  ))}
+                {withPhotos.map((b) => (
+                  <tr key={b.key}>
+                    <th scope="row">{binLabel(b.key, true)}</th>
+                    {TIMELINE_GROUPS.map((g) => (
+                      <td key={g}>{formatNumber(b[g])}</td>
+                    ))}
+                    <td>{formatNumber(b.total)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

@@ -39,6 +39,8 @@ function renderTimeline(props: Partial<Parameters<typeof PhotoTimeline>[0]> = {}
 
 afterEach(() => {
   cleanup();
+  // The Months/Years switch is remembered; each test starts on Months.
+  localStorage.clear();
   vi.useRealTimers();
 });
 
@@ -71,7 +73,7 @@ describe("PhotoTimeline", () => {
 
   it("with a range picked, offers All dates and the map for those dates", () => {
     const onRangeChange = renderTimeline({ range: { from: "2020-02", to: "2020-02" } });
-    // The axis and brush print it too; the line under the chart is the one announced.
+    // The line under the chart is the one announced.
     expect(screen.getAllByText("Feb 2020").some((el) => el.getAttribute("aria-live") === "polite")).toBe(true);
     expect(screen.getByRole("link", { name: "Show on map" }).getAttribute("href")).toBe(
       "/gallery?view=map&dateFrom=2020-02-01&dateTo=2020-02-29",
@@ -91,18 +93,31 @@ describe("PhotoTimeline", () => {
     ).toEqual(["2019", "2020", "2021"]);
   });
 
-  it("draws the range handles at real positions when a reload adds months", () => {
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    const timeline = (m: typeof months) => (
-      <MemoryRouter>
-        <PhotoTimeline months={m} undated={0} range={null} onRangeChange={vi.fn()} />
-      </MemoryRouter>
-    );
-    const { rerender } = render(timeline(months.slice(0, 1)));
-    rerender(timeline(months));
-    expect(errors.mock.calls.filter((c) => c.join(" ").includes("NaN"))).toEqual([]);
-    expect(document.querySelector("svg [x='NaN'], svg [x1='NaN']")).toBeNull();
-    errors.mockRestore();
+  it("drags the picked window along the strip, and the handles jump to the ends with Home and End", () => {
+    vi.useFakeTimers();
+    const onRangeChange = renderTimeline();
+    const [startHandle, endHandle] = screen.getAllByRole("slider");
+    fireEvent.keyDown(endHandle, { key: "Home" });
+    expect(endHandle.getAttribute("aria-valuetext")).toBe("November 2019");
+    fireEvent.keyDown(endHandle, { key: "End" });
+    fireEvent.keyDown(startHandle, { key: "End" });
+    expect(startHandle.getAttribute("aria-valuetext")).toBe("January 2021");
+    // jsdom has no layout: a 150px strip gives each of the 15 months 10px.
+    const strip = startHandle.parentElement!;
+    strip.getBoundingClientRect = () => ({ left: 0, width: 150 }) as DOMRect;
+    strip.setPointerCapture = () => {};
+    fireEvent.pointerDown(strip, { clientX: 35, pointerId: 1 });
+    fireEvent.pointerMove(strip, { clientX: 65, pointerId: 1 });
+    fireEvent.pointerUp(strip, { pointerId: 1 });
+    act(() => void vi.advanceTimersByTime(400));
+    expect(onRangeChange).toHaveBeenLastCalledWith({ from: "2020-02", to: "2020-05" });
+  });
+
+  it("puts a short span of photos on a year-long axis and names a lone month", () => {
+    renderTimeline({ months: [{ month: "2026-09", taxonClass: "aves", count: 7 }] });
+    expect(screen.getByText("Photos from Sep 2026")).toBeTruthy();
+    const [startHandle] = screen.getAllByRole("slider");
+    expect(startHandle.getAttribute("aria-valuetext")).toBe("October 2025");
   });
 
   it("with no dated photos, shows only the note", () => {

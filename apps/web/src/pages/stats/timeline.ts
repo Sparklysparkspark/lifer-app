@@ -49,8 +49,11 @@ const emptyBin = (key: string): TimelineBin => ({ key, total: 0, birds: 0, mamma
 const binKey = (month: string, granularity: Granularity) => (granularity === "year" ? month.slice(0, 4) : month);
 const pad = (n: number, width: number) => String(n).padStart(width, "0");
 
+// The fewest bins the axis shows, so a few months of photos draw narrow bars on a real time axis.
+export const MIN_BINS: Record<Granularity, number> = { month: 12, year: 5 };
+
 /** Every month (or year) from the first photo to the last, empty ones included, so the bars sit on an
- *  even time axis. */
+ *  even time axis. Short spans reach back to MIN_BINS. */
 export function timelineBins(
   rows: ReadonlyArray<{ month: string; taxonClass: string | null; count: number }>,
   granularity: Granularity,
@@ -65,8 +68,13 @@ export function timelineBins(
     byKey.set(key, bin);
   }
   const months = rows.map((r) => r.month).sort();
-  let [year, month] = months[0].split("-").map(Number);
   const [lastYear, lastMonth] = months[months.length - 1].split("-").map(Number);
+  let [year, month] = months[0].split("-").map(Number);
+  if (granularity === "year") year = Math.min(year, lastYear - MIN_BINS.year + 1);
+  else if ((lastYear - year) * 12 + lastMonth - month < MIN_BINS.month - 1) {
+    const first = lastYear * 12 + lastMonth - MIN_BINS.month;
+    [year, month] = [Math.floor(first / 12), (first % 12) + 1];
+  }
   const keys: string[] = [];
   if (granularity === "year") {
     for (; year <= lastYear; year++) keys.push(pad(year, 4));
@@ -124,6 +132,32 @@ export const rangeParam = (range: MonthRange | null) => (range ? `${range.from}.
 export function binLabel(key: string, long = false): string {
   const [year, month] = key.split("-").map(Number);
   return month ? `${formatMonthName(month - 1, long ? "long" : "short")} ${year}` : String(year);
+}
+
+// Roughly the width a label needs, so labels never overlap: "Sep" for a month, "2019" for a year.
+const MONTH_LABEL_PX = 36;
+const YEAR_LABEL_PX = 44;
+
+export type AxisTick = { key: string; label: string; year?: string };
+
+/** The labelled bins for an axis `width` pixels wide: every month, quarter, half year, year or more,
+ *  whichever is the densest that fits. Month labels carry the year on their first tick and each January. */
+export function axisTicks(keys: ReadonlyArray<string>, width: number): AxisTick[] {
+  const months = keys[0]?.length === 7;
+  const steps = months ? [1, 2, 3, 6, 12, 24, 60, 120, 240] : [1, 2, 5, 10, 20, 50];
+  const fits = (step: number) => (keys.length / step) * (months && step < 12 ? MONTH_LABEL_PX : YEAR_LABEL_PX) <= width;
+  const step = steps.find(fits) ?? steps[steps.length - 1];
+  const ticks: AxisTick[] = [];
+  for (const key of keys) {
+    const [year, month] = key.split("-").map(Number);
+    if (!months || step >= 12) {
+      if ((month ?? 1) === 1 && year % (months ? step / 12 : step) === 0) ticks.push({ key, label: String(year) });
+    } else if ((month - 1) % step === 0) {
+      const label = formatMonthName(month - 1, "short");
+      ticks.push(ticks.length === 0 || month === 1 ? { key, label, year: String(year) } : { key, label });
+    }
+  }
+  return ticks;
 }
 
 /** The Gallery's date filter for a range: first to last day, both included. */
