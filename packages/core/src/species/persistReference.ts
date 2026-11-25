@@ -174,7 +174,7 @@ const VECTOR_MODELS = [
 
 // Suggestions only rank species with a reference vector, so one is computed right after
 // enrichment.
-async function tryComputeReferenceEmbeddings(speciesId: string): Promise<void> {
+export async function tryComputeReferenceEmbeddings(speciesId: string): Promise<void> {
   let stored = false;
   for (const model of VECTOR_MODELS) {
     const target: VectorStoreTarget = {

@@ -138,7 +138,8 @@ export async function currentCollectionState(userId: string): Promise<UserCollec
     pool.query<{ region: string; species: string }>(
       `SELECT ${REGION_KEY_SQL} AS region, s.scientific_name AS species
          FROM region_species_user_added a JOIN regions r ON r.id = a.region_id JOIN species s ON s.id = a.species_id
-        WHERE a.user_id = $1 ORDER BY 1, 2`,
+        -- A list's additions come back with the list, not one iNaturalist lookup per species.
+        WHERE a.user_id = $1 AND NOT a.via_list ORDER BY 1, 2`,
       [userId],
     ),
     pool.query<{ seaZone: string; species: string }>(
@@ -171,7 +172,7 @@ export async function currentCollectionState(userId: string): Promise<UserCollec
         WHERE s.is_other_taxa AND s.inat_taxon_id IS NOT NULL AND (
           EXISTS (SELECT 1 FROM user_species us WHERE us.user_id = $1 AND us.species_id = s.id)
           OR EXISTS (SELECT 1 FROM captures_all c WHERE c.user_id = $1 AND c.species_id = s.id)
-          OR EXISTS (SELECT 1 FROM region_species_user_added a WHERE a.user_id = $1 AND a.species_id = s.id)
+          OR EXISTS (SELECT 1 FROM region_species_user_added a WHERE a.user_id = $1 AND a.species_id = s.id AND NOT a.via_list)
           OR EXISTS (SELECT 1 FROM sea_zone_species_user_added a WHERE a.user_id = $1 AND a.species_id = s.id))
         ORDER BY 2`,
       [userId],

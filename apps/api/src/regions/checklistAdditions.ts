@@ -187,7 +187,8 @@ export async function foldInnerAdditions(
      )
      DELETE FROM region_species_user_added a
       USING inside
-      WHERE a.user_id = $1 AND a.species_id = inside.species_id AND a.region_id = inside.id`,
+      -- A list's rows stay: removing the list or the outer addition must not lose the other.
+      WHERE a.user_id = $1 AND a.species_id = inside.species_id AND a.region_id = inside.id AND NOT a.via_list`,
     [userId, outer?.regionId ?? null, outer?.speciesId ?? null],
   );
 }
@@ -201,9 +202,12 @@ export async function addToRegionChecklist(
   regionId: string,
   speciesId: string,
 ): Promise<boolean> {
+  // A list's addition becomes a hand one, so removing the list keeps it.
   const inserted = await db.query(
     `INSERT INTO region_species_user_added (user_id, region_id, species_id) VALUES ($1, $2, $3)
-     ON CONFLICT DO NOTHING`,
+     ON CONFLICT (user_id, region_id, species_id) DO UPDATE SET via_list = false
+       WHERE region_species_user_added.via_list
+     RETURNING (xmax = 0) AS inserted`,
     [userId, regionId, speciesId],
   );
   await foldInnerAdditions(db, userId, { regionId, speciesId });
@@ -212,7 +216,7 @@ export async function addToRegionChecklist(
     regionId,
     speciesId,
   ]);
-  return (inserted.rowCount ?? 0) > 0;
+  return inserted.rows[0]?.inserted === true;
 }
 
 const speciesExists = async (speciesId: string) =>

@@ -160,6 +160,13 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
         "Every species on the region's list with `scientificName`, `commonName`, `taxonClass`, `ebirdCode`, `tier`, `isVagrant` and `sensitiveByDefault`. 404 for an unknown region.",
     },
   },
+  "/opendata/v1/species-lists": {
+    get: {
+      summary: "The user's lists from iNaturalist, as definitions",
+      description:
+        "Each list the user added from iNaturalist, definition only: `id`, `name`, `taxonId` and `placeId` (iNaturalist ids), `taxonName`, `taxonRank`, `placeName`, `nativeOnly` and `sizeEstimate`. Never the species on it, their names or photos: build the equivalent list from sources your app may use.",
+    },
+  },
   "/opendata/v1/gallery-vectors": {
     get: {
       summary: "Openly licensed reference vectors",

@@ -15,6 +15,10 @@ export const AUDITED_GET_ROUTES: readonly string[] = [
   "/api/library/existing",
   "/api/species/other-taxa/added",
   "/api/target-lists",
+  "/api/species-lists",
+  // iNaturalist autocomplete proxies; the response cache they fill is not something a person notices.
+  "/api/species-lists/search/taxa",
+  "/api/species-lists/search/places",
   "/api/sync/album-captures",
   "/api/sync/album-exclusions",
   "/api/sync/albums",
@@ -177,6 +181,7 @@ export const AUDITED_GET_ROUTES: readonly string[] = [
   "/api/library/reimport/unmatched-preview/:index",
   "/api/library/reimport/unmatched-preview-by-hash/:hash",
   "/api/storage-volumes",
+  "/api/storage-volumes/library-locations",
   "/api/moved-photos/status",
   "/api/moved-photos/settings",
   "/api/moved-photos/batches",
@@ -228,6 +233,7 @@ export const AUDITED_GET_ROUTES: readonly string[] = [
   "/api/opendata/v1/regions",
   "/api/opendata/v1/regions/at",
   "/api/opendata/v1/regions/tree",
+  "/api/opendata/v1/species-lists",
   "/api/opendata/v1/regions/:id/checklist",
   "/api/opendata/v1/gallery-vectors",
   "/api/opendata/v1/attribution",
@@ -276,6 +282,8 @@ export const GET_ROUTES_THAT_WRITE: Readonly<Record<string, string>> = {
   "/api/species/reference-gallery-photo/:photoId/thumb": "Caches the downloaded gallery photo's local path.",
   "/api/regions/:id/sea-zones": "Caches the region's computed list of nearby sea zones.",
   "/api/storage-volumes": "Notes when each drive was last seen connected, and its current mount path.",
+  "/api/storage-volumes/library-locations":
+    "Remembers which network share each library folder comes from, so it can be reconnected.",
   "/api/photos/:id/original":
     "When the file is missing, starts a quiet look for moved photos (at most every 10 minutes, and only with the setting on), which only updates where Lifer finds files that moved.",
   "/api/inaturalist/callback":

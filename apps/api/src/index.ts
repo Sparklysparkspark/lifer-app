@@ -41,6 +41,7 @@ import { relinkCachedReferenceFiles } from "./species/relinkReferenceFiles.js";
 import { ensureGalleryEmbeddingsOnStartup } from "./species/galleryEmbeddingsAsset.js";
 import { ensureIdModelOnStartup } from "./species/modelDownloadJob.js";
 import { startWithheldPhotoFetch, stopWithheldPhotoFetch } from "./species/withheldPhotos.js";
+import { kickSpeciesLists, stopSpeciesLists } from "./species/speciesLists/worker.js";
 import { startReferencePhotoScoring } from "./species/portraitScoring.js";
 import { resumePendingPackHotspots } from "./offlinePacks/download.js";
 import { resumeTripFileMove } from "./trips/moveFiles.js";
@@ -150,6 +151,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   app.log.info(`${signal} received, shutting down`);
   setTimeout(() => process.exit(0), 5000).unref();
   stopWithheldPhotoFetch();
+  void stopSpeciesLists();
   await app.close().catch((err) => app.log.warn({ err }, "Server close failed"));
   await Promise.allSettled([stopInference(), closeExiftool()]);
   await pool.end().catch(() => {});
@@ -318,6 +320,8 @@ seedCatalogIfEmpty(pool)
       void startAssetAutoDownloads(pool, app.log);
       // Picks up photos packs couldn't include that are still left to fetch.
       startWithheldPhotoFetch("startup");
+      // Carries on with lists from iNaturalist that were waiting or cut short by a quit.
+      kickSpeciesLists();
       // Lists eggs, nests, maps and the like after the photos of the animal itself.
       startReferencePhotoScoring();
       // Builds the Tree of life's region rollup after an update or a catalog change (regions/rollup.ts).

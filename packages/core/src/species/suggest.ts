@@ -206,6 +206,8 @@ export interface SpeciesVectors {
   family?: string | null;
   taxon_class?: string | null;
   taxon_order?: string | null;
+  /** Added from iNaturalist by hand or in a list: never offered to apps outside Lifer. */
+  is_other_taxa?: boolean;
 }
 
 export interface CandidateEntry {
@@ -230,11 +232,14 @@ const speciesStores = new Map<string, SpeciesStore>();
 const regionCatalogMemo = promiseMemo<string, CandidateEntry[] | null>(SUGGESTION_CACHE_TTL_MS);
 const regionCatalogCache = regionCatalogMemo.entries;
 const packSpeciesMemo = promiseMemo<"all", string[]>(SUGGESTION_CACHE_TTL_MS);
+// A user's checklist additions change by hand, so they're read again after a minute.
+const userAddedMemo = promiseMemo<string, string[]>(60_000);
 
 export function invalidateSuggestionCache(): void {
   regionCatalogCache.clear();
   speciesStores.clear();
   packSpeciesMemo.entries.clear();
+  userAddedMemo.entries.clear();
 }
 
 // Drops expired region entries, and everything once suggestions have gone unused for a while.
@@ -290,9 +295,10 @@ async function fetchSpeciesVectors(
     family: string | null;
     taxon_class: string | null;
     taxon_order: string | null;
+    is_other_taxa: boolean;
   }>(
     // Every gallery photo's vector, so a photo at a different angle than the main one still matches.
-    `SELECT s.id AS species_id, s.common_name, s.scientific_name, s.genus, s.family, s.taxon_class, s.taxon_order,
+    `SELECT s.id AS species_id, s.common_name, s.scientific_name, s.genus, s.family, s.taxon_class, s.taxon_order, s.is_other_taxa,
             sre.embedding AS ref_embedding, s.reference_license AS ref_license,
             g.gallery_embeddings, g.gallery_licenses,
             ste.embedding AS text_embedding
@@ -321,6 +327,7 @@ async function fetchSpeciesVectors(
         family: r.family,
         taxon_class: r.taxon_class,
         taxon_order: r.taxon_order,
+        is_other_taxa: r.is_other_taxa,
       },
     ]),
   );
@@ -424,10 +431,11 @@ function regionCandidateSet(
       family: string | null;
       taxon_class: string | null;
       taxon_order: string | null;
+      is_other_taxa: boolean;
     }>(
       // DISTINCT ON: a species in more than one of the regions counts once, keeping a row
       // where it isn't a vagrant if there is one (a resident in either country is no rarity).
-      `SELECT DISTINCT ON (s.id) s.id AS species_id, s.common_name, s.scientific_name, s.genus, s.family, s.taxon_class, s.taxon_order,
+      `SELECT DISTINCT ON (s.id) s.id AS species_id, s.common_name, s.scientific_name, s.genus, s.family, s.taxon_class, s.taxon_order, s.is_other_taxa,
               sre.embedding AS ref_embedding, s.reference_license AS ref_license,
               g.gallery_embeddings, g.gallery_licenses,
               rs.is_vagrant, rs.local_tier, rs.weekly_frequency,
@@ -463,6 +471,7 @@ function regionCandidateSet(
           family: r.family,
           taxon_class: r.taxon_class,
           taxon_order: r.taxon_order,
+          is_other_taxa: r.is_other_taxa,
         };
         store.entries.set(r.species_id, species);
       }
@@ -504,14 +513,52 @@ async function libraryCandidateSet(
   return out;
 }
 
+// The user's checklist additions (by hand or from a list) for a region: inside it, or on a region
+// above it that iNaturalist doesn't rule out there (user_added_from_above, migration 144). With no
+// region, every one of them.
+function userAddedSpeciesIds(pool: Pool | PoolClient, userId: string, regionIds: string[] | null): Promise<string[]> {
+  return userAddedMemo.get(`${userId}|${regionIds?.join(",") ?? "*"}`, async () => {
+    const res = regionIds
+      ? await pool.query<{ species_id: string }>(
+          `WITH RECURSIVE tree AS (
+             SELECT unnest($2::uuid[]) AS id
+             UNION SELECT r.id FROM regions r JOIN tree t ON r.parent_id = t.id
+           )
+           SELECT species_id FROM region_species_user_added WHERE user_id = $1 AND region_id IN (SELECT id FROM tree)
+           UNION SELECT f.species_id FROM unnest($2::uuid[]) AS g(id), user_added_from_above($1, g.id) f`,
+          [userId, regionIds],
+        )
+      : await pool.query<{ species_id: string }>(
+          `SELECT DISTINCT species_id FROM region_species_user_added WHERE user_id = $1`,
+          [userId],
+        );
+    return res.rows.map((r) => r.species_id).sort();
+  });
+}
+
 async function candidateEntries(
   pool: Pool | PoolClient,
   userId: string,
   regionId: string | null,
   space: VectorSpace,
+  openOnly = false,
 ): Promise<CandidateEntry[]> {
-  const regional = regionId ? await regionCandidateSet(pool, regionId, space) : null;
-  return regional ?? libraryCandidateSet(pool, userId, space);
+  const regionIds = regionId ? await checklistRegionIds(pool, regionId) : null;
+  const base =
+    (regionId ? await regionCandidateSet(pool, regionId, space) : null) ??
+    (await libraryCandidateSet(pool, userId, space));
+  // Apps outside Lifer get catalog species only: nothing added from iNaturalist.
+  if (openOnly) return base.filter((e) => !e.species.is_other_taxa);
+  const have = new Set(base.map((e) => e.species.species_id));
+  const added = (await userAddedSpeciesIds(pool, userId, regionIds)).filter((id) => !have.has(id));
+  if (added.length === 0) return base;
+  const store = await speciesVectors(pool, space, added);
+  const extra: CandidateEntry[] = [];
+  for (const id of added) {
+    const species = store.get(id);
+    if (species) extra.push({ species, is_vagrant: null, local_tier: null, seasonality: null });
+  }
+  return [...base, ...extra];
 }
 
 /** Ranks candidate species for an already-computed embedding. With a `regionId`, candidates are
@@ -574,7 +621,7 @@ export async function rankSpeciesBatch(
   noteSuggestionUse();
   const openOnly = opts.openOnly ?? false;
   const [entries, yours] = await Promise.all([
-    candidateEntries(pool, userId, regionId, space),
+    candidateEntries(pool, userId, regionId, space, openOnly),
     yourVectorsBySpecies(pool, userId, space),
   ]);
   return items.map(({ embeddings, takenAt }) =>

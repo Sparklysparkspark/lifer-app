@@ -17,7 +17,7 @@ import { deleteUnreferencedFiles } from "../offlinePacks/remove.js";
 import { syncInatDistribution } from "./inatDistribution.js";
 import { INAT_TAXA_API, LOOKUP, resolveOrCreateOtherTaxaSpecies, titleCaseCommonName } from "./otherTaxaSpecies.js";
 
-async function requireAnyTaxaSearchEnabled(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
+export async function requireAnyTaxaSearchEnabled(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
   const res = await pool.query<{ any_taxa_search_enabled: boolean }>(
     `SELECT any_taxa_search_enabled FROM users WHERE id = $1`,
     [request.user!.id],

@@ -927,7 +927,7 @@ export interface paths {
                   of: string;
                   label: string | null;
                   /** @enum {unknown} */
-                  labelKind: "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+                  labelKind: "original" | "raw" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
                   labelSize: string | null;
                 };
               } & {
@@ -1756,7 +1756,7 @@ export interface paths {
                   of: string;
                   label: string | null;
                   /** @enum {unknown} */
-                  labelKind: "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+                  labelKind: "original" | "raw" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
                   labelSize: string | null;
                 };
               } & {
@@ -5256,7 +5256,7 @@ export interface paths {
                     of: string;
                     label: string | null;
                     /** @enum {unknown} */
-                    labelKind: "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+                    labelKind: "original" | "raw" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
                     labelSize: string | null;
                   };
                 } & {
@@ -5757,7 +5757,7 @@ export interface paths {
                  * @description What the version is, from its file name, folder and role, when the user hasn't named it
                  * @enum {unknown}
                  */
-                labelKind: "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+                labelKind: "original" | "raw" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
                 labelSize: string | null;
                 fileName: string;
                 isGroup: boolean;
@@ -9373,7 +9373,7 @@ export interface paths {
                   of: string;
                   label: string | null;
                   /** @enum {unknown} */
-                  labelKind: "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+                  labelKind: "original" | "raw" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
                   labelSize: string | null;
                 };
               } & {
@@ -11580,7 +11580,7 @@ export interface paths {
                   of: string;
                   label: string | null;
                   /** @enum {unknown} */
-                  labelKind: "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+                  labelKind: "original" | "raw" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
                   labelSize: string | null;
                 };
               } & {
@@ -12813,7 +12813,7 @@ export interface paths {
                   of: string;
                   label: string | null;
                   /** @enum {unknown} */
-                  labelKind: "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+                  labelKind: "original" | "raw" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
                   labelSize: string | null;
                 };
               } & {
@@ -21221,6 +21221,91 @@ export interface paths {
                 hasChecklist: boolean;
                 /** @description Whether it is among GET /regions */
                 installed: boolean;
+              } & {
+                [key: string]: unknown;
+              })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the opendata.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/opendata/v1/species-lists": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The user's lists from iNaturalist, as definitions
+     * @description Each list the user added from iNaturalist, definition only: `id`, `name`, `taxonId` and `placeId` (iNaturalist ids), `taxonName`, `taxonRank`, `placeName`, `nativeOnly` and `sizeEstimate`. Never the species on it, their names or photos: build the equivalent list from sources your app may use.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              lists: ({
+                /** Format: uuid */
+                id: string;
+                name: string;
+                /** @description iNaturalist taxon id */
+                taxonId: number;
+                taxonName: string;
+                taxonRank: string | null;
+                /** @description iNaturalist place id */
+                placeId: number;
+                placeName: string;
+                nativeOnly: boolean;
+                sizeEstimate: number | null;
               } & {
                 [key: string]: unknown;
               })[];
@@ -33491,6 +33576,914 @@ export interface paths {
           };
         };
         /** @description Missing key, or the key lacks the species.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/species-lists": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /species-lists */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              lists: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                taxon: {
+                  id: number;
+                  name: string;
+                  rank: string | null;
+                };
+                place: {
+                  id: number;
+                  name: string;
+                };
+                /**
+                 * Format: uuid
+                 * @description The region whose checklist the species are added to
+                 */
+                regionId: string;
+                nativeOnly: boolean;
+                sizeEstimate: number | null;
+                addedCount: number;
+                status: "queued" | "running" | "paused" | "offline" | "done" | "failed";
+                lastError: string | null;
+                nextBatchAt: string | null;
+                /** @description Bigger than 5000 species, so added in batches */
+                capped: boolean;
+                fetchingNow: boolean;
+                /** @description Members with a downloaded reference photo */
+                photosReady: number;
+                hidden: boolean;
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: date-time */
+                updatedAt: string;
+                lastRefreshedAt: string | null;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    /** POST /species-lists */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @description iNaturalist taxon id */
+            taxonId: number;
+            /** @description iNaturalist place id */
+            placeId: number;
+            nativeOnly?: boolean;
+            /** @description As the taxon chip shows it */
+            taxonName: string;
+            taxonRank?: string;
+            placeName: string;
+            /**
+             * Format: uuid
+             * @description Default: the region with this iNaturalist place
+             */
+            regionId?: string;
+            name?: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              list: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                taxon: {
+                  id: number;
+                  name: string;
+                  rank: string | null;
+                };
+                place: {
+                  id: number;
+                  name: string;
+                };
+                /**
+                 * Format: uuid
+                 * @description The region whose checklist the species are added to
+                 */
+                regionId: string;
+                nativeOnly: boolean;
+                sizeEstimate: number | null;
+                addedCount: number;
+                status: "queued" | "running" | "paused" | "offline" | "done" | "failed";
+                lastError: string | null;
+                nextBatchAt: string | null;
+                /** @description Bigger than 5000 species, so added in batches */
+                capped: boolean;
+                fetchingNow: boolean;
+                /** @description Members with a downloaded reference photo */
+                photosReady: number;
+                hidden: boolean;
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: date-time */
+                updatedAt: string;
+                lastRefreshedAt: string | null;
+              };
+              created: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/species-lists/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** DELETE /species-lists/{id} */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Species rows deleted with the list */
+              removedSpecies: number;
+              /** @description Photographed or marked species kept on the checklist */
+              kept: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    options?: never;
+    head?: never;
+    /** PATCH /species-lists/{id} */
+    patch: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            name?: string;
+            nativeOnly?: boolean;
+            hidden?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              list: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                taxon: {
+                  id: number;
+                  name: string;
+                  rank: string | null;
+                };
+                place: {
+                  id: number;
+                  name: string;
+                };
+                /**
+                 * Format: uuid
+                 * @description The region whose checklist the species are added to
+                 */
+                regionId: string;
+                nativeOnly: boolean;
+                sizeEstimate: number | null;
+                addedCount: number;
+                status: "queued" | "running" | "paused" | "offline" | "done" | "failed";
+                lastError: string | null;
+                nextBatchAt: string | null;
+                /** @description Bigger than 5000 species, so added in batches */
+                capped: boolean;
+                fetchingNow: boolean;
+                /** @description Members with a downloaded reference photo */
+                photosReady: number;
+                hidden: boolean;
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: date-time */
+                updatedAt: string;
+                lastRefreshedAt: string | null;
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    trace?: never;
+  };
+  "/species-lists/{id}/pause": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /species-lists/{id}/pause */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              list: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                taxon: {
+                  id: number;
+                  name: string;
+                  rank: string | null;
+                };
+                place: {
+                  id: number;
+                  name: string;
+                };
+                /**
+                 * Format: uuid
+                 * @description The region whose checklist the species are added to
+                 */
+                regionId: string;
+                nativeOnly: boolean;
+                sizeEstimate: number | null;
+                addedCount: number;
+                status: "queued" | "running" | "paused" | "offline" | "done" | "failed";
+                lastError: string | null;
+                nextBatchAt: string | null;
+                /** @description Bigger than 5000 species, so added in batches */
+                capped: boolean;
+                fetchingNow: boolean;
+                /** @description Members with a downloaded reference photo */
+                photosReady: number;
+                hidden: boolean;
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: date-time */
+                updatedAt: string;
+                lastRefreshedAt: string | null;
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/species-lists/{id}/refresh": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /species-lists/{id}/refresh */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              list: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                taxon: {
+                  id: number;
+                  name: string;
+                  rank: string | null;
+                };
+                place: {
+                  id: number;
+                  name: string;
+                };
+                /**
+                 * Format: uuid
+                 * @description The region whose checklist the species are added to
+                 */
+                regionId: string;
+                nativeOnly: boolean;
+                sizeEstimate: number | null;
+                addedCount: number;
+                status: "queued" | "running" | "paused" | "offline" | "done" | "failed";
+                lastError: string | null;
+                nextBatchAt: string | null;
+                /** @description Bigger than 5000 species, so added in batches */
+                capped: boolean;
+                fetchingNow: boolean;
+                /** @description Members with a downloaded reference photo */
+                photosReady: number;
+                hidden: boolean;
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: date-time */
+                updatedAt: string;
+                lastRefreshedAt: string | null;
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/species-lists/{id}/resume": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /species-lists/{id}/resume */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              list: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                taxon: {
+                  id: number;
+                  name: string;
+                  rank: string | null;
+                };
+                place: {
+                  id: number;
+                  name: string;
+                };
+                /**
+                 * Format: uuid
+                 * @description The region whose checklist the species are added to
+                 */
+                regionId: string;
+                nativeOnly: boolean;
+                sizeEstimate: number | null;
+                addedCount: number;
+                status: "queued" | "running" | "paused" | "offline" | "done" | "failed";
+                lastError: string | null;
+                nextBatchAt: string | null;
+                /** @description Bigger than 5000 species, so added in batches */
+                capped: boolean;
+                fetchingNow: boolean;
+                /** @description Members with a downloaded reference photo */
+                photosReady: number;
+                hidden: boolean;
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: date-time */
+                updatedAt: string;
+                lastRefreshedAt: string | null;
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/species-lists/preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /species-lists/preview */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @description iNaturalist taxon id */
+            taxonId: number;
+            /** @description iNaturalist place id */
+            placeId: number;
+            nativeOnly?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              count: number;
+              examples: {
+                taxonId: number;
+                scientificName: string;
+                commonName: string | null;
+              }[];
+              /** @description Batches of up to 5000 species */
+              batches: number;
+              /** @description Fetching plus one photo per species */
+              estimatedMinutes: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/species-lists/search/places": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /species-lists/search/places */
+    get: {
+      parameters: {
+        query: {
+          q: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              results: {
+                placeId: number;
+                name: string;
+                displayName: string;
+                adminLevel: number | null;
+                regionId: string | null;
+              }[];
+              inatUnavailable: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/species-lists/search/taxa": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /species-lists/search/taxa */
+    get: {
+      parameters: {
+        query: {
+          q: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              results: {
+                taxonId: number;
+                name: string;
+                rank: string | null;
+                commonName: string | null;
+                iconicTaxon: string | null;
+                observationsCount: number | null;
+                thumbnailUrl: string | null;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
         401: {
           headers: {
             [name: string]: unknown;

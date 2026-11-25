@@ -10,6 +10,7 @@ import { collectionRoutes } from "./collection/routes.js";
 import { collectionTreeRoutes } from "./collection/tree.js";
 import { collectionBulkRoutes } from "./collection/bulk.js";
 import { targetListRoutes } from "./collection/targetLists.js";
+import { speciesListRoutes } from "./species/speciesLists/routes.js";
 import { collectionMapRoutes } from "./collection/map.js";
 import { galleryRoutes } from "./gallery/routes.js";
 import { galleryMapRoutes } from "./gallery/map.js";
@@ -78,6 +79,7 @@ export async function apiRoutes(api: FastifyInstance): Promise<void> {
   await api.register(collectionTreeRoutes);
   await api.register(collectionBulkRoutes);
   await api.register(targetListRoutes);
+  await api.register(speciesListRoutes);
   await api.register(collectionMapRoutes);
   await api.register(galleryRoutes);
   await api.register(galleryMapRoutes);

@@ -40,6 +40,22 @@ const Checklist = Open({
   ),
 });
 
+const SpeciesListDefinitions = Open({
+  lists: Type.Array(
+    Open({
+      id: Uuid(),
+      name: Type.String(),
+      taxonId: Type.Integer({ description: "iNaturalist taxon id" }),
+      taxonName: Type.String(),
+      taxonRank: Nullable(Type.String()),
+      placeId: Type.Integer({ description: "iNaturalist place id" }),
+      placeName: Type.String(),
+      nativeOnly: Type.Boolean(),
+      sizeEstimate: Nullable(Type.Integer({ description: "iNaturalist's species count when last read" })),
+    }),
+  ),
+});
+
 type Summary = Static<typeof RegionSummary>;
 
 const RegionTree = Open({
@@ -291,6 +307,43 @@ export async function opendataRoutes(fastify: FastifyInstance): Promise<void> {
       };
     },
   );
+  // The user's lists from iNaturalist as definitions only (taxon, place, size), so an app can build
+  // its own equivalent from sources it may use. Never the species, their names or photos.
+  app.get(
+    "/opendata/v1/species-lists",
+    { preValidation: scope, schema: { response: replies(SpeciesListDefinitions) } },
+    async (request) => {
+      const res = await pool.query<{
+        id: string;
+        name: string;
+        inat_taxon_id: number;
+        taxon_name: string;
+        taxon_rank: string | null;
+        inat_place_id: number;
+        place_name: string;
+        native_only: boolean;
+        size_estimate: number | null;
+      }>(
+        `SELECT id, name, inat_taxon_id, taxon_name, taxon_rank, inat_place_id, place_name, native_only, size_estimate
+           FROM species_lists WHERE user_id = $1 ORDER BY created_at`,
+        [request.user!.id],
+      );
+      return {
+        lists: res.rows.map((l) => ({
+          id: l.id,
+          name: l.name,
+          taxonId: l.inat_taxon_id,
+          taxonName: l.taxon_name,
+          taxonRank: l.taxon_rank,
+          placeId: l.inat_place_id,
+          placeName: l.place_name,
+          nativeOnly: l.native_only,
+          sizeEstimate: l.size_estimate,
+        })),
+      };
+    },
+  );
+
   // Lifer's names for the scientific names asked about, resolved through its synonyms. Names are facts, so
   // this takes no user data; names Lifer doesn't know are left out.
   app.post(
@@ -469,6 +522,8 @@ async function openVectorPage(query: { since?: string; cursor?: string; limit?: 
        JOIN species_reference_photos p ON p.id = ge.reference_photo_id
        JOIN species s ON s.id = ge.species_id
       WHERE ge.model_version = $1
+        -- Species added from iNaturalist by hand or in a list never leave Lifer.
+        AND NOT s.is_other_taxa
         AND regexp_replace(lower(ge.license), '-\\d+(\\.\\d+)*$', '') = ANY($2::text[])
         ${where.map((w) => `AND ${w}`).join(" ")}
       ORDER BY ge.computed_at, ge.reference_photo_id

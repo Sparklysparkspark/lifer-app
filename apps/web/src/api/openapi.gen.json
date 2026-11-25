@@ -1364,7 +1364,7 @@
                                 ]
                               },
                               "labelKind": {
-                                "enum": ["original", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"]
+                                "enum": ["original", "raw", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"]
                               },
                               "labelSize": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
                             },
@@ -2352,7 +2352,7 @@
                                 ]
                               },
                               "labelKind": {
-                                "enum": ["original", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"]
+                                "enum": ["original", "raw", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"]
                               },
                               "labelSize": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
                             },
@@ -5428,7 +5428,17 @@
                                       ]
                                     },
                                     "labelKind": {
-                                      "enum": ["original", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"]
+                                      "enum": [
+                                        "original",
+                                        "raw",
+                                        "edit",
+                                        "export",
+                                        "print",
+                                        "bw",
+                                        "pano",
+                                        "enhanced",
+                                        "hdr"
+                                      ]
                                     },
                                     "labelSize": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
                                   },
@@ -5845,7 +5855,7 @@
                             ]
                           },
                           "labelKind": {
-                            "enum": ["original", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"],
+                            "enum": ["original", "raw", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"],
                             "description": "What the version is, from its file name, folder and role, when the user hasn't named it"
                           },
                           "labelSize": {
@@ -8857,7 +8867,7 @@
                                 ]
                               },
                               "labelKind": {
-                                "enum": ["original", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"]
+                                "enum": ["original", "raw", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"]
                               },
                               "labelSize": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
                             },
@@ -10983,7 +10993,7 @@
                                 ]
                               },
                               "labelKind": {
-                                "enum": ["original", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"]
+                                "enum": ["original", "raw", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"]
                               },
                               "labelSize": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
                             },
@@ -13392,7 +13402,7 @@
                                 ]
                               },
                               "labelKind": {
-                                "enum": ["original", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"]
+                                "enum": ["original", "raw", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"]
                               },
                               "labelSize": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
                             },
@@ -19908,6 +19918,78 @@
                             "description": "Whether GET /regions/:id/checklist has species for it"
                           },
                           "installed": { "type": "boolean", "description": "Whether it is among GET /regions" }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the opendata.read scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/opendata/v1/species-lists": {
+      "get": {
+        "summary": "The user's lists from iNaturalist, as definitions",
+        "description": "Each list the user added from iNaturalist, definition only: `id`, `name`, `taxonId` and `placeId` (iNaturalist ids), `taxonName`, `taxonRank`, `placeName`, `nativeOnly` and `sizeEstimate`. Never the species on it, their names or photos: build the equivalent list from sources your app may use.",
+        "tags": ["opendata"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "opendata.read",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["lists"],
+                  "properties": {
+                    "lists": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name",
+                          "taxonId",
+                          "taxonName",
+                          "taxonRank",
+                          "placeId",
+                          "placeName",
+                          "nativeOnly",
+                          "sizeEstimate"
+                        ],
+                        "properties": {
+                          "id": { "type": "string", "format": "uuid" },
+                          "name": { "type": "string" },
+                          "taxonId": { "type": "integer", "description": "iNaturalist taxon id" },
+                          "taxonName": { "type": "string" },
+                          "taxonRank": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "placeId": { "type": "integer", "description": "iNaturalist place id" },
+                          "placeName": { "type": "string" },
+                          "nativeOnly": { "type": "boolean" },
+                          "sizeEstimate": {
+                            "anyOf": [
+                              { "type": "integer", "description": "iNaturalist's species count when last read" },
+                              { "type": "null" }
+                            ]
+                          }
                         },
                         "additionalProperties": true
                       }
@@ -29146,6 +29228,1077 @@
           },
           "401": {
             "description": "Missing key, or the key lacks the species.read scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/species-lists": {
+      "get": {
+        "summary": "GET /species-lists",
+        "tags": ["species-lists"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["lists"],
+                  "properties": {
+                    "lists": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name",
+                          "taxon",
+                          "place",
+                          "regionId",
+                          "nativeOnly",
+                          "sizeEstimate",
+                          "addedCount",
+                          "status",
+                          "lastError",
+                          "nextBatchAt",
+                          "capped",
+                          "fetchingNow",
+                          "photosReady",
+                          "hidden",
+                          "createdAt",
+                          "updatedAt",
+                          "lastRefreshedAt"
+                        ],
+                        "properties": {
+                          "id": { "type": "string", "format": "uuid" },
+                          "name": { "type": "string" },
+                          "taxon": {
+                            "type": "object",
+                            "required": ["id", "name", "rank"],
+                            "properties": {
+                              "id": { "type": "integer" },
+                              "name": { "type": "string" },
+                              "rank": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                            }
+                          },
+                          "place": {
+                            "type": "object",
+                            "required": ["id", "name"],
+                            "properties": { "id": { "type": "integer" }, "name": { "type": "string" } }
+                          },
+                          "regionId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "description": "The region whose checklist the species are added to"
+                          },
+                          "nativeOnly": { "type": "boolean" },
+                          "sizeEstimate": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "description": "iNaturalist's species count, null before the first page"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "addedCount": { "type": "integer" },
+                          "status": {
+                            "anyOf": [
+                              { "type": "string", "const": "queued" },
+                              { "type": "string", "const": "running" },
+                              { "type": "string", "const": "paused" },
+                              { "type": "string", "const": "offline" },
+                              { "type": "string", "const": "done" },
+                              { "type": "string", "const": "failed" }
+                            ]
+                          },
+                          "lastError": {
+                            "anyOf": [
+                              { "type": "string", "description": "offline, rate_limited, refused or failed" },
+                              { "type": "null" }
+                            ]
+                          },
+                          "nextBatchAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "description": "When a waiting batch or retry starts on its own"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "capped": {
+                            "type": "boolean",
+                            "description": "Bigger than 5000 species, so added in batches"
+                          },
+                          "fetchingNow": { "type": "boolean" },
+                          "photosReady": {
+                            "type": "integer",
+                            "description": "Members with a downloaded reference photo"
+                          },
+                          "hidden": { "type": "boolean" },
+                          "createdAt": { "type": "string", "format": "date-time" },
+                          "updatedAt": { "type": "string", "format": "date-time" },
+                          "lastRefreshedAt": {
+                            "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      },
+      "post": {
+        "summary": "POST /species-lists",
+        "tags": ["species-lists"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["taxonId", "placeId", "taxonName", "placeName"],
+                "properties": {
+                  "taxonId": { "type": "integer", "minimum": 1, "description": "iNaturalist taxon id" },
+                  "placeId": { "type": "integer", "minimum": 1, "description": "iNaturalist place id" },
+                  "nativeOnly": { "type": "boolean" },
+                  "taxonName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500,
+                    "description": "As the taxon chip shows it"
+                  },
+                  "taxonRank": { "type": "string", "maxLength": 50 },
+                  "placeName": { "type": "string", "minLength": 1, "maxLength": 500 },
+                  "regionId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Default: the region with this iNaturalist place"
+                  },
+                  "name": { "type": "string", "minLength": 1, "maxLength": 500 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["list", "created"],
+                  "properties": {
+                    "list": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "name",
+                        "taxon",
+                        "place",
+                        "regionId",
+                        "nativeOnly",
+                        "sizeEstimate",
+                        "addedCount",
+                        "status",
+                        "lastError",
+                        "nextBatchAt",
+                        "capped",
+                        "fetchingNow",
+                        "photosReady",
+                        "hidden",
+                        "createdAt",
+                        "updatedAt",
+                        "lastRefreshedAt"
+                      ],
+                      "properties": {
+                        "id": { "type": "string", "format": "uuid" },
+                        "name": { "type": "string" },
+                        "taxon": {
+                          "type": "object",
+                          "required": ["id", "name", "rank"],
+                          "properties": {
+                            "id": { "type": "integer" },
+                            "name": { "type": "string" },
+                            "rank": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                          }
+                        },
+                        "place": {
+                          "type": "object",
+                          "required": ["id", "name"],
+                          "properties": { "id": { "type": "integer" }, "name": { "type": "string" } }
+                        },
+                        "regionId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "description": "The region whose checklist the species are added to"
+                        },
+                        "nativeOnly": { "type": "boolean" },
+                        "sizeEstimate": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "description": "iNaturalist's species count, null before the first page"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "addedCount": { "type": "integer" },
+                        "status": {
+                          "anyOf": [
+                            { "type": "string", "const": "queued" },
+                            { "type": "string", "const": "running" },
+                            { "type": "string", "const": "paused" },
+                            { "type": "string", "const": "offline" },
+                            { "type": "string", "const": "done" },
+                            { "type": "string", "const": "failed" }
+                          ]
+                        },
+                        "lastError": {
+                          "anyOf": [
+                            { "type": "string", "description": "offline, rate_limited, refused or failed" },
+                            { "type": "null" }
+                          ]
+                        },
+                        "nextBatchAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "description": "When a waiting batch or retry starts on its own"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "capped": { "type": "boolean", "description": "Bigger than 5000 species, so added in batches" },
+                        "fetchingNow": { "type": "boolean" },
+                        "photosReady": {
+                          "type": "integer",
+                          "description": "Members with a downloaded reference photo"
+                        },
+                        "hidden": { "type": "boolean" },
+                        "createdAt": { "type": "string", "format": "date-time" },
+                        "updatedAt": { "type": "string", "format": "date-time" },
+                        "lastRefreshedAt": {
+                          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+                        }
+                      }
+                    },
+                    "created": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/species-lists/{id}": {
+      "patch": {
+        "summary": "PATCH /species-lists/{id}",
+        "tags": ["species-lists"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "minLength": 1, "maxLength": 500 },
+                  "nativeOnly": { "type": "boolean" },
+                  "hidden": { "type": "boolean" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["list"],
+                  "properties": {
+                    "list": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "name",
+                        "taxon",
+                        "place",
+                        "regionId",
+                        "nativeOnly",
+                        "sizeEstimate",
+                        "addedCount",
+                        "status",
+                        "lastError",
+                        "nextBatchAt",
+                        "capped",
+                        "fetchingNow",
+                        "photosReady",
+                        "hidden",
+                        "createdAt",
+                        "updatedAt",
+                        "lastRefreshedAt"
+                      ],
+                      "properties": {
+                        "id": { "type": "string", "format": "uuid" },
+                        "name": { "type": "string" },
+                        "taxon": {
+                          "type": "object",
+                          "required": ["id", "name", "rank"],
+                          "properties": {
+                            "id": { "type": "integer" },
+                            "name": { "type": "string" },
+                            "rank": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                          }
+                        },
+                        "place": {
+                          "type": "object",
+                          "required": ["id", "name"],
+                          "properties": { "id": { "type": "integer" }, "name": { "type": "string" } }
+                        },
+                        "regionId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "description": "The region whose checklist the species are added to"
+                        },
+                        "nativeOnly": { "type": "boolean" },
+                        "sizeEstimate": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "description": "iNaturalist's species count, null before the first page"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "addedCount": { "type": "integer" },
+                        "status": {
+                          "anyOf": [
+                            { "type": "string", "const": "queued" },
+                            { "type": "string", "const": "running" },
+                            { "type": "string", "const": "paused" },
+                            { "type": "string", "const": "offline" },
+                            { "type": "string", "const": "done" },
+                            { "type": "string", "const": "failed" }
+                          ]
+                        },
+                        "lastError": {
+                          "anyOf": [
+                            { "type": "string", "description": "offline, rate_limited, refused or failed" },
+                            { "type": "null" }
+                          ]
+                        },
+                        "nextBatchAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "description": "When a waiting batch or retry starts on its own"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "capped": { "type": "boolean", "description": "Bigger than 5000 species, so added in batches" },
+                        "fetchingNow": { "type": "boolean" },
+                        "photosReady": {
+                          "type": "integer",
+                          "description": "Members with a downloaded reference photo"
+                        },
+                        "hidden": { "type": "boolean" },
+                        "createdAt": { "type": "string", "format": "date-time" },
+                        "updatedAt": { "type": "string", "format": "date-time" },
+                        "lastRefreshedAt": {
+                          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      },
+      "delete": {
+        "summary": "DELETE /species-lists/{id}",
+        "tags": ["species-lists"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["removedSpecies", "kept"],
+                  "properties": {
+                    "removedSpecies": { "type": "integer", "description": "Species rows deleted with the list" },
+                    "kept": { "type": "integer", "description": "Photographed or marked species kept on the checklist" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/species-lists/{id}/pause": {
+      "post": {
+        "summary": "POST /species-lists/{id}/pause",
+        "tags": ["species-lists"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["list"],
+                  "properties": {
+                    "list": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "name",
+                        "taxon",
+                        "place",
+                        "regionId",
+                        "nativeOnly",
+                        "sizeEstimate",
+                        "addedCount",
+                        "status",
+                        "lastError",
+                        "nextBatchAt",
+                        "capped",
+                        "fetchingNow",
+                        "photosReady",
+                        "hidden",
+                        "createdAt",
+                        "updatedAt",
+                        "lastRefreshedAt"
+                      ],
+                      "properties": {
+                        "id": { "type": "string", "format": "uuid" },
+                        "name": { "type": "string" },
+                        "taxon": {
+                          "type": "object",
+                          "required": ["id", "name", "rank"],
+                          "properties": {
+                            "id": { "type": "integer" },
+                            "name": { "type": "string" },
+                            "rank": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                          }
+                        },
+                        "place": {
+                          "type": "object",
+                          "required": ["id", "name"],
+                          "properties": { "id": { "type": "integer" }, "name": { "type": "string" } }
+                        },
+                        "regionId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "description": "The region whose checklist the species are added to"
+                        },
+                        "nativeOnly": { "type": "boolean" },
+                        "sizeEstimate": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "description": "iNaturalist's species count, null before the first page"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "addedCount": { "type": "integer" },
+                        "status": {
+                          "anyOf": [
+                            { "type": "string", "const": "queued" },
+                            { "type": "string", "const": "running" },
+                            { "type": "string", "const": "paused" },
+                            { "type": "string", "const": "offline" },
+                            { "type": "string", "const": "done" },
+                            { "type": "string", "const": "failed" }
+                          ]
+                        },
+                        "lastError": {
+                          "anyOf": [
+                            { "type": "string", "description": "offline, rate_limited, refused or failed" },
+                            { "type": "null" }
+                          ]
+                        },
+                        "nextBatchAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "description": "When a waiting batch or retry starts on its own"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "capped": { "type": "boolean", "description": "Bigger than 5000 species, so added in batches" },
+                        "fetchingNow": { "type": "boolean" },
+                        "photosReady": {
+                          "type": "integer",
+                          "description": "Members with a downloaded reference photo"
+                        },
+                        "hidden": { "type": "boolean" },
+                        "createdAt": { "type": "string", "format": "date-time" },
+                        "updatedAt": { "type": "string", "format": "date-time" },
+                        "lastRefreshedAt": {
+                          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/species-lists/{id}/refresh": {
+      "post": {
+        "summary": "POST /species-lists/{id}/refresh",
+        "tags": ["species-lists"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["list"],
+                  "properties": {
+                    "list": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "name",
+                        "taxon",
+                        "place",
+                        "regionId",
+                        "nativeOnly",
+                        "sizeEstimate",
+                        "addedCount",
+                        "status",
+                        "lastError",
+                        "nextBatchAt",
+                        "capped",
+                        "fetchingNow",
+                        "photosReady",
+                        "hidden",
+                        "createdAt",
+                        "updatedAt",
+                        "lastRefreshedAt"
+                      ],
+                      "properties": {
+                        "id": { "type": "string", "format": "uuid" },
+                        "name": { "type": "string" },
+                        "taxon": {
+                          "type": "object",
+                          "required": ["id", "name", "rank"],
+                          "properties": {
+                            "id": { "type": "integer" },
+                            "name": { "type": "string" },
+                            "rank": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                          }
+                        },
+                        "place": {
+                          "type": "object",
+                          "required": ["id", "name"],
+                          "properties": { "id": { "type": "integer" }, "name": { "type": "string" } }
+                        },
+                        "regionId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "description": "The region whose checklist the species are added to"
+                        },
+                        "nativeOnly": { "type": "boolean" },
+                        "sizeEstimate": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "description": "iNaturalist's species count, null before the first page"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "addedCount": { "type": "integer" },
+                        "status": {
+                          "anyOf": [
+                            { "type": "string", "const": "queued" },
+                            { "type": "string", "const": "running" },
+                            { "type": "string", "const": "paused" },
+                            { "type": "string", "const": "offline" },
+                            { "type": "string", "const": "done" },
+                            { "type": "string", "const": "failed" }
+                          ]
+                        },
+                        "lastError": {
+                          "anyOf": [
+                            { "type": "string", "description": "offline, rate_limited, refused or failed" },
+                            { "type": "null" }
+                          ]
+                        },
+                        "nextBatchAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "description": "When a waiting batch or retry starts on its own"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "capped": { "type": "boolean", "description": "Bigger than 5000 species, so added in batches" },
+                        "fetchingNow": { "type": "boolean" },
+                        "photosReady": {
+                          "type": "integer",
+                          "description": "Members with a downloaded reference photo"
+                        },
+                        "hidden": { "type": "boolean" },
+                        "createdAt": { "type": "string", "format": "date-time" },
+                        "updatedAt": { "type": "string", "format": "date-time" },
+                        "lastRefreshedAt": {
+                          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/species-lists/{id}/resume": {
+      "post": {
+        "summary": "POST /species-lists/{id}/resume",
+        "tags": ["species-lists"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["list"],
+                  "properties": {
+                    "list": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "name",
+                        "taxon",
+                        "place",
+                        "regionId",
+                        "nativeOnly",
+                        "sizeEstimate",
+                        "addedCount",
+                        "status",
+                        "lastError",
+                        "nextBatchAt",
+                        "capped",
+                        "fetchingNow",
+                        "photosReady",
+                        "hidden",
+                        "createdAt",
+                        "updatedAt",
+                        "lastRefreshedAt"
+                      ],
+                      "properties": {
+                        "id": { "type": "string", "format": "uuid" },
+                        "name": { "type": "string" },
+                        "taxon": {
+                          "type": "object",
+                          "required": ["id", "name", "rank"],
+                          "properties": {
+                            "id": { "type": "integer" },
+                            "name": { "type": "string" },
+                            "rank": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                          }
+                        },
+                        "place": {
+                          "type": "object",
+                          "required": ["id", "name"],
+                          "properties": { "id": { "type": "integer" }, "name": { "type": "string" } }
+                        },
+                        "regionId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "description": "The region whose checklist the species are added to"
+                        },
+                        "nativeOnly": { "type": "boolean" },
+                        "sizeEstimate": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "description": "iNaturalist's species count, null before the first page"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "addedCount": { "type": "integer" },
+                        "status": {
+                          "anyOf": [
+                            { "type": "string", "const": "queued" },
+                            { "type": "string", "const": "running" },
+                            { "type": "string", "const": "paused" },
+                            { "type": "string", "const": "offline" },
+                            { "type": "string", "const": "done" },
+                            { "type": "string", "const": "failed" }
+                          ]
+                        },
+                        "lastError": {
+                          "anyOf": [
+                            { "type": "string", "description": "offline, rate_limited, refused or failed" },
+                            { "type": "null" }
+                          ]
+                        },
+                        "nextBatchAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "description": "When a waiting batch or retry starts on its own"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "capped": { "type": "boolean", "description": "Bigger than 5000 species, so added in batches" },
+                        "fetchingNow": { "type": "boolean" },
+                        "photosReady": {
+                          "type": "integer",
+                          "description": "Members with a downloaded reference photo"
+                        },
+                        "hidden": { "type": "boolean" },
+                        "createdAt": { "type": "string", "format": "date-time" },
+                        "updatedAt": { "type": "string", "format": "date-time" },
+                        "lastRefreshedAt": {
+                          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/species-lists/preview": {
+      "post": {
+        "summary": "POST /species-lists/preview",
+        "tags": ["species-lists"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["taxonId", "placeId"],
+                "properties": {
+                  "taxonId": { "type": "integer", "minimum": 1, "description": "iNaturalist taxon id" },
+                  "placeId": { "type": "integer", "minimum": 1, "description": "iNaturalist place id" },
+                  "nativeOnly": { "type": "boolean" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["count", "examples", "batches", "estimatedMinutes"],
+                  "properties": {
+                    "count": { "type": "integer" },
+                    "examples": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["taxonId", "scientificName", "commonName"],
+                        "properties": {
+                          "taxonId": { "type": "integer" },
+                          "scientificName": { "type": "string" },
+                          "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                        }
+                      }
+                    },
+                    "batches": { "type": "integer", "description": "Batches of up to 5000 species" },
+                    "estimatedMinutes": { "type": "integer", "description": "Fetching plus one photo per species" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/species-lists/search/places": {
+      "get": {
+        "summary": "GET /species-lists/search/places",
+        "tags": ["species-lists"],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "minLength": 2, "maxLength": 200 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["results", "inatUnavailable"],
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["placeId", "name", "displayName", "adminLevel", "regionId"],
+                        "properties": {
+                          "placeId": { "type": "integer" },
+                          "name": { "type": "string" },
+                          "displayName": { "type": "string" },
+                          "adminLevel": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
+                          "regionId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "description": "The Lifer region with this place, if any"
+                              },
+                              { "type": "null" }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "inatUnavailable": {
+                      "anyOf": [
+                        { "type": "string", "description": "Set when only Lifer's own regions could be searched" },
+                        { "type": "null" }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/species-lists/search/taxa": {
+      "get": {
+        "summary": "GET /species-lists/search/taxa",
+        "tags": ["species-lists"],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "minLength": 2, "maxLength": 200 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["results"],
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "taxonId",
+                          "name",
+                          "rank",
+                          "commonName",
+                          "iconicTaxon",
+                          "observationsCount",
+                          "thumbnailUrl"
+                        ],
+                        "properties": {
+                          "taxonId": { "type": "integer" },
+                          "name": { "type": "string" },
+                          "rank": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "iconicTaxon": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "observationsCount": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
+                          "thumbnailUrl": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           },
           "default": {
