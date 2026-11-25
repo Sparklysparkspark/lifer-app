@@ -15,6 +15,17 @@ export const TEMPLATE_VARIABLES = [
   "camera",
   "lens",
   "rating",
+  "genus",
+  "family",
+  "order",
+  "class",
+  "focal",
+  "aperture",
+  "shutter",
+  "iso",
+  "longdate",
+  "names",
+  "count",
 ] as const;
 export type TemplateVariable = (typeof TEMPLATE_VARIABLES)[number];
 
@@ -43,6 +54,64 @@ export const DEFAULT_METADATA_TEMPLATE: MetadataTemplate = {
   caption: "",
   replaceExisting: false,
 };
+
+/** How a templated field is written when the file already has a value. */
+export const WRITE_RULES = ["fillEmpty", "replace", "append", "off"] as const;
+export type WriteRule = (typeof WRITE_RULES)[number];
+
+export interface FieldTemplate {
+  template: string;
+  rule: WriteRule;
+}
+
+/** Templated Title, Headline, Caption and extra Keywords (comma separated), and which species a
+ *  frame with several names in {names} and {count}. */
+export interface MetadataFields {
+  title: FieldTemplate;
+  headline: FieldTemplate;
+  caption: FieldTemplate;
+  keywords: FieldTemplate;
+  multiSpecies: "all" | "main";
+}
+export type TemplatedField = "title" | "headline" | "caption" | "keywords";
+export const TEMPLATED_FIELDS: readonly TemplatedField[] = ["title", "headline", "caption", "keywords"];
+
+// Equal to what Lifer wrote before templates: the title names every species in the naming style,
+// a caption only when one is set, never a headline or extra keywords.
+export const DEFAULT_METADATA_FIELDS: MetadataFields = {
+  title: { template: "{names}", rule: "replace" },
+  headline: { template: "", rule: "replace" },
+  caption: { template: "", rule: "replace" },
+  keywords: { template: "", rule: "replace" },
+  multiSpecies: "all",
+};
+
+export const CAPTION_PRESETS = {
+  place: "{species} ({scientific}), {place}, {region}, {date}",
+  imageOf: "An image of a {species}[[ taken on {longdate}]][[ with a {focal} {aperture}]]",
+} as const;
+
+export interface RenderedFields {
+  title: string;
+  headline: string;
+  caption: string;
+  keywords: string[];
+}
+
+/** Extra keywords: each comma or semicolon separated part filled on its own, empties dropped. */
+export function renderKeywords(template: string, values: TemplateValues): string[] {
+  const out = template.split(/[,;]/).map((part) => renderTemplate(part, values));
+  return [...new Set(out.filter(Boolean))];
+}
+
+export function renderFields(fields: MetadataFields, values: TemplateValues): RenderedFields {
+  return {
+    title: renderTemplate(fields.title.template, values),
+    headline: renderTemplate(fields.headline.template, values),
+    caption: renderTemplate(fields.caption.template, values),
+    keywords: renderKeywords(fields.keywords.template, values),
+  };
+}
 
 export const FILE_NAME_PRESETS = {
   original: "{original}",
@@ -77,17 +146,36 @@ const EMPTY_GROUP = new RegExp(String.raw`[(\[]${SEP}*\u0000(?:${SEP}|\u0000)*[)
 const LEADING_EMPTY = new RegExp(String.raw`^(?:${SEP}|\u0000)*\u0000${SEP}*`);
 const EMPTY_WITH_SEP = new RegExp(String.raw`${SEP}*\u0000`, "g");
 
+const valueOf = (values: TemplateValues, name: string) =>
+  (values[name as FileNameVariable] ?? "")
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+// "[[ with a {focal}]]" is kept only when every variable in it has a value, so wording around a
+// missing value goes with it.
+const OPTIONAL = /\[\[(.*?)\]\]/g;
+// "a" before a value that starts with a vowel sound reads "an" ("an Osprey"); "eu", "uni", "one"
+// and the like start with a consonant sound.
+const ARTICLE = /\b([Aa]) (\{[a-z]+\})/g;
+const VOWEL_SOUND = /^(?![Ee]u|[Uu]ni|[Uu]s[aeiou]|[Uu]r[aeiou]|[Oo]ne)[AEIOUaeiou]/;
+
 /** Fills a template. An empty value drops cleanly with its separator, and brackets left empty
  *  go too: "{species} ({scientific}), {place}" with no scientific name reads "Osprey, Lake".
  *  Unknown variables stay as typed. */
 export function renderTemplate(template: string, values: TemplateValues): string {
-  // eslint-disable-next-line no-control-regex
-  let out = template.replace(/\u0000/g, "").replace(VARIABLE, (whole, name: string) => {
-    if (!(FILE_NAME_VARIABLES as readonly string[]).includes(name)) return whole;
+  const known = (name: string) => (FILE_NAME_VARIABLES as readonly string[]).includes(name);
+  let out = template
     // eslint-disable-next-line no-control-regex
-    const v = (values[name as FileNameVariable] ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ");
-    return v.trim() || EMPTY;
-  });
+    .replace(/\u0000/g, "")
+    .replace(OPTIONAL, (_, inner: string) =>
+      [...inner.matchAll(VARIABLE)].every((m) => known(m[1]) && valueOf(values, m[1])) ? inner : "",
+    )
+    .replace(ARTICLE, (whole, a: string, token: string) =>
+      VOWEL_SOUND.test(valueOf(values, token.slice(1, -1))) ? `${a}n ${token}` : whole,
+    )
+    .replace(VARIABLE, (whole, name: string) => (known(name) ? valueOf(values, name) || EMPTY : whole));
   let prev: string;
   do {
     prev = out;

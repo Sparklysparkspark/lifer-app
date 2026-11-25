@@ -15,14 +15,8 @@ import { moveOriginal, renameOriginal } from "../lib/originalsWrite.js";
 import { getUserFileSettings } from "../lib/userFileSettings.js";
 import { createLimiter } from "@lifer/core/lib/concurrency.js";
 import { PLACE_FOLDER_LEVELS, keepsOriginalName } from "@lifer/shared";
-import {
-  extractExif,
-  findSidecarPath,
-  metadataGoesInFile,
-  preserveFileName,
-  readPreservedFileName,
-  sidecarPathFor,
-} from "./exif.js";
+import { extractExif, metadataGoesInFile, preserveFileName, readPreservedFileName } from "./exif.js";
+import { moveSidecars } from "./sidecarNames.js";
 import { locateManagedOriginal, organizedFolderFor, type ManagedFileLocation } from "./managedFolders.js";
 import { tagWithRegisteredVolume } from "../storageVolumes/resolve.js";
 import { syncCaptureXmpSidecarsLogged } from "./xmpSidecarSync.js";
@@ -85,13 +79,12 @@ export async function moveOriginalFile(current: string, dest: string, saveRef: (
   await moveOriginal(current, dest, saveRef);
 }
 
-/** A RAW's or video's sidecar follows it, so other apps' edits stay with the file. */
+/** A file's sidecars follow it under the same naming, so other apps' edits stay with the file. */
 async function moveSidecar(from: string, to: string): Promise<void> {
-  const sidecar = await findSidecarPath(from);
-  const target = sidecarPathFor(to);
-  if (!sidecar || existsSync(target)) return;
-  await renameOriginal(sidecar, target).catch((err: unknown) =>
-    log.warn({ err, ref: sidecar }, "[reorganize] Couldn't move a sidecar with its file"),
+  await moveSidecars(from, to, metadataGoesInFile(from), (sidecar, target) =>
+    renameOriginal(sidecar, target).catch((err: unknown) =>
+      log.warn({ err, ref: sidecar }, "[reorganize] Couldn't move a sidecar with its file"),
+    ),
   );
 }
 
@@ -251,7 +244,7 @@ export async function runReorganize(
       });
       counts.moved++;
       if (original.capture_id) captureIdsToResync.add(original.capture_id);
-      if (!metadataGoesInFile(current)) await moveSidecar(current, dest);
+      await moveSidecar(current, dest);
       // Tidying the now-empty old folder is cosmetic, not part of the move.
       try {
         await removeEmptyDirsUpward(oldFolder, found.root);

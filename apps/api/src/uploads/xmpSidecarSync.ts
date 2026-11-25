@@ -2,47 +2,88 @@
 // species, rating, cover status, tags or place name change.
 import { pool } from "@lifer/core/db.js";
 import { log } from "@lifer/core/lib/log.js";
-import { renderTemplate, type MetadataTemplate } from "@lifer/shared";
-import { writeCaptureMetadata, type PhotoCredits, type SpeciesMetadata } from "./exif.js";
+import { renderFields, renderTemplate, type MetadataFields, type MetadataTemplate } from "@lifer/shared";
+import { type PhotoCredits, type SpeciesMetadata, type TemplatedWrites, type XmpSidecarData } from "./exif.js";
 import { photoPlaceForRegion } from "../regions/photoPlace.js";
-import { getMetadataTemplate } from "../settings/metadataSettings.js";
+import { getMetadataFields, getMetadataTemplate } from "../settings/metadataSettings.js";
 import { captureFacts, templateValues } from "./templateVars.js";
+import { getFileWriteSettings } from "../settings/fileWriteSettings.js";
+import { writeOriginalMetadata } from "./fileWriting.js";
 
-/** The user's copyright and caption template filled for this capture, or undefined when they set
- *  none, so a write leaves those fields alone. */
-export async function captureCredits(
+export interface CaptureTemplates {
+  template: MetadataTemplate;
+  fields: MetadataFields;
+}
+
+/** The user's copyright, Title, Headline, Caption and keyword templates filled for this capture.
+ *  `credits` is undefined when they set none, so a write leaves those fields alone. */
+export async function captureTemplated(
   userId: string,
   captureId: string,
-  template?: MetadataTemplate,
-): Promise<PhotoCredits | undefined> {
-  const t = template ?? (await getMetadataTemplate(userId));
-  if (!t.creator && !t.copyright && !t.credit && !t.usageTerms && !t.caption) return undefined;
+  saved?: CaptureTemplates,
+): Promise<{ credits?: PhotoCredits; fields: TemplatedWrites } | null> {
+  const t = saved?.template ?? (await getMetadataTemplate(userId));
+  const f = saved?.fields ?? (await getMetadataFields(userId));
   const facts = await captureFacts(captureId);
-  if (!facts) return undefined;
-  const values = await templateValues(facts);
+  if (!facts) return null;
+  const values = await templateValues(facts, { multiSpecies: f.multiSpecies });
+  const r = renderFields(f, values);
+  const credits =
+    t.creator || t.copyright || t.credit || t.usageTerms
+      ? {
+          creator: renderTemplate(t.creator, values),
+          copyright: renderTemplate(t.copyright, values),
+          credit: renderTemplate(t.credit, values),
+          usageTerms: renderTemplate(t.usageTerms, values),
+          replaceExisting: t.replaceExisting,
+        }
+      : undefined;
   return {
-    creator: renderTemplate(t.creator, values),
-    copyright: renderTemplate(t.copyright, values),
-    credit: renderTemplate(t.credit, values),
-    usageTerms: renderTemplate(t.usageTerms, values),
-    caption: renderTemplate(t.caption, values),
-    replaceExisting: t.replaceExisting,
+    credits,
+    fields: {
+      title: { value: r.title, rule: f.title.rule },
+      headline: { value: r.headline, rule: f.headline.rule },
+      caption: { value: r.caption, rule: f.caption.rule },
+      keywords: { values: r.keywords, rule: f.keywords.rule },
+    },
   };
 }
 
 /** `replacePlace`: the capture's region was just changed in Lifer, so the files' location fields
  *  are rewritten to match instead of only filled where empty. `replaceLabel`: the place name was
  *  just changed or removed, so a file's Sublocation is cleared when the capture has none. */
-export async function syncCaptureXmpSidecars(
+export async function syncCaptureXmpSidecars(userId: string, captureId: string, opts: SyncOptions = {}): Promise<void> {
+  const settings = await getFileWriteSettings(userId);
+  const write = await captureWriteData(userId, captureId, { ...opts, linked: settings.linkedFolders });
+  if (!write) return;
+  // One file failing (read-only, removed meanwhile) mustn't stop the others being written.
+  await Promise.all(
+    write.originals.map((o) =>
+      writeOriginalMetadata(o.ref, o.managed, { ...write.data, originalId: o.id }, settings).catch((err) =>
+        log.warn(
+          { captureId, ref: o.ref, err: err instanceof Error ? err.message : err },
+          "Couldn't write this capture's metadata into a file",
+        ),
+      ),
+    ),
+  );
+}
+
+// `linked`: linked files are listed too (fileWriting.ts gives them sidecars only).
+type SyncOptions = { replacePlace?: boolean; replaceLabel?: boolean; replaceGps?: boolean; linked?: boolean };
+
+/** Everything a write puts into a capture's managed files, and those files; null when it has none. */
+export async function captureWriteData(
   userId: string,
   captureId: string,
-  opts: { replacePlace?: boolean; replaceLabel?: boolean; replaceGps?: boolean } = {},
-): Promise<void> {
-  const originalsRes = await pool.query<{ ref: string }>(
-    `SELECT ref FROM originals WHERE capture_id = $1 AND managed = true`,
-    [captureId],
+  opts: SyncOptions = {},
+  saved?: CaptureTemplates,
+): Promise<{ originals: { id: string; ref: string; managed: boolean }[]; data: XmpSidecarData } | null> {
+  const originalsRes = await pool.query<{ id: string; ref: string; managed: boolean }>(
+    `SELECT id, ref, managed FROM originals WHERE capture_id = $1 AND (managed = true OR $2::boolean)`,
+    [captureId, opts.linked === true],
   );
-  if (originalsRes.rows.length === 0) return;
+  if (originalsRes.rows.length === 0) return null;
 
   const captureRes = await pool.query<{
     quality_rating: number | null;
@@ -71,7 +112,8 @@ export async function syncCaptureXmpSidecars(
     [captureId],
   );
   const capture = captureRes.rows[0];
-  if (!capture) return;
+  if (!capture) return null;
+  const templated = await captureTemplated(userId, captureId, saved);
 
   const isCover =
     capture.cover_photo_id != null &&
@@ -93,7 +135,7 @@ export async function syncCaptureXmpSidecars(
     [userId],
   );
 
-  const data = {
+  const data: XmpSidecarData = {
     species: speciesRes.rows,
     namingStyles: namingStyleRes.rows[0]?.species_naming_styles ?? [],
     // Unrated in Lifer but rejected in a culling app: the file's own rating stays, so a
@@ -118,21 +160,11 @@ export async function syncCaptureXmpSidecars(
     replaceGps: opts.replaceGps,
     // Without a name of its own in Lifer, a file's Sublocation (typed in Lightroom) stays.
     locationLabel: capture.location_label ?? (opts.replaceLabel ? null : undefined),
-    // The caption follows species and place changes, since every change comes through here.
-    credits: await captureCredits(userId, captureId),
+    // Title and caption follow species and place changes, since every change comes through here.
+    credits: templated?.credits,
+    fields: templated?.fields,
   };
-
-  // One file failing (read-only, removed meanwhile) mustn't stop the others being written.
-  await Promise.all(
-    originalsRes.rows.map((o) =>
-      writeCaptureMetadata(o.ref, data).catch((err) =>
-        log.warn(
-          { captureId, ref: o.ref, err: err instanceof Error ? err.message : err },
-          "Couldn't write this capture's metadata into a file",
-        ),
-      ),
-    ),
-  );
+  return { originals: originalsRes.rows, data };
 }
 
 // Best-effort variant for callers that shouldn't fail on a sidecar write, but where a failure
@@ -140,7 +172,7 @@ export async function syncCaptureXmpSidecars(
 export async function syncCaptureXmpSidecarsLogged(
   userId: string,
   captureId: string,
-  opts: { replacePlace?: boolean; replaceLabel?: boolean; replaceGps?: boolean } = {},
+  opts: SyncOptions = {},
 ): Promise<void> {
   try {
     await syncCaptureXmpSidecars(userId, captureId, opts);

@@ -5,6 +5,7 @@ import { Type } from "typebox";
 import { pool, withTransaction } from "@lifer/core/db.js";
 import { requireAuth } from "../auth/session.js";
 import { metadataGoesInFile, sidecarPathFor } from "../uploads/exif.js";
+import { fullSidecar } from "../uploads/sidecarNames.js";
 import { invalidateUserVectors } from "@lifer/core/species/embeddings.js";
 import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { repointCoversOffTrashedCaptures, restoreCoversForCapture, syncCollectedState } from "../lib/userSpecies.js";
@@ -229,8 +230,9 @@ export async function trashRoutes(fastify: FastifyInstance): Promise<void> {
   }
 
   // A RAW and its edited copy can share one stem.xmp; keep it while another file with that stem
-  // (a kept RAW, say) is still in the folder.
+  // (a kept RAW, say) is still in the folder. The full-name sidecar is the file's alone.
   async function removeSidecarIfUnshared(file: string): Promise<void> {
+    await removeFileQuietly(fullSidecar(file));
     if (metadataGoesInFile(file)) return;
     const dir = path.dirname(file);
     const stem = path.basename(file, path.extname(file));

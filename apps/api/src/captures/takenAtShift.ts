@@ -10,6 +10,7 @@ import { requireScope } from "../auth/session.js";
 import { createJob } from "../lib/job.js";
 import { scheduleTripRecordsSave } from "../lib/libraryRecords.js";
 import { shiftCaptureTime } from "../uploads/exif.js";
+import { getFileWriteSettings } from "../settings/fileWriteSettings.js";
 
 const MAX_IDS = 100_000;
 // About a century either way: anything larger is a typo.
@@ -75,6 +76,7 @@ export function startTakenAtShift(userId: string, captureIds: string[], minutes:
     async (ctx) => {
       const result: ShiftResult = { shifted: 0, undated: 0, filesFailed: 0 };
       const limit = createLimiter(4);
+      const fileSettings = await getFileWriteSettings(userId);
       for (let i = 0; i < ids.length; i += SHIFT_PAGE_SIZE) {
         ctx.throwIfCancelled();
         const page = ids.slice(i, i + SHIFT_PAGE_SIZE);
@@ -89,7 +91,7 @@ export function startTakenAtShift(userId: string, captureIds: string[], minutes:
         await Promise.all(
           files.rows.map((f) =>
             limit(() =>
-              shiftCaptureTime(f.ref, minutes).catch((err) => {
+              shiftCaptureTime(f.ref, minutes, fileSettings).catch((err) => {
                 result.filesFailed++;
                 log.warn({ ref: f.ref, err: err instanceof Error ? err.message : err }, "Couldn't shift a file's time");
               }),

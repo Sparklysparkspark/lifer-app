@@ -27,7 +27,8 @@ import {
   withSchemas,
 } from "../lib/schema.js";
 import { resolveOriginalPaths } from "../storageVolumes/resolve.js";
-import { sidecarPathFor, stripPreciseLocation } from "../uploads/exif.js";
+import { stripPreciseLocation } from "../uploads/exif.js";
+import { sidecarFor, sidecarNamesOf } from "../uploads/sidecarNames.js";
 import { getMetadataTemplate, sensitiveCapturesAmong } from "../settings/metadataSettings.js";
 import { captureFacts, templateValues } from "../uploads/templateVars.js";
 import { resolveSpeciesFolderName } from "../uploads/speciesFolderName.js";
@@ -214,15 +215,18 @@ async function runExport(ctx: JobContext<null, ExportExtra>, userId: string, alb
         const strip = strips.get(item.capture_id);
         plan.push({ source: r.path, dir, size, strip });
         if (!opts.include.sidecars) continue;
-        const sidecar = sidecarPathFor(r.path);
-        if (seen.has(sidecar)) continue;
-        const sidecarSize = await stat(sidecar).then(
-          (s) => (s.isFile() ? s.size : null),
-          () => null,
-        );
-        if (sidecarSize == null) continue;
-        seen.add(sidecar);
-        plan.push({ source: sidecar, dir, size: sidecarSize, sidecarOf: plan.length - 1, strip });
+        const fileIndex = plan.length - 1;
+        // Both names ("IMG_0001.xmp", "IMG_0001.CR3.xmp"), whichever exist.
+        for (const sidecar of sidecarNamesOf(r.path, false)) {
+          if (seen.has(sidecar)) continue;
+          const sidecarSize = await stat(sidecar).then(
+            (s) => (s.isFile() ? s.size : null),
+            () => null,
+          );
+          if (sidecarSize == null) continue;
+          seen.add(sidecar);
+          plan.push({ source: sidecar, dir, size: sidecarSize, sidecarOf: fileIndex, strip });
+        }
       }
     }
 
@@ -242,7 +246,7 @@ async function runExport(ctx: JobContext<null, ExportExtra>, userId: string, alb
       ctx.throwIfCancelled();
       const name =
         file.sidecarOf !== undefined
-          ? path.basename(sidecarPathFor(targets[file.sidecarOf]))
+          ? path.basename(sidecarFor(targets[file.sidecarOf], file.source, plan[file.sidecarOf].source))
           : path.basename(file.source);
       ctx.update({ currentItem: name });
       await mkdir(file.dir, { recursive: true });

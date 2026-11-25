@@ -2,8 +2,18 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { fileNamePreset, keepsOriginalName, renderTemplate, unknownTemplateVariables } from "@lifer/shared";
-import { creditTags, type FileCredits } from "./exif.js";
+import {
+  CAPTION_PRESETS,
+  DEFAULT_METADATA_FIELDS,
+  fileNamePreset,
+  keepsOriginalName,
+  renderFields,
+  renderKeywords,
+  renderTemplate,
+  unknownTemplateVariables,
+  type WriteRule,
+} from "@lifer/shared";
+import { creditTags, keywordPlan, textFieldPlan, type FileCredits } from "./exif.js";
 import { nextSeq, renderFileStem, stemPattern, templatedFileName } from "./templateVars.js";
 
 const full = {
@@ -115,20 +125,12 @@ describe("file names", () => {
 });
 
 describe("creditTags", () => {
-  const none: FileCredits = {
-    creator: null,
-    copyright: null,
-    credit: null,
-    usageTerms: null,
-    caption: null,
-    captionIsLifers: false,
-  };
+  const none: FileCredits = { creator: null, copyright: null, credit: null, usageTerms: null };
   const wanted = {
     creator: "Jane Doe",
     copyright: "© 2026 Jane Doe",
     credit: "",
     usageTerms: "",
-    caption: "Osprey, Alberta",
     replaceExisting: false,
   };
 
@@ -136,30 +138,131 @@ describe("creditTags", () => {
     const tags = creditTags(none, wanted, "embedded");
     expect(tags["XMP-dc:Creator"]).toEqual(["Jane Doe"]);
     expect(tags["IPTC:CopyrightNotice"]).toBe("© 2026 Jane Doe");
-    expect(tags["XMP-dc:Description"]).toBe("Osprey, Alberta");
     expect(tags["XMP-photoshop:Credit"]).toBeUndefined();
     expect(creditTags(none, wanted, "sidecar")["IPTC:By-line"]).toBeUndefined();
   });
 
-  it("never replaces the file's own creator, copyright or caption unless asked", () => {
-    const theirs = { ...none, creator: "Someone", copyright: "© Someone", caption: "Typed in Lightroom" };
+  it("never replaces the file's own creator or copyright unless asked", () => {
+    const theirs = { ...none, creator: "Someone", copyright: "© Someone" };
     expect(creditTags(theirs, wanted, "embedded")).toEqual({});
     const replaced = creditTags(theirs, { ...wanted, replaceExisting: true }, "embedded");
     expect(replaced["XMP-dc:Creator"]).toEqual(["Jane Doe"]);
-    // A caption typed elsewhere is kept even then.
-    expect(replaced["XMP-dc:Description"]).toBeUndefined();
   });
 
-  it("updates its own caption and writes nothing when the file already matches", () => {
-    const lifers = { ...none, caption: "Heron, Alberta", captionIsLifers: true };
-    expect(creditTags(lifers, wanted, "sidecar")["XMP-dc:Description"]).toBe("Osprey, Alberta");
-    const same = {
-      ...none,
-      creator: "Jane Doe",
-      copyright: "© 2026 Jane Doe",
-      caption: "Osprey, Alberta",
-      captionIsLifers: true,
-    };
-    expect(creditTags(same, wanted, "embedded")).toEqual({});
+  it("writes nothing when the file already matches", () => {
+    expect(creditTags({ ...none, creator: "Jane Doe", copyright: "© 2026 Jane Doe" }, wanted, "embedded")).toEqual({});
+  });
+});
+
+describe("textFieldPlan", () => {
+  const w = (rule: WriteRule, value = "Osprey") => ({ value, rule });
+
+  it("fills an empty field under every writing rule, and never writes when off or empty", () => {
+    for (const rule of ["fillEmpty", "replace", "append"] as const)
+      expect(textFieldPlan("", w(rule), undefined, false)).toEqual({ value: "Osprey", own: "Osprey", whole: true });
+    expect(textFieldPlan("", w("off"), undefined, false)).toBeNull();
+    expect(textFieldPlan("Heron", w("replace", ""), "Heron", false)).toBeNull();
+  });
+
+  it("replaces only Lifer's own value, by its record, else by the in-file marker", () => {
+    expect(textFieldPlan("Heron", w("replace"), "Heron", false)).toMatchObject({ value: "Osprey" });
+    // Edited after Lifer wrote it: kept, even when the marker says Lifer's.
+    expect(textFieldPlan("Heron at dusk", w("replace"), "Heron", true)).toBe("edited");
+    expect(textFieldPlan("Heron", w("replace"), undefined, true)).toMatchObject({ value: "Osprey" });
+    expect(textFieldPlan("Typed elsewhere", w("replace"), undefined, false)).toBe("edited");
+    expect(textFieldPlan("Osprey", w("replace"), undefined, false)).toMatchObject({ value: "Osprey" });
+  });
+
+  it("fills only empty fields with fillEmpty, its own earlier value included", () => {
+    expect(textFieldPlan("Heron", w("fillEmpty"), "Heron", false)).toBeNull();
+  });
+
+  it("appends after the file's own text once, swapping Lifer's earlier addition", () => {
+    const first = textFieldPlan("My trip", w("append"), undefined, false);
+    expect(first).toEqual({ value: "My trip Osprey", own: "Osprey", whole: false });
+    expect(textFieldPlan("My trip Osprey", w("append"), "Osprey", false)).toMatchObject({ value: "My trip Osprey" });
+    expect(textFieldPlan("My trip Heron", w("append"), "Heron", false)).toMatchObject({ value: "My trip Osprey" });
+    expect(textFieldPlan("My trip Osprey", w("append"), undefined, false)).toMatchObject({ value: "My trip Osprey" });
+    // Lifer's addition edited away: left alone.
+    expect(textFieldPlan("My trip, rewritten", w("append"), "Heron", false)).toBe("edited");
+  });
+});
+
+describe("keywordPlan", () => {
+  const want = (values: string[], rule: WriteRule = "replace") => ({ values, rule });
+
+  it("adds extra keywords, and swaps Lifer's earlier ones while they're all still there", () => {
+    expect(keywordPlan({ flat: ["sunset"], all: ["sunset"] }, want(["Canada"]), undefined)).toEqual({
+      add: ["Canada"],
+      drop: [],
+      own: ["Canada"],
+    });
+    const kept = { flat: ["sunset", "Canada"], all: ["sunset", "Canada"] };
+    expect(keywordPlan(kept, want(["Alberta"]), ["Canada"])).toEqual({
+      add: ["Alberta"],
+      drop: ["Canada"],
+      own: ["Alberta"],
+    });
+    // Someone removed Lifer's keyword: the extras are left as they are.
+    expect(keywordPlan({ flat: ["sunset"], all: ["sunset"] }, want(["Alberta"]), ["Canada"])).toBe("edited");
+  });
+
+  it("never claims a keyword the file had before", () => {
+    const kept = { flat: ["Canada"], all: ["Canada"] };
+    expect(keywordPlan(kept, want(["Canada"]), undefined)).toEqual({ add: [], drop: [], own: [] });
+  });
+
+  it("follows fillEmpty, append and off", () => {
+    expect(keywordPlan({ flat: ["sunset"], all: ["sunset"] }, want(["Canada"], "fillEmpty"), undefined)).toBeNull();
+    expect(keywordPlan({ flat: [], all: [] }, want(["Canada"], "fillEmpty"), undefined)).toMatchObject({
+      add: ["Canada"],
+    });
+    expect(keywordPlan({ flat: ["Canada"], all: ["Canada"] }, want(["Alberta"], "append"), ["Canada"])).toEqual({
+      add: ["Alberta"],
+      drop: [],
+      own: ["Canada", "Alberta"],
+    });
+    expect(keywordPlan({ flat: [], all: [] }, want(["Canada"], "off"), undefined)).toBeNull();
+  });
+});
+
+describe("field templates", () => {
+  const values = {
+    species: "Griffon Vulture",
+    names: "Griffon Vulture, Osprey",
+    count: "2",
+    longdate: "12 May 2024",
+    focal: "600mm",
+    aperture: "f/4",
+    family: "Accipitridae",
+    country: "Spain",
+  };
+
+  it("defaults to what Lifer wrote before templates: the names as the title, nothing else", () => {
+    const r = renderFields(DEFAULT_METADATA_FIELDS, values);
+    expect(r).toEqual({ title: "Griffon Vulture, Osprey", headline: "", caption: "", keywords: [] });
+  });
+
+  it("renders the caption preset, dropping wording around a missing value", () => {
+    expect(renderTemplate(CAPTION_PRESETS.imageOf, values)).toBe(
+      "An image of a Griffon Vulture taken on 12 May 2024 with a 600mm f/4",
+    );
+    expect(renderTemplate(CAPTION_PRESETS.imageOf, { ...values, species: "Osprey", focal: null })).toBe(
+      "An image of an Osprey taken on 12 May 2024",
+    );
+    expect(renderTemplate("a {species}", { species: "European Robin" })).toBe("a European Robin");
+    expect(renderTemplate("a {species}", { species: "Upland Sandpiper" })).toBe("an Upland Sandpiper");
+  });
+
+  it("keeps square brackets that aren't doubled as they were", () => {
+    expect(renderTemplate("{species} [{family}]", values)).toBe("Griffon Vulture [Accipitridae]");
+  });
+
+  it("splits extra keywords, each filled on its own", () => {
+    expect(renderKeywords("{family}, {place}; {country}, Wildlife, {family}", values)).toEqual([
+      "Accipitridae",
+      "Spain",
+      "Wildlife",
+    ]);
   });
 });

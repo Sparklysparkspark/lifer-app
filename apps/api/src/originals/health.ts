@@ -26,7 +26,7 @@ const START_DELAY_MS = 3 * 60_000;
 const RERUN_MS = 6 * 60 * 60_000;
 const IMPORT_QUIET_MS = 60_000;
 // Jobs that add, move or rewrite originals; a check mid-move would see a file as missing.
-const BUSY_JOB = /^(trip-|library-reimport|reorganize-originals|refile-originals|storage-move)/;
+const BUSY_JOB = /^(trip-|library-reimport|reorganize-originals|refile-originals|storage-move|apply-file-writing)/;
 
 // Every 90 days; a missing or unreadable file daily, so one that comes back clears soon.
 const DUE = `(o.checked_at IS NULL OR o.checked_at < now() - interval '90 days'
@@ -81,6 +81,8 @@ async function inspect(filePath: string): Promise<Outcome> {
   try {
     const before = await stat(filePath);
     const hash = await computeContentHash(filePath);
+    // Written while hashing (Lifer's own keyword write, say): the hash is of neither version.
+    if ((await stat(filePath)).mtimeMs !== before.mtimeMs) return { kind: "skip" };
     return { kind: "read", hash, mtime: before.mtime, size: before.size };
   } catch (err) {
     if (errorCode(err) !== "ENOENT") return { kind: "gone", health: "unreadable" };

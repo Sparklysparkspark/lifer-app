@@ -21,6 +21,7 @@ import {
 } from "../../lib/plugins";
 import { SUGGESTED_APPS, setShowSuggestedApps, useShowSuggestedApps } from "../../lib/suggestedApps";
 import { SettingRow, SettingsGroup } from "./shared";
+import WorksWithApps from "./WorksWithApps";
 
 type Key = ApiResponse<"/api-keys">["keys"][number];
 type AppChange = ApiResponse<"/changes/apps">["changes"][number];
@@ -241,6 +242,7 @@ export default function ConnectedAppsSettings() {
           />
         </SettingsGroup>
       )}
+      <WorksWithApps />
       <SettingsGroup title={t("connectedApps.paired")}>
         {keys !== null && keys.length === 0 && grants.length === 0 && <SettingRow label={t("connectedApps.none")} />}
         {keys?.map((k) => (

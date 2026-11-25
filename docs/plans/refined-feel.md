@@ -236,6 +236,28 @@ Work packages:
 - **RF-I1** (Opus, M, research then build): Apple Photos keyword write-back on macOS. Decide Photos scripting vs PhotoKit, permissions prompt, what happens when the photo is not in the Photos library. Held until RF-K1 and RF-K2 land so it reuses the template engine and the "only touch what we wrote" record.
 - **RF-I2** (Sonnet, S): Settings > Connected apps shows each supported app with a one-line how-to (Lightroom plug-in, Photos, folders and sidecars), reusing the shared components.
 
+### RF-I0 results and gaps (2026-11-24)
+
+Audit done; the per-app table is in `docs/docs/guides/other-apps-and-keywords.md`. Sources: Adobe Bridge, Lightroom Classic and Camera Raw help pages, Cyme's Peakto guides, DxO forum threads (DxO's own support pages returned 403), Apple developer docs and forums. Nothing was tested against the real apps, so DxO and Peakto rows are from documentation and user reports.
+
+Correction to the starting assumption: `lr:HierarchicalSubject` is already written (`writeLiferMetadataNow` in `uploads/exif.ts`, as `Species|Class|Family|Name` and `Lifer Tags|tag`), alongside `dc:Subject` and, in files, `IPTC:Keywords`. Real code gaps:
+
+1. **Sidecar naming:** Lifer writes only `IMG_0001.xmp` (`sidecarPathFor`). Lightroom, Bridge and Camera Raw use that name. digiKam, Capture One and probably DxO use `IMG_0001.CR3.xmp`. Lifer reads both, writes one. Option: an extra setting or writing both for RAW when the second already exists.
+2. **No in-file write toggle:** JPEG, TIFF, PNG, DNG, WebP and HEIC always get in-file writes and RAW always gets a sidecar (`metadataGoesInFile`). There is no setting to leave originals untouched or to write sidecars only. Another worker owns the metadata settings, so it is not touched here.
+3. **Linked folders get nothing:** only `managed` originals are written, so Folders, Bridge and Peakto users with linked libraries see no Lifer keywords. A "write sidecars next to linked files" opt-in would close this; it conflicts with the read-only promise, so it needs a decision.
+4. **Apple Photos:** keywords in already imported photos can't change (see RF-I1).
+5. **DxO PhotoLab:** keyword reading from RAW XMP sidecars is unconfirmed and PhotoLab keeps keywords in `.dop`. Needs a real test with PhotoLab before promising support.
+6. **Peakto:** XMP round trip only works for watched folders, and a Lightroom conflict was reported when both write. Needs a real test.
+7. **Fixed keyword tree layout:** covered by RF-K1/RF-K4 (detail level, root name, thesaurus).
+
+### RF-I1 research: Apple Photos write-back (macOS)
+
+- **PhotoKit** (`PHPhotoLibrary`, `PHAssetChangeRequest`): changes cover favorite, hidden, creation date, location and similar. Keywords exist only on the read side (`PHAssetExtendedMetadata`). No documented keyword write, so PhotoKit can't do it. It also needs the Photos usage permission (NSPhotoLibraryUsageDescription, and read/write access level) in the app's Info.plist and a user prompt.
+- **AppleScript or JXA on the Photos app:** `media item` has a writable `keywords` property (read the list, append, set it back), plus name and description. This is the only route in the results that works. It needs the Automation permission (NSAppleEventsUsageDescription and the `com.apple.security.automation.apple-events` entitlement under the hardened runtime), prompted once per controlling app. Reports: add a short delay between items, large selections can fail with error -10000, and Photos must be running. Tauri can run it through `osascript` from a Rust command.
+- **Sandbox:** the Lifer desktop app is not sandboxed, so no sandbox entitlement is needed, only the Automation prompt. A Mac App Store build would need the Apple Events temporary exception.
+- **Matching a photo to a Photos item:** Photos has no stable file path. Match by the Photos `original filename` plus capture date, or by a Lifer-added marker. If the photo isn't in the Photos library, do nothing, never import silently.
+- **Recommendation:** an opt-in, macOS-only "Add keywords in Apple Photos" action using AppleScript, writing only keywords Lifer owns (reusing the RF-K2 written-values record). Fallback that needs no permission: an "Export for Photos" folder of JPEGs carrying keywords, which Photos reads at import. Not verified on a real Photos library.
+
 ## Decisions for you
 
 1. **Photo-filled cards: the new default, or a View option?** Recommend the default at medium and large sizes, classic layout kept for the smallest size. Two card styles as a user option would double the screenshot matrix.

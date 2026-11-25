@@ -3,7 +3,7 @@
 // source only once the copy is proven identical, and nothing here replaces an existing file.
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { link, mkdir, readdir, readlink, rename, rm, stat, symlink } from "node:fs/promises";
+import { link, mkdir, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ensureRoom } from "@lifer/core/lib/freeSpace.js";
 import { log } from "@lifer/core/lib/log.js";
@@ -22,6 +22,12 @@ export async function renameOriginal(from: string, to: string): Promise<void> {
   guard(from, to);
   if (existsSync(to) && !(await stat(to)).isDirectory()) throw Object.assign(new Error("exists"), { code: "EEXIST" });
   await rename(from, to);
+}
+
+/** Creates a new small file (a sidecar beside a linked photo). Never replaces one: EEXIST throws. */
+export async function createSidecarFile(file: string, contents: string): Promise<void> {
+  guard(file);
+  await writeFile(file, contents, { flag: "wx" });
 }
 
 export async function removeOriginal(file: string): Promise<void> {

@@ -6,9 +6,10 @@ import { copyFile, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { ExifTool } from "exiftool-vendored";
 import sharp from "sharp";
-import { TAXON_CLASS_LABEL, type TaxonClass } from "@lifer/shared";
+import { TAXON_CLASS_LABEL, type TaxonClass, type TemplatedField, type WriteRule } from "@lifer/shared";
 import { pool } from "@lifer/core/db.js";
 import { composeSpeciesName } from "./speciesFolderName.js";
+import { DEFAULT_FILE_WRITE, sidecarsToWrite, type FileWriteSettings } from "./sidecarNames.js";
 
 // The library's default caps exiftool processes at a quarter of the cores; an import burst is
 // latency-sensitive, so this instance uses every core.
@@ -383,19 +384,34 @@ export interface XmpSidecarData {
   replaceGps?: boolean;
   /** The place name, as IPTC Sublocation. undefined leaves the file's as it is; null clears it. */
   locationLabel?: string | null;
-  /** The user's copyright and caption template, filled for this photo. */
+  /** The user's copyright template, filled for this photo. */
   credits?: PhotoCredits;
+  /** Title, Headline, Caption and extra keywords filled from the user's templates. Without it the
+   *  title names every species and nothing else templated is written. */
+  fields?: TemplatedWrites;
+  /** The originals row, so what Lifer writes is recorded and only Lifer's own values are replaced. */
+  originalId?: string;
 }
 
-/** Creator, rights and caption as written into a file. Empty strings write nothing. */
+/** Creator and rights as written into a file. Empty strings write nothing. */
 export interface PhotoCredits {
   creator: string;
   copyright: string;
   credit: string;
   usageTerms: string;
-  caption: string;
   /** Write over a creator, copyright, credit or usage terms the file already has. */
   replaceExisting: boolean;
+}
+
+export interface FieldWrite {
+  value: string;
+  rule: WriteRule;
+}
+export interface TemplatedWrites {
+  title: FieldWrite;
+  headline: FieldWrite;
+  caption: FieldWrite;
+  keywords: { values: string[]; rule: WriteRule };
 }
 
 // A standalone ".xmp" sidecar (created fresh if it doesn't exist) carrying what Lifer knows about
@@ -409,9 +425,22 @@ export async function writeXmpSidecar(imagePath: string, data: XmpSidecarData): 
 /** Writes Lifer's tags where other tools look for them: inside a JPEG/TIFF/PNG/DNG, in a
  * sidecar for a RAW. Used for every change a capture's metadata carries (species, rating,
  * cover). */
-export async function writeCaptureMetadata(imagePath: string, data: XmpSidecarData): Promise<void> {
-  if (metadataGoesInFile(imagePath)) await writeLiferMetadata(imagePath, data, "embedded");
-  else await writeXmpSidecar(imagePath, data);
+export async function writeCaptureMetadata(
+  imagePath: string,
+  data: XmpSidecarData,
+  settings: FileWriteSettings = DEFAULT_FILE_WRITE,
+): Promise<void> {
+  const embeds = metadataGoesInFile(imagePath);
+  if (embeds && settings.insideFiles) await writeLiferMetadata(imagePath, data, "embedded");
+  else
+    await Promise.all(
+      (await sidecarsToWrite(imagePath, embeds, settings.sidecarNames)).map((p) => writeSidecarFile(p, data)),
+    );
+}
+
+/** Writes Lifer's tags into the sidecar at `sidecarPath`, created when missing. */
+export function writeSidecarFile(sidecarPath: string, data: XmpSidecarData): Promise<void> {
+  return writeLiferMetadata(sidecarPath, data, "sidecar");
 }
 
 // Every capture-time tag a camera or Lightroom may have put in a JPEG/TIFF/DNG. Each moves by the
@@ -427,9 +456,14 @@ const CAPTURE_TIME_TAGS = [
 /** Moves the capture time where other tools read it, by `minutes` (negative moves it earlier): in
  *  the file for a JPEG/TIFF/DNG, in the sidecar for a RAW or video, never inside the RAW itself.
  *  A file with no capture time is left as it is. Shifting back by the same amount undoes it. */
-export function shiftCaptureTime(imagePath: string, minutes: number): Promise<void> {
+export async function shiftCaptureTime(
+  imagePath: string,
+  minutes: number,
+  settings: FileWriteSettings = DEFAULT_FILE_WRITE,
+): Promise<void> {
   const shift = `${minutes < 0 ? "-" : "+"}0:0:0 0:${Math.abs(minutes)}:0`;
-  if (metadataGoesInFile(imagePath)) {
+  const embeds = metadataGoesInFile(imagePath);
+  if (embeds && settings.insideFiles) {
     return queuedWrite(imagePath, async () => {
       await exiftool.write(
         imagePath,
@@ -447,7 +481,11 @@ export function shiftCaptureTime(imagePath: string, minutes: number): Promise<vo
       );
     });
   }
-  const sidecar = sidecarPathFor(imagePath);
+  const sidecars = await sidecarsToWrite(imagePath, embeds, settings.sidecarNames);
+  await Promise.all(sidecars.map((sidecar) => shiftSidecarTime(imagePath, sidecar, shift)));
+}
+
+function shiftSidecarTime(imagePath: string, sidecar: string, shift: string): Promise<void> {
   return queuedWrite(sidecar, async () => {
     // A sidecar that already carries a time (an earlier shift) moves that one, so a shift back
     // returns it exactly; otherwise it starts from the camera's own time.
@@ -484,6 +522,8 @@ interface LiferTags {
   /** Written only into a file with no capture time of its own (a date set in Lifer). */
   takenAt?: Date | null;
   credits?: PhotoCredits;
+  fields?: TemplatedWrites;
+  originalId?: string;
 }
 
 /** Where a photo was taken, as names: the photo's region's province or state, and country. */
@@ -525,10 +565,28 @@ function queuedWrite(target: string, write: () => Promise<void>): Promise<void> 
   return next;
 }
 
-// Every species in the photo is written; species[0] is the primary for the title. namingStyles only
-// changes the title and hierarchy label: Keywords keep the plain common and scientific names,
+// Every species in the photo is written; species[0] is the primary. namingStyles only changes the
+// hierarchy label (and the default title): Keywords keep the plain common and scientific names,
 // which reimport matching relies on, with codes added as extra keywords.
 async function writeLiferMetadataNow(target: string, data: LiferTags, mode: "embedded" | "sidecar"): Promise<void> {
+  const plan = await planLiferWrite(target, data, mode);
+  await exiftool.write(target, plan.tags, { writeArgs: ["-overwrite_original"] });
+  if (plan.slot) await recordWritten(data.originalId!, plan.slot, plan.written);
+}
+
+interface WritePlan {
+  tags: Record<string, unknown>;
+  /** Lifer's own value per templated field, to record once written. */
+  written: Written;
+  /** Templated fields left alone because someone else edited them. */
+  edited: TemplatedField[];
+  /** True when the credits or templated fields would change the file. */
+  templatedChange: boolean;
+  /** Where Lifer's record for this file lives; null without one. */
+  slot: WriteSlot | null;
+}
+
+async function planLiferWrite(target: string, data: LiferTags, mode: "embedded" | "sidecar"): Promise<WritePlan> {
   const labels = data.species.map((m) =>
     composeSpeciesName(
       m.commonName,
@@ -554,20 +612,63 @@ async function writeLiferMetadataNow(target: string, data: LiferTags, mode: "emb
       .join("|"),
   );
   const kept = await keywordsToKeep(target);
-  const photoTags = data.tags ?? kept.liferTags;
-  const subject = [...new Set([...kept.flat, ...ours, ...photoTags])];
-  const hierarchical = [...new Set([...kept.hierarchical, ...ourHierarchies, ...photoTags.map(tagMarker)])];
-  const title = labels.join(", ");
-
-  const tags: Record<string, unknown> = {
-    "XMP-dc:Subject": subject,
-    "XMP-lr:HierarchicalSubject": hierarchical,
-    "XMP-dc:Title": title,
+  const fields: TemplatedWrites = data.fields ?? {
+    title: { value: labels.join(", "), rule: "replace" },
+    headline: { value: "", rule: "off" },
+    caption: { value: "", rule: "off" },
+    keywords: { values: [], rule: "off" },
   };
-  if (mode === "embedded") {
-    tags["IPTC:Keywords"] = subject;
-    tags["IPTC:ObjectName"] = title;
+  const record = data.originalId ? await readWritten(data.originalId, target) : null;
+  const slot = record?.slot ?? null;
+  const recorded = record?.written ?? {};
+  const written: Written = {};
+  const edited: TemplatedField[] = [];
+  const tags: Record<string, unknown> = {};
+
+  const extras = keywordPlan(kept, fields.keywords, recorded.keywords as string[] | undefined);
+  if (extras === "edited") edited.push("keywords");
+  else if (extras) written.keywords = extras.own;
+  const flat = extras && extras !== "edited" ? kept.flat.filter((k) => !extras.drop.includes(k)) : kept.flat;
+  const photoTags = data.tags ?? kept.liferTags;
+  const subject = [...new Set([...flat, ...ours, ...(extras && extras !== "edited" ? extras.add : []), ...photoTags])];
+  const hierarchical = [...new Set([...kept.hierarchical, ...ourHierarchies, ...photoTags.map(tagMarker)])];
+  tags["XMP-dc:Subject"] = subject;
+  tags["XMP-lr:HierarchicalSubject"] = hierarchical;
+  if (mode === "embedded") tags["IPTC:Keywords"] = subject;
+  let templatedChange =
+    !!extras && extras !== "edited" && (extras.drop.length > 0 || extras.add.some((k) => !kept.all.includes(k)));
+
+  // Title, Headline and Caption go into XMP and, inside a file, IPTC (and EXIF for the caption)
+  // together, so every app reads the same text.
+  const TEXT_TAGS: Record<"title" | "headline" | "caption", { xmp: string; file: string[] }> = {
+    title: { xmp: "XMP-dc:Title", file: ["IPTC:ObjectName"] },
+    headline: { xmp: "XMP-photoshop:Headline", file: ["IPTC:Headline"] },
+    caption: { xmp: "XMP-dc:Description", file: ["IPTC:Caption-Abstract", "EXIF:ImageDescription"] },
+  };
+  for (const field of ["title", "headline", "caption"] as const) {
+    const have = kept.fields[field];
+    const own = recorded[field] as string | undefined;
+    const fallback =
+      field === "caption"
+        ? kept.fields.captionIsLifers
+        : field === "title" && own === undefined && have !== "" && have !== fields.title.value
+          ? await looksLikeLifersTitle(have)
+          : false;
+    const plan = textFieldPlan(have, fields[field], own, fallback);
+    if (plan === "edited") edited.push(field);
+    if (!plan || plan === "edited") continue;
+    written[field] = plan.own;
+    if (plan.value === have) continue;
+    templatedChange = true;
+    tags[TEXT_TAGS[field].xmp] = plan.value;
+    if (mode === "embedded") for (const t of TEXT_TAGS[field].file) tags[t] = plan.value;
+    // Marks a caption that is all Lifer's, for files read without Lifer's record.
+    if (field === "caption" && plan.whole) {
+      tags["XMP-photoshop:CaptionWriter"] = CAPTION_WRITER;
+      if (mode === "embedded") tags["IPTC:Writer-Editor"] = CAPTION_WRITER;
+    }
   }
+
   // Province and country names, never coordinates: a region says where, not a point. Only empty
   // fields are filled, so a location typed in Lightroom (or a camera's own) is never replaced,
   // unless the region was just changed in Lifer, which the file then follows.
@@ -598,7 +699,11 @@ async function writeLiferMetadataNow(target: string, data: LiferTags, mode: "emb
     // UTC wall clock with no zone: how captureTimeFromTags reads an unzoned date back.
     tags["EXIF:DateTimeOriginal"] = data.takenAt.toISOString().slice(0, 19).replace("T", " ").replace(/-/g, ":");
   }
-  if (data.credits) Object.assign(tags, creditTags(kept.credits, data.credits, mode));
+  if (data.credits) {
+    const credits = creditTags(kept.credits, data.credits, mode);
+    if (Object.keys(credits).length > 0) templatedChange = true;
+    Object.assign(tags, credits);
+  }
   if (data.rating !== undefined) tags["XMP-xmp:Rating"] = data.rating; // null deletes it
   if (data.replaceGps) {
     // null deletes. EXIF keeps the hemisphere in a separate Ref; XMP takes the signed value.
@@ -617,7 +722,105 @@ async function writeLiferMetadataNow(target: string, data: LiferTags, mode: "emb
     if (data.lat != null) tags["XMP-exif:GPSLatitude"] = data.lat;
     if (data.lon != null) tags["XMP-exif:GPSLongitude"] = data.lon;
   }
-  await exiftool.write(target, tags, { writeArgs: ["-overwrite_original"] });
+  return { tags, written, edited, templatedChange, slot };
+}
+
+/** Lifer's own value per templated field: text, or the extra keywords it added. */
+export type Written = Partial<Record<TemplatedField, string | string[]>>;
+
+type WriteSlot = "file" | "stem" | "full";
+
+/** Which of an original's files `target` is (the file itself, or its "IMG.CR3.xmp" or "IMG.xmp"
+ *  sidecar), and what Lifer last wrote there. Null when the original is gone. */
+async function readWritten(originalId: string, target: string): Promise<{ slot: WriteSlot; written: Written } | null> {
+  const res = await pool.query<{
+    ref: string;
+    slot: WriteSlot | null;
+    field: TemplatedField;
+    value: string | string[];
+  }>(
+    `SELECT o.ref, w.slot, w.field, w.value
+       FROM originals o LEFT JOIN capture_written_metadata w ON w.original_id = o.id
+      WHERE o.id = $1`,
+    [originalId],
+  );
+  const ref = res.rows[0]?.ref;
+  if (!ref) return null;
+  const slot: WriteSlot = target === ref ? "file" : target === `${ref}.xmp` ? "full" : "stem";
+  const rows = res.rows.filter((r) => r.slot === slot);
+  return { slot, written: Object.fromEntries(rows.map((r) => [r.field, r.value])) };
+}
+
+async function recordWritten(originalId: string, slot: WriteSlot, written: Written): Promise<void> {
+  if (Object.keys(written).length === 0) return;
+  await pool.query(
+    `INSERT INTO capture_written_metadata (original_id, slot, field, value)
+     SELECT $1, $2, key, value FROM jsonb_each($3::jsonb)
+     ON CONFLICT (original_id, slot, field) DO UPDATE SET value = EXCLUDED.value, written_at = now()`,
+    [originalId, slot, JSON.stringify(written)],
+  );
+}
+
+/** What to write into one text field. `own` is what Lifer last wrote there (undefined: no record,
+ *  so `fallback` says whether the file's value is Lifer's from its in-file marker). Null writes
+ *  nothing; "edited" means the value is someone else's and stays. `whole`: the field is all Lifer's. */
+export function textFieldPlan(
+  have: string,
+  want: FieldWrite,
+  own: string | undefined,
+  fallback: boolean,
+): { value: string; own: string; whole: boolean } | "edited" | null {
+  if (want.rule === "off" || want.value === "") return null;
+  const lifers = have === "" || (own === undefined ? fallback : have === own);
+  const whole = { value: want.value, own: want.value, whole: true };
+  if (want.rule === "fillEmpty") return have === "" ? whole : null;
+  if (lifers) return whole;
+  if (want.rule === "replace") return have === want.value ? whole : "edited";
+  // append: after the file's own text, swapping Lifer's earlier addition when it's still there.
+  if (own !== undefined && have.endsWith(` ${own}`))
+    return { value: `${have.slice(0, -own.length - 1)} ${want.value}`, own: want.value, whole: false };
+  if (own === undefined) {
+    const value = have.endsWith(want.value) ? have : `${have} ${want.value}`;
+    return { value, own: want.value, whole: false };
+  }
+  return "edited";
+}
+
+/** The extra keywords to add and drop. Lifer's earlier ones (`recorded`) are swapped only while
+ *  they're all still in the file; a removed one means someone edited them. */
+export function keywordPlan(
+  kept: { flat: string[]; all: string[] },
+  want: { values: string[]; rule: WriteRule },
+  recorded: string[] | undefined,
+): { add: string[]; drop: string[]; own: string[] } | "edited" | null {
+  if (want.rule === "off" || (want.values.length === 0 && !recorded?.length)) return null;
+  const prior = recorded ?? [];
+  const intact = prior.every((k) => kept.all.includes(k));
+  if (want.rule === "append") {
+    const add = want.values.filter((k) => !kept.all.includes(k));
+    return { add, drop: [], own: [...new Set([...prior.filter((k) => kept.all.includes(k)), ...add])] };
+  }
+  if (!intact) return "edited";
+  const others = kept.flat.filter((k) => !prior.includes(k));
+  if (want.rule === "fillEmpty" && others.length > 0) return null;
+  // One already in the file before Lifer's is the user's, so it's never recorded as Lifer's.
+  const add = want.values.filter((k) => !others.includes(k));
+  const drop = prior.filter((k) => !add.includes(k));
+  return { add, drop, own: add };
+}
+
+/** A title from before Lifer kept a record is Lifer's when every part of it is a species name,
+ *  code or rank, as the naming styles compose them. */
+async function looksLikeLifersTitle(title: string): Promise<boolean> {
+  const parts = [...new Set(title.split(/[,()/]/).map((p) => p.trim().toLowerCase()))].filter(Boolean);
+  if (parts.length === 0) return false;
+  const res = await pool.query<{ k: string }>(
+    `SELECT DISTINCT lower(k) AS k
+       FROM species, unnest(ARRAY[common_name, scientific_name, aba_code, ebird_code, taxon_class, taxon_order, family]) AS k
+      WHERE k IS NOT NULL AND lower(k) = ANY($1)`,
+    [parts],
+  );
+  return res.rows.length === parts.length;
 }
 
 /** The photo tags Lifer wrote into a file (its "Lifer Tags|..." keywords), so a reimport brings
@@ -650,32 +853,52 @@ interface LocationFilled {
 }
 const NO_LOCATION: LocationFilled = { state: false, country: false, countryCode: false };
 
-async function keywordsToKeep(target: string): Promise<{
+/** A file's Title, Headline and Caption as other apps show them. */
+interface FileFields {
+  title: string;
+  headline: string;
+  caption: string;
+  /** Lifer wrote the caption (its Description Writer), for files from before Lifer's record. */
+  captionIsLifers: boolean;
+}
+const NO_FIELDS: FileFields = { title: "", headline: "", caption: "", captionIsLifers: false };
+// Unreadable reads as someone else's text, so nothing is written over what couldn't be seen.
+const UNREADABLE_FIELDS: FileFields = { title: "?", headline: "?", caption: "?", captionIsLifers: false };
+
+function fileFieldsFromTags(raw: Record<string, unknown>): FileFields {
+  return {
+    title: firstText(raw, "Title", "ObjectName") ?? "",
+    headline: firstText(raw, "Headline") ?? "",
+    caption: firstText(raw, "Description", "Caption-Abstract", "ImageDescription") ?? "",
+    captionIsLifers: firstText(raw, "CaptionWriter", "Writer-Editor") === CAPTION_WRITER,
+  };
+}
+
+interface KeptMetadata {
   flat: string[];
+  /** Every plain keyword in the file, species names included. */
+  all: string[];
   hierarchical: string[];
   liferTags: string[];
   location: LocationFilled;
   cameraDated: boolean;
   credits: FileCredits;
-}> {
+  fields: FileFields;
+}
+
+async function keywordsToKeep(target: string): Promise<KeptMetadata> {
+  const none = { flat: [], all: [], hierarchical: [], liferTags: [], location: NO_LOCATION, cameraDated: true };
   // Unreadable counts as dated, so a date is never written over one we couldn't see.
-  if (!(await exists(target)))
-    return { flat: [], hierarchical: [], liferTags: [], location: NO_LOCATION, cameraDated: true, credits: NO_CREDITS };
+  if (!(await exists(target))) return { ...none, credits: NO_CREDITS, fields: NO_FIELDS };
   let raw: Record<string, unknown>;
   try {
     raw = asTagRecord(await exiftool.read(target));
   } catch {
     // Unreadable counts as filled too, so nothing is written over what couldn't be seen.
-    return {
-      flat: [],
-      hierarchical: [],
-      liferTags: [],
-      location: NO_LOCATION,
-      cameraDated: true,
-      credits: UNREADABLE_CREDITS,
-    };
+    return { ...none, credits: UNREADABLE_CREDITS, fields: UNREADABLE_FIELDS };
   }
   const credits = fileCreditsFromTags(raw);
+  const fields = fileFieldsFromTags(raw);
   // Cameras write CreateDate beside DateTimeOriginal; Lifer writes only DateTimeOriginal, so one
   // without CreateDate is Lifer's own (or a scan's) and may be corrected.
   const cameraDated = captureTimeFromTags(raw) !== null && raw.CreateDate != null;
@@ -696,7 +919,8 @@ async function keywordsToKeep(target: string): Promise<{
   const hierarchical = allHierarchical.filter(
     (h) => !h.startsWith(`${SPECIES_ROOT}|`) && !h.startsWith(`${SPECIES_ROOT}/`) && !markers.has(h),
   );
-  if (flat.length === 0) return { flat, hierarchical, liferTags, location, cameraDated, credits };
+  const all = flat;
+  if (flat.length === 0) return { flat, all, hierarchical, liferTags, location, cameraDated, credits, fields };
   const speciesWords = await pool.query<{ k: string }>(
     `SELECT DISTINCT lower(k) AS k FROM species, unnest(ARRAY[common_name, scientific_name, aba_code, ebird_code]) AS k
      WHERE k IS NOT NULL AND lower(k) = ANY($1)`,
@@ -705,47 +929,37 @@ async function keywordsToKeep(target: string): Promise<{
   const species = new Set(speciesWords.rows.map((r) => r.k));
   return {
     flat: flat.filter((k) => !species.has(k.toLowerCase())),
+    all,
     hierarchical,
     liferTags,
     location,
     cameraDated,
     credits,
+    fields,
   };
 }
 
-/** What a file already says about who made it, and its caption. */
+/** What a file already says about who made it. */
 export interface FileCredits {
   creator: string | null;
   copyright: string | null;
   credit: string | null;
   usageTerms: string | null;
-  caption: string | null;
-  /** Lifer wrote the caption (its Description Writer), so it may follow the photo's changes. */
-  captionIsLifers: boolean;
 }
-const NO_CREDITS: FileCredits = {
-  creator: null,
-  copyright: null,
-  credit: null,
-  usageTerms: null,
-  caption: null,
-  captionIsLifers: false,
-};
-const UNREADABLE_CREDITS: FileCredits = {
-  creator: "?",
-  copyright: "?",
-  credit: "?",
-  usageTerms: "?",
-  caption: "?",
-  captionIsLifers: false,
-};
+const NO_CREDITS: FileCredits = { creator: null, copyright: null, credit: null, usageTerms: null };
+const UNREADABLE_CREDITS: FileCredits = { creator: "?", copyright: "?", credit: "?", usageTerms: "?" };
 // Marks a caption as Lifer's (IPTC Description Writer), so one typed in another app is kept.
 const CAPTION_WRITER = "Lifer";
 
 function firstText(raw: Record<string, unknown>, ...keys: string[]): string | null {
   for (const k of keys) {
     const v = raw[k];
-    const text = Array.isArray(v) ? v.map(String).join("; ") : typeof v === "string" ? v : null;
+    // exiftool reads an all-digit title ("2024") as a number.
+    const text = Array.isArray(v)
+      ? v.map(String).join("; ")
+      : typeof v === "string" || typeof v === "number"
+        ? String(v)
+        : null;
     if (text?.trim()) return text.trim();
   }
   return null;
@@ -757,14 +971,11 @@ function fileCreditsFromTags(raw: Record<string, unknown>): FileCredits {
     copyright: firstText(raw, "Rights", "CopyrightNotice", "Copyright"),
     credit: firstText(raw, "Credit"),
     usageTerms: firstText(raw, "UsageTerms"),
-    caption: firstText(raw, "Description", "Caption-Abstract", "ImageDescription"),
-    captionIsLifers: firstText(raw, "CaptionWriter", "Writer-Editor") === CAPTION_WRITER,
   };
 }
 
-/** The credit and caption tags to write over what the file has: only values that differ, never
- *  over a creator or copyright of the file's own unless `replaceExisting`, and a caption only
- *  where the file has none or Lifer wrote it. Empty when the file already matches. */
+/** The credit tags to write over what the file has: only values that differ, never over a creator
+ *  or copyright of the file's own unless `replaceExisting`. Empty when the file already matches. */
 export function creditTags(
   current: FileCredits,
   wanted: PhotoCredits,
@@ -793,15 +1004,6 @@ export function creditTags(
     if (mode === "embedded") tags["IPTC:Credit"] = wanted.credit;
   }
   if (fill(current.usageTerms, wanted.usageTerms, owned)) tags["XMP-xmpRights:UsageTerms"] = wanted.usageTerms;
-  if (fill(current.caption, wanted.caption, current.captionIsLifers)) {
-    tags["XMP-dc:Description"] = wanted.caption;
-    tags["XMP-photoshop:CaptionWriter"] = CAPTION_WRITER;
-    if (mode === "embedded") {
-      tags["IPTC:Caption-Abstract"] = wanted.caption;
-      tags["IPTC:Writer-Editor"] = CAPTION_WRITER;
-      tags["EXIF:ImageDescription"] = wanted.caption;
-    }
-  }
   return tags;
 }
 
@@ -809,18 +1011,24 @@ export function creditTags(
 export const metadataTarget = (imagePath: string) =>
   metadataGoesInFile(imagePath) ? imagePath : sidecarPathFor(imagePath);
 
-/** True when writing `wanted` would change this file's credits or caption. */
-export async function creditsNeedWriting(imagePath: string, wanted: PhotoCredits): Promise<boolean> {
-  const target = metadataTarget(imagePath);
-  let current = NO_CREDITS;
-  if (await exists(target)) {
-    try {
-      current = fileCreditsFromTags(asTagRecord(await exiftool.read(target)));
-    } catch {
-      return false; // unreadable: left alone, as a write would be
-    }
+/** What writing `data` would do to this file's credits and templated fields, without writing:
+ *  `changes` when anything of theirs would change, `edited` lists fields kept as someone edited them. */
+export async function templatedWritePlan(
+  imagePath: string,
+  data: XmpSidecarData,
+  settings: FileWriteSettings = DEFAULT_FILE_WRITE,
+): Promise<{ changes: boolean; edited: TemplatedField[] }> {
+  const embeds = metadataGoesInFile(imagePath);
+  // The same files writeCaptureMetadata writes.
+  const targets =
+    embeds && settings.insideFiles ? [imagePath] : await sidecarsToWrite(imagePath, embeds, settings.sidecarNames);
+  const out = { changes: false, edited: [] as TemplatedField[] };
+  for (const target of targets) {
+    const plan = await planLiferWrite(target, data, target === imagePath ? "embedded" : "sidecar");
+    out.changes ||= plan.templatedChange;
+    out.edited.push(...plan.edited.filter((f) => !out.edited.includes(f)));
   }
-  return Object.keys(creditTags(current, wanted, metadataGoesInFile(imagePath) ? "embedded" : "sidecar")).length > 0;
+  return out;
 }
 
 /** The camera's file name a file was imported with (XMP PreservedFileName), or null. */

@@ -262,6 +262,10 @@ export function matches(e: KeyLike, action: KeyAction, mac = isMac): boolean {
   return (mac && entry.mac ? entry.mac : entry.chords).some((c) => matchesChord(e, c, mac));
 }
 
+/** Keys a text editor reads for itself (deleting, opening a token menu). They edit text rather than
+ *  trigger shortcuts, so they are not registry entries. */
+export const isEditKey = (e: Pick<KeyboardEvent, "key">, key: "Backspace" | "Delete" | "{"): boolean => e.key === key;
+
 /** The first action in `actions` the event triggers, or undefined. */
 export function matchAction<A extends KeyAction>(e: KeyLike, actions: readonly A[]): A | undefined {
   return actions.find((a) => matches(e, a));

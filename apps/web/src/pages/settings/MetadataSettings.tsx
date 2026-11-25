@@ -9,7 +9,6 @@ import {
   renderTemplate,
   unknownTemplateVariables,
   type FileNamePreset,
-  type JobStatus,
   type MetadataTemplate,
   type TemplateValues,
 } from "@lifer/shared";
@@ -17,15 +16,14 @@ import { api, apiPath } from "../../api/client";
 import Button from "../../components/Button";
 import FormMessage from "../../components/FormMessage";
 import InfoTip from "../../components/InfoTip";
-import JobProgress from "../../components/JobProgress";
 import Select from "../../components/Select";
 import Switch from "../../components/Switch";
 import TextField, { TextArea } from "../../components/TextField";
-import { useConfirm } from "../../hooks/useConfirm";
-import { useJobPoll } from "../../hooks/useJobPoll";
 import { errorMessage } from "../../lib/errorMessage";
 import { ignore } from "../../lib/ignore";
 import { SettingLinkRow, SettingRow, SettingsGroup } from "./shared";
+import FileWritingSettings from "./FileWritingSettings";
+import MetadataTemplatesGroup from "./MetadataTemplatesGroup";
 
 interface MetadataSettingsData {
   template: MetadataTemplate;
@@ -46,13 +44,19 @@ type Field = HTMLInputElement | HTMLTextAreaElement;
 // fill per photo (packages/shared/src/metadataTemplate.ts), so the preview renders what the API writes.
 export default function MetadataSettings() {
   const [data, setData] = useState<MetadataSettingsData | null>(null);
+  const [creditsDirty, setCreditsDirty] = useState(false);
+  // The caption template is edited with the other templates but stored with the credits.
+  const [caption, setCaption] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
   const { t } = useTranslation();
 
   useEffect(() => {
     api
       .get("/settings/metadata")
-      .then(setData)
+      .then((res) => {
+        setCaption(res.template.caption);
+        setData(res);
+      })
       .catch((err: unknown) => setLoadError(errorMessage(err, t("settings.loadFailed"))));
   }, [t]);
 
@@ -60,23 +64,24 @@ export default function MetadataSettings() {
   if (!data) return null;
   return (
     <>
-      <CreditsGroup initial={data.template} />
+      <CreditsGroup initial={data.template} caption={caption} onDirtyChange={setCreditsDirty} />
+      <MetadataTemplatesGroup blocked={creditsDirty} onCaptionSaved={setCaption} />
+      <FileWritingSettings />
       <SensitiveGroup initial={data.sensitiveSpecies.enabled} />
     </>
   );
 }
 
-const CREDIT_FIELDS = ["creator", "copyright", "credit", "usageTerms", "caption"] as const;
+const CREDIT_FIELDS = ["creator", "copyright", "credit", "usageTerms"] as const;
 type CreditField = (typeof CREDIT_FIELDS)[number];
 // Free text that can run long gets room to wrap.
-const LONG_FIELDS: readonly CreditField[] = ["usageTerms", "caption"];
+const LONG_FIELDS: readonly CreditField[] = ["usageTerms"];
 
 const FIELD_LABEL: Record<CreditField, string> = {
   creator: "settings.metadata.credits.creator",
   copyright: "settings.metadata.credits.copyright",
   credit: "settings.metadata.credits.credit",
   usageTerms: "settings.metadata.credits.usageTerms",
-  caption: "settings.metadata.credits.caption",
 };
 
 /** Buttons that insert a {variable} where the cursor is in a field. */
@@ -122,9 +127,17 @@ function useUnknownVariable(templates: string[], allowed: readonly string[]): st
   return unknown ? t("settings.metadata.unknownVariable", { variable: `{${unknown}}` }) : null;
 }
 
-function CreditsGroup({ initial }: { initial: MetadataTemplate }) {
+function CreditsGroup({
+  initial,
+  caption,
+  onDirtyChange,
+}: {
+  initial: MetadataTemplate;
+  /** The saved caption template, sent back unchanged since it shares the stored record. */
+  caption: string;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
   const { t } = useTranslation();
-  const confirm = useConfirm();
   const [saved, setSaved] = useState(initial);
   const [draft, setDraft] = useState(initial);
   const [saving, setSaving] = useState(false);
@@ -132,18 +145,14 @@ function CreditsGroup({ initial }: { initial: MetadataTemplate }) {
   const [message, setMessage] = useState<{ error?: string | null; success?: string | null }>({});
   const [example, setExample] = useState<Example | null>(null);
   const fieldRefs = useRef<Partial<Record<CreditField, Field | null>>>({});
-  const [focused, setFocused] = useState<CreditField>("caption");
-  const apply = useJobPoll<JobStatus<unknown> & { updated: number; unchanged: number; failed: number }>(
-    "/settings/metadata-template/apply/status",
-  );
-  const applyStatus = apply.status;
+  const [focused, setFocused] = useState<CreditField>("copyright");
 
   useEffect(() => {
     api.get("/settings/template-example").then(setExample).catch(ignore("Couldn't load a template example"));
   }, []);
 
   const dirty = CREDIT_FIELDS.some((f) => draft[f] !== saved[f]);
-  const hasAny = CREDIT_FIELDS.some((f) => saved[f].trim() !== "");
+  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
   const invalid = useUnknownVariable(
     CREDIT_FIELDS.map((f) => draft[f]),
     TEMPLATE_VARIABLES,
@@ -156,7 +165,11 @@ function CreditsGroup({ initial }: { initial: MetadataTemplate }) {
     setSaving(true);
     setMessage({});
     try {
-      const res = await api.put("/settings/metadata-template", { ...draft, replaceExisting: saved.replaceExisting });
+      const res = await api.put("/settings/metadata-template", {
+        ...draft,
+        caption,
+        replaceExisting: saved.replaceExisting,
+      });
       setSaved(res.template);
       setDraft(res.template);
       setMessage({ success: t("settings.metadata.credits.saved") });
@@ -172,7 +185,7 @@ function CreditsGroup({ initial }: { initial: MetadataTemplate }) {
     setSavingReplace(true);
     setMessage({});
     try {
-      const res = await api.put("/settings/metadata-template", { ...saved, replaceExisting });
+      const res = await api.put("/settings/metadata-template", { ...saved, caption, replaceExisting });
       setSaved(res.template);
       setDraft((d) => ({ ...d, replaceExisting: res.template.replaceExisting }));
     } catch (err) {
@@ -182,20 +195,10 @@ function CreditsGroup({ initial }: { initial: MetadataTemplate }) {
     }
   }
 
-  async function applyToExisting() {
-    const ok = await confirm({
-      title: t("settings.metadata.credits.applyConfirm.title"),
-      message: t("settings.metadata.credits.applyConfirm.message"),
-      confirmLabel: t("settings.metadata.credits.applyAction"),
-    });
-    if (ok) await apply.start(apiPath("/settings/metadata-template/apply", {}, { background: "1" }));
-  }
-
   const placeholders: Partial<Record<CreditField, string>> = {
     creator: t("settings.metadata.credits.creatorPlaceholder"),
     copyright: `© {year} ${draft.creator || t("settings.metadata.credits.creatorPlaceholder")}`,
     usageTerms: t("settings.metadata.credits.usageTermsPlaceholder"),
-    caption: "{species} ({scientific}), {place}, {region}, {date}",
   };
 
   return (
@@ -234,7 +237,7 @@ function CreditsGroup({ initial }: { initial: MetadataTemplate }) {
                     ref={(el) => {
                       fieldRefs.current[field] = el;
                     }}
-                    rows={field === "caption" ? 3 : 2}
+                    rows={2}
                     className="w-full resize-y"
                     onChange={(e) => setDraft({ ...draft, [field]: e.target.value })}
                   />
@@ -298,53 +301,6 @@ function CreditsGroup({ initial }: { initial: MetadataTemplate }) {
           />
         }
       />
-      <SettingRow
-        label={t("settings.metadata.credits.apply")}
-        description={t(
-          dirty ? "settings.metadata.credits.applySaveFirst" : "settings.metadata.credits.applyDescription",
-        )}
-        control={
-          !applyStatus?.running && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={applyToExisting}
-              loading={apply.starting}
-              disabled={!hasAny || dirty}
-            >
-              {t("settings.metadata.credits.applyAction")}
-            </Button>
-          )
-        }
-      >
-        {applyStatus?.running && (
-          <JobProgress
-            compact
-            status={applyStatus}
-            fallbackLabel={t("settings.metadata.credits.applying")}
-            onCancel={() => apply.cancel("/settings/metadata-template/apply/cancel")}
-            cancelling={apply.cancelling}
-          />
-        )}
-        {!applyStatus?.running && applyStatus?.finishedAt != null && !applyStatus.error && (
-          <>
-            <FormMessage
-              success={t(
-                applyStatus.cancelled
-                  ? "settings.metadata.credits.applyStopped"
-                  : "settings.metadata.credits.applyResult",
-                { updated: applyStatus.updated, unchanged: applyStatus.unchanged },
-              )}
-            />
-            {applyStatus.failed > 0 && (
-              <FormMessage error={t("settings.metadata.credits.applyFailedFiles", { count: applyStatus.failed })} />
-            )}
-          </>
-        )}
-        <FormMessage
-          error={applyStatus?.error ? t("settings.metadata.credits.applyFailed") : (apply.actionError ?? null)}
-        />
-      </SettingRow>
     </SettingsGroup>
   );
 }

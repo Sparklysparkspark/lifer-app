@@ -1,6 +1,14 @@
 // Per-user copyright/caption template, file name template and sensitive species choices. Kept in
 // install_settings under per-user keys, like speciesNameDisplay.ts: small values, no migration.
-import { DEFAULT_FILE_NAME_TEMPLATE, DEFAULT_METADATA_TEMPLATE, type MetadataTemplate } from "@lifer/shared";
+import {
+  DEFAULT_FILE_NAME_TEMPLATE,
+  DEFAULT_METADATA_FIELDS,
+  DEFAULT_METADATA_TEMPLATE,
+  WRITE_RULES,
+  type FieldTemplate,
+  type MetadataFields,
+  type MetadataTemplate,
+} from "@lifer/shared";
 import { pool } from "@lifer/core/db.js";
 import {
   EBIRD_SENSITIVE_SPECIES,
@@ -12,6 +20,11 @@ import { getInstallSetting, setInstallSetting } from "../lib/installSettings.js"
 const metadataKey = (userId: string) => `metadata_template:${userId}`;
 const fileNameKey = (userId: string) => `file_name_template:${userId}`;
 const sensitiveKey = (userId: string) => `sensitive_species:${userId}`;
+
+async function storedTemplate(userId: string): Promise<Record<string, unknown>> {
+  const saved = await getInstallSetting<unknown>(pool, metadataKey(userId));
+  return saved && typeof saved === "object" && !Array.isArray(saved) ? (saved as Record<string, unknown>) : {};
+}
 
 export async function getMetadataTemplate(userId: string): Promise<MetadataTemplate> {
   const saved = await getInstallSetting<Partial<MetadataTemplate>>(pool, metadataKey(userId));
@@ -25,6 +38,7 @@ export async function getMetadataTemplate(userId: string): Promise<MetadataTempl
 }
 
 export async function setMetadataTemplate(userId: string, value: MetadataTemplate): Promise<MetadataTemplate> {
+  const stored = await storedTemplate(userId);
   const saved: MetadataTemplate = {
     creator: value.creator.trim(),
     copyright: value.copyright.trim(),
@@ -33,8 +47,53 @@ export async function setMetadataTemplate(userId: string, value: MetadataTemplat
     caption: value.caption.trim(),
     replaceExisting: value.replaceExisting,
   };
-  await setInstallSetting(pool, metadataKey(userId), saved);
+  // The field templates share the key, so they're kept.
+  await setInstallSetting(pool, metadataKey(userId), { ...stored, ...saved });
   return saved;
+}
+
+// Stored beside the credits as { fields: { title, headline, keywords }, multiSpecies }; the caption's
+// template stays in `caption`, where the credits screen edits it. Missing keys read as the defaults.
+interface StoredFields {
+  caption?: unknown;
+  fields?: Partial<Record<"title" | "headline" | "caption" | "keywords", Partial<FieldTemplate>>>;
+  multiSpecies?: unknown;
+}
+
+const readField = (saved: Partial<FieldTemplate> | undefined, fallback: FieldTemplate): FieldTemplate => ({
+  template: typeof saved?.template === "string" ? saved.template : fallback.template,
+  rule: WRITE_RULES.includes(saved?.rule as never) ? saved!.rule! : fallback.rule,
+});
+
+export async function getMetadataFields(userId: string): Promise<MetadataFields> {
+  const saved: StoredFields = await storedTemplate(userId);
+  const f = saved.fields ?? {};
+  const d = DEFAULT_METADATA_FIELDS;
+  return {
+    title: readField(f.title, d.title),
+    headline: readField(f.headline, d.headline),
+    caption: readField({ ...f.caption, template: typeof saved.caption === "string" ? saved.caption : "" }, d.caption),
+    keywords: readField(f.keywords, d.keywords),
+    multiSpecies: saved.multiSpecies === "main" ? "main" : "all",
+  };
+}
+
+export async function setMetadataFields(userId: string, value: MetadataFields): Promise<MetadataFields> {
+  const stored = await storedTemplate(userId);
+  const field = (f: FieldTemplate) => ({ template: f.template.trim(), rule: f.rule });
+  await setInstallSetting(pool, metadataKey(userId), {
+    ...DEFAULT_METADATA_TEMPLATE,
+    ...stored,
+    caption: value.caption.template.trim(),
+    fields: {
+      title: field(value.title),
+      headline: field(value.headline),
+      caption: { rule: value.caption.rule },
+      keywords: field(value.keywords),
+    },
+    multiSpecies: value.multiSpecies,
+  });
+  return getMetadataFields(userId);
 }
 
 export async function getFileNameTemplate(userId: string): Promise<string> {

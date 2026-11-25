@@ -25,7 +25,8 @@ import { writeFileAtomicSync } from "../lib/atomicWrite.js";
 import { removeEmptyDirsUpward } from "../lib/fsCleanup.js";
 import { linkOrCopyOriginal, removeOriginal } from "../lib/originalsWrite.js";
 import { locateManagedOriginal } from "../uploads/managedFolders.js";
-import { findSidecarPath, metadataGoesInFile, sidecarPathFor } from "../uploads/exif.js";
+import { metadataGoesInFile } from "../uploads/exif.js";
+import { moveSidecars } from "../uploads/sidecarNames.js";
 import { tagWithRegisteredVolume, type VolumeTag } from "../storageVolumes/resolve.js";
 import { isTripBusy } from "./jobs.js";
 
@@ -319,14 +320,12 @@ async function moveOne(item: PlanItem, target: string, tag: VolumeTag): Promise<
   return dest;
 }
 
-/** A RAW's or video's sidecar follows it, so other apps' edits stay with the file. */
+/** A file's sidecars follow it under the same naming, so other apps' edits stay with the file. */
 async function moveSidecar(from: string, dest: string): Promise<void> {
-  if (metadataGoesInFile(from)) return;
-  const sidecar = await findSidecarPath(from);
-  const to = sidecarPathFor(dest);
-  if (!sidecar || existsSync(to)) return;
-  await linkOrCopyOriginal(sidecar, to);
-  await removeOriginal(sidecar);
+  await moveSidecars(from, dest, metadataGoesInFile(from), async (sidecar, to) => {
+    await linkOrCopyOriginal(sidecar, to);
+    await removeOriginal(sidecar);
+  });
 }
 
 /** The trip's recovery record (tripIndex.ts) goes with its files. */

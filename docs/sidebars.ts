@@ -36,6 +36,7 @@ const sidebars: SidebarsConfig = {
         "guides/culling-with-other-apps",
         "guides/library-folders",
         "guides/metadata-and-file-names",
+        "guides/other-apps-and-keywords",
         "guides/photo-versions",
         "guides/collection-and-checklists",
         "guides/gallery-and-search",

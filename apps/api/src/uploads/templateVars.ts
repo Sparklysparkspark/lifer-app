@@ -11,7 +11,7 @@ import {
 } from "@lifer/shared";
 import { pool } from "@lifer/core/db.js";
 import { photoPlaceForRegion } from "../regions/photoPlace.js";
-import { sanitizeForFilesystem } from "./speciesFolderName.js";
+import { composeSpeciesName, sanitizeForFilesystem } from "./speciesFolderName.js";
 
 export interface PhotoFacts {
   speciesId: string;
@@ -26,13 +26,58 @@ export interface PhotoFacts {
   rating: number | null;
   /** The camera's file name without its extension. */
   original?: string | null;
+  /** With it, {names} and {count} include the frame's other species. */
+  captureId?: string;
+  focalLengthMm?: number | null;
+  aperture?: number | null;
+  shutter?: string | null;
+  iso?: number | null;
+  /** The owner's species naming styles, for {names}. */
+  namingStyles?: string[];
 }
 
-export async function templateValues(f: PhotoFacts): Promise<TemplateValues> {
+interface SpeciesRow {
+  common_name: string | null;
+  scientific_name: string;
+  taxon_class: string | null;
+  taxon_order: string | null;
+  family: string | null;
+  genus: string | null;
+  aba_code: string | null;
+  ebird_code: string | null;
+}
+
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+const trimNumber = (n: number) => String(Number(n.toFixed(1)));
+
+/** `multiSpecies: "main"` names only the photo's main species in {names} and {count}. */
+export async function templateValues(
+  f: PhotoFacts,
+  opts: { multiSpecies?: "all" | "main" } = {},
+): Promise<TemplateValues> {
+  const COLS = `s.common_name, s.scientific_name, s.taxon_class, s.taxon_order, s.family, s.genus, s.aba_code, s.ebird_code`;
   const [speciesRes, place, tripRes] = await Promise.all([
-    pool.query<{ common_name: string | null; scientific_name: string; taxon_class: string | null }>(
-      `SELECT common_name, scientific_name, taxon_class FROM species WHERE id = $1`,
-      [f.speciesId],
+    // The main species first, then the frame's others.
+    pool.query<SpeciesRow>(
+      `SELECT ${COLS}, 0 AS main FROM species s WHERE s.id = $1
+       UNION ALL
+       SELECT ${COLS}, 1 FROM species s JOIN capture_species cs ON cs.species_id = s.id
+        WHERE cs.capture_id = $2 AND $3::boolean AND s.id <> $1
+       ORDER BY main`,
+      [f.speciesId, f.captureId ?? null, opts.multiSpecies !== "main"],
     ),
     photoPlaceForRegion(pool, f.regionId),
     f.tripId
@@ -41,6 +86,16 @@ export async function templateValues(f: PhotoFacts): Promise<TemplateValues> {
   ]);
   const s = speciesRes.rows[0];
   const day = f.wallClock?.slice(0, 10) ?? f.takenAt?.toISOString().slice(0, 10) ?? null;
+  const names = speciesRes.rows.map((r) =>
+    composeSpeciesName(
+      r.common_name,
+      r.scientific_name,
+      f.namingStyles ?? [],
+      { abaCode: r.aba_code, ebirdCode: r.ebird_code },
+      (part) => part,
+      { taxonClass: r.taxon_class, taxonOrder: r.taxon_order, family: r.family },
+    ),
+  );
   return {
     species: s?.common_name ?? s?.scientific_name ?? null,
     scientific: s?.scientific_name ?? null,
@@ -56,6 +111,17 @@ export async function templateValues(f: PhotoFacts): Promise<TemplateValues> {
     lens: f.lens,
     rating: f.rating != null ? String(f.rating) : null,
     original: f.original ?? null,
+    genus: s?.genus ?? null,
+    family: s?.family ?? null,
+    order: s?.taxon_order ?? null,
+    class: s?.taxon_class ? s.taxon_class.charAt(0).toUpperCase() + s.taxon_class.slice(1) : null,
+    focal: f.focalLengthMm ? `${Math.round(f.focalLengthMm)}mm` : null,
+    aperture: f.aperture ? `f/${trimNumber(f.aperture)}` : null,
+    shutter: f.shutter ? `${f.shutter}s` : null,
+    iso: f.iso ? String(f.iso) : null,
+    longdate: day ? `${Number(day.slice(8, 10))} ${MONTHS[Number(day.slice(5, 7)) - 1]} ${day.slice(0, 4)}` : null,
+    names: names.length > 0 ? names.join(", ") : null,
+    count: names.length > 0 ? String(names.length) : null,
   };
 }
 
@@ -70,9 +136,16 @@ export async function captureFacts(captureId: string): Promise<PhotoFacts | null
     camera_model: string | null;
     lens: string | null;
     quality_rating: number | null;
+    focal_length_mm: string | null;
+    aperture: string | null;
+    shutter: string | null;
+    iso: number | null;
+    naming_styles: string[] | null;
   }>(
-    `SELECT species_id, taken_at, location_label, region_id, trip_id, camera_model, lens, quality_rating
-       FROM captures_all WHERE id = $1 AND deleted_at IS NULL`,
+    `SELECT c.species_id, c.taken_at, c.location_label, c.region_id, c.trip_id, c.camera_model, c.lens, c.quality_rating,
+            c.focal_length_mm, c.aperture, c.shutter, c.iso, u.species_naming_styles AS naming_styles
+       FROM captures_all c LEFT JOIN users u ON u.id = c.user_id
+      WHERE c.id = $1 AND c.deleted_at IS NULL`,
     [captureId],
   );
   const c = res.rows[0];
@@ -86,6 +159,13 @@ export async function captureFacts(captureId: string): Promise<PhotoFacts | null
     camera: c.camera_model,
     lens: c.lens,
     rating: c.quality_rating,
+    captureId,
+    // numeric arrives as a string.
+    focalLengthMm: c.focal_length_mm != null ? Number(c.focal_length_mm) : null,
+    aperture: c.aperture != null ? Number(c.aperture) : null,
+    shutter: c.shutter,
+    iso: c.iso,
+    namingStyles: c.naming_styles ?? [],
   };
 }
 
