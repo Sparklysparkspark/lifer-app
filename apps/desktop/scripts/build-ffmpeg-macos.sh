@@ -170,8 +170,9 @@ FFMPEG_CONFIGURE_FLAGS=(
   # image.ts: preview transcode, poster PNG and suggestion JPEG frames. mpeg4 only for the API
   # tests' synthetic clips.
   --enable-encoder=libx264,aac,mjpeg,png,mpeg4
-  # FFMPEG_INPUT_RESTRICTIONS allows only the MP4 family, which is all one demuxer.
-  --enable-demuxer=mov
+  # FFMPEG_INPUT_RESTRICTIONS allows only the MP4 family, which is all one demuxer. j2k_pipe
+  # reads JPEG 2000 photos (core uploads/jp2.ts), which sharp can't decode.
+  --enable-demuxer=mov,j2k_pipe
   # mp4 for previews, image2pipe for frames; avi and mov only for the API tests' clips, null
   # and image2 for debugging by hand.
   --enable-muxer=mp4,mov,image2pipe,image2,avi,null
@@ -204,6 +205,10 @@ BUILDCONF="$(${RUN[@]+"${RUN[@]}"} "$BIN" -hide_banner -buildconf 2>&1)"
 echo "$BUILDCONF"
 if grep -q -- "--enable-nonfree" <<<"$BUILDCONF" || ${RUN[@]+"${RUN[@]}"} "$BIN" -hide_banner -L 2>&1 | grep -qi "nonfree"; then
   echo "[build-ffmpeg] ERROR: this ffmpeg includes nonfree code and can't be redistributed" >&2
+  exit 1
+fi
+if ! ${RUN[@]+"${RUN[@]}"} "$BIN" -hide_banner -demuxers 2>&1 | grep -q " j2k_pipe "; then
+  echo "[build-ffmpeg] ERROR: no j2k_pipe demuxer, so JPEG 2000 photos can't be read" >&2
   exit 1
 fi
 # Only the OS's own libraries may be linked: anything else wouldn't exist on a user's Mac.

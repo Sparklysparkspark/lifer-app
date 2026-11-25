@@ -384,7 +384,7 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
     post: {
       summary: "Check a photo before importing it",
       description:
-        "multipart/form-data with `file`, or `uploadId` for a finished resumable upload (read where it is; import it next with the same `uploadId`). Reports an exact or near-identical photo you already have and, with `regionId`, species suggestions. A `file` is kept for 2 hours so POST /uploads can import it by `stagedId` without sending it again. `previewDataUrl` is a JPEG for files a browser can't show (RAW, TIFF, HEIC). `cull` is what a culling app marked in the file's own metadata: `verdict` (`pick`, `reject` or null) and `label` (a colour, or null). 410 when `uploadId` is gone.",
+        "multipart/form-data with `file`, or `uploadId` for a finished resumable upload (read where it is; import it next with the same `uploadId`). Reports an exact or near-identical photo you already have and, with `regionId`, species suggestions. A `file` is kept for 2 hours so POST /uploads can import it by `stagedId` without sending it again. `previewDataUrl` is a JPEG for files a browser can't show (RAW, TIFF, HEIC, AVIF, JPEG 2000). `cull` is what a culling app marked in the file's own metadata: `verdict` (`pick`, `reject` or null) and `label` (a colour, or null). 410 when `uploadId` is gone.",
       multipart: obj({
         file: { type: "string", format: "binary" },
         uploadId: { ...str, description: "Instead of `file`: a finished resumable upload" },
@@ -645,7 +645,7 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
   "/trips/{id}/scan-preview": {
     get: {
       summary: "Preview of a file in a trip folder",
-      description: "The image or video itself; a RAW, TIFF or HEIC file comes as a JPEG made from it.",
+      description: "The image or video itself; a RAW, TIFF, HEIC, AVIF or JPEG 2000 file comes as a JPEG made from it.",
       binary: "*/*",
     },
   },

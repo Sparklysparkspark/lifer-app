@@ -1,5 +1,5 @@
 // "View full size" on a phone: a full-resolution JPEG of a photo's original, made on demand. A JPEG
-// original is streamed as it is by the route; anything else (HEIC, PNG, TIFF, WebP, or a RAW's
+// original is streamed as it is by the route; anything else (HEIC, AVIF, JPEG 2000, PNG, TIFF, WebP, or a RAW's
 // embedded preview, the largest picture the RAW holds) is rendered here to JPEG and kept for an
 // hour, so scrolling back doesn't render it twice. Never part of the showcase.
 import { readdir, rename, rm, stat } from "node:fs/promises";
@@ -8,8 +8,8 @@ import sharp from "sharp";
 import { APP_DATA_DIR } from "@lifer/core/config.js";
 import { ensureDir } from "@lifer/core/lib/safeFs.js";
 import { originalSharpOptions } from "@lifer/core/lib/imageLimits.js";
-import { isHeicFile } from "@lifer/core/uploads/formats.js";
-import { heicToJpegBuffer } from "@lifer/core/uploads/heic.js";
+import { DECODED_FORMATS, sniffPhotoFormat } from "@lifer/core/uploads/formats.js";
+import { decodedJpegBuffer } from "@lifer/core/uploads/decodedJpeg.js";
 import { extractEmbeddedPreview } from "../uploads/exif.js";
 import { statFile } from "../lib/cachedFile.js";
 
@@ -46,10 +46,11 @@ export function fullRender(photoId: string, sourcePath: string, raw: boolean): P
     await ensureDir(fullDir());
     void sweep().catch(() => {});
     try {
+      const format = raw ? null : await sniffPhotoFormat(sourcePath);
       const input = raw
         ? await extractEmbeddedPreview(sourcePath)
-        : (await isHeicFile(sourcePath))
-          ? await heicToJpegBuffer(sourcePath)
+        : format && DECODED_FORMATS.has(format)
+          ? await decodedJpegBuffer(format, sourcePath)
           : sourcePath;
       if (!input) return null;
       const tmp = `${target}.${process.pid}.tmp`;

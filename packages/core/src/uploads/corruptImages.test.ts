@@ -1,5 +1,5 @@
 // Damaged files must fail as ordinary errors, never take the process down with them.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { crc32 } from "node:zlib";
@@ -29,6 +29,16 @@ function pngSized(width: number, height: number): Buffer {
   return out;
 }
 
+const avif = await sharp({ create: { width: 64, height: 48, channels: 3, background: "#4a7" } })
+  .avif()
+  .toBuffer();
+const jp2 = readFileSync(path.join(import.meta.dirname, "__fixtures__", "tiny.jp2"));
+const j2k = readFileSync(path.join(import.meta.dirname, "__fixtures__", "tiny.j2k"));
+// The codestream with its SIZ marker claiming 100,000 x 100,000 pixels.
+const hugeJ2k = Buffer.from(j2k);
+hugeJ2k.writeUInt32BE(100_000, 8);
+hugeJ2k.writeUInt32BE(100_000, 12);
+
 const noise = (n: number) => Buffer.from(Array.from({ length: n }, (_, i) => (i * 7919) & 0xff));
 const corruptJpeg = Buffer.concat([jpeg.subarray(0, 64), noise(jpeg.length - 64)]);
 
@@ -41,6 +51,11 @@ const FIXTURES: Record<string, Buffer> = {
   "bogus-header.png": Buffer.concat([png.subarray(0, 12), noise(png.length - 12)]),
   "huge.png": pngSized(100_000, 100_000),
   "zero-size.png": pngSized(0, 0),
+  "truncated.avif": avif.subarray(0, Math.floor(avif.length * 0.5)),
+  "bogus.avif": Buffer.concat([avif.subarray(0, 40), noise(avif.length - 40)]),
+  "truncated.jp2": jp2.subarray(0, Math.floor(jp2.length * 0.4)),
+  "bogus.jp2": Buffer.concat([jp2.subarray(0, 40), noise(4096)]),
+  "huge.j2k": hugeJ2k,
 };
 for (const [name, bytes] of Object.entries(FIXTURES)) writeFileSync(path.join(dir, name), bytes);
 
@@ -61,5 +76,17 @@ describe("generateDerivatives on damaged files", () => {
     const good = path.join(dir, "good.jpg");
     writeFileSync(good, jpeg);
     await expect(generateDerivatives(good, "good")).resolves.toMatchObject({ width: 64, height: 48 });
+  });
+
+  it("reads good AVIF and JPEG 2000 files from their path and their bytes", async () => {
+    for (const [name, bytes, size] of [
+      ["good.avif", avif, { width: 64, height: 48 }],
+      ["good.jp2", jp2, { width: 96, height: 64 }],
+      ["good.j2k", j2k, { width: 96, height: 64 }],
+    ] as const) {
+      writeFileSync(path.join(dir, name), bytes);
+      await expect(generateDerivatives(path.join(dir, name), `p-${name}`)).resolves.toMatchObject(size);
+      await expect(generateDerivatives(bytes, `b-${name}`)).resolves.toMatchObject(size);
+    }
   });
 });

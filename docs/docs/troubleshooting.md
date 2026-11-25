@@ -61,6 +61,12 @@ If the drive is plugged in but Lifer still says it isn't:
 
 "The file couldn't be found at its saved location" means the file was moved or deleted outside Lifer. Put it back, or run [Rescan this library](./settings.md#reimport) to relink moved files.
 
+## "This photo is damaged and can't be read" {#damaged-photo}
+
+**You see:** that reason next to a photo after an import.
+
+Lifer couldn't decode the file. Open it in another app: if it won't open there either, the file is damaged, so copy it again from the card or a backup. A [JPEG 2000](./guides/importing.md#avif-jpeg-2000) file that opens elsewhere may use a feature Lifer's reader doesn't support, such as JPX extensions; export it as JPEG, TIFF or AVIF and import that.
+
 ## "Lifer can't save photos right now"
 
 Your library folder (or Lifer's app data folder) is missing, usually because it was moved, renamed or deleted, or the drive it's on was unplugged.

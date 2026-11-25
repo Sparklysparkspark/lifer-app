@@ -9,6 +9,17 @@ describe("plainImportError", () => {
     expect(plainImportError(vips)).toBe("This photo is damaged and can't be read");
   });
 
+  it("names a damaged AVIF or JPEG 2000 plainly too", () => {
+    const heif = new Error(
+      "Input file has corrupt header: source: bad seek to 1024\nheif: Invalid input: Unexpected end of file (2.100)",
+    );
+    expect(plainImportError(heif)).toBe("This photo is damaged and can't be read");
+    // jp2.ts already words its own failure plainly.
+    expect(plainImportError(new Error("This photo is damaged and can't be read"))).toBe(
+      "This photo is damaged and can't be read",
+    );
+  });
+
   it("turns file-system codes into plain reasons", () => {
     const denied = Object.assign(new Error("EACCES: permission denied, open '/x.jpg'"), { code: "EACCES" });
     expect(plainImportError(denied)).toBe("Lifer isn't allowed to open this file");

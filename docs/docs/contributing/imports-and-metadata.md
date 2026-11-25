@@ -116,12 +116,12 @@ A managed original always stays under the base it was filed under (`locateManage
 
 ## Metadata Lifer reads
 
-| Read | From | Used for |
-|---|---|---|
-| Capture time, GPS, camera, lens, exposure | EXIF | Display, search, maps, RAW pairing, year folders. Copied into `captures_all` once. |
-| Rating (1 to 5) | `XMP:Rating` in the file, else its sidecar | `captures_all.quality_rating` at import and reimport |
-| Keywords | `Keywords`, `Subject`, `TagsList`, `HierarchicalSubject`, and the sidecar | Species suggestion, and species recovery on reimport |
-| Cull marks | Rating `-1`, `XMP-xmpDM:Pick` and `Good`, digiKam pick and colour labels, Photo Mechanic tags, Lightroom and Bridge colour labels | Skip, hide or ignore rejects at import (below) |
+| Read                                      | From                                                                                                                              | Used for                                                                           |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Capture time, GPS, camera, lens, exposure | EXIF                                                                                                                              | Display, search, maps, RAW pairing, year folders. Copied into `captures_all` once. |
+| Rating (1 to 5)                           | `XMP:Rating` in the file, else its sidecar                                                                                        | `captures_all.quality_rating` at import and reimport                               |
+| Keywords                                  | `Keywords`, `Subject`, `TagsList`, `HierarchicalSubject`, and the sidecar                                                         | Species suggestion, and species recovery on reimport                               |
+| Cull marks                                | Rating `-1`, `XMP-xmpDM:Pick` and `Good`, digiKam pick and colour labels, Photo Mechanic tags, Lightroom and Bridge colour labels | Skip, hide or ignore rejects at import (below)                                     |
 
 ### Cull marks
 
@@ -135,20 +135,20 @@ Lifer writes its species and rating back to files so the library stays meaningfu
 
 **Only managed files are written**: originals with `managed = true`. Linked files are never touched.
 
-**Where:** inside JPEG, TIFF, PNG, DNG, WebP, HEIC and HEIF files. For everything else, RAW and video, a `<name>.xmp` sidecar next to the file.
+**Where:** inside JPEG, TIFF, PNG, DNG, WebP, HEIC, HEIF, AVIF, JP2 and JPX files. For everything else, RAW, video and bare JPEG 2000 codestreams (exiftool can't write those), a `<name>.xmp` sidecar next to the file.
 
 **What:**
 
-| Tag | Value |
-|---|---|
-| `XMP-dc:Subject` | Common name, scientific name, ABA code and eBird code of each species in the photo, `Lifer:Cover` if it's the species' cover photo, and the photo's own tags ("flight shot") |
-| `XMP-lr:HierarchicalSubject` | `Species\|<Taxon>\|<Family>\|<name>`, for example `Species\|Birds\|Accipitridae\|Bald Eagle`, and `Lifer Tags\|<tag>` for each photo tag |
-| `XMP-dc:Title` | The title template, by default `{names}`: every species in the naming style |
-| `XMP-photoshop:Headline` | The headline template, empty (not written) by default |
-| `XMP-dc:Description` | The caption template, empty by default; `XMP-photoshop:CaptionWriter` "Lifer" when the whole caption is Lifer's |
-| `IPTC:Keywords`, `IPTC:ObjectName`, `IPTC:Headline`, `IPTC:Caption-Abstract`, `EXIF:ImageDescription` | The same, embedded files only, always written together with the XMP value |
-| `XMP-xmp:Rating` | Lifer's 1 to 5 rating; removed when the user clears it |
-| `XMP-exif:GPSLatitude`, `GPSLongitude` | Sidecars only |
+| Tag                                                                                                   | Value                                                                                                                                                                        |
+| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `XMP-dc:Subject`                                                                                      | Common name, scientific name, ABA code and eBird code of each species in the photo, `Lifer:Cover` if it's the species' cover photo, and the photo's own tags ("flight shot") |
+| `XMP-lr:HierarchicalSubject`                                                                          | `Species\|<Taxon>\|<Family>\|<name>`, for example `Species\|Birds\|Accipitridae\|Bald Eagle`, and `Lifer Tags\|<tag>` for each photo tag                                     |
+| `XMP-dc:Title`                                                                                        | The title template, by default `{names}`: every species in the naming style                                                                                                  |
+| `XMP-photoshop:Headline`                                                                              | The headline template, empty (not written) by default                                                                                                                        |
+| `XMP-dc:Description`                                                                                  | The caption template, empty by default; `XMP-photoshop:CaptionWriter` "Lifer" when the whole caption is Lifer's                                                              |
+| `IPTC:Keywords`, `IPTC:ObjectName`, `IPTC:Headline`, `IPTC:Caption-Abstract`, `EXIF:ImageDescription` | The same, embedded files only, always written together with the XMP value                                                                                                    |
+| `XMP-xmp:Rating`                                                                                      | Lifer's 1 to 5 rating; removed when the user clears it                                                                                                                       |
+| `XMP-exif:GPSLatitude`, `GPSLongitude`                                                                | Sidecars only                                                                                                                                                                |
 
 **Templates and write rules.** Title, Headline, Caption and extra Keywords each have a template (`packages/shared/src/metadataTemplate.ts`, filled by `uploads/templateVars.ts`, stored in `install_settings` under `metadata_template:<userId>` beside the credits, read by `getMetadataFields` in `settings/metadataSettings.ts`) and a rule: `fillEmpty` (write only into an empty field), `replace` (write over Lifer's own value, the default), `append` (after the file's own text, swapping Lifer's earlier addition) or `off`. Extra keywords are a comma separated template whose values go beside the species keywords. `multiSpecies: "main"` limits `{names}` and `{count}` to the main species; species keywords always list every species, since reimport recovers them. Missing settings read as the defaults, which write what Lifer wrote before templates. API: `GET`/`PUT /api/settings/metadata-fields`, `GET /api/settings/metadata-preview` (every field for a `captureId`, one of the user's recent photos, or a sample, with the token values so a draft renders the same in the app), and `POST /api/settings/metadata-template/apply?dryRun=1`, which counts the photos a write would change and those with a field kept because someone edited it.
 
@@ -164,10 +164,10 @@ Keywords from other tools are kept: only Lifer's own (species names and codes, `
 
 Besides tags, Lifer keeps a few small JSON files in `.lifer` folders, written atomically (`apps/api/src/lib/atomicWrite.ts`: a temp file flushed with `fsync`, renamed over the old one, then the folder flushed too, except on Windows, which can't open a folder for it):
 
-| File | Holds | Written |
-|---|---|---|
-| `<library>/.lifer/collection-state.json` | Per user (by email): seen species, archived and hidden species, targets, tier overrides, checklist additions. Species by scientific name. | Two seconds after a change to any of these (`apps/api/src/lib/collectionState.ts`) |
-| `.lifer/albums.json` in each photo folder, and in the taxon folder above | Which albums each photo is in, by album name | On album add and remove (`apps/api/src/albums/albumIndex.ts`) |
-| `<trip destination>/.lifer/index.json` | The species of each imported trip photo, by relative path | After each trip import (`apps/api/src/trips/tripIndex.ts`) |
+| File                                                                     | Holds                                                                                                                                     | Written                                                                            |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `<library>/.lifer/collection-state.json`                                 | Per user (by email): seen species, archived and hidden species, targets, tier overrides, checklist additions. Species by scientific name. | Two seconds after a change to any of these (`apps/api/src/lib/collectionState.ts`) |
+| `.lifer/albums.json` in each photo folder, and in the taxon folder above | Which albums each photo is in, by album name                                                                                              | On album add and remove (`apps/api/src/albums/albumIndex.ts`)                      |
+| `<trip destination>/.lifer/index.json`                                   | The species of each imported trip photo, by relative path                                                                                 | After each trip import (`apps/api/src/trips/tripIndex.ts`)                         |
 
 How they're read back is in [State and sync](./state-and-sync.md#reimport).

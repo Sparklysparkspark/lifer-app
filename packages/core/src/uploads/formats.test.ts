@@ -10,7 +10,7 @@ import {
   VENDOR_RAW_EXTENSIONS,
   claimedPhotoFormat,
   isHeicBytes,
-  isHeicFile,
+  isJp2Bytes,
   isRawExtension,
   isRawFile,
   photoFormatFor,
@@ -21,6 +21,7 @@ import {
 } from "./formats.js";
 import { setTiffPhotometric } from "./testImages.js";
 
+const FIXTURES = path.join(import.meta.dirname, "__fixtures__");
 const dir = mkdtempSync(path.join(tmpdir(), "lifer-formats-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -89,7 +90,9 @@ describe("photo formats", () => {
     expect(await sniffPhotoFormat(await write("b", await base().png().toBuffer()))).toBe("png");
     expect(await sniffPhotoFormat(await write("c", await base().webp().toBuffer()))).toBe("webp");
     expect(await sniffPhotoFormat(await write("d", await base().tiff().toBuffer()))).toBe("tiff");
-    expect(await sniffPhotoFormat(await write("e", await base().avif().toBuffer()))).toBeNull();
+    expect(await sniffPhotoFormat(await write("e", await base().avif().toBuffer()))).toBe("avif");
+    expect(await sniffPhotoFormat(path.join(FIXTURES, "tiny.jp2"))).toBe("jp2");
+    expect(await sniffPhotoFormat(path.join(FIXTURES, "tiny.j2k"))).toBe("jp2");
     expect(await sniffPhotoFormat(await write("f", Buffer.from("not an image")))).toBeNull();
   });
 
@@ -318,6 +321,9 @@ describe("accepted photo types", () => {
     "image/heif": ["heic", ".heic"],
     "image/heic-sequence": ["heic", ".heic"],
     "image/heif-sequence": ["heic", ".heic"],
+    "image/avif": ["avif", ".avif"],
+    "image/jp2": ["jp2", ".jp2"],
+    "image/jpx": ["jp2", ".jp2"],
   };
 
   it.each(Object.entries(accepted))("accepts %s", (mime, [format, extension]) => {
@@ -339,6 +345,12 @@ describe("accepted photo types", () => {
     ["a.heic", "heic"],
     ["a.heif", "heic"],
     ["a.hif", "heic"],
+    ["a.AVIF", "avif"],
+    ["a.jp2", "jp2"],
+    ["a.jpf", "jp2"],
+    ["a.jpx", "jp2"],
+    ["a.J2K", "jp2"],
+    ["a.j2c", "jp2"],
   ])("knows %s by its name", (name, format) => {
     expect(photoFormatFor(name)).toBe(format);
   });
@@ -351,6 +363,8 @@ describe("accepted photo types", () => {
       webp: "image/webp",
       tiff: "image/tiff",
       heic: "image/heic",
+      avif: "image/avif",
+      jp2: "image/jp2",
     });
   });
 
@@ -407,6 +421,14 @@ function ftyp(major: string, compatible: string[] = []): Buffer {
   return Buffer.concat([size, body]);
 }
 
+const JP2_SIGNATURE = Buffer.from([0, 0, 0, 0x0c, 0x6a, 0x50, 0x20, 0x20, 0x0d, 0x0a, 0x87, 0x0a]);
+const jp2Ftyp = (brand: string) => {
+  const box = Buffer.alloc(20);
+  box.writeUInt32BE(20, 0);
+  box.write(`ftyp${brand}\0\0\0\0${brand}`, 4, "latin1");
+  return box;
+};
+
 describe("isHeicBytes", () => {
   it.each(["heic", "heix", "hevc", "hevx", "heim", "heis", "hevm", "hevs", "mif1", "msf1"])(
     "knows the %s brand",
@@ -446,6 +468,16 @@ describe("sniffPhotoFormat", () => {
       ["tiff-le", Buffer.from("II*\0", "latin1"), "tiff"],
       ["tiff-be", Buffer.from("MM\0*", "latin1"), "tiff"],
       ["heic", ftyp("heic", ["mif1"]), "heic"],
+      ["heif-mif1", ftyp("mif1", ["heic"]), "heic"],
+      ["avif", ftyp("avif", ["mif1", "miaf"]), "avif"],
+      ["avis", ftyp("avis", ["msf1"]), "avif"],
+      ["avif-mif1", ftyp("mif1", ["miaf", "avif"]), "avif"],
+      ["jp2", Buffer.concat([JP2_SIGNATURE, jp2Ftyp("jp2 ")]), "jp2"],
+      ["jpx", Buffer.concat([JP2_SIGNATURE, jp2Ftyp("jpx ")]), "jp2"],
+      ["j2k", Buffer.from([0xff, 0x4f, 0xff, 0x51]), "jp2"],
+      // A JPM compound document shares the signature box but isn't a photo.
+      ["jpm", Buffer.concat([JP2_SIGNATURE, jp2Ftyp("jpm ")]), null],
+      ["mp4", ftyp("mp42", ["isom"]), null],
     ];
     for (const [name, bytes, format] of files)
       expect(await sniffPhotoFormat(await write(`sniff-${name}`, bytes))).toBe(format);
@@ -465,9 +497,15 @@ describe("sniffPhotoFormat", () => {
       expect(await sniffPhotoFormat(await write(`miss-${i}`, bytes))).toBeNull();
   });
 
-  it("isHeicFile reads the file's own header", async () => {
-    expect(await isHeicFile(await write("h.heic", ftyp("heic")))).toBe(true);
-    expect(await isHeicFile(await write("h.jpg", await base().jpeg().toBuffer()))).toBe(false);
+  it("tells a JPEG 2000 file from a near miss", () => {
+    expect(isJp2Bytes(Buffer.concat([JP2_SIGNATURE, jp2Ftyp("jp2 ")]))).toBe(true);
+    // The signature box alone, without the ftyp that follows it.
+    expect(isJp2Bytes(JP2_SIGNATURE)).toBe(false);
+    expect(isJp2Bytes(Buffer.from([0xff, 0x4f, 0xff]))).toBe(false);
+    expect(isJp2Bytes(Buffer.from([0xff, 0x4f, 0xff, 0x52]))).toBe(false);
+    const wrongSignature = Buffer.concat([JP2_SIGNATURE, jp2Ftyp("jp2 ")]);
+    wrongSignature[11] = 0x0b;
+    expect(isJp2Bytes(wrongSignature)).toBe(false);
   });
 
   it("closes every file it opens", async () => {

@@ -33,7 +33,7 @@ Anything else on iNaturalist, like insects, spiders, plants and fungi, can be ad
 
 ### Photos
 
-A photo in Lifer is one shot. It can have an edited photo (a JPEG, PNG, WebP, TIFF or HEIC), the matching RAW file, or both, and it can also be a video (MP4 or MOV). Each photo belongs to a species (it can list extra species too), and carries its date, location, camera details, rating and tags.
+A photo in Lifer is one shot. It can have an edited photo (a JPEG, PNG, WebP, TIFF, HEIC, AVIF or JPEG 2000), the matching RAW file, or both, and it can also be a video (MP4 or MOV). Each photo belongs to a species (it can list extra species too), and carries its date, location, camera details, rating and tags.
 
 ![The Lifer gallery](/img/gallery.jpg)
 
@@ -69,15 +69,15 @@ Downloading a region gets its checklist, reference photos and descriptions. You 
 
 Lifer runs two ways. Both have the same features, apart from the differences below.
 
-| | Desktop app | Server |
-|---|---|---|
-| Where it runs | Your own computer: a Mac with Apple Silicon, Windows, or Linux (`.deb` or AppImage) | A NAS or always-on computer, using Docker |
-| Who can reach it | Just you, on that computer | Anyone with the address and your login |
-| Login | None | One account (email and password) per server |
-| Where photos live | On your computer and any external drives | On the server's disks |
-| Share links for albums | No | Yes |
-| API keys for your own scripts | No | Yes |
-| Install guide | [Desktop app](./install/desktop.md) | [Docker](./install/docker.md) |
+|                               | Desktop app                                                                         | Server                                      |
+| ----------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------- |
+| Where it runs                 | Your own computer: a Mac with Apple Silicon, Windows, or Linux (`.deb` or AppImage) | A NAS or always-on computer, using Docker   |
+| Who can reach it              | Just you, on that computer                                                          | Anyone with the address and your login      |
+| Login                         | None                                                                                | One account (email and password) per server |
+| Where photos live             | On your computer and any external drives                                            | On the server's disks                       |
+| Share links for albums        | No                                                                                  | Yes                                         |
+| API keys for your own scripts | No                                                                                  | Yes                                         |
+| Install guide                 | [Desktop app](./install/desktop.md)                                                 | [Docker](./install/docker.md)               |
 
 The desktop app can also be a window onto a server you already run. Connected that way, it signs in to the server's account and gets the server's share links and API keys. See [Connect the desktop app to a server](./install/connect-desktop-to-server.md). You can start on the desktop and move your library to a server later.
 

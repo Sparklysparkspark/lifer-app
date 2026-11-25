@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isBrowserDisplayable, isVideoFile, photoFormatOf } from "./photoFormats";
+import { isBrowserDisplayable, isVideoFile, photoFormatOf, PHOTO_ACCEPT } from "./photoFormats";
 import { isRawFile, RAW_EXTENSIONS } from "./rawExtensions";
 
 const f = (name: string, type = "") => ({ name, type });
@@ -12,6 +12,15 @@ describe("photo formats", () => {
     expect(photoFormatOf(f("scan.tiff", "image/tiff"))).toBe("tiff");
     expect(photoFormatOf(f("x.webp", "image/webp"))).toBe("webp");
     expect(photoFormatOf(f("anim.gif", "image/gif"))).toBeNull();
+    expect(photoFormatOf(f("a.avif", "image/avif"))).toBe("avif");
+    expect(photoFormatOf(f("scan.JP2"))).toBe("jp2");
+    expect(photoFormatOf(f("tile.j2k", "application/octet-stream"))).toBe("jp2");
+    expect(photoFormatOf(f("a.jpx", "image/jpx"))).toBe("jp2");
+  });
+
+  it("accepts AVIF and JPEG 2000 in the file pickers", () => {
+    for (const v of ["image/avif", ".avif", "image/jp2", ".jp2", ".jpf", ".jpx", ".j2k", ".j2c"])
+      expect(PHOTO_ACCEPT.split(",")).toContain(v);
   });
 
   it("only JPEG, PNG and WebP display straight from the file", () => {
@@ -19,6 +28,8 @@ describe("photo formats", () => {
     expect(isBrowserDisplayable(f("a.webp", "image/webp"))).toBe(true);
     expect(isBrowserDisplayable(f("a.tif", "image/tiff"))).toBe(false);
     expect(isBrowserDisplayable(f("a.heic"))).toBe(false);
+    expect(isBrowserDisplayable(f("a.avif", "image/avif"))).toBe(false);
+    expect(isBrowserDisplayable(f("a.jp2", "image/jp2"))).toBe(false);
   });
 
   it("treats a TIFF as a photo, not a RAW, though the RAW pickers still offer it", () => {

@@ -1,7 +1,7 @@
 // Mirrors packages/core/src/uploads/formats.ts PHOTO_FORMATS. Keep the two in sync.
 import { extname } from "./rawExtensions";
 
-export type PhotoFormat = "jpeg" | "png" | "webp" | "tiff" | "heic";
+export type PhotoFormat = "jpeg" | "png" | "webp" | "tiff" | "heic" | "avif" | "jp2";
 
 interface FormatInfo {
   mimeTypes: string[];
@@ -26,6 +26,13 @@ export const PHOTO_FORMATS: Record<PhotoFormat, FormatInfo> = {
   heic: {
     mimeTypes: ["image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence"],
     extensions: [".heic", ".heif", ".hif"],
+    browserDisplayable: false,
+  },
+  // Not shown directly: the desktop's webview on older macOS and Linux can't decode AVIF.
+  avif: { mimeTypes: ["image/avif"], extensions: [".avif"], browserDisplayable: false },
+  jp2: {
+    mimeTypes: ["image/jp2", "image/jpx"],
+    extensions: [".jp2", ".jpf", ".jpx", ".j2k", ".j2c"],
     browserDisplayable: false,
   },
 };

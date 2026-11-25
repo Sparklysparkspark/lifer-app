@@ -17,7 +17,7 @@ import { importTripFile, matchingSourceRaw } from "./import.js";
 import { listRawFiles, autoLinkMissingRaws } from "./rawLink.js";
 import { walkFiles } from "../library/walkFiles.js";
 
-// Every photo format the app accepts (JPEG, PNG, WebP, TIFF, HEIC). A TIFF holding sensor data
+// Every photo format the app accepts (JPEG, PNG, WebP, TIFF, HEIC, AVIF, JPEG 2000). A TIFF holding sensor data
 // is a RAW instead: onlyPhotos drops it here and listRawFiles picks it up.
 const TRIP_IMAGE_EXTENSIONS = new Set(ACCEPTED_PHOTO_EXTENSIONS.map((e) => e.toLowerCase()));
 

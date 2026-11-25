@@ -14,7 +14,7 @@ import { extractExif, extractKeywords, readExifTags } from "../uploads/exif.js";
 import { computeEmbedding, suggestSpecies, type SpeciesSuggestion } from "@lifer/core/species/embeddings.js";
 import { matchSpeciesByKeywords, groupByScientificName } from "../species/matchByKeywords.js";
 import { checkSubject, unlessLikelyMatch } from "../species/wildlifeCheck.js";
-import { sniffPhotoFormat } from "@lifer/core/uploads/formats.js";
+import { PHOTO_FORMATS, sniffPhotoFormat } from "@lifer/core/uploads/formats.js";
 import { prepareWorkingImage } from "../uploads/workingImage.js";
 import { originalSharpOptions } from "@lifer/core/lib/imageLimits.js";
 import { canonicalPath, isWithin } from "@lifer/core/lib/pathContainment.js";
@@ -239,6 +239,12 @@ async function ownsTrip(tripId: string, userId: string): Promise<boolean> {
   return (res.rowCount ?? 0) > 0;
 }
 
+// Browsers can't show these, so they're sent as a JPEG made on the fly (see scan-preview).
+const TRANSCODED_PREVIEW_EXTENSIONS = new Set(
+  Object.values(PHOTO_FORMATS)
+    .filter((f) => !f.browserViewable)
+    .flatMap((f) => f.extensions),
+);
 // Scan preview serves files straight off the user's disk, so only the media types the app
 // imports get through, each with an explicit Content-Type.
 const TRIP_PREVIEW_CONTENT_TYPES: Record<string, string> = {
@@ -248,13 +254,8 @@ const TRIP_PREVIEW_CONTENT_TYPES: Record<string, string> = {
   ".webp": "image/webp",
   ".mp4": "video/mp4",
   ".mov": "video/quicktime",
-  // Browsers can't show these, so they're sent as a JPEG made on the fly (see scan-preview).
-  ".tif": "image/jpeg",
-  ".tiff": "image/jpeg",
-  ".heic": "image/jpeg",
-  ".heif": "image/jpeg",
+  ...Object.fromEntries([...TRANSCODED_PREVIEW_EXTENSIONS].map((ext) => [ext, "image/jpeg"])),
 };
-const TRANSCODED_PREVIEW_EXTENSIONS = new Set([".tif", ".tiff", ".heic", ".heif"]);
 
 // Scan and import run as per-trip background jobs the client polls.
 const tripNotFound = notFoundOnInvalidId("Trip not found");
@@ -464,7 +465,7 @@ export async function tripJobRoutes(fastify: FastifyInstance): Promise<void> {
       if (!absolutePath) return reply.code(404).send({ error: "File not found" });
       const regionId = request.body.regionId ?? null;
 
-      // HEIC can't be decoded by the matching models directly: prepareWorkingImage makes an
+      // HEIC and JPEG 2000 can't be decoded by the matching models directly: prepareWorkingImage makes an
       // upright JPEG copy for them (a no-op for other formats).
       const format = await sniffPhotoFormat(absolutePath).catch(() => null);
       if (!format) return reply.code(400).send({ error: "That file isn't a photo Lifer can read" });

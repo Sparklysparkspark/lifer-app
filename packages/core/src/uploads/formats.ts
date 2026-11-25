@@ -3,7 +3,7 @@
 import { open } from "node:fs/promises";
 import path from "node:path";
 
-export type PhotoFormat = "jpeg" | "png" | "webp" | "tiff" | "heic";
+export type PhotoFormat = "jpeg" | "png" | "webp" | "tiff" | "heic" | "avif" | "jp2";
 
 interface FormatInfo {
   mimeTypes: string[];
@@ -35,7 +35,19 @@ export const PHOTO_FORMATS: Record<PhotoFormat, FormatInfo> = {
     defaultExtension: ".heic",
     browserViewable: false,
   },
+  // Not shown directly: the desktop's webview on older macOS and Linux can't decode AVIF.
+  avif: { mimeTypes: ["image/avif"], extensions: [".avif"], defaultExtension: ".avif", browserViewable: false },
+  // JPEG 2000: the JP2/JPX file format and bare codestreams (.j2k, .j2c). Only Safari shows it.
+  jp2: {
+    mimeTypes: ["image/jp2", "image/jpx"],
+    extensions: [".jp2", ".jpf", ".jpx", ".j2k", ".j2c"],
+    defaultExtension: ".jp2",
+    browserViewable: false,
+  },
 };
+
+/** Formats sharp can't decode, read through an upright JPEG made from them (decodedJpeg.ts). */
+export const DECODED_FORMATS: ReadonlySet<PhotoFormat> = new Set<PhotoFormat>(["heic", "jp2"]);
 
 /** Every accepted edited-photo MIME type, mapped to the extension a file of that type is stored
  *  with when its own name has none. */
@@ -131,23 +143,48 @@ export function isHeicBytes(head: Uint8Array): boolean {
   return HEIF_BRANDS.has(major);
 }
 
-/** The format a file really is, from its first bytes, or null when it's none Lifer reads as a
- *  photo. */
-export async function sniffPhotoFormat(filePath: string): Promise<PhotoFormat | null> {
-  const head = await readHead(filePath, 64);
-  if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return "jpeg";
-  if (head.length >= 8 && head.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+// JP2 signature box, then the ftyp box's brand. "jpm " (compound documents) isn't a photo.
+const JP2_SIGNATURE = Buffer.from([0, 0, 0, 0x0c, 0x6a, 0x50, 0x20, 0x20, 0x0d, 0x0a, 0x87, 0x0a]);
+const JP2_BRANDS = new Set(["jp2 ", "jpx "]);
+// SOC then SIZ marker: a bare JPEG 2000 codestream.
+const J2K_CODESTREAM = Buffer.from([0xff, 0x4f, 0xff, 0x51]);
+
+export function isJp2Bytes(head: Uint8Array): boolean {
+  const box = Buffer.from(head.buffer, head.byteOffset, head.byteLength);
+  if (box.length >= 4 && box.subarray(0, 4).equals(J2K_CODESTREAM)) return true;
+  if (box.length < 24 || !box.subarray(0, 12).equals(JP2_SIGNATURE)) return false;
+  return box.toString("latin1", 16, 20) === "ftyp" && JP2_BRANDS.has(box.toString("latin1", 20, 24));
+}
+
+function isAvifBytes(head: Uint8Array): boolean {
+  if (head.length < 12) return false;
+  const box = Buffer.from(head.buffer, head.byteOffset, head.byteLength);
+  if (box.toString("latin1", 4, 8) !== "ftyp") return false;
+  const major = box.toString("latin1", 8, 12);
+  if (major === "avif" || major === "avis") return true;
+  // A mif1/msf1 file is AVIF when its compatible brands say so (see isHeicBytes).
+  return (major === "mif1" || major === "msf1") && !isHeicBytes(head);
+}
+
+/** sniffPhotoFormat for bytes already read: the first 64 of the file. */
+export function sniffPhotoBytes(head: Uint8Array): PhotoFormat | null {
+  const b = Buffer.from(head.buffer, head.byteOffset, head.byteLength);
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpeg";
+  if (b.length >= 8 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
     return "png";
-  if (head.length >= 12 && head.toString("latin1", 0, 4) === "RIFF" && head.toString("latin1", 8, 12) === "WEBP")
-    return "webp";
-  if (head.length >= 4 && (head.toString("latin1", 0, 4) === "II*\0" || head.toString("latin1", 0, 4) === "MM\0*"))
+  if (b.length >= 12 && b.toString("latin1", 0, 4) === "RIFF" && b.toString("latin1", 8, 12) === "WEBP") return "webp";
+  if (b.length >= 4 && (b.toString("latin1", 0, 4) === "II*\0" || b.toString("latin1", 0, 4) === "MM\0*"))
     return "tiff";
-  if (isHeicBytes(head)) return "heic";
+  if (isHeicBytes(b)) return "heic";
+  if (isAvifBytes(b)) return "avif";
+  if (isJp2Bytes(b)) return "jp2";
   return null;
 }
 
-export async function isHeicFile(filePath: string): Promise<boolean> {
-  return isHeicBytes(await readHead(filePath, 64));
+/** The format a file really is, from its first bytes, or null when it's none Lifer reads as a
+ *  photo. */
+export async function sniffPhotoFormat(filePath: string): Promise<PhotoFormat | null> {
+  return sniffPhotoBytes(await readHead(filePath, 64));
 }
 
 // PhotometricInterpretation values of unprocessed sensor data: Color Filter Array (a Bayer

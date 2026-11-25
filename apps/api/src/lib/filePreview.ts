@@ -3,7 +3,12 @@ import { stat } from "node:fs/promises";
 import type { FastifyReply } from "fastify";
 import sharp from "sharp";
 import { originalSharpOptions } from "@lifer/core/lib/imageLimits.js";
-import { VENDOR_RAW_EXTENSIONS, claimedPhotoFormat, sniffPhotoFormat } from "@lifer/core/uploads/formats.js";
+import {
+  DECODED_FORMATS,
+  VENDOR_RAW_EXTENSIONS,
+  claimedPhotoFormat,
+  sniffPhotoFormat,
+} from "@lifer/core/uploads/formats.js";
 import { extractEmbeddedPreview } from "../uploads/exif.js";
 import { prepareWorkingImage, type WorkingImage } from "../uploads/workingImage.js";
 
@@ -20,9 +25,9 @@ export async function sendFilePreview(absolutePath: string, reply: FastifyReply,
       if (!embedded) return reply.code(404).send({ error: "Couldn't read this file" });
       source = embedded;
     } else {
-      // A HEIC is read through its working JPEG, since sharp can't decode it.
+      // A HEIC or JPEG 2000 is read through its working JPEG, since sharp can't decode it.
       const format = (await sniffPhotoFormat(absolutePath)) ?? claimedPhotoFormat(null, absolutePath);
-      if (format === "heic") working = await prepareWorkingImage(absolutePath, format);
+      if (format && DECODED_FORMATS.has(format)) working = await prepareWorkingImage(absolutePath, format);
       source = working?.decodePath ?? absolutePath;
     }
     const buffer = await sharp(source, originalSharpOptions())

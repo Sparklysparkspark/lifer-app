@@ -77,7 +77,7 @@ Yes. There's a Windows installer, Linux builds as a `.deb` and an AppImage, and 
 
 ## What file types and sizes can I import?
 
-Photos in JPEG, PNG, WebP, TIFF and HEIC, RAW files from all the major camera brands, and MP4 and MOV videos. There's no size limit: big RAWs, long videos and gigapixel panoramas all work, and uploads pick up where they left off if your connection drops. See [Supported files](./guides/importing.md#supported-files).
+Photos in JPEG, PNG, WebP, TIFF, HEIC, AVIF and JPEG 2000, RAW files from all the major camera brands, and MP4 and MOV videos. There's no size limit: big RAWs, long videos and gigapixel panoramas all work, and uploads pick up where they left off if your connection drops. See [Supported files](./guides/importing.md#supported-files).
 
 ## How much disk space does Lifer need?
 

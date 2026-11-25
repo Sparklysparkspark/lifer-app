@@ -1,7 +1,8 @@
 // Runs only with TEST_DATABASE_URL pointing at a migrated, disposable database:
 //   TEST_DATABASE_URL=postgres://lifer@127.0.0.1:55432/lifer npx vitest run largeFiles
 // Resumable (tus) uploads: chunked and resumed uploads imported by uploadId, owner isolation,
-// a file over 2 GB with flat memory, a huge panorama, edited and sensor-data TIFFs, WebP and HEIC.
+// a file over 2 GB with flat memory, a huge panorama, edited and sensor-data TIFFs, WebP, HEIC,
+// AVIF and JPEG 2000.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -96,6 +97,7 @@ describe.skipIf(!url)("large files and new formats", () => {
     const { hashToken } = await import("../auth/session.js");
     ({ SESSION_COOKIE_NAME: cookieName } = await import("@lifer/core/config.js"));
     const { uploadRoutes } = await import("./routes.js");
+    const { captureRoutes } = await import("../captures/routes.js");
     const { isBlockedCrossSiteWrite } = await import("@lifer/core/lib/requestGuard.js");
     await cleanup();
     await db.query(
@@ -128,6 +130,7 @@ describe.skipIf(!url)("large files and new formats", () => {
     await app.register(compress, { threshold: 1 });
     await app.register(multipart, { limits: { fileSize: Infinity } });
     await app.register(uploadRoutes, { prefix: "/api" });
+    await app.register(captureRoutes, { prefix: "/api" });
     await app.ready();
   });
 
@@ -679,6 +682,137 @@ describe.skipIf(!url)("large files and new formats", () => {
     },
     60_000,
   );
+  // AVIF (made by sharp) and JPEG 2000 (committed fixtures: the release ffmpeg has no encoder).
+  const JP2_FIXTURES = path.join(import.meta.dirname, "../../../../packages/core/src/uploads/__fixtures__");
+  const GPS = { GPSLatitude: 51.5, GPSLatitudeRef: "N", GPSLongitude: -0.25, GPSLongitudeRef: "W" };
+
+  it.each([
+    { name: "IMG_5000.avif", type: "image/avif", size: { width: 120, height: 90 }, inFile: true },
+    { name: "SCAN_5001.jp2", type: "", size: { width: 96, height: 64 }, inFile: true },
+    { name: "TILE_5002.j2k", type: "", size: { width: 96, height: 64 }, inFile: false },
+  ])(
+    "imports $name end to end: preview, metadata, keywords, duplicate check and the Trash",
+    async ({ name, type, size, inFile }) => {
+      const file = path.join(scratch, name);
+      if (name.endsWith(".avif"))
+        writeFileSync(
+          file,
+          await sharp({ create: { ...size, channels: 3, background: "#228844" } })
+            .avif()
+            .toBuffer(),
+        );
+      else writeFileSync(file, readFileSync(path.join(JP2_FIXTURES, name.endsWith(".jp2") ? "tiny.jp2" : "tiny.j2k")));
+      // exiftool can't write into a bare codestream, so that one brings no metadata of its own.
+      if (inFile)
+        await exiftool.write(
+          file,
+          { "XMP-dc:Subject": ["Testus giganticus"], DateTimeOriginal: "2024:05:06 07:08:09", ...GPS } as WriteTags,
+          { writeArgs: ["-overwrite_original"] },
+        );
+      const bytes = readFileSync(file);
+      const upload = () => form({}, [{ field: "file", name, bytes, type }]);
+
+      const check = await app.inject({ method: "POST", url: "/api/uploads/inspect", ...(await upload()) });
+      expect(check.statusCode, check.body).toBe(200);
+      expect(check.json().possibleDuplicate).toBeNull();
+      expect(check.json().previewDataUrl).toMatch(/^data:image\/jpeg;base64,/);
+      const preview = await sharp(Buffer.from(check.json().previewDataUrl.split(",")[1], "base64")).metadata();
+      expect({ width: preview.width, height: preview.height }).toEqual(size);
+      if (inFile) expect(check.json().suggestions[0]).toMatchObject({ id: SPECIES, source: "keyword_tag" });
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/uploads",
+        ...(await form({ speciesId: SPECIES }, [{ field: "file", name, bytes, type }])),
+      });
+      expect(res.statusCode, res.body).toBe(201);
+      const captureId = res.json().captureId as string;
+      const capture = await db.query<{ lat: number | null; lon: number | null }>(
+        `SELECT lat, lon FROM captures WHERE id = $1`,
+        [captureId],
+      );
+      if (inFile) {
+        expect(capture.rows[0].lat).toBeCloseTo(51.5);
+        expect(capture.rows[0].lon).toBeCloseTo(-0.25);
+      }
+      const row = await db.query<{ ref: string; content_hash: string }>(
+        `SELECT ref, content_hash FROM originals WHERE capture_id = $1`,
+        [captureId],
+      );
+      const ref = row.rows[0].ref;
+      expect(path.basename(ref)).toBe(name);
+      expect(row.rows[0].content_hash).toBe(createHash("sha256").update(bytes).digest("hex"));
+      const photo = await db.query<{ width: number; height: number; display_path: string }>(
+        `SELECT width, height, display_path FROM photos WHERE id = $1`,
+        [res.json().photoId],
+      );
+      expect(photo.rows[0]).toMatchObject(size);
+      expect((await sharp(photo.rows[0].display_path).metadata()).format).toBe("webp");
+
+      // The species is written inside the file where exiftool can, else into a sidecar beside it.
+      const { stemSidecar } = await import("./sidecarNames.js");
+      const written = inFile ? ref : stemSidecar(ref);
+      await waitFor(async () =>
+        existsSync(written)
+          ? ((await exiftool.read(written)).Title as string | undefined) === "Large Test Tern"
+          : false,
+      );
+      if (inFile) expect(existsSync(stemSidecar(ref))).toBe(false);
+
+      const again = await app.inject({ method: "POST", url: "/api/uploads/inspect", ...(await upload()) });
+      expect(again.json().possibleDuplicate).toMatchObject({ captureId, exact: true });
+
+      const del = await app.inject({
+        method: "DELETE",
+        url: `/api/captures/${captureId}`,
+        headers: { "x-lifer-client": "1" },
+        cookies: { [cookieName]: SESSION },
+      });
+      expect(del.statusCode, del.body).toBe(200);
+      const trashed = await db.query(`SELECT 1 FROM captures_all WHERE id = $1 AND deleted_at IS NOT NULL`, [
+        captureId,
+      ]);
+      expect(trashed.rowCount).toBe(1);
+    },
+    60_000,
+  );
+
+  it("matches species on a JPEG 2000 original's decoded pixels", async () => {
+    const { analyzeImage } = await import("@lifer/core/species/inference.js");
+    const analysis = await analyzeImage(
+      { path: path.join(JP2_FIXTURES, "tiny.jp2") },
+      { targets: [], presence: true, priority: "interactive" },
+    );
+    expect(analysis.presence).toBeTruthy();
+  }, 60_000);
+
+  it("refuses a damaged AVIF or JPEG 2000 with a plain error and keeps serving", async () => {
+    const jp2 = readFileSync(path.join(JP2_FIXTURES, "tiny.jp2"));
+    const avif = await sharp({ create: { width: 64, height: 48, channels: 3, background: "#123456" } })
+      .avif()
+      .toBuffer();
+    for (const [name, bytes] of [
+      ["broken.jp2", Buffer.concat([jp2.subarray(0, 60), Buffer.alloc(500, 7)])],
+      ["broken.avif", avif.subarray(0, Math.floor(avif.length / 2))],
+    ] as const) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/uploads",
+        ...(await form({ speciesId: SPECIES }, [{ field: "file", name, bytes, type: "" }])),
+      });
+      expect(res.statusCode, `${name}: ${res.body}`).toBeGreaterThanOrEqual(400);
+      // A refusal in plain words, never the decoder's: the same as a damaged JPEG gets.
+      expect(res.json().error, name).not.toMatch(/ffmpeg|sharp|vips|heif|stack/i);
+    }
+    const ok = await app.inject({
+      method: "POST",
+      url: "/api/uploads",
+      ...(await form({ speciesId: SPECIES }, [
+        { field: "file", name: "IMG_5009.jpg", bytes: await jpeg(77), type: "image/jpeg" },
+      ])),
+    });
+    expect(ok.statusCode, ok.body).toBe(201);
+  }, 60_000);
 });
 
 async function waitFor(check: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {

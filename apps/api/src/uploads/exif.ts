@@ -351,6 +351,11 @@ const EMBEDDED_METADATA_EXTENSIONS = new Set([
   ".heic",
   ".heif",
   ".hif",
+  ".avif",
+  // JP2 and JPX only: exiftool can't write into a bare .j2k/.j2c codestream.
+  ".jp2",
+  ".jpf",
+  ".jpx",
 ]);
 
 export function metadataGoesInFile(filePath: string): boolean {

@@ -1,21 +1,21 @@
 // The images an import reads besides the untouched original: what sharp decodes for previews
-// (a HEIC becomes an upright JPEG) and what species matching reads (a huge panorama gets a
+// (a HEIC or JPEG 2000 becomes an upright JPEG) and what species matching reads (a huge panorama gets a
 // smaller copy). Temp files live in the upload temp folder and are removed by release().
 import { rm } from "node:fs/promises";
 import sharp from "sharp";
 import { INFERENCE_SOURCE_MAX_PIXELS, originalSharpOptions } from "@lifer/core/lib/imageLimits.js";
-import type { PhotoFormat } from "@lifer/core/uploads/formats.js";
-import { heicToJpegFile } from "@lifer/core/uploads/heic.js";
+import { DECODED_FORMATS, type PhotoFormat } from "@lifer/core/uploads/formats.js";
+import { decodedJpegFile } from "@lifer/core/uploads/decodedJpeg.js";
 import { uploadTempPath } from "./common.js";
 
 // A panorama's matching copy: big enough for the detector's tiles to find a small bird.
 const INFERENCE_COPY_PIXELS = 64_000_000;
 const INFERENCE_COPY_QUALITY = 92;
-// The import screen's preview for a file a browser can't show (TIFF, HEIC).
+// The import screen's preview for a file a browser can't show (TIFF, HEIC, AVIF, JPEG 2000).
 const PREVIEW_WIDTH = 1600;
 
 export interface WorkingImage {
-  /** Opened by sharp for derivatives: the original, or the decoded JPEG for a HEIC. */
+  /** Opened by sharp for derivatives: the original, or the decoded JPEG for a HEIC or JPEG 2000. */
   decodePath: string;
   /** Read by species matching (the original unless a copy was needed). */
   inferencePath: string;
@@ -38,10 +38,10 @@ export async function prepareWorkingImage(originalPath: string, format: PhotoFor
   let width: number | null;
   let height: number | null;
   try {
-    if (format === "heic") {
+    if (DECODED_FORMATS.has(format)) {
       decodePath = await uploadTempPath(null, ".jpg");
       made.push(decodePath);
-      ({ width, height } = await heicToJpegFile(originalPath, decodePath));
+      ({ width, height } = await decodedJpegFile(format, originalPath, decodePath));
     } else {
       const meta = await sharp(originalPath, originalSharpOptions()).metadata();
       const turned = (meta.orientation ?? 1) >= 5;

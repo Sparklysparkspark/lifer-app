@@ -15,6 +15,8 @@ import type { InferenceSession, Tensor } from "onnxruntime-node";
 import type { PreTrainedTokenizer, CLIPTextModelWithProjection } from "@huggingface/transformers";
 import { log } from "../lib/log.js";
 import { maxImagePixels } from "../lib/imageLimits.js";
+import { isJp2Bytes } from "../uploads/formats.js";
+import { jp2ToJpegBuffer } from "../uploads/jp2.js";
 import { summarizeScene, type SceneShares } from "./sceneSummary.js";
 
 // Loading sharp on this thread turns libvips' process-wide cache back on, undoing image.ts on the
@@ -35,15 +37,17 @@ function openImage(image: ImageData) {
   return sharp(image, { limitInputPixels: maxImagePixels() });
 }
 
-// sharp can't decode HEIC, so a HEIC path is decoded to JPEG here (already rotated by libheif).
+// sharp can't decode HEIC or JPEG 2000, so such a path is decoded to JPEG here (a HEIC already
+// rotated by libheif).
 async function decodableInput(filePath: string): Promise<ImageData> {
   const fh = await open(filePath, "r");
-  const head = Buffer.alloc(12);
+  const head = Buffer.alloc(24);
   try {
-    await fh.read(head, 0, 12, 0);
+    await fh.read(head, 0, 24, 0);
   } finally {
     await fh.close();
   }
+  if (isJp2Bytes(head)) return jp2ToJpegBuffer(filePath);
   if (
     head.toString("latin1", 4, 8) !== "ftyp" ||
     !/^(heic|heix|hevc|hevx|heim|heis)$/.test(head.toString("latin1", 8, 12))

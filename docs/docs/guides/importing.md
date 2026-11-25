@@ -18,7 +18,7 @@ Already culled the shoot in Lightroom, Photo Mechanic, digiKam, Vireo, SuperPick
 
 ## Supported files {#supported-files}
 
-- **Photos:** JPEG, PNG, WebP, TIFF and HEIC/HEIF (`.heic`, `.heif`, `.hif`).
+- **Photos:** JPEG, PNG, WebP, TIFF, HEIC/HEIF (`.heic`, `.heif`, `.hif`), AVIF (`.avif`) and JPEG 2000 (`.jp2`, `.jpf`, `.jpx`, `.j2k`, `.j2c`).
 - **RAW:** `.cr2`, `.cr3`, `.nef`, `.nrw`, `.arw`, `.raf`, `.rw2`, `.orf`, `.dng`, `.pef`, `.srw`, and unprocessed TIFFs straight from the camera's sensor (see [TIFF files](#tiff)).
 - **Video:** MP4 and MOV.
 - **Any size.** There's no size limit per file unless your server sets one (see [Large files](#large-files)).
@@ -26,6 +26,10 @@ Already culled the shoot in Lightroom, Photo Mechanic, digiKam, Vireo, SuperPick
 ### HEIC photos {#heic}
 
 HEIC is the format iPhones and many newer cameras save in. Lifer keeps your HEIC file as it is and makes a JPEG copy for thumbnails, previews and species recognition. You don't need to convert HEIC photos before importing.
+
+### AVIF and JPEG 2000 photos {#avif-jpeg-2000}
+
+Lifer keeps your AVIF or JPEG 2000 file as it is and makes its own thumbnails and previews from it. JPEG 2000 compound documents (`.jpm`) aren't supported.
 
 ### TIFF files {#tiff}
 
@@ -286,7 +290,7 @@ During a batch import, if the tags name exactly one species, it appears as a 100
 - The title (the species name, in your [naming style](./library-folders.md#naming)) and your star rating.
 - The place name, as IPTC **Sublocation** (Lightroom and Bridge show it under that name), next to the region's province or state and country. A [reimport](../settings.md#reimport) brings the place name back for photos that don't have one.
 
-JPEG, PNG, TIFF, DNG, WebP and HEIC files get this written inside the file. For other RAW files, Lifer writes a `.xmp` sidecar next to the file instead of changing it. Both are updated whenever you change a photo's species, rating, featured photo, tags, region or place name, including when you rename or remove a place name for every photo in **Settings > Library > Places**. Photos that stay in your own folders, like a library imported without organizing, aren't written to. For a [trip](./trips.md), only the copies in its `Wildlife` folder are.
+JPEG, PNG, TIFF, DNG, WebP, HEIC, AVIF and JPEG 2000 (`.jp2`, `.jpf`, `.jpx`) files get this written inside the file. A bare JPEG 2000 codestream (`.j2k`, `.j2c`) can't hold metadata, so it gets a sidecar. For other RAW files, Lifer writes a `.xmp` sidecar next to the file instead of changing it. Both are updated whenever you change a photo's species, rating, featured photo, tags, region or place name, including when you rename or remove a place name for every photo in **Settings > Library > Places**. Photos that stay in your own folders, like a library imported without organizing, aren't written to. For a [trip](./trips.md), only the copies in its `Wildlife` folder are.
 
 ## Import from a species page {#species-page}
 
@@ -313,7 +317,7 @@ Have a library organized some other way? Lifer can bring it in by reading the sp
 3. Leave **Move photos into my library** off to add photos where they are, or turn it on to move them in. You can import the same folder again with it on later.
 4. Click **Import** and confirm.
 
-Lifer reads photos (JPEG, PNG, WebP, TIFF and HEIC) and RAWs in every subfolder. Video files aren't picked up. It matches each one using its embedded tags, an `.xmp` sidecar, and species names or bird codes in the file or folder name. RAWs are paired with their edited photos by name and time.
+Lifer reads photos (JPEG, PNG, WebP, TIFF, HEIC, AVIF and JPEG 2000) and RAWs in every subfolder. Video files aren't picked up. It matches each one using its embedded tags, an `.xmp` sidecar, and species names or bird codes in the file or folder name. RAWs are paired with their edited photos by name and time.
 
 A progress bar shows photos and RAW files processed, with a cancel button. At the end, Lifer reports how many photos it recovered and how many RAWs it matched.
 

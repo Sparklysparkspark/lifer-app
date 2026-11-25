@@ -10,8 +10,8 @@ import { APP_DATA_DIR } from "../config.js";
 import { ensureDir } from "../lib/safeFs.js";
 import { createLimiter } from "../lib/concurrency.js";
 import { originalSharpOptions } from "../lib/imageLimits.js";
-import { isHeicBytes, isHeicFile } from "./formats.js";
-import { heicToJpegBuffer } from "./heic.js";
+import { DECODED_FORMATS, sniffPhotoBytes, sniffPhotoFormat } from "./formats.js";
+import { decodedJpegBuffer } from "./decodedJpeg.js";
 
 // libvips' cache keeps recently read originals open, which on Windows locks them against edits,
 // moves and deletes (and blocks ejecting a card anywhere). Originals are read once per step, so it
@@ -73,11 +73,11 @@ export interface DerivativePaths {
   height: number | null;
 }
 
-/** What sharp should open for a photo: the file or bytes themselves, or for a HEIC (which sharp
- *  can't decode) an upright JPEG made from it. */
+/** What sharp should open for a photo: the file or bytes themselves, or for a HEIC or JPEG 2000
+ *  (which sharp can't decode) an upright JPEG made from it. */
 async function decodableImage(image: Buffer | string): Promise<Buffer | string> {
-  const heic = typeof image === "string" ? await isHeicFile(image) : isHeicBytes(image.subarray(0, 64));
-  return heic ? heicToJpegBuffer(image) : image;
+  const format = typeof image === "string" ? await sniffPhotoFormat(image) : sniffPhotoBytes(image.subarray(0, 64));
+  return format && DECODED_FORMATS.has(format) ? decodedJpegBuffer(format, image) : image;
 }
 
 // Under APP_DATA_DIR, not DATA_DIR: these are regenerable caches, not part of the portable library.
