@@ -69,6 +69,8 @@ The edited JPG is the **shown version** by default, and the RAW is kept with it,
 
 **Which version shows.** With no choice from you, a photo shows its newest edit (a DNG, TIFF or PSD saved by an editor), else its camera original, else an edited export. A RAW alone is the last pick, since all it has to show is a small embedded preview. To change it, see [Seeing and switching versions](#switching).
 
+**Covers move to your edits.** When Lifer chose a species' featured photo or an album's cover itself and it's still only a RAW, the first edited photo you add replaces it: your highest rated edit, else the first one imported. Trips and smart albums pick an edit over a RAW the same way. A cover you chose yourself never changes (see [Featured photos](./collection-and-checklists.md#featured-photo)).
+
 ## Keep versions in folders {#version-folders}
 
 Lifer works with the folders you already keep. Put versions in a folder next to the original:

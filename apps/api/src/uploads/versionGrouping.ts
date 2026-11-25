@@ -12,7 +12,7 @@ import { invalidateUserVectors } from "@lifer/core/species/embeddings.js";
 import { createJob } from "../lib/job.js";
 import { resolveOriginalPaths } from "../storageVolumes/resolve.js";
 import { hideCapturesTx, unhideCapturesTx, type HiddenCover } from "../captures/hidden.js";
-import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
+import { ensureDefaultCardCropLater, preferEditedCoversLater } from "../collection/defaultCardCrop.js";
 import { readVersionTags } from "./exif.js";
 import { lastOriginalInsertAt } from "./captureRows.js";
 import { baseStem } from "@lifer/shared";
@@ -175,7 +175,12 @@ async function swapPhotos(client: PoolClient, groupId: string, versionId: string
   );
   // The group's card and album covers follow it to the newly shown photo. Only the group's own
   // species: a version linked from another species keeps that species' hand-picked cover.
-  await client.query(`UPDATE albums SET cover_photo_id = $2 WHERE cover_photo_id = $1`, [shown, other]);
+  await client.query(
+    `UPDATE albums SET cover_photo_id = $2,
+       cover_auto_photo_id = CASE WHEN cover_auto_photo_id = $1 THEN $2::uuid ELSE cover_auto_photo_id END
+     WHERE cover_photo_id = $1`,
+    [shown, other],
+  );
   const ownSpecies = `species_id IN (SELECT species_id FROM captures_all WHERE id = $3
                       UNION SELECT species_id FROM capture_species WHERE capture_id = $3)`;
   await client.query(
@@ -259,6 +264,8 @@ export async function withVersionChanges<T>(
   const result = await withTransaction((client) => fn(client, after));
   invalidateUserVectors(userId);
   for (const speciesId of new Set([...after.recrop, ...after.species])) ensureDefaultCardCropLater(userId, speciesId);
+  // Another photo of a species may show an edit now, so an automatic RAW cover can move to it.
+  preferEditedCoversLater(userId);
   return result;
 }
 

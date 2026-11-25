@@ -8,6 +8,7 @@ import { requireAuth } from "../auth/session.js";
 import { replies, withSchemas, Nullable, Open, Uuid } from "../lib/schema.js";
 import { sensitiveCapturesAmong } from "../settings/metadataSettings.js";
 import { KEEPER_FILTER, loadGearUsage } from "./overview.js";
+import { rawPreviewOf } from "../lib/bestPhotoOrder.js";
 
 type Db = Pick<PoolClient, "query">;
 
@@ -177,7 +178,7 @@ export async function loadYearInReview(db: Db, userId: string, requested: number
       cover: string | null;
     }>(
       `SELECT t.id, t.name, t.start_date::text AS start, t.end_date::text AS "end", COUNT(*)::int AS photo_count,
-              (array_agg(c.current_photo_id ORDER BY (c.id = t.cover_capture_id) DESC, ${BEST_PHOTO_ORDER})
+              (array_agg(c.current_photo_id ORDER BY (c.id = t.cover_capture_id) DESC, ${rawPreviewOf("c")}, ${BEST_PHOTO_ORDER})
                  FILTER (WHERE c.current_photo_id IS NOT NULL))[1] AS cover
        FROM trips t JOIN captures c ON c.trip_id = t.id
        WHERE ${IN_YEAR} AND t.user_id = $1

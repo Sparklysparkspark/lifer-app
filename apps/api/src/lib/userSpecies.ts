@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { rawPreviewOf } from "./bestPhotoOrder.js";
 
 type Queryable = Pick<PoolClient, "query">;
 
@@ -31,20 +32,21 @@ export async function markHeard(db: Queryable, userId: string, speciesId: string
   );
 }
 
-// A species' fallback cover: its best remaining photo, highest rated then newest (the same pick
-// as replaceUnshowableCover in photos/routes.ts). Photos where it's only a secondary tag come
-// last. Reads the `captures` view, so trashed captures never qualify.
+// A species' fallback cover: its best remaining photo, an edit before a RAW's preview, then
+// highest rated then newest (the same pick as replaceUnshowableCover in photos/routes.ts). Photos
+// where it's only a secondary tag come last. Reads the `captures` view, so trashed captures never qualify.
 const BEST_REMAINING_PHOTO_SQL = `(
   SELECT b.photo_id FROM (
-    SELECT c.current_photo_id AS photo_id, 0 AS secondary, c.quality_rating, c.taken_at, c.id
+    SELECT c.current_photo_id AS photo_id, 0 AS secondary, ${rawPreviewOf("c")} AS raw_preview,
+           c.quality_rating, c.taken_at, c.id
     FROM captures c
     WHERE c.user_id = us.user_id AND c.species_id = us.species_id AND c.current_photo_id IS NOT NULL
     UNION ALL
-    SELECT c.current_photo_id, 1, c.quality_rating, c.taken_at, c.id
+    SELECT c.current_photo_id, 1, ${rawPreviewOf("c")}, c.quality_rating, c.taken_at, c.id
     FROM capture_species cs JOIN captures c ON c.id = cs.capture_id
     WHERE cs.species_id = us.species_id AND c.user_id = us.user_id AND c.current_photo_id IS NOT NULL
   ) b
-  ORDER BY b.secondary, b.quality_rating DESC NULLS LAST, b.taken_at DESC NULLS LAST, b.id
+  ORDER BY b.secondary, b.raw_preview, b.quality_rating DESC NULLS LAST, b.taken_at DESC NULLS LAST, b.id
   LIMIT 1
 )`;
 

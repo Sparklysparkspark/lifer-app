@@ -30,8 +30,9 @@ import { albumSuggestions, dismissSuggestion, restoreSuggestion } from "./sugges
 import { photoSetSpeciesCards } from "../collection/photoSetSpecies.js";
 import { resolveQuadSlots } from "../lib/quadCover.js";
 import { applyDefaultCoverCrops } from "./defaultCoverCrops.js";
+import { preferEditedCovers } from "../lib/autoCovers.js";
 import { isValidCrop } from "../lib/crop.js";
-import { BEST_PHOTO_ORDER } from "../lib/bestPhotoOrder.js";
+import { AUTO_COVER_ORDER, BEST_PHOTO_ORDER } from "../lib/bestPhotoOrder.js";
 import { DateTime, IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 
 const albumNotFound = notFoundOnInvalidId("Album not found");
@@ -131,6 +132,10 @@ async function smartCover(
   return null;
 }
 
+/** The cover Lifer shows when nobody picked one: the first photo that isn't a RAW's preview. */
+const autoCover = (items: AlbumMember[]): string | null =>
+  (items.find((i) => i.original_kind !== "raw") ?? items[0])?.photo_id ?? null;
+
 export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
 
@@ -168,7 +173,7 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
          SELECT c.current_photo_id AS photo_id
          FROM album_captures ac2 JOIN captures c ON c.id = ac2.capture_id
          WHERE ac2.album_id = a.id AND c.current_photo_id IS NOT NULL
-         ORDER BY ${BEST_PHOTO_ORDER} LIMIT 1
+         ORDER BY ${AUTO_COVER_ORDER} LIMIT 1
        ) fallback ON true
        WHERE a.user_id = $1
        ORDER BY a.created_at DESC`,
@@ -186,7 +191,7 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
         albums: await Promise.all(
           res.rows.map(async (r) => {
             const items = smartItems.get(r.id);
-            const fallbackCover = items ? (items[0]?.photo_id ?? null) : r.fallback_cover_photo_id;
+            const fallbackCover = items ? autoCover(items) : r.fallback_cover_photo_id;
             const quadCandidates = items ? items.map((i) => i.photo_id) : (r.quad_candidate_photo_ids ?? []);
             const pick = { photoId: r.resolved_cover_photo_id, captureId: r.cover_capture_id };
             const picked = items ? await smartCover(r.id, pick, items) : pick.photoId;
@@ -374,7 +379,7 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
         name: album.name,
         description: album.description,
         // Falls back to the first item once the manual pick's capture is gone.
-        coverPhotoId: picked ?? items[0]?.photo_id ?? null,
+        coverPhotoId: picked ?? autoCover(items),
         coverLayout: album.cover_layout,
         coverPicked: picked != null,
         // The crop belongs to the picked photo, so drop it when we fell back to another.
@@ -440,6 +445,7 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
            name = COALESCE($3, name),
            description = CASE WHEN $4::boolean THEN $5 ELSE description END,
            cover_photo_id = CASE WHEN $6::boolean THEN $7 ELSE cover_photo_id END,
+           cover_auto_photo_id = CASE WHEN $6::boolean THEN NULL ELSE cover_auto_photo_id END,
            cover_layout = COALESCE($8, cover_layout),
            -- A newly-picked cover photo was never framed for whatever crop was saved against
            -- the PREVIOUS cover, so it's cleared here too, same rule trips' own cover-pick
@@ -544,19 +550,21 @@ export async function albumRoutes(fastify: FastifyInstance): Promise<void> {
         [request.params.id, captureIds, userId, JSON.stringify(addedAt ?? {})],
       );
 
-      // An album with no cover gets one from what was just added; a manual pick overrides it.
+      // An album with no cover gets one from what was just added, and an automatic RAW cover
+      // gives way to an edit; a manual pick overrides both.
       if (inserted.rows.length > 0) {
         await pool.query(
-          `UPDATE albums a SET cover_photo_id = sub.photo_id
+          `UPDATE albums a SET cover_photo_id = sub.photo_id, cover_auto_photo_id = sub.photo_id
            FROM (
              SELECT c.current_photo_id AS photo_id FROM captures c
              WHERE c.id = ANY($2) AND c.current_photo_id IS NOT NULL
-             ORDER BY ${BEST_PHOTO_ORDER}
+             ORDER BY ${AUTO_COVER_ORDER}
              LIMIT 1
            ) sub
            WHERE a.id = $1 AND a.cover_photo_id IS NULL`,
           [request.params.id, inserted.rows.map((r) => r.capture_id)],
         );
+        await preferEditedCovers(userId, []);
       }
       // Best-effort: a recovery-manifest write never blocks or fails the request.
       syncAlbumIndexForCaptures(inserted.rows.map((r) => r.capture_id)).catch((err: unknown) =>

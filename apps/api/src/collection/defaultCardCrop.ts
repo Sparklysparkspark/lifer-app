@@ -3,7 +3,18 @@
 // Best-effort: no subject or any error leaves the crop empty.
 import { readFile } from "node:fs/promises";
 import { pool } from "@lifer/core/db.js";
+import { log } from "@lifer/core/lib/log.js";
 import { detectDefaultCardCrop } from "../species/detectAndCrop.js";
+import { preferEditedCovers, type MovedCover } from "../lib/autoCovers.js";
+import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
+
+// The "Lifer:Cover" keyword leaves the old cover's sidecar and lands on the new one's.
+async function retagMoved(moved: MovedCover[]): Promise<void> {
+  for (const m of moved) {
+    await syncCaptureXmpSidecarsLogged(m.userId, m.oldCaptureId);
+    await syncCaptureXmpSidecarsLogged(m.userId, m.newCaptureId);
+  }
+}
 
 /** `known`: a crop already found for one photo, used when that photo is the cover. */
 export async function ensureDefaultCardCrop(
@@ -12,6 +23,8 @@ export async function ensureDefaultCardCrop(
   known?: { photoId: string; crop: NonNullable<Awaited<ReturnType<typeof detectDefaultCardCrop>>> },
 ): Promise<void> {
   try {
+    // Every import frames its species here, so a new edit replaces an automatic RAW cover first.
+    await retagMoved(await preferEditedCovers(userId, [speciesId]));
     const res = await pool.query<{ cover_photo_id: string; display_path: string | null }>(
       `SELECT us.cover_photo_id, p.display_path
        FROM user_species us JOIN photos p ON p.id = us.cover_photo_id
@@ -38,4 +51,24 @@ export async function ensureDefaultCardCrop(
 /** Fire-and-forget form for request handlers: never delays or fails the response. */
 export function ensureDefaultCardCropLater(userId: string, speciesId: string): void {
   void ensureDefaultCardCrop(userId, speciesId);
+}
+
+const pendingRuns = new Map<string, NodeJS.Timeout>();
+
+/** After version changes (or at startup, with null for everyone): moves automatic RAW covers onto
+ *  edits, then frames the species that moved. Calls within a moment share one run. */
+export function preferEditedCoversLater(userId: string | null): void {
+  const key = userId ?? "*";
+  if (pendingRuns.has(key)) return;
+  const timer = setTimeout(() => {
+    pendingRuns.delete(key);
+    preferEditedCovers(userId)
+      .then(async (moved) => {
+        await retagMoved(moved);
+        for (const m of moved) await ensureDefaultCardCrop(m.userId, m.speciesId);
+      })
+      .catch((err: unknown) => log.warn({ err }, "Couldn't move automatic covers onto edited photos"));
+  }, 1000);
+  timer.unref();
+  pendingRuns.set(key, timer);
 }

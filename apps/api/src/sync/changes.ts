@@ -315,9 +315,11 @@ export async function upsertUserSpeciesDetailed(
   if (unique.length === 0) return { written: [], conflicts };
   const col = <K extends keyof PushedUserSpecies>(k: K) => unique.map((r) => r[k] ?? null);
   const res = await db.query(
-    `INSERT INTO user_species (user_id, species_id, state, cover_photo_id, first_collected, best_quality,
+    `INSERT INTO user_species (user_id, species_id, state, cover_photo_id, cover_chosen_photo_id, first_collected, best_quality,
        card_crop_x, card_crop_y, card_crop_size, is_target, needs_better_photo, pushed_at, remote_updated_at)
      SELECT $1, s.id, v.state,
+       (SELECT p.id FROM photos p JOIN captures_all c ON c.id = p.capture_id WHERE p.id = v.cover AND c.user_id = $1),
+       -- A synced cover may be the user's pick on the other side, so it never moves on its own here.
        (SELECT p.id FROM photos p JOIN captures_all c ON c.id = p.capture_id WHERE p.id = v.cover AND c.user_id = $1),
        v.first_collected, v.best_quality, v.x, v.y, v.size, v.is_target,
        -- Left out by the sender: keep this side's mark.
@@ -331,6 +333,8 @@ export async function upsertUserSpeciesDetailed(
            WHERE scientific_name = ANY($2) ORDER BY scientific_name, id) s ON s.scientific_name = v.name
      ON CONFLICT (user_id, species_id) DO UPDATE SET state = EXCLUDED.state,
        cover_photo_id = COALESCE(EXCLUDED.cover_photo_id, user_species.cover_photo_id),
+       cover_chosen_photo_id = CASE WHEN EXCLUDED.cover_photo_id IS DISTINCT FROM user_species.cover_photo_id
+         AND EXCLUDED.cover_photo_id IS NOT NULL THEN EXCLUDED.cover_photo_id ELSE user_species.cover_chosen_photo_id END,
        first_collected = EXCLUDED.first_collected, best_quality = EXCLUDED.best_quality,
        card_crop_x = EXCLUDED.card_crop_x, card_crop_y = EXCLUDED.card_crop_y,
        card_crop_size = EXCLUDED.card_crop_size, is_target = EXCLUDED.is_target,

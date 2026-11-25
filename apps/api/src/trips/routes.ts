@@ -18,7 +18,7 @@ import { tripMembershipRoutes } from "./membership.js";
 import { tripFileMoveRoutes } from "./moveFiles.js";
 import { GALLERY_TIER_SQL } from "../gallery/routes.js";
 import { filesCaptureOf } from "../lib/versionFiles.js";
-import { BEST_PHOTO_ORDER } from "../lib/bestPhotoOrder.js";
+import { BEST_PHOTO_ORDER, rawPreviewOf } from "../lib/bestPhotoOrder.js";
 import { sensitiveForKey } from "../companion/privacy.js";
 
 // The shared pick order under this file's `cc` alias.
@@ -189,7 +189,7 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
        LEFT JOIN LATERAL (
          SELECT cc.id, cc.current_photo_id FROM captures cc
          WHERE cc.trip_id = t.id AND cc.current_photo_id IS NOT NULL
-         ORDER BY (cc.id = t.cover_capture_id) DESC, ${BEST_PHOTO_ORDER_CC}
+         ORDER BY (cc.id = t.cover_capture_id) DESC, ${rawPreviewOf("cc")}, ${BEST_PHOTO_ORDER_CC}
          LIMIT 1
        ) cover_c ON true
        LEFT JOIN LATERAL (

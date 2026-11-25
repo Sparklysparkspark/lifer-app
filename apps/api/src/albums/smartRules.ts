@@ -78,8 +78,8 @@ export function smartRulesError(rules: SmartAlbumRules): string | null {
 
 /** Ids only, for counts, covers and membership: a full row costs about 1KB to build and send,
  *  which for a smart album of a whole library is seconds. Same joins, so the same photos. */
-export type AlbumMember = Pick<GalleryRow, "capture_id" | "photo_id">;
-export const ALBUM_MEMBER_COLUMNS = "c.id AS capture_id, p.id AS photo_id";
+export type AlbumMember = Pick<GalleryRow, "capture_id" | "photo_id" | "original_kind">;
+export const ALBUM_MEMBER_COLUMNS = "c.id AS capture_id, p.id AS photo_id, o.kind AS original_kind";
 
 /** The owner's photos the rules match, ordered as the Gallery shows them: newest first, or best
  *  match first with search text. `columns` as listGalleryRows; a search always returns full rows. */
