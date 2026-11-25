@@ -11,6 +11,7 @@ import {
   claimedPhotoFormat,
   isHeicBytes,
   isJp2Bytes,
+  isJxlBytes,
   isRawExtension,
   isRawFile,
   photoFormatFor,
@@ -93,6 +94,8 @@ describe("photo formats", () => {
     expect(await sniffPhotoFormat(await write("e", await base().avif().toBuffer()))).toBe("avif");
     expect(await sniffPhotoFormat(path.join(FIXTURES, "tiny.jp2"))).toBe("jp2");
     expect(await sniffPhotoFormat(path.join(FIXTURES, "tiny.j2k"))).toBe("jp2");
+    expect(await sniffPhotoFormat(path.join(FIXTURES, "tiny.jxl"))).toBe("jxl");
+    expect(await sniffPhotoFormat(path.join(FIXTURES, "tiny-bare.jxl"))).toBe("jxl");
     expect(await sniffPhotoFormat(await write("f", Buffer.from("not an image")))).toBeNull();
   });
 
@@ -324,6 +327,7 @@ describe("accepted photo types", () => {
     "image/avif": ["avif", ".avif"],
     "image/jp2": ["jp2", ".jp2"],
     "image/jpx": ["jp2", ".jp2"],
+    "image/jxl": ["jxl", ".jxl"],
   };
 
   it.each(Object.entries(accepted))("accepts %s", (mime, [format, extension]) => {
@@ -351,6 +355,7 @@ describe("accepted photo types", () => {
     ["a.jpx", "jp2"],
     ["a.J2K", "jp2"],
     ["a.j2c", "jp2"],
+    ["a.JXL", "jxl"],
   ])("knows %s by its name", (name, format) => {
     expect(photoFormatFor(name)).toBe(format);
   });
@@ -365,6 +370,7 @@ describe("accepted photo types", () => {
       heic: "image/heic",
       avif: "image/avif",
       jp2: "image/jp2",
+      jxl: "image/jxl",
     });
   });
 
@@ -475,6 +481,8 @@ describe("sniffPhotoFormat", () => {
       ["jp2", Buffer.concat([JP2_SIGNATURE, jp2Ftyp("jp2 ")]), "jp2"],
       ["jpx", Buffer.concat([JP2_SIGNATURE, jp2Ftyp("jpx ")]), "jp2"],
       ["j2k", Buffer.from([0xff, 0x4f, 0xff, 0x51]), "jp2"],
+      ["jxl", Buffer.from([0xff, 0x0a]), "jxl"],
+      ["jxl-container", Buffer.from([0, 0, 0, 0x0c, 0x4a, 0x58, 0x4c, 0x20, 0x0d, 0x0a, 0x87, 0x0a]), "jxl"],
       // A JPM compound document shares the signature box but isn't a photo.
       ["jpm", Buffer.concat([JP2_SIGNATURE, jp2Ftyp("jpm ")]), null],
       ["mp4", ftyp("mp42", ["isom"]), null],
@@ -506,6 +514,17 @@ describe("sniffPhotoFormat", () => {
     const wrongSignature = Buffer.concat([JP2_SIGNATURE, jp2Ftyp("jp2 ")]);
     wrongSignature[11] = 0x0b;
     expect(isJp2Bytes(wrongSignature)).toBe(false);
+  });
+
+  it("tells a JPEG XL file from a near miss", () => {
+    const container = Buffer.from([0, 0, 0, 0x0c, 0x4a, 0x58, 0x4c, 0x20, 0x0d, 0x0a, 0x87, 0x0a]);
+    expect(isJxlBytes(container)).toBe(true);
+    expect(isJxlBytes(container.subarray(0, 11))).toBe(false);
+    expect(isJxlBytes(Buffer.from([0xff]))).toBe(false);
+    expect(isJxlBytes(Buffer.from([0xff, 0x0b]))).toBe(false);
+    const wrong = Buffer.from(container);
+    wrong[7] = 0x21;
+    expect(isJxlBytes(wrong)).toBe(false);
   });
 
   it("closes every file it opens", async () => {

@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { readFile, stat } from "node:fs/promises";
 import sharp from "sharp";
 import { createLimiter } from "../lib/concurrency.js";
+import { heifColour, nclxToSrgb, pngWithIcc, type HeifColour } from "./heifColour.js";
 
 type Decoded = { width: number; height: number; data: Uint8ClampedArray };
 type HeicDecode = (input: { buffer: Uint8Array }) => Promise<Decoded>;
@@ -23,9 +24,12 @@ const decodeLimit = createLimiter(1);
 // only full-resolution decode Lifer makes of the photo.
 const HEIC_WORKING_JPEG_QUALITY = 92;
 
-/** Upright RGBA pixels of a HEIC's primary image. libheif applies the file's rotation and mirror
- *  (irot/imir) itself, so the result must not be rotated again from the EXIF Orientation. */
-async function decodeHeic(input: string | Uint8Array): Promise<{ data: Buffer; width: number; height: number }> {
+type DecodedHeic = { data: Buffer; width: number; height: number; colour: HeifColour | null };
+
+/** Upright RGBA pixels of a HEIC's primary image, and the colour space they're in. libheif applies
+ *  the file's rotation and mirror (irot/imir) itself, so the result must not be rotated again from
+ *  the EXIF Orientation. */
+async function decodeHeic(input: string | Uint8Array): Promise<DecodedHeic> {
   return decodeLimit(async () => {
     let bytes: Uint8Array;
     if (typeof input === "string") {
@@ -34,29 +38,33 @@ async function decodeHeic(input: string | Uint8Array): Promise<{ data: Buffer; w
       bytes = await readFile(input);
     } else bytes = input;
     const { width, height, data } = await heicDecode()({ buffer: bytes });
-    return { data: Buffer.from(data.buffer, data.byteOffset, data.byteLength), width, height };
+    const colour = heifColour(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+    return { data: Buffer.from(data.buffer, data.byteOffset, data.byteLength), width, height, colour };
   });
 }
 
-function jpegFrom(decoded: { data: Buffer; width: number; height: number }) {
+async function jpegFrom({ data, width, height, colour }: DecodedHeic) {
+  // heic-decode applies no colour profile, so the pixels are brought to sRGB here.
+  const image =
+    colour && "icc" in colour
+      ? sharp(await pngWithIcc(data, { width, height }, colour.icc), { limitInputPixels: false })
+      : sharp(data, { raw: { width, height, channels: 4 }, limitInputPixels: false });
   // Flattened onto white: a HEIC's alpha (rare) has no meaning in a JPEG. No metadata is copied,
   // so no Orientation tag can turn the already upright pixels again.
-  return sharp(decoded.data, {
-    raw: { width: decoded.width, height: decoded.height, channels: 4 },
-    limitInputPixels: false,
-  })
-    .flatten({ background: "#ffffff" })
+  const flat = image.flatten({ background: "#ffffff" });
+  return (colour && "primaries" in colour ? nclxToSrgb(flat, colour.primaries) : flat)
+    .toColourspace("srgb")
     .jpeg({ quality: HEIC_WORKING_JPEG_QUALITY, chromaSubsampling: "4:4:4" });
 }
 
 /** Decodes a HEIC into an upright JPEG at `dest`. */
 export async function heicToJpegFile(input: string, dest: string): Promise<{ width: number; height: number }> {
   const decoded = await decodeHeic(input);
-  await jpegFrom(decoded).toFile(dest);
+  await (await jpegFrom(decoded)).toFile(dest);
   return { width: decoded.width, height: decoded.height };
 }
 
 /** Decodes a HEIC into upright JPEG bytes. */
 export async function heicToJpegBuffer(input: string | Uint8Array): Promise<Buffer> {
-  return jpegFrom(await decodeHeic(input)).toBuffer();
+  return (await jpegFrom(await decodeHeic(input))).toBuffer();
 }

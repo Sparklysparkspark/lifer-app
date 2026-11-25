@@ -94,7 +94,7 @@ interface ImportRow extends ReviewRowBase {
   status: RowStatus;
   captureId?: string;
   error?: string;
-  /** Browsers can't render RAW, TIFF, HEIC, AVIF or JPEG 2000 (previewFromServer), so
+  /** Browsers can't render RAW, TIFF, HEIC, AVIF, JPEG 2000 or JPEG XL (previewFromServer), so
    *  rawPreviewUrl holds the JPEG preview from /uploads/inspect. `undefined` = not checked yet,
    *  `null` = the file has none. */
   isRaw?: boolean;
@@ -576,7 +576,7 @@ export default function PhotoImportRows({
   async function inspectFile(key: string, file: File, forRegionId: string | null, cameraRegion = false) {
     const isLatest = startInspect(key);
     try {
-      // TIFF, HEIC, AVIF and JPEG 2000 are matched on the server's decoded copy, which only it
+      // TIFF, HEIC, AVIF, JPEG 2000 and JPEG XL are matched on the server's decoded copy, which only it
       // makes. A RAW is matched on the preview inside it, which this computer can read too.
       const raw = isRawFile(file.name);
       const local = (raw || isBrowserDisplayable(file)) && shouldMatchLocally();

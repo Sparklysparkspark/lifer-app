@@ -26752,7 +26752,7 @@
                     },
                     "insideFiles": {
                       "type": "boolean",
-                      "description": "Write keywords inside JPEG, TIFF, PNG, DNG, WebP, HEIC, AVIF and JPEG 2000 files"
+                      "description": "Write keywords inside JPEG, TIFF, PNG, DNG, WebP, HEIC, AVIF, JPEG 2000 and JPEG XL files"
                     },
                     "linkedFolders": {
                       "type": "boolean",
@@ -26794,7 +26794,7 @@
                   },
                   "insideFiles": {
                     "type": "boolean",
-                    "description": "Write keywords inside JPEG, TIFF, PNG, DNG, WebP, HEIC, AVIF and JPEG 2000 files"
+                    "description": "Write keywords inside JPEG, TIFF, PNG, DNG, WebP, HEIC, AVIF, JPEG 2000 and JPEG XL files"
                   },
                   "linkedFolders": {
                     "type": "boolean",
@@ -26821,7 +26821,7 @@
                     },
                     "insideFiles": {
                       "type": "boolean",
-                      "description": "Write keywords inside JPEG, TIFF, PNG, DNG, WebP, HEIC, AVIF and JPEG 2000 files"
+                      "description": "Write keywords inside JPEG, TIFF, PNG, DNG, WebP, HEIC, AVIF, JPEG 2000 and JPEG XL files"
                     },
                     "linkedFolders": {
                       "type": "boolean",
@@ -37580,7 +37580,7 @@
     "/trips/{id}/scan-preview": {
       "get": {
         "summary": "Preview of a file in a trip folder",
-        "description": "The image or video itself; a RAW, TIFF, HEIC, AVIF or JPEG 2000 file comes as a JPEG made from it.",
+        "description": "The image or video itself; a RAW, TIFF, HEIC, AVIF, JPEG 2000 or JPEG XL file comes as a JPEG made from it.",
         "tags": ["trips"],
         "security": [{ "apiKey": [] }],
         "x-required-scope": "trips.read",
@@ -38584,7 +38584,7 @@
     "/uploads": {
       "post": {
         "summary": "Import a photo",
-        "description": "multipart/form-data. Accepted photos: .jpg/.jpeg/.jpe (image/jpeg, image/jpg, image/pjpeg); .png (image/png); .webp (image/webp); .tif/.tiff (image/tiff, image/tif, image/x-tiff); .heic/.heif/.hif (image/heic, image/heif, image/heic-sequence, image/heif-sequence); .avif (image/avif); .jp2/.jpf/.jpx/.j2k/.j2c (image/jp2, image/jpx). A camera RAW (or a TIFF holding sensor data) can also be sent on its own. The file's own metadata (capture time, GPS, camera, star rating) is read on import. With `skipDuplicates=1`, an exact copy you already have returns that photo (200, `duplicate: true`) instead of a second one. `cullMarks` decides what happens to a photo a culling app rejected (xmp:Rating -1, a Lightroom, digiKam, Vireo or SuperPicky reject flag): `ignore` (the default) imports it, `skip` answers 200 with `skipped: \"rejected\"` and imports nothing, `hide` imports it hidden (`hidden: true`, out of the gallery and life list until unhidden). A verdict on `rawFile` counts for `file` too. Send the XMP sidecar of the file or its RAW as `xmpFile` (or `xmpUploadId`) and its rating, pick or reject, colour label and keywords are read as from a sidecar on disk. The 201 answer carries `sha256` (hex SHA-256 of the stored file, and of the duplicate on 200) and `rawSha256` when a RAW came with it, so you can verify the transfer. The file is only read, never changed. Instead of `file`, send `uploadId` (a finished resumable upload, see /uploads/tus) or, after POST /uploads/inspect, `stagedId` with `fileName` and `fileType` to import the copy the server kept. 410 means that copy is gone (expired, already imported or never finished), so send the file again; 409 means the same upload is being imported by another request.",
+        "description": "multipart/form-data. Accepted photos: .jpg/.jpeg/.jpe (image/jpeg, image/jpg, image/pjpeg); .png (image/png); .webp (image/webp); .tif/.tiff (image/tiff, image/tif, image/x-tiff); .heic/.heif/.hif (image/heic, image/heif, image/heic-sequence, image/heif-sequence); .avif (image/avif); .jp2/.jpf/.jpx/.j2k/.j2c (image/jp2, image/jpx); .jxl (image/jxl). A camera RAW (or a TIFF holding sensor data) can also be sent on its own. The file's own metadata (capture time, GPS, camera, star rating) is read on import. With `skipDuplicates=1`, an exact copy you already have returns that photo (200, `duplicate: true`) instead of a second one. `cullMarks` decides what happens to a photo a culling app rejected (xmp:Rating -1, a Lightroom, digiKam, Vireo or SuperPicky reject flag): `ignore` (the default) imports it, `skip` answers 200 with `skipped: \"rejected\"` and imports nothing, `hide` imports it hidden (`hidden: true`, out of the gallery and life list until unhidden). A verdict on `rawFile` counts for `file` too. Send the XMP sidecar of the file or its RAW as `xmpFile` (or `xmpUploadId`) and its rating, pick or reject, colour label and keywords are read as from a sidecar on disk. The 201 answer carries `sha256` (hex SHA-256 of the stored file, and of the duplicate on 200) and `rawSha256` when a RAW came with it, so you can verify the transfer. The file is only read, never changed. Instead of `file`, send `uploadId` (a finished resumable upload, see /uploads/tus) or, after POST /uploads/inspect, `stagedId` with `fileName` and `fileType` to import the copy the server kept. 410 means that copy is gone (expired, already imported or never finished), so send the file again; 409 means the same upload is being imported by another request.",
         "tags": ["photos"],
         "security": [{ "apiKey": [] }],
         "x-required-scope": "photos.write",
@@ -38914,7 +38914,7 @@
     "/uploads/inspect": {
       "post": {
         "summary": "Check a photo before importing it",
-        "description": "multipart/form-data with `file`, or `uploadId` for a finished resumable upload (read where it is; import it next with the same `uploadId`). Reports an exact or near-identical photo you already have and, with `regionId`, species suggestions. A `file` is kept for 2 hours so POST /uploads can import it by `stagedId` without sending it again. `previewDataUrl` is a JPEG for files a browser can't show (RAW, TIFF, HEIC, AVIF, JPEG 2000). `cull` is what a culling app marked in the file's own metadata: `verdict` (`pick`, `reject` or null) and `label` (a colour, or null). 410 when `uploadId` is gone.",
+        "description": "multipart/form-data with `file`, or `uploadId` for a finished resumable upload (read where it is; import it next with the same `uploadId`). Reports an exact or near-identical photo you already have and, with `regionId`, species suggestions. A `file` is kept for 2 hours so POST /uploads can import it by `stagedId` without sending it again. `previewDataUrl` is a JPEG for files a browser can't show (RAW, TIFF, HEIC, AVIF, JPEG 2000, JPEG XL). `cull` is what a culling app marked in the file's own metadata: `verdict` (`pick`, `reject` or null) and `label` (a colour, or null). 410 when `uploadId` is gone.",
         "tags": ["photos"],
         "security": [{ "apiKey": [] }],
         "x-required-scope": "photos.write",

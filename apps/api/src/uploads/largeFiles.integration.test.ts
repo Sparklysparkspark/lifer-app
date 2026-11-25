@@ -2,7 +2,7 @@
 //   TEST_DATABASE_URL=postgres://lifer@127.0.0.1:55432/lifer npx vitest run largeFiles
 // Resumable (tus) uploads: chunked and resumed uploads imported by uploadId, owner isolation,
 // a file over 2 GB with flat memory, a huge panorama, edited and sensor-data TIFFs, WebP, HEIC,
-// AVIF and JPEG 2000.
+// AVIF, JPEG 2000 and JPEG XL.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -682,7 +682,7 @@ describe.skipIf(!url)("large files and new formats", () => {
     },
     60_000,
   );
-  // AVIF (made by sharp) and JPEG 2000 (committed fixtures: the release ffmpeg has no encoder).
+  // AVIF (made by sharp), JPEG 2000 and JPEG XL (committed fixtures: nothing bundled encodes them).
   const JP2_FIXTURES = path.join(import.meta.dirname, "../../../../packages/core/src/uploads/__fixtures__");
   const GPS = { GPSLatitude: 51.5, GPSLatitudeRef: "N", GPSLongitude: -0.25, GPSLongitudeRef: "W" };
 
@@ -690,6 +690,9 @@ describe.skipIf(!url)("large files and new formats", () => {
     { name: "IMG_5000.avif", type: "image/avif", size: { width: 120, height: 90 }, inFile: true },
     { name: "SCAN_5001.jp2", type: "", size: { width: 96, height: 64 }, inFile: true },
     { name: "TILE_5002.j2k", type: "", size: { width: 96, height: 64 }, inFile: false },
+    { name: "DSC_5003.jxl", type: "image/jxl", size: { width: 200, height: 133 }, inFile: true },
+    // A bare codestream: exiftool would have to rewrap it, so it gets a sidecar.
+    { name: "DSC_5004.jxl", type: "", size: { width: 200, height: 133 }, inFile: false },
   ])(
     "imports $name end to end: preview, metadata, keywords, duplicate check and the Trash",
     async ({ name, type, size, inFile }) => {
@@ -701,7 +704,11 @@ describe.skipIf(!url)("large files and new formats", () => {
             .avif()
             .toBuffer(),
         );
-      else writeFileSync(file, readFileSync(path.join(JP2_FIXTURES, name.endsWith(".jp2") ? "tiny.jp2" : "tiny.j2k")));
+      else {
+        const fixture =
+          { ".jp2": "tiny.jp2", ".j2k": "tiny.j2k" }[path.extname(name)] ?? (inFile ? "tiny.jxl" : "tiny-bare.jxl");
+        writeFileSync(file, readFileSync(path.join(JP2_FIXTURES, fixture)));
+      }
       // exiftool can't write into a bare codestream, so that one brings no metadata of its own.
       if (inFile)
         await exiftool.write(
@@ -777,16 +784,20 @@ describe.skipIf(!url)("large files and new formats", () => {
     60_000,
   );
 
-  it("matches species on a JPEG 2000 original's decoded pixels", async () => {
-    const { analyzeImage } = await import("@lifer/core/species/inference.js");
-    const analysis = await analyzeImage(
-      { path: path.join(JP2_FIXTURES, "tiny.jp2") },
-      { targets: [], presence: true, priority: "interactive" },
-    );
-    expect(analysis.presence).toBeTruthy();
-  }, 60_000);
+  it.each(["tiny.jp2", "tiny.jxl", "p3.avif"])(
+    "matches species on the decoded pixels of %s",
+    async (name) => {
+      const { analyzeImage } = await import("@lifer/core/species/inference.js");
+      const analysis = await analyzeImage(
+        { path: path.join(JP2_FIXTURES, name) },
+        { targets: [], presence: true, priority: "interactive" },
+      );
+      expect(analysis.presence).toBeTruthy();
+    },
+    60_000,
+  );
 
-  it("refuses a damaged AVIF or JPEG 2000 with a plain error and keeps serving", async () => {
+  it("refuses a damaged AVIF, JPEG 2000 or JPEG XL with a plain error and keeps serving", async () => {
     const jp2 = readFileSync(path.join(JP2_FIXTURES, "tiny.jp2"));
     const avif = await sharp({ create: { width: 64, height: 48, channels: 3, background: "#123456" } })
       .avif()
@@ -794,6 +805,7 @@ describe.skipIf(!url)("large files and new formats", () => {
     for (const [name, bytes] of [
       ["broken.jp2", Buffer.concat([jp2.subarray(0, 60), Buffer.alloc(500, 7)])],
       ["broken.avif", avif.subarray(0, Math.floor(avif.length / 2))],
+      ["broken.jxl", readFileSync(path.join(JP2_FIXTURES, "tiny.jxl")).subarray(0, 3000)],
     ] as const) {
       const res = await app.inject({
         method: "POST",
@@ -802,7 +814,7 @@ describe.skipIf(!url)("large files and new formats", () => {
       });
       expect(res.statusCode, `${name}: ${res.body}`).toBeGreaterThanOrEqual(400);
       // A refusal in plain words, never the decoder's: the same as a damaged JPEG gets.
-      expect(res.json().error, name).not.toMatch(/ffmpeg|sharp|vips|heif|stack/i);
+      expect(res.json().error, name).not.toMatch(/ffmpeg|sharp|vips|heif|jxl|wasm|rust|stack/i);
     }
     const ok = await app.inject({
       method: "POST",

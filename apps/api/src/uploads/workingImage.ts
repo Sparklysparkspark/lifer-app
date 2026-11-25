@@ -1,5 +1,5 @@
 // The images an import reads besides the untouched original: what sharp decodes for previews
-// (a HEIC or JPEG 2000 becomes an upright JPEG) and what species matching reads (a huge panorama gets a
+// (a HEIC, AVIF, JPEG 2000 or JPEG XL becomes an upright sRGB JPEG) and what species matching reads (a huge panorama gets a
 // smaller copy). Temp files live in the upload temp folder and are removed by release().
 import { rm } from "node:fs/promises";
 import sharp from "sharp";
@@ -11,11 +11,11 @@ import { uploadTempPath } from "./common.js";
 // A panorama's matching copy: big enough for the detector's tiles to find a small bird.
 const INFERENCE_COPY_PIXELS = 64_000_000;
 const INFERENCE_COPY_QUALITY = 92;
-// The import screen's preview for a file a browser can't show (TIFF, HEIC, AVIF, JPEG 2000).
+// The import screen's preview for a file a browser can't show (TIFF, HEIC, AVIF, JPEG 2000, JPEG XL).
 const PREVIEW_WIDTH = 1600;
 
 export interface WorkingImage {
-  /** Opened by sharp for derivatives: the original, or the decoded JPEG for a HEIC or JPEG 2000. */
+  /** Opened by sharp for derivatives: the original, or the decoded JPEG for a DECODED_FORMATS photo. */
   decodePath: string;
   /** Read by species matching (the original unless a copy was needed). */
   inferencePath: string;

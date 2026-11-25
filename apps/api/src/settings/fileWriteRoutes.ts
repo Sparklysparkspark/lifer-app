@@ -19,7 +19,7 @@ const SidecarNamesSchema = Type.Enum(["stem", "full", "both"], {
 const FileWriteSchema = Type.Object({
   sidecarNames: SidecarNamesSchema,
   insideFiles: Type.Boolean({
-    description: "Write keywords inside JPEG, TIFF, PNG, DNG, WebP, HEIC, AVIF and JPEG 2000 files",
+    description: "Write keywords inside JPEG, TIFF, PNG, DNG, WebP, HEIC, AVIF, JPEG 2000 and JPEG XL files",
   }),
   linkedFolders: Type.Boolean({ description: "Also write sidecars next to files in linked folders" }),
 });

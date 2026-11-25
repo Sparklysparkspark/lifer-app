@@ -2,6 +2,7 @@
 // the image itself is never decoded here.
 import { availableParallelism, tmpdir } from "node:os";
 import { createHash } from "node:crypto";
+import { closeSync, openSync, readSync } from "node:fs";
 import { copyFile, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { ExifTool } from "exiftool-vendored";
@@ -359,7 +360,24 @@ const EMBEDDED_METADATA_EXTENSIONS = new Set([
 ]);
 
 export function metadataGoesInFile(filePath: string): boolean {
-  return EMBEDDED_METADATA_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+  const ext = path.extname(filePath).toLowerCase();
+  // exiftool writes into a JPEG XL container, but would have to rewrap a bare codestream.
+  if (ext === ".jxl") return !isBareJxlCodestream(filePath);
+  return EMBEDDED_METADATA_EXTENSIONS.has(ext);
+}
+
+function isBareJxlCodestream(filePath: string): boolean {
+  try {
+    const fd = openSync(filePath, "r");
+    try {
+      const head = Buffer.alloc(2);
+      return readSync(fd, head, 0, 2, 0) === 2 && head[0] === 0xff && head[1] === 0x0a;
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
 }
 
 export interface XmpSidecarData {

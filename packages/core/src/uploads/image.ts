@@ -73,8 +73,8 @@ export interface DerivativePaths {
   height: number | null;
 }
 
-/** What sharp should open for a photo: the file or bytes themselves, or for a HEIC or JPEG 2000
- *  (which sharp can't decode) an upright JPEG made from it. */
+/** What sharp should open for a photo: the file or bytes themselves, or for a DECODED_FORMATS
+ *  photo an upright sRGB JPEG made from it. */
 async function decodableImage(image: Buffer | string): Promise<Buffer | string> {
   const format = typeof image === "string" ? await sniffPhotoFormat(image) : sniffPhotoBytes(image.subarray(0, 64));
   return format && DECODED_FORMATS.has(format) ? decodedJpegBuffer(format, image) : image;

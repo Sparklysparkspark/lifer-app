@@ -1,7 +1,7 @@
 // Mirrors packages/core/src/uploads/formats.ts PHOTO_FORMATS. Keep the two in sync.
 import { extname } from "./rawExtensions";
 
-export type PhotoFormat = "jpeg" | "png" | "webp" | "tiff" | "heic" | "avif" | "jp2";
+export type PhotoFormat = "jpeg" | "png" | "webp" | "tiff" | "heic" | "avif" | "jp2" | "jxl";
 
 interface FormatInfo {
   mimeTypes: string[];
@@ -35,6 +35,7 @@ export const PHOTO_FORMATS: Record<PhotoFormat, FormatInfo> = {
     extensions: [".jp2", ".jpf", ".jpx", ".j2k", ".j2c"],
     browserDisplayable: false,
   },
+  jxl: { mimeTypes: ["image/jxl"], extensions: [".jxl"], browserDisplayable: false },
 };
 
 export const PHOTO_MIME_TYPES: string[] = Object.values(PHOTO_FORMATS).flatMap((f) => f.mimeTypes);

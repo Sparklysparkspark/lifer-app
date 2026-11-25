@@ -5,7 +5,6 @@
 // Imports only config-free modules (logging, image limits) so the desktop inference sidecar can
 // reuse it as is.
 import { existsSync, readdirSync } from "node:fs";
-import { open, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -15,8 +14,8 @@ import type { InferenceSession, Tensor } from "onnxruntime-node";
 import type { PreTrainedTokenizer, CLIPTextModelWithProjection } from "@huggingface/transformers";
 import { log } from "../lib/log.js";
 import { maxImagePixels } from "../lib/imageLimits.js";
-import { isJp2Bytes } from "../uploads/formats.js";
-import { jp2ToJpegBuffer } from "../uploads/jp2.js";
+import { DECODED_FORMATS, sniffPhotoFormat } from "../uploads/formats.js";
+import { decodedJpegBuffer } from "../uploads/decodedJpeg.js";
 import { summarizeScene, type SceneShares } from "./sceneSummary.js";
 
 // Loading sharp on this thread turns libvips' process-wide cache back on, undoing image.ts on the
@@ -37,33 +36,11 @@ function openImage(image: ImageData) {
   return sharp(image, { limitInputPixels: maxImagePixels() });
 }
 
-// sharp can't decode HEIC or JPEG 2000, so such a path is decoded to JPEG here (a HEIC already
-// rotated by libheif).
+// A format sharp can't decode, or decodes in the wrong colours, is read through the same working
+// JPEG the previews are made from (decodedJpeg.ts).
 async function decodableInput(filePath: string): Promise<ImageData> {
-  const fh = await open(filePath, "r");
-  const head = Buffer.alloc(24);
-  try {
-    await fh.read(head, 0, 24, 0);
-  } finally {
-    await fh.close();
-  }
-  if (isJp2Bytes(head)) return jp2ToJpegBuffer(filePath);
-  if (
-    head.toString("latin1", 4, 8) !== "ftyp" ||
-    !/^(heic|heix|hevc|hevx|heim|heis)$/.test(head.toString("latin1", 8, 12))
-  )
-    return filePath;
-  const decode = createRequire(import.meta.url)("heic-decode") as (input: {
-    buffer: Uint8Array;
-  }) => Promise<{ width: number; height: number; data: Uint8ClampedArray }>;
-  const { width, height, data } = await decode({ buffer: await readFile(filePath) });
-  return sharp(Buffer.from(data.buffer, data.byteOffset, data.byteLength), {
-    raw: { width, height, channels: 4 },
-    limitInputPixels: false,
-  })
-    .flatten({ background: "#ffffff" })
-    .jpeg({ quality: 92, chromaSubsampling: "4:4:4" })
-    .toBuffer();
+  const format = await sniffPhotoFormat(filePath);
+  return format && DECODED_FORMATS.has(format) ? decodedJpegBuffer(format, filePath) : filePath;
 }
 
 /** An ONNX Runtime execution provider: "cpu", "cuda", "webgpu", "dml", or one with options. */

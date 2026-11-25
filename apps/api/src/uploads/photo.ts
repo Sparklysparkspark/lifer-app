@@ -71,7 +71,7 @@ type UploadMode = "store" | "link";
 
 // Accepted formats are in formats.ts. The stored file gets the extension of its real (sniffed)
 // format, which exiftool and other tools rely on.
-const UNSUPPORTED_PHOTO = "Only JPEG, PNG, WebP, TIFF, HEIC, AVIF or JPEG 2000 photos are supported";
+const UNSUPPORTED_PHOTO = "Only JPEG, PNG, WebP, TIFF, HEIC, AVIF, JPEG 2000 or JPEG XL photos are supported";
 
 /** A file moved into the library, so a failed import can move it back instead of losing it. */
 type Moved = { from: string; to: string };

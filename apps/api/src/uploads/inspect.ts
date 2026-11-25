@@ -421,7 +421,7 @@ export async function inspectUploadRoutes(fastify: FastifyInstance): Promise<voi
             }
           }
 
-          // A browser can't show a RAW, TIFF, HEIC, AVIF or JPEG 2000, so a JPEG of it goes back as the import
+          // A browser can't show a RAW, TIFF, HEIC, AVIF, JPEG 2000 or JPEG XL, so a JPEG of it goes back as the import
           // screen's image: a RAW's embedded preview, else a small render of the photo.
           let previewDataUrl: string | null = null;
           if (isRaw && embedSource?.buffer)

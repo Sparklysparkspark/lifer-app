@@ -46,7 +46,7 @@ import { walkFiles } from "./walkFiles.js";
 const PHOTO_EXTENSIONS = new Set(ACCEPTED_PHOTO_EXTENSIONS);
 
 export interface LibraryFiles {
-  /** Edited photos (JPEG, PNG, WebP, TIFF, HEIC, AVIF, JPEG 2000), each recovered as its own capture. */
+  /** Edited photos (JPEG, PNG, WebP, TIFF, HEIC, AVIF, JPEG 2000, JPEG XL), each recovered as its own capture. */
   jpegs: string[];
   raws: string[];
 }
@@ -314,7 +314,7 @@ export async function recoverJpeg(
 
   // Derivatives are made before the transaction so sharp's decode never holds a pool connection,
   // and removed again if the recovery doesn't commit. From the path, never the whole file in
-  // memory; HEIC and JPEG 2000 are decoded through a working JPEG.
+  // memory; HEIC, AVIF, JPEG 2000 and JPEG XL are decoded through a working JPEG.
   const photoId = randomUUID();
   let derivatives: Awaited<ReturnType<typeof generateDerivatives>>;
   try {

@@ -34,6 +34,8 @@ const avif = await sharp({ create: { width: 64, height: 48, channels: 3, backgro
   .toBuffer();
 const jp2 = readFileSync(path.join(import.meta.dirname, "__fixtures__", "tiny.jp2"));
 const j2k = readFileSync(path.join(import.meta.dirname, "__fixtures__", "tiny.j2k"));
+const jxl = readFileSync(path.join(import.meta.dirname, "__fixtures__", "tiny.jxl"));
+const bareJxl = readFileSync(path.join(import.meta.dirname, "__fixtures__", "tiny-bare.jxl"));
 // The codestream with its SIZ marker claiming 100,000 x 100,000 pixels.
 const hugeJ2k = Buffer.from(j2k);
 hugeJ2k.writeUInt32BE(100_000, 8);
@@ -56,6 +58,9 @@ const FIXTURES: Record<string, Buffer> = {
   "truncated.jp2": jp2.subarray(0, Math.floor(jp2.length * 0.4)),
   "bogus.jp2": Buffer.concat([jp2.subarray(0, 40), noise(4096)]),
   "huge.j2k": hugeJ2k,
+  "truncated.jxl": jxl.subarray(0, Math.floor(jxl.length * 0.5)),
+  "bogus.jxl": Buffer.concat([jxl.subarray(0, 40), noise(4096)]),
+  "truncated-bare.jxl": bareJxl.subarray(0, Math.floor(bareJxl.length * 0.5)),
 };
 for (const [name, bytes] of Object.entries(FIXTURES)) writeFileSync(path.join(dir, name), bytes);
 
@@ -78,11 +83,13 @@ describe("generateDerivatives on damaged files", () => {
     await expect(generateDerivatives(good, "good")).resolves.toMatchObject({ width: 64, height: 48 });
   });
 
-  it("reads good AVIF and JPEG 2000 files from their path and their bytes", async () => {
+  it("reads good AVIF, JPEG 2000 and JPEG XL files from their path and their bytes", async () => {
     for (const [name, bytes, size] of [
       ["good.avif", avif, { width: 64, height: 48 }],
       ["good.jp2", jp2, { width: 96, height: 64 }],
       ["good.j2k", j2k, { width: 96, height: 64 }],
+      ["good.jxl", jxl, { width: 200, height: 133 }],
+      ["good-bare.jxl", bareJxl, { width: 200, height: 133 }],
     ] as const) {
       writeFileSync(path.join(dir, name), bytes);
       await expect(generateDerivatives(path.join(dir, name), `p-${name}`)).resolves.toMatchObject(size);

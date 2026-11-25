@@ -1,5 +1,5 @@
 // "View full size" on a phone: a full-resolution JPEG of a photo's original, made on demand. A JPEG
-// original is streamed as it is by the route; anything else (HEIC, AVIF, JPEG 2000, PNG, TIFF, WebP, or a RAW's
+// original is streamed as it is by the route; anything else (HEIC, AVIF, JPEG 2000, JPEG XL, PNG, TIFF, WebP, or a RAW's
 // embedded preview, the largest picture the RAW holds) is rendered here to JPEG and kept for an
 // hour, so scrolling back doesn't render it twice. Never part of the showcase.
 import { readdir, rename, rm, stat } from "node:fs/promises";

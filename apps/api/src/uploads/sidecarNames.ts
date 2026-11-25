@@ -9,7 +9,7 @@ export type SidecarNames = "stem" | "full" | "both";
 export interface FileWriteSettings {
   /** RAW and video sidecar names. */
   sidecarNames: SidecarNames;
-  /** Keywords go inside JPEG, TIFF, PNG, DNG, WebP, HEIC, AVIF and JP2 files; off writes a sidecar instead. */
+  /** Keywords go inside JPEG, TIFF, PNG, DNG, WebP, HEIC, AVIF, JP2 and JXL files; off writes a sidecar instead. */
   insideFiles: boolean;
   /** Linked (not managed) files get a sidecar too, never an in-file write. */
   linkedFolders: boolean;

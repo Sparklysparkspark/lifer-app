@@ -65,7 +65,7 @@ A value you or another app typed is never replaced by **Replace what Lifer wrote
 
 The preview at the bottom shows every field as it would be written for one of your photos, and follows what you type before you save. **Try another photo** shows a different one. With no photos yet, it uses a sample.
 
-Lifer writes these the same way it writes species keywords: inside JPEG, TIFF, PNG, DNG, HEIC, AVIF and JPEG 2000 files, and into an `.xmp` sidecar for RAW files, videos and bare JPEG 2000 codestreams (`.j2k`, `.j2c`), which have no room for metadata. Only files Lifer manages are written; linked files are never changed.
+Lifer writes these the same way it writes species keywords: inside JPEG, TIFF, PNG, DNG, HEIC, AVIF, JPEG 2000 and JPEG XL files, and into an `.xmp` sidecar for RAW files, videos and bare JPEG 2000 codestreams (`.j2k`, `.j2c`), which have no room for metadata. Only files Lifer manages are written; linked files are never changed.
 
 - **When:** on import, and whenever a photo's species, place or region changes, so the text stays right.
 - **Never overwritten:** a creator, copyright, credit or usage terms the file already has stays, unless you turn on **Replace existing creator and copyright**.

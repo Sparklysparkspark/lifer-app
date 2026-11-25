@@ -25,7 +25,7 @@ export async function sendFilePreview(absolutePath: string, reply: FastifyReply,
       if (!embedded) return reply.code(404).send({ error: "Couldn't read this file" });
       source = embedded;
     } else {
-      // A HEIC or JPEG 2000 is read through its working JPEG, since sharp can't decode it.
+      // A HEIC, AVIF, JPEG 2000 or JPEG XL is read through its working sRGB JPEG (DECODED_FORMATS).
       const format = (await sniffPhotoFormat(absolutePath)) ?? claimedPhotoFormat(null, absolutePath);
       if (format && DECODED_FORMATS.has(format)) working = await prepareWorkingImage(absolutePath, format);
       source = working?.decodePath ?? absolutePath;

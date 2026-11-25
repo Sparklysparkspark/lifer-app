@@ -33,7 +33,7 @@ Anything else on iNaturalist, like insects, spiders, plants and fungi, can be ad
 
 ### Photos
 
-A photo in Lifer is one shot. It can have an edited photo (a JPEG, PNG, WebP, TIFF, HEIC, AVIF or JPEG 2000), the matching RAW file, or both, and it can also be a video (MP4 or MOV). Each photo belongs to a species (it can list extra species too), and carries its date, location, camera details, rating and tags.
+A photo in Lifer is one shot. It can have an edited photo (a JPEG, PNG, WebP, TIFF, HEIC, AVIF, JPEG 2000 or JPEG XL), the matching RAW file, or both, and it can also be a video (MP4 or MOV). Each photo belongs to a species (it can list extra species too), and carries its date, location, camera details, rating and tags.
 
 ![The Lifer gallery](/img/gallery.jpg)
 

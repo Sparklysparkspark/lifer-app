@@ -465,7 +465,7 @@ export async function tripJobRoutes(fastify: FastifyInstance): Promise<void> {
       if (!absolutePath) return reply.code(404).send({ error: "File not found" });
       const regionId = request.body.regionId ?? null;
 
-      // HEIC and JPEG 2000 can't be decoded by the matching models directly: prepareWorkingImage makes an
+      // HEIC, AVIF, JPEG 2000 and JPEG XL are matched on the working JPEG: prepareWorkingImage makes an
       // upright JPEG copy for them (a no-op for other formats).
       const format = await sniffPhotoFormat(absolutePath).catch(() => null);
       if (!format) return reply.code(400).send({ error: "That file isn't a photo Lifer can read" });

@@ -21,7 +21,7 @@ Where it goes depends on the file:
 | File                             | Where Lifer writes                                                          | File name                                                 |
 | -------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------- |
 | JPEG, TIFF, PNG, DNG, WebP, HEIC | Inside the file, as XMP and IPTC together                                   | The file itself                                           |
-| AVIF, JPEG 2000 (`.jp2`, `.jpx`) | Inside the file, as XMP                                                     | The file itself                                           |
+| AVIF, JPEG 2000, JPEG XL         | Inside the file, as XMP                                                     | The file itself                                           |
 | RAW files and videos             | A separate `.xmp` sidecar next to the file. The RAW itself is never changed | `IMG_0001.xmp`, `IMG_0001.CR3.xmp` or both, as you choose |
 
 You can change each of these in **Settings > Metadata > Where keywords go**. See [What works and the options](#options).
@@ -116,6 +116,6 @@ Google Photos has no way to add keywords to photos already in it, so it isn't su
 All of these are in **Settings > Metadata > Where keywords go**. After changing one, choose **Update existing photos** so photos already in Lifer follow it.
 
 - **Sidecar names for RAW files:** `IMG_0001.xmp` (the default, read by Lightroom, Bridge and Camera Raw), `IMG_0001.CR3.xmp` (digiKam and Capture One), or **Both**. With **Both**, Lifer keeps the two files the same, and moving, renaming or deleting a photo in Lifer takes both with it. Lifer reads either name.
-- **Write keywords inside photo files:** on by default for JPEG, TIFF, PNG, DNG, WebP, HEIC, AVIF and JPEG 2000. Writing inside a file changes its modified date and checksum; [archive health](./library-folders.md) expects these changes and never reports them as damage. Turned off, Lifer leaves those files untouched and writes `IMG_0001.JPG.xmp` beside each one instead. Lightroom and Apple Photos don't read a sidecar next to a JPEG, so they won't see keywords written this way; digiKam and darktable do. Keywords already inside a file stay there.
+- **Write keywords inside photo files:** on by default for JPEG, TIFF, PNG, DNG, WebP, HEIC, AVIF, JPEG 2000 and JPEG XL. Writing inside a file changes its modified date and checksum; [archive health](./library-folders.md) expects these changes and never reports them as damage. Turned off, Lifer leaves those files untouched and writes `IMG_0001.JPG.xmp` beside each one instead. Lightroom and Apple Photos don't read a sidecar next to a JPEG, so they won't see keywords written this way; digiKam and darktable do. Keywords already inside a file stay there.
 - **Also write keywords next to linked files:** off by default. Turned on, Lifer first counts what it would do, then puts a sidecar beside photos in [linked folders](./library-folders.md), with keywords and title only. The photos themselves never change. Lifer only updates sidecars it made: a sidecar another app made is left alone, and a photo on an unplugged drive is skipped.
 - **Apple Photos:** Send keywords to Apple Photos, on a Mac. See [Apple Photos](#apple-photos).

@@ -3,7 +3,7 @@
 import { open } from "node:fs/promises";
 import path from "node:path";
 
-export type PhotoFormat = "jpeg" | "png" | "webp" | "tiff" | "heic" | "avif" | "jp2";
+export type PhotoFormat = "jpeg" | "png" | "webp" | "tiff" | "heic" | "avif" | "jp2" | "jxl";
 
 interface FormatInfo {
   mimeTypes: string[];
@@ -44,10 +44,13 @@ export const PHOTO_FORMATS: Record<PhotoFormat, FormatInfo> = {
     defaultExtension: ".jp2",
     browserViewable: false,
   },
+  // JPEG XL: Safari shows it, other browsers and the webviews don't.
+  jxl: { mimeTypes: ["image/jxl"], extensions: [".jxl"], defaultExtension: ".jxl", browserViewable: false },
 };
 
-/** Formats sharp can't decode, read through an upright JPEG made from them (decodedJpeg.ts). */
-export const DECODED_FORMATS: ReadonlySet<PhotoFormat> = new Set<PhotoFormat>(["heic", "jp2"]);
+/** Formats read through an upright sRGB JPEG made from them (decodedJpeg.ts): sharp can't decode
+ *  HEIC, JPEG 2000 or JPEG XL, and reads an AVIF's colours wrong when it isn't sRGB. */
+export const DECODED_FORMATS: ReadonlySet<PhotoFormat> = new Set<PhotoFormat>(["heic", "avif", "jp2", "jxl"]);
 
 /** Every accepted edited-photo MIME type, mapped to the extension a file of that type is stored
  *  with when its own name has none. */
@@ -156,6 +159,18 @@ export function isJp2Bytes(head: Uint8Array): boolean {
   return box.toString("latin1", 16, 20) === "ftyp" && JP2_BRANDS.has(box.toString("latin1", 20, 24));
 }
 
+// A bare JPEG XL codestream, or the ISO BMFF container's signature box.
+const JXL_CODESTREAM = Buffer.from([0xff, 0x0a]);
+const JXL_CONTAINER = Buffer.from([0, 0, 0, 0x0c, 0x4a, 0x58, 0x4c, 0x20, 0x0d, 0x0a, 0x87, 0x0a]);
+
+export function isJxlBytes(head: Uint8Array): boolean {
+  const b = Buffer.from(head.buffer, head.byteOffset, head.byteLength);
+  return (
+    (b.length >= 2 && b.subarray(0, 2).equals(JXL_CODESTREAM)) ||
+    (b.length >= 12 && b.subarray(0, 12).equals(JXL_CONTAINER))
+  );
+}
+
 function isAvifBytes(head: Uint8Array): boolean {
   if (head.length < 12) return false;
   const box = Buffer.from(head.buffer, head.byteOffset, head.byteLength);
@@ -178,6 +193,7 @@ export function sniffPhotoBytes(head: Uint8Array): PhotoFormat | null {
   if (isHeicBytes(b)) return "heic";
   if (isAvifBytes(b)) return "avif";
   if (isJp2Bytes(b)) return "jp2";
+  if (isJxlBytes(b)) return "jxl";
   return null;
 }
 

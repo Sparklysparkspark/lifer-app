@@ -16,10 +16,12 @@ describe("photo formats", () => {
     expect(photoFormatOf(f("scan.JP2"))).toBe("jp2");
     expect(photoFormatOf(f("tile.j2k", "application/octet-stream"))).toBe("jp2");
     expect(photoFormatOf(f("a.jpx", "image/jpx"))).toBe("jp2");
+    expect(photoFormatOf(f("DSC_1.JXL"))).toBe("jxl");
+    expect(photoFormatOf(f("a.jxl", "image/jxl"))).toBe("jxl");
   });
 
-  it("accepts AVIF and JPEG 2000 in the file pickers", () => {
-    for (const v of ["image/avif", ".avif", "image/jp2", ".jp2", ".jpf", ".jpx", ".j2k", ".j2c"])
+  it("accepts AVIF, JPEG 2000 and JPEG XL in the file pickers", () => {
+    for (const v of ["image/avif", ".avif", "image/jp2", ".jp2", ".jpf", ".jpx", ".j2k", ".j2c", "image/jxl", ".jxl"])
       expect(PHOTO_ACCEPT.split(",")).toContain(v);
   });
 
@@ -30,6 +32,7 @@ describe("photo formats", () => {
     expect(isBrowserDisplayable(f("a.heic"))).toBe(false);
     expect(isBrowserDisplayable(f("a.avif", "image/avif"))).toBe(false);
     expect(isBrowserDisplayable(f("a.jp2", "image/jp2"))).toBe(false);
+    expect(isBrowserDisplayable(f("a.jxl", "image/jxl"))).toBe(false);
   });
 
   it("treats a TIFF as a photo, not a RAW, though the RAW pickers still offer it", () => {

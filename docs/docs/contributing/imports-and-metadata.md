@@ -112,7 +112,7 @@ A managed original always stays under the base it was filed under (`locateManage
 
 ## Previews
 
-`generateDerivatives` (`packages/core/src/uploads/image.ts`) decodes each photo once, rotated by its EXIF orientation, and writes three WebP files to `APP_DATA_DIR`: `display/` (2560 px), `medium/` (1024 px) and `thumb/` (400 px), never enlarged. Videos get a poster frame, and an H.264 MP4 under `video-preview/` when the original won't play in a browser. Previews are a cache: deleted with a failed import, and regenerated from the original when missing.
+`generateDerivatives` (`packages/core/src/uploads/image.ts`) decodes each photo once, rotated by its EXIF orientation, and writes three sRGB WebP files to `APP_DATA_DIR`: `display/` (2560 px), `medium/` (1024 px) and `thumb/` (400 px), never enlarged. sharp converts a photo with an ICC profile to sRGB itself. HEIC, AVIF, JPEG 2000 and JPEG XL go through an upright sRGB working JPEG instead (`DECODED_FORMATS`, `decodedJpeg.ts`), which species matching reads too: libvips can't decode the others, and ignores the colour primaries an AVIF states in its nclx box. A gain map (HDR JPEG, AVIF or JPEG XL) is ignored, so previews show the SDR base. Videos get a poster frame, and an H.264 MP4 under `video-preview/` when the original won't play in a browser. Previews are a cache: deleted with a failed import, and regenerated from the original when missing.
 
 ## Metadata Lifer reads
 
@@ -135,7 +135,7 @@ Lifer writes its species and rating back to files so the library stays meaningfu
 
 **Only managed files are written**: originals with `managed = true`. Linked files are never touched.
 
-**Where:** inside JPEG, TIFF, PNG, DNG, WebP, HEIC, HEIF, AVIF, JP2 and JPX files. For everything else, RAW, video and bare JPEG 2000 codestreams (exiftool can't write those), a `<name>.xmp` sidecar next to the file.
+**Where:** inside JPEG, TIFF, PNG, DNG, WebP, HEIC, HEIF, AVIF, JP2, JPX and JPEG XL container files. For everything else, RAW, video and bare JPEG 2000 or JPEG XL codestreams (exiftool can't write those), a `<name>.xmp` sidecar next to the file.
 
 **What:**
 
