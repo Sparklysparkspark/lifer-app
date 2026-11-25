@@ -19,6 +19,14 @@ pub fn launch_token() -> &'static str {
     TOKEN.get_or_init(|| random_hex(32))
 }
 
+// The shell's own credential (LIFER_SHELL_TOKEN). Secret, and unlike launch_token never handed to a
+// page: the API trusts it for what only the shell can vouch for, like the files picked in its
+// Choose files dialog (commands.rs pick_import_files).
+pub fn shell_token() -> &'static str {
+    static TOKEN: OnceLock<String> = OnceLock::new();
+    TOKEN.get_or_init(|| random_hex(32))
+}
+
 // Passed to the API as LIFER_LAUNCH_ID; api.rs checks /health's launchId against it to confirm it reached its own API.
 pub fn launch_id() -> &'static str {
     static ID: OnceLock<String> = OnceLock::new();
@@ -36,6 +44,8 @@ mod tests {
         assert!(launch_token().chars().all(|c| c.is_ascii_hexdigit()));
         assert_eq!(launch_token(), launch_token());
         assert!(!launch_token().starts_with(launch_id()));
+        assert_eq!(shell_token().len(), 64);
+        assert_ne!(shell_token(), launch_token());
         assert_ne!(random_hex(32), random_hex(32));
     }
 }

@@ -50,6 +50,8 @@ commands.allow = [
   "test_login",
   "set_local_data_dir",
   "local_api_credential",
+  # The Import page's Choose files on the local library; checks is_local_api.
+  "pick_import_files",
   # companion.rs: Settings > Phones on the local library; each checks is_app_page.
   "companion_status",
   "companion_open_pairing",

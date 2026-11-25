@@ -1,4 +1,23 @@
 import { loadServerInfo } from "../hooks/useDeploymentMode";
+import { tauriInvoke } from "./tauri";
+
+export interface PickedFile {
+  path: string;
+  mtimeMs: number;
+}
+
+/** The desktop shell's own Choose files dialog for imports (pick_import_files). The shell tells the
+ *  local API what was picked, so these files may be read and, with Move on, sent to the Trash.
+ *  `undefined` when there's no such dialog (fall back to the browser's picker); null if cancelled. */
+export async function pickImportFilesNative(): Promise<PickedFile[] | null | undefined> {
+  const invoke = tauriInvoke();
+  if (!invoke) return undefined;
+  try {
+    return (await invoke("pick_import_files")) as PickedFile[] | null;
+  } catch {
+    return undefined;
+  }
+}
 
 // The native folder dialog, only when the desktop shell talks to its own local API. Resolves
 // `undefined` when no usable dialog exists (fall back to <FolderBrowser>); null means cancelled.

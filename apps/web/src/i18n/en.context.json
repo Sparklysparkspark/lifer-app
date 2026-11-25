@@ -612,7 +612,12 @@
       "label": "A switch beside the Import drop area, desktop app only. On: originals are moved to the system Trash after they're safely copied into the library.",
       "stayed": "Ends the import summary, after moved and cleared, e.g. \"Moved 42 photos into your library. Moved 3 already in Lifer to the Trash. 3 originals stayed where they were.\" Counts only originals Lifer didn't move.",
       "moved": "Starts the import summary. {sidecars} is how many .xmp sidecar files (metadata files other photo apps keep beside a photo) went to the Trash with the photos, e.g. \"Moved 8 photos and 6 sidecar files into your library.\"",
-      "cleared": "After moved in the import summary: files the library already had, sent to the Trash, with their .xmp sidecar files."
+      "cleared": "After moved in the import summary: files the library already had, sent to the Trash, with their .xmp sidecar files.",
+      "reasons": {
+        "notInSourceFolder": "Import result, after an import with Move photos into my library on: why one original wasn't moved to the Trash. Also ends the import summary toast when only one stayed. The file wasn't picked in the desktop app's Choose files dialog this session, nor inside a folder imported with Choose a folder.",
+        "partnerStays": "Import result with Move on: the photo's RAW or JPG twin (same file name, other format) sits beside it but wasn't imported, so neither is moved to the Trash.",
+        "notPicked": "Import result with Move on: the file was dragged onto the page (or picked through the browser), so Lifer doesn't know where it is on this computer and can't move it. Choose files and Choose a folder are the drop area's button labels."
+      }
     },
     "space": {
       "tight": "Calm note on the Import page when the computer's disk is nearly full; importing still works, only slower.",
@@ -1106,7 +1111,7 @@
     "general": {
       "hdrViewer": {
         "title": "Settings > General > Appearance switch, off by default. HDR (high dynamic range) photos have highlights brighter than normal white; the full-size photo viewer shows them that way when on. Keep HDR as is.",
-        "description": "Under Show HDR photos in the viewer. Ultra HDR JPEG is a file format name (a JPEG with extra brightness data); keep it untranslated. Unchanged: thumbnails, grids and screens without HDR keep the standard (SDR) look."
+        "description": "Under Show HDR photos in the viewer. HDR photos are files saved with HDR (from Lightroom, a phone or a camera), in JPEG, AVIF, JPEG XL, PNG or TIFF. Unchanged: thumbnails, grids and screens without HDR keep the standard (SDR) look."
       },
       "editor": {
         "group": "Settings > General heading for the photo editor choice (desktop app).",

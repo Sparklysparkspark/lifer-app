@@ -11,8 +11,10 @@ import { DateTime, Nullable, Ok, replies, withSchemas } from "../lib/schema.js";
 import { inSourceFolder, isImportableName, knownFingerprints, lookAtFolder, rememberSkipped } from "./knownFiles.js";
 import { clearKnownSources } from "./sourceTrash.js";
 import { TrashReason } from "./responses.js";
+import { isShellRequest, rememberPicked, wasPicked } from "./pickedFiles.js";
 
 const MAX_BATCH = 2000;
+const MAX_PICKED = 20_000;
 const Fingerprint = Type.String({
   pattern: "^[0-9a-f]{40}$",
   description: "sha1 (hex) of the file's size in decimal, its first 64 KB and its last 64 KB",
@@ -258,8 +260,29 @@ export async function knownFilesRoutes(fastify: FastifyInstance): Promise<void> 
     },
   );
 
+  // The desktop shell's Choose files dialog reports what the user picked (pickedFiles.ts). Hidden
+  // from pages: without the shell's secret it isn't there.
+  app.post(
+    "/uploads/picked-files",
+    {
+      preValidation: requireAuth,
+      schema: {
+        body: Type.Object(
+          { paths: Type.Array(Type.String({ minLength: 1 }), { maxItems: MAX_PICKED }) },
+          { additionalProperties: false },
+        ),
+        response: replies(Ok),
+      },
+    },
+    async (request, reply) => {
+      if (!SINGLE_USER_MODE || !isShellRequest(request.headers)) return reply.code(404).send({ error: "Not found" });
+      rememberPicked(request.body.paths);
+      return { ok: true };
+    },
+  );
+
   // The file itself, for the import screen to queue like a picked one. Only inside a folder the
-  // user imported from.
+  // user imported from, or picked in the desktop's Choose files dialog.
   app.get(
     "/uploads/source-folders/file",
     {
@@ -269,7 +292,7 @@ export async function knownFilesRoutes(fastify: FastifyInstance): Promise<void> 
     async (request, reply) => {
       if (!SINGLE_USER_MODE) return reply.code(404).send({ error: "Not found" });
       const file = request.query.path;
-      if (!isImportableName(file) || !(await inSourceFolder(request.user!.id, file)))
+      if (!isImportableName(file) || !(wasPicked(file) || (await inSourceFolder(request.user!.id, file))))
         return reply.code(403).send({ error: "Not a photo in a folder you imported from" });
       return reply.type("application/octet-stream").send(createReadStream(file));
     },

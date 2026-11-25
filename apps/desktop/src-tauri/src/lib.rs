@@ -176,6 +176,7 @@ pub fn run() {
             commands::use_local_library,
             commands::return_to_setup,
             commands::local_api_credential,
+            commands::pick_import_files,
             companion::companion_status,
             companion::companion_open_pairing,
             companion::companion_set_paired,

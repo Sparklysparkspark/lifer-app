@@ -245,9 +245,7 @@ describe("PhotoImportRows, picking a folder again", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Great Blue Heron.*match/ }));
     fireEvent.click(screen.getByRole("button", { name: "Import 1 photo" }));
     await waitFor(() => expect(toast.show).toHaveBeenCalled());
-    expect(vi.mocked(toast.show).mock.calls[0][0]).toBe(
-      "1 photo filed under 1 species. Moved 0 photos into your library.",
-    );
+    expect(vi.mocked(toast.show).mock.calls[0][0]).toBe("1 photo filed under 1 species");
   });
 
   it("says in plain words why an original stayed, and counts it", async () => {
@@ -268,9 +266,58 @@ describe("PhotoImportRows, picking a folder again", () => {
         "Imported The original stays where it is: Lifer couldn't confirm its copy in your library.",
       ),
     ).toBeTruthy();
+    // One file: the summary gives its reason, since the row may be gone by the time it's read.
     expect(vi.mocked(toast.show).mock.calls[0][0]).toBe(
-      "1 photo filed under 1 species. Moved 0 photos into your library. 1 original stayed where it was.",
+      "1 photo filed under 1 species. The original stays where it is: Lifer couldn't confirm its copy in your library.",
     );
+  });
+
+  it("moves a file picked in the desktop's own dialog, sending where it is", async () => {
+    localStorage.setItem("lifer:import.moveOriginals", "1");
+    const picked = "/Volumes/EOS_DIGITAL/DCIM/100EOSR5/6F9A9774.jpg";
+    const invoke = vi.fn(async () => [{ path: picked, mtimeMs: 1_700_000_000_000 }]);
+    (window as unknown as { __TAURI__?: unknown }).__TAURI__ = { core: { invoke } };
+    const { fetched } = desktopFolder((path) =>
+      path === "/uploads"
+        ? Promise.resolve({ captureId: "cap-1", sourceMove: { moved: true, reason: null, sidecars: 0 } })
+        : path === "/uploads/source-folders/clear"
+          ? Promise.resolve({ cleared: 0, sidecars: 0, trashed: [], kept: [] })
+          : undefined,
+    );
+    renderRows();
+    fireEvent.click(screen.getByRole("button", { name: "Choose files" }));
+    expect(await screen.findByText("6F9A9774.jpg")).toBeTruthy();
+    expect(invoke).toHaveBeenCalledWith("pick_import_files");
+    expect(fetched).toEqual([picked]);
+    fireEvent.click(await screen.findByRole("button", { name: /Great Blue Heron.*match/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 photo" }));
+    await waitFor(() => expect(toast.show).toHaveBeenCalled());
+    const upload = post.mock.calls.find((c) => c[0] === "/uploads")!;
+    expect((upload[1] as FormData).get("moveSourcePath")).toBe(picked);
+    expect(vi.mocked(toast.show).mock.calls[0][0]).toBe(
+      "1 photo filed under 1 species. Moved 1 photo into your library.",
+    );
+    delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+    vi.unstubAllGlobals();
+  });
+
+  it("says a dragged-in file can't be moved, rather than nothing", async () => {
+    localStorage.setItem("lifer:import.moveOriginals", "1");
+    desktopFolder((path) =>
+      path === "/uploads/source-folders/clear"
+        ? Promise.resolve({ cleared: 0, sidecars: 0, trashed: [], kept: [] })
+        : undefined,
+    );
+    const input = renderRows();
+    fireEvent.change(input, { target: { files: [jpeg("6F9A9774.jpg")] } });
+    fireEvent.click(await screen.findByRole("button", { name: /Great Blue Heron.*match/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 photo" }));
+    await waitFor(() => expect(toast.show).toHaveBeenCalled());
+    expect((post.mock.calls.find((c) => c[0] === "/uploads")![1] as FormData).get("moveSourcePath")).toBeNull();
+    expect(vi.mocked(toast.show).mock.calls[0][0]).toBe(
+      "1 photo filed under 1 species. The original stays where it is: Lifer can only move files picked with Choose files or Choose a folder, not dragged in.",
+    );
+    vi.unstubAllGlobals();
   });
 
   it("clears out the files already in Lifer at once, the toast saying how many", async () => {

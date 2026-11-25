@@ -92,6 +92,8 @@ Click the button to **Choose a place**: your nearby, recent and other places, a 
 
 To give one photo a different place, move to its row with the arrow keys and click **Set place for this photo**. Lifer suggests; nothing is set until you choose. When the import finishes, Lifer files the photos under the places you chose, all at once: a saved place gives photos without a point its centre and its privacy radius, and photos with camera GPS keep their own point and take the place's name. A group you leave without a place keeps its camera location, or waits in the map's [Needs placing](./photo-map.md#needs-placing) list.
 
+When a group's dates (and GPS, if it has any) fit one of your trips, its heading asks, like "These 14 photos look like part of Costa Rica 2026 (May 3 – 10). Add them to that trip?" **Add to trip** adds them to it when you import, **Remove from trip** undoes that, and **Not now** leaves them out of it.
+
 The **Import photos** page saves into your main library, or into a trip's folder when you pick a trip under **Trip** (see [Importing during a trip](./trips.md#importing-during-a-trip)). To save to an external drive, [import from a species page](#species-page).
 
 ## Choosing species quickly {#choosing-species}
@@ -135,7 +137,7 @@ Compare mode puts your photo beside photos of the species Lifer suggests, so you
 - The other side starts on the species' featured photo. Use the arrows on it, or <kbd>←</kbd> <kbd>→</kbd>, to see the rest of its photos.
 - Click either photo, or press <kbd>F</kbd> or <kbd>Enter</kbd> on it, to see it full screen; <kbd>Esc</kbd> brings you back. A drag moves a zoomed photo and a double-click zooms, so neither opens it.
 - The suggested species are listed along the bottom. To compare with a species that isn't there, click **Search species** at the end of the list, or just start typing its name.
-- **Confirm** names your photo and brings up the next one without a species. **Not this** shows the next suggestion. **Skip** (or <kbd>↓</kbd>) goes to the next photo without deciding anything. **Not wildlife** (<kbd>⌘⌫</kbd>, <kbd>Ctrl+Backspace</kbd> on Windows and Linux) leaves out a photo with no animal in it, like a landscape, and moves on; it moves to [Left out of this import](#left-out), with **Import anyway** to bring it back, and <kbd>⌘Z</kbd> undoes it. Each row has a **Not wildlife** link too. On a narrow window the buttons wrap onto a line of their own, so they're always in view. **Done** or <kbd>Esc</kbd> leaves.
+- **Confirm** names your photo and brings up the next one without a species. **Not this** shows the next suggestion. **Skip** (or <kbd>↓</kbd>) goes to the next photo without deciding anything. **Not wildlife** (<kbd>⌘⌫</kbd>, <kbd>Ctrl+Backspace</kbd> on Windows and Linux) leaves out a photo with no animal in it, like a landscape, and moves on; it moves to [Skipped](#left-out), with **Import anyway** to bring it back, and <kbd>⌘Z</kbd> undoes it. Each row has a **Not wildlife** link too. On a narrow window the buttons wrap onto a line of their own, so they're always in view. **Done** or <kbd>Esc</kbd> leaves.
 - Each photo zooms on its own. Turn on **Link zoom** to zoom and pan both together.
 - If you ticked several photos first, opening compare on one of them confirms them all at once (**Confirm all**).
 
@@ -196,7 +198,7 @@ Suggestions are worked out while you add files, so they're usually ready by the 
 
 ## Photos that aren't wildlife
 
-When species recognition is installed, Lifer flags photos that look like something other than wildlife, such as people, screenshots, documents, paintings, cars, buildings, landscapes or the night sky. On the **Import photos** page the photo moves to [Left out of this import](#left-out), with what it looks like instead; in a trip's scan review the row says "This doesn't look like wildlife (it looks like …), so it won't be imported." Photos whose own tags name a species are never flagged, and a photo is only flagged when Lifer is confident, so a likely animal is never hidden. When Lifer is less sure, the photo stays in the list with a quiet question, like "Might be a landscape. Skip it?": **Not wildlife** leaves it out (<kbd>⌘Z</kbd> undoes it), **Keep** drops the question. Click **Import anyway** to keep it, or **Remove**. Assigning a species by hand also clears the flag.
+When species recognition is installed, Lifer flags photos that look like something other than wildlife, such as people, screenshots, documents, paintings, cars, buildings, landscapes or the night sky. On the **Import photos** page the photo moves to [Skipped](#left-out), with what it looks like instead; in a trip's scan review the row says "This doesn't look like wildlife (it looks like …), so it won't be imported." Photos whose own tags name a species are never flagged, and a photo is only flagged when Lifer is confident, so a likely animal is never hidden. When Lifer is less sure, the photo stays in the list with a quiet question, like "Might be a landscape. Skip it?": **Not wildlife** leaves it out (<kbd>⌘Z</kbd> undoes it), **Keep** drops the question. Click **Import anyway** to keep it, or **Remove**. Assigning a species by hand also clears the flag.
 
 ## RAW files and edited JPEGs {#raw-pairing}
 
@@ -228,11 +230,11 @@ Lifer checks each photo before importing:
 - **Exact duplicates:** the very same file you already imported.
 - **Near duplicates:** the same shot re-exported, converted to black and white, or lightly cropped. This needs species recognition.
 
-On the **Import photos** page, duplicates move to [Left out of this import](#left-out), each with the species and date it was imported as. **Import anyway** files it under that species and puts it back in the list.
+On the **Import photos** page, duplicates move to [Skipped](#left-out), each with the species and date it was imported as. **Import anyway** files it under that species and puts it back in the list.
 
-### Left out of this import {#left-out}
+### Skipped {#left-out}
 
-Photos the import won't bring in wait in one folded section at the end of the list, so they never get in the way of the ones to name: **Not wildlife**, **Marked not wildlife** and **Already in your library**, each with its count. The groups above, their counts, the arrow keys, compare and **Import** only cover the photos that will be imported, and the line above the list counts each kind, like "339 files · 312 ready to import · 14 not wildlife · 3 already imported". Open the section to see each photo and why, and choose **Remove from this import** or **Import anyway** (back into the list), or **Remove all** / **Import all anyway**. A photo found to belong there while you work moves there without the photo you're on moving, and a photo you're previewing stays the one shown.
+Photos the import won't bring in wait in one folded **Skipped** section at the end of the list, so they never get in the way of the ones to name: **Not wildlife**, **Marked not wildlife** and **Already in Lifer**, each with its count. The groups above, their counts, the arrow keys, compare and **Import** only cover the photos that will be imported, and the line above the list counts each kind, like "339 files · 312 ready to import · 14 not wildlife · 3 already imported". Open the section to see each photo and why, and choose **Remove from this import** or **Import anyway** (back into the list), or **Remove all** / **Import all anyway**. A photo found to belong there while you work moves there without the photo you're on moving, and a photo you're previewing stays the one shown.
 
 Videos aren't checked for duplicates.
 
@@ -240,10 +242,10 @@ Videos aren't checked for duplicates.
 
 On the desktop app, the **Move photos into my library** switch beside the drop area tidies up as you import: once each photo is safely in your library, its original goes to your computer's Trash, so a folder of scattered photos is emptied as they're filed. It's off until you turn it on, and Lifer remembers your choice.
 
-- It works for folders you pick with **Choose a folder** (or a recent folder). Files you drag in or pick with **Choose files** are copied and left where they are, since Lifer can't see where they came from.
-- A file goes only after its photo is saved and Lifer has checked its copy. If anything fails, the original stays where it is and its row says why.
+- It works for files you pick with **Choose files** and folders you pick with **Choose a folder** (or a recent folder). Files you drag in are copied and left where they are, since Lifer can't see where they came from.
+- A file goes only after its photo is saved and Lifer has checked its copy. If anything fails, the original stays where it is and its row says why. When only one stays, the import's note gives the reason too.
 - Skipped photos, duplicates and files already in Lifer aren't moved by the import. With the switch on, the files already in Lifer from that folder are cleared in the same pass.
-- A RAW and its JPG go together or not at all. Files inside your library's own folders are never touched.
+- A RAW and its JPG go together or not at all. If you import only the JPG, like `6F9A9774.jpg` with `6F9A9774.CR3` beside it, both stay and the note says its partner wasn't imported. Pick both to move both. Files inside your library's own folders are never touched.
 - Each photo's `.xmp` sidecar goes with it, after the photo, whichever name it has (`IMG_1234.xmp`, `IMG_1234.CR3.xmp` or `IMG_1234.jpg.xmp`). A sidecar of a photo that stays, or of another file, stays too.
 
 When it's done, the import's note says what happened, like "Moved 8 photos and 6 sidecar files into your library. Cleared 42 already in Lifer. 3 skipped, still where they were."

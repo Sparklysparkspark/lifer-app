@@ -1,7 +1,8 @@
 // Sends originals to the system Trash from the folders they were imported from: after their import
 // (the Import page's "Move photos into my library") or because the library already holds the same
 // bytes ("Clear out the ones already in Lifer"). Only files in a folder the user imported from on
-// this computer, never one the library itself uses, and only once the library's copy is proven.
+// this computer or picked in its Choose files dialog (pickedFiles.ts), never one the library
+// itself uses, and only once the library's copy is proven.
 import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
@@ -13,6 +14,7 @@ import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
 import { moveToSystemTrash } from "../lib/originalsWrite.js";
 import { imageDataHash } from "./exif.js";
 import { inSourceFolder, isImportableName } from "./knownFiles.js";
+import { wasPicked } from "./pickedFiles.js";
 
 export type TrashBlock =
   "not_in_source_folder" | "in_library" | "unreadable" | "no_library_copy" | "partner_stays" | "trash_failed";
@@ -118,7 +120,7 @@ async function planGroup(
     if (!path.isAbsolute(m.path)) return "not_in_source_folder";
     const sourceHash = await hashFile(m.path).catch(() => null);
     const block = trashBlock({
-      inSourceFolder: await inSourceFolder(userId, m.path),
+      inSourceFolder: wasPicked(m.path) || (await inSourceFolder(userId, m.path)),
       inLibrary: await inLibrary(userId, m.path),
       sourceHash: sourceHash && (!m.expect || m.expect === sourceHash) ? sourceHash : null,
       libraryCopyOk: !!sourceHash && (await libraryCopyOk(userId, sourceHash, m.path)),

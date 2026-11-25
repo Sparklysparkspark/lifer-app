@@ -24,6 +24,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 const url = process.env.TEST_DATABASE_URL;
 const LOCAL_EMAIL = "local@lifer.app";
 const LAUNCH_TOKEN = "source-trash-test-launch-token";
+const SHELL_TOKEN = "source-trash-test-shell-token";
 const SPECIES = "eeeeeeee-0000-4000-8000-00000000271a";
 
 const fake = vi.hoisted(() => ({
@@ -111,6 +112,7 @@ describe.skipIf(!url)("moving imported originals to the Trash", () => {
     process.env.APP_DATA_DIR = path.join(dir, "app-data");
     process.env.SINGLE_USER_MODE = "1";
     process.env.LIFER_LAUNCH_TOKEN = LAUNCH_TOKEN;
+    process.env.LIFER_SHELL_TOKEN = SHELL_TOKEN;
     process.env.LIFER_ALLOW_UNTOKENED_DESKTOP = "0";
     db = new pg.Pool({ connectionString: url });
     fake.countCaptures = async () =>
@@ -223,6 +225,69 @@ describe.skipIf(!url)("moving imported originals to the Trash", () => {
     const moved = await importFile(outside, { moveSourcePath: outside });
     expect(moved.json().sourceMove).toEqual({ moved: false, reason: "not_in_source_folder", sidecars: 0 });
     expect(existsSync(outside)).toBe(true);
+  });
+
+  it("moves a file picked in the desktop's own dialog, and only when the shell vouches for it", async () => {
+    // The maintainer's case: one JPG from a folder Lifer never scanned.
+    const picked = path.join(dir, "Card", "6F9A9774.jpg");
+    mkdirSync(path.dirname(picked), { recursive: true });
+    writeFileSync(picked, readFileSync(await jpeg("k/seed.jpg")));
+    writeFileSync(path.join(dir, "Card", "6F9A9774.jpg.xmp"), "<x/>");
+    const report = (headers: Record<string, string>) =>
+      app.inject({
+        method: "POST",
+        url: "/api/uploads/picked-files",
+        headers: { "x-lifer-launch-token": LAUNCH_TOKEN, ...headers },
+        payload: { paths: [picked] },
+      });
+    const read = () =>
+      app.inject({
+        method: "GET",
+        url: `/api/uploads/source-folders/file?path=${encodeURIComponent(picked)}`,
+        headers: { "x-lifer-launch-token": LAUNCH_TOKEN },
+      });
+
+    // A page holds the launch token but not the shell's secret: its claim isn't there.
+    expect((await report({})).statusCode).toBe(404);
+    expect((await report({ "x-lifer-shell-token": "guess" })).statusCode).toBe(404);
+    expect((await read()).statusCode).toBe(403);
+    const unvouched = await importFile(picked, { moveSourcePath: picked });
+    expect(unvouched.json().sourceMove).toMatchObject({ moved: false, reason: "not_in_source_folder" });
+    await clearLibrary();
+
+    expect((await report({ "x-lifer-shell-token": SHELL_TOKEN })).statusCode).toBe(200);
+    expect((await read()).statusCode).toBe(200);
+    const res = await importFile(picked, { moveSourcePath: picked });
+    expect(res.json().sourceMove).toEqual({ moved: true, reason: null, sidecars: 1 });
+    expect(inTrash("6F9A9774.jpg") && inTrash("6F9A9774.jpg.xmp")).toBe(true);
+  });
+
+  it("keeps a picked JPG whose RAW wasn't picked, and never a picked file inside the library", async () => {
+    const shell = (paths: string[]) =>
+      app.inject({
+        method: "POST",
+        url: "/api/uploads/picked-files",
+        headers: { "x-lifer-launch-token": LAUNCH_TOKEN, "x-lifer-shell-token": SHELL_TOKEN },
+        payload: { paths },
+      });
+    const jpg = path.join(dir, "Card2", "6F9A9775.jpg");
+    mkdirSync(path.dirname(jpg), { recursive: true });
+    writeFileSync(jpg, readFileSync(await jpeg("l/seed.jpg")));
+    writeFileSync(path.join(dir, "Card2", "6F9A9775.CR3"), "raw bytes");
+    await shell([jpg]);
+    const res = await importFile(jpg, { moveSourcePath: jpg });
+    expect(res.json().sourceMove).toEqual({ moved: false, reason: "partner_stays", sidecars: 0 });
+    expect(existsSync(jpg)).toBe(true);
+
+    const libraryCopy = (
+      await db.query<{ ref: string }>(`SELECT ref FROM originals WHERE capture_id = $1`, [res.json().captureId])
+    ).rows[0].ref;
+    const twin = path.join(lib, "twin-picked.jpg");
+    writeFileSync(twin, readFileSync(libraryCopy));
+    await shell([twin]);
+    const out = await call("/uploads/source-folders/clear", { paths: [twin] });
+    expect(out.json().kept).toEqual([{ path: twin, reason: "in_library" }]);
+    expect(existsSync(twin)).toBe(true);
   });
 
   it("clears only files whose library copy is there with the same bytes", async () => {

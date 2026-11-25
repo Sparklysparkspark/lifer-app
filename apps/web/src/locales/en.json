@@ -1550,12 +1550,13 @@
       "cleared": "{count, plural, one {Moved {formatted} already in Lifer to the Trash} other {Moved {formatted} already in Lifer to the Trash}}{sidecars, plural, =0 {.} one {, with # sidecar file.} other {, with # sidecar files.}}",
       "stayed": "{count, plural, one {{formatted} original stayed where it was.} other {{formatted} originals stayed where they were.}}",
       "reasons": {
-        "notInSourceFolder": "The original stays where it is: it isn't in a folder you chose.",
+        "notInSourceFolder": "The original stays where it is: Lifer can only move files you chose on this computer.",
         "inLibrary": "The original stays where it is: it's in your library's own folders.",
         "unreadable": "The original stays where it is: it changed or couldn't be read.",
         "noLibraryCopy": "The original stays where it is: Lifer couldn't confirm its copy in your library.",
-        "partnerStays": "The original stays where it is, with its RAW or JPG partner.",
-        "trashFailed": "The original stays where it is: it couldn't be moved to the Trash."
+        "partnerStays": "The original stays where it is: its RAW or JPG partner wasn't imported with it, so the two stay together.",
+        "trashFailed": "The original stays where it is: it couldn't be moved to the Trash.",
+        "notPicked": "The original stays where it is: Lifer can only move files picked with Choose files or Choose a folder, not dragged in."
       }
     },
     "tripFit": {
@@ -2769,7 +2770,7 @@
       "appearance": "Appearance",
       "hdrViewer": {
         "title": "Show HDR photos in the viewer",
-        "description": "On a screen that shows HDR, Ultra HDR JPEGs open with their bright highlights. Thumbnails and grids are unchanged."
+        "description": "On a screen that shows HDR, HDR photos open with their bright highlights. Thumbnails and grids are unchanged."
       },
       "editor": {
         "group": "Photo editing",

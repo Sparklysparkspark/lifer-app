@@ -23008,7 +23008,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** GET /photos/{id}/hdr */
+    /**
+     * HDR rendition (Ultra HDR JPEG)
+     * @description For a photo whose original is HDR (a gain map JPEG, AVIF or JPEG XL, or a PQ or HLG AVIF, JPEG XL, PNG or TIFF): an Ultra HDR JPEG up to 2,560px with no metadata. Screens without HDR show its SDR base. 404 for any other photo.
+     */
     get: {
       parameters: {
         query?: never;
@@ -23020,12 +23023,14 @@ export interface paths {
       };
       requestBody?: never;
       responses: {
-        /** @description Not described yet */
+        /** @description The file */
         200: {
           headers: {
             [name: string]: unknown;
           };
-          content?: never;
+          content: {
+            "image/jpeg": string;
+          };
         };
         /** @description The request doesn't match this operation's parameters or body */
         400: {
@@ -23424,6 +23429,75 @@ export interface paths {
           };
           content: {
             "video/*": string;
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/photos/hdr-renditions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Photos with an HDR rendition
+     * @description The ids of your photos that `/photos/{id}/hdr` serves. Made in the background after import.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Photos with an HDR rendition */
+              photoIds: string[];
+            };
           };
         };
         /** @description The request doesn't match this operation's parameters or body */
@@ -45676,6 +45750,77 @@ export interface paths {
                   scientificName: string;
                 } | null;
               }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/uploads/picked-files": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /uploads/picked-files */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            paths: string[];
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
             };
           };
         };

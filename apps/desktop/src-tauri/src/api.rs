@@ -218,6 +218,10 @@ pub async fn start_api(app: &AppHandle, data_dir: Option<String>) -> Result<(), 
         crate::local_credential::launch_token().to_string(),
     );
     envs.insert(
+        "LIFER_SHELL_TOKEN".into(),
+        crate::local_credential::shell_token().to_string(),
+    );
+    envs.insert(
         "LIFER_LAUNCH_ID".into(),
         crate::local_credential::launch_id().to_string(),
     );
@@ -574,6 +578,40 @@ pub async fn health_info(health_url: &str) -> Option<HealthInfo> {
         return None;
     }
     Some(res.json::<HealthInfo>().await.unwrap_or_default())
+}
+
+/// Tells the local API which files the user picked in the shell's dialog (commands.rs
+/// pick_import_files), signed with the shell's own secret.
+pub async fn report_picked_files(paths: &[String]) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let res = client
+        .post(format!(
+            "http://127.0.0.1:{LOCAL_PORT}/api/uploads/picked-files"
+        ))
+        .header("x-lifer-client", "1")
+        .header(
+            "x-lifer-launch-token",
+            crate::local_credential::launch_token(),
+        )
+        .header(
+            "x-lifer-shell-token",
+            crate::local_credential::shell_token(),
+        )
+        .json(&serde_json::json!({ "paths": paths }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if res.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "The local API refused the picked files ({})",
+            res.status()
+        ))
+    }
 }
 
 // Checks credentials against a remote server's /auth/login natively, avoiding CORS, and returns

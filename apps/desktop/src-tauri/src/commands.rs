@@ -525,6 +525,54 @@ pub(crate) fn local_api_credential(window: WebviewWindow) -> Option<String> {
     is_local_api(&url).then(|| local_credential::launch_token().to_string())
 }
 
+#[derive(serde::Serialize)]
+pub(crate) struct PickedFile {
+    path: String,
+    #[serde(rename = "mtimeMs")]
+    mtime_ms: f64,
+}
+
+// The Import page's Choose files on the local library: the shell's own dialog, so the paths are
+// the user's choice and not a page's claim. The shell tells the local API with its own secret
+// (apps/api/src/uploads/pickedFiles.ts), which lets the page read these files and, with Move on,
+// send them to the Trash once imported. None when cancelled; Err when it can't vouch for them.
+#[tauri::command]
+pub(crate) async fn pick_import_files(
+    app: AppHandle,
+    window: WebviewWindow,
+) -> Result<Option<Vec<PickedFile>>, String> {
+    if !window.url().is_ok_and(|u| is_local_api(&u)) {
+        return Err("Not allowed".into());
+    }
+    let dialog = app.dialog().file().set_parent(&window);
+    let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_files())
+        .await
+        .ok()
+        .flatten();
+    let Some(picked) = picked else {
+        return Ok(None);
+    };
+    let paths: Vec<String> = picked
+        .into_iter()
+        .filter_map(|p| p.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    api::report_picked_files(&paths).await?;
+    Ok(Some(
+        paths
+            .into_iter()
+            .map(|path| {
+                let mtime_ms = std::fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0.0, |d| d.as_millis() as f64);
+                PickedFile { path, mtime_ms }
+            })
+            .collect(),
+    ))
+}
+
 // Local matching is only for a connected server's own pages; in local mode the local API already
 // runs the models itself.
 fn local_inference_allowed(window: &WebviewWindow) -> Result<(), String> {

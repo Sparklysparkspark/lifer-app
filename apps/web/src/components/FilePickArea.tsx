@@ -12,6 +12,7 @@ export default function FilePickArea({
   accept,
   onFiles,
   onChooseFolder,
+  onChooseFiles,
   compact = false,
   single = false,
 }: {
@@ -22,6 +23,8 @@ export default function FilePickArea({
   /** Takes over Choose a folder (the desktop's own dialog, which knows the folder's path). Resolves
    *  false to fall back to the standard folder picker. */
   onChooseFolder?: () => Promise<boolean>;
+  /** The same for Choose files (the desktop's own dialog, which knows each file's path). */
+  onChooseFiles?: () => Promise<boolean>;
   compact?: boolean;
   single?: boolean;
 }) {
@@ -30,6 +33,11 @@ export default function FilePickArea({
   const folderRef = useRef<HTMLInputElement>(null);
   // Highlighted while files are dragged over, so it reads as a place to drop them.
   const [dragging, setDragging] = useState(false);
+
+  function chooseFiles() {
+    if (!onChooseFiles) filesRef.current?.click();
+    else void onChooseFiles().then((handled) => handled || filesRef.current?.click());
+  }
 
   function take(input: HTMLInputElement, fromFolder: boolean) {
     if (input.files?.length) onFiles(input.files, fromFolder);
@@ -76,7 +84,7 @@ export default function FilePickArea({
           setDragging(false);
           if (e.dataTransfer.files.length) onFiles(e.dataTransfer.files, false);
         }}
-        onClick={compact ? undefined : () => filesRef.current?.click()}
+        onClick={compact ? undefined : chooseFiles}
         className={
           compact
             ? `flex flex-wrap items-center justify-between gap-x-section gap-y-3 rounded-panel border px-4 py-3 transition-colors ${
@@ -101,7 +109,7 @@ export default function FilePickArea({
             size="sm"
             onClick={(e) => {
               e.stopPropagation();
-              filesRef.current?.click();
+              chooseFiles();
             }}
           >
             {single ? t("upload.pick.chooseFile") : t("upload.pick.chooseFiles")}

@@ -32,7 +32,7 @@ import ImportSkipped from "./importReview/ImportSkipped";
 import KnownFiles from "./importReview/KnownFiles";
 import RecentImportFolders from "./importReview/RecentImportFolders";
 import { fetchFolderFile, rememberSkipped, sortKnownFiles, type KnownFile, type SkipReason } from "../lib/knownFiles";
-import { pickFolderNative } from "../lib/pickFolderNative";
+import { pickFolderNative, pickImportFilesNative, type PickedFile } from "../lib/pickFolderNative";
 import { useDeploymentMode } from "../hooks/useDeploymentMode";
 import { skipKind, type SkipKind } from "./importReview/compareQueue";
 import { isRawFile, VENDOR_RAW_EXTENSIONS } from "../lib/rawExtensions";
@@ -84,7 +84,12 @@ const STAYED_WHY = {
   no_library_copy: "import.move.reasons.noLibraryCopy",
   partner_stays: "import.move.reasons.partnerStays",
   trash_failed: "import.move.reasons.trashFailed",
+  // Never sent: a dropped file, or one from the browser's picker, has no path on this computer.
+  not_picked: "import.move.reasons.notPicked",
 } as const;
+
+// RAW and HEIC files often have an empty MIME type, so those match by extension.
+const importable = (f: File) => photoFormatOf(f) != null || isRawFile(f.name) || isVideoFile(f);
 
 // Species suggestions are one-click only; nothing is ever assigned automatically.
 type RowStatus = "pending" | "ready" | "uploading" | "done" | "error";
@@ -414,10 +419,9 @@ export default function PhotoImportRows({
   const [unsupported, setUnsupported] = useState<string[]>([]);
 
   function addFiles(fileList: FileList | File[], fromFolder = false) {
-    // RAW and HEIC files often have an empty MIME type, so those match by extension. Anything the
-    // server wouldn't take is left out: named when picked, quietly for a folder's sidecars and the like.
+    // Anything the server wouldn't take is left out: named when picked, quietly for a folder's
+    // sidecars and the like.
     const all = Array.from(fileList);
-    const importable = (f: File) => photoFormatOf(f) != null || isRawFile(f.name) || isVideoFile(f);
     const files = all.filter(importable);
     if (!fromFolder) setUnsupported(all.filter((f) => !importable(f)).map((f) => f.name));
     let done = 0;
@@ -485,6 +489,22 @@ export default function PhotoImportRows({
     } finally {
       setReadingFolder(null);
     }
+  }
+
+  // Desktop: Choose files in the shell's own dialog, which vouches for the paths to the local API,
+  // so each file can be moved once imported. Read back like a folder's files.
+  async function importPicked(picked: PickedFile[]) {
+    const files = await mapWithConcurrency(picked, 4, (p) => {
+      const name = p.path.split(/[\\/]/).pop()!;
+      const empty = new File([], name);
+      // Not read: named as one Lifer can't import.
+      if (!importable(empty)) return Promise.resolve(empty);
+      return fetchFolderFile({ path: p.path, name, mtimeMs: p.mtimeMs }).then(
+        (file) => (pathsRef.current.set(file, p.path), file),
+        () => null,
+      );
+    });
+    addFiles(files.filter((f): f is File => f != null));
   }
 
   async function importKnownAnyway(chosen: KnownFile[]) {
@@ -982,9 +1002,13 @@ export default function PhotoImportRows({
 
     const committed: CommittedImport[] = [];
     let movedCount = 0;
-    // Originals the server chose to leave (STAYED_WHY): not videos, failures or ones held back.
+    // Originals left where they were (STAYED_WHY): not videos, failures or ones held back.
     let stayedCount = 0;
     let sidecarCount = 0;
+    // Rows sent without a path to move (not_picked), and the last reason one stayed, which the
+    // summary gives in full when only one did.
+    const unmovable = new Set<string>();
+    let lastMoveNote = "";
     // Set when the drive fills: rows not started stay ready for Continue.
     let stop = false;
     let sinceCheck = 0;
@@ -1027,6 +1051,7 @@ export default function PhotoImportRows({
               const from = moving && !row.isVideo ? pathsRef.current.get(row.file) : undefined;
               const rawFrom = raw ? pathsRef.current.get(raw.file) : undefined;
               const moveBoth = from && (!raw || rawFrom);
+              if (moving && !row.isVideo && !moveBoth) unmovable.add(row.key);
               return postUploadedFile(endpoint, row.file, {
                 stagedId: row.isVideo ? row.stagedId : undefined,
                 uploadId,
@@ -1071,10 +1096,17 @@ export default function PhotoImportRows({
         if (outcome.sourceMove?.moved) movedCount++;
         else if (outcome.sourceMove) stayedCount++;
         sidecarCount += outcome.sourceMove?.sidecars ?? 0;
-        const stayedWhy = outcome.sourceMove && !outcome.sourceMove.moved ? outcome.sourceMove.reason : null;
+        const stayedWhy =
+          outcome.sourceMove && !outcome.sourceMove.moved
+            ? outcome.sourceMove.reason
+            : unmovable.has(row.key)
+              ? "not_picked"
+              : null;
+        if (stayedWhy === "not_picked") stayedCount++;
         const moveNote = stayedWhy
           ? t(STAYED_WHY[stayedWhy as keyof typeof STAYED_WHY] ?? STAYED_WHY.trash_failed)
           : undefined;
+        if (moveNote) lastMoveNote = moveNote;
         setRows((prev) => prev.map((r) => (keys.includes(r.key) ? { ...r, status: "done", captureId, moveNote } : r)));
         settleExternalJob(jobId);
         if (++sinceCheck % SPACE_CHECK_EVERY === 0 && (await refreshSpace()).tier === "critical") stop = true;
@@ -1133,15 +1165,21 @@ export default function PhotoImportRows({
     const stayed = stayedCount;
     const moveSummary = moving
       ? [
-          t("import.move.moved", {
-            count: movedCount,
-            formatted: formatNumber(movedCount),
-            sidecars: sidecarCount,
-          }),
+          movedCount > 0
+            ? t("import.move.moved", {
+                count: movedCount,
+                formatted: formatNumber(movedCount),
+                sidecars: sidecarCount,
+              })
+            : "",
           cleared > 0
             ? t("import.move.cleared", { count: cleared, formatted: formatNumber(cleared), sidecars: clearedSidecars })
             : "",
-          stayed > 0 ? t("import.move.stayed", { count: stayed, formatted: formatNumber(stayed) }) : "",
+          stayed === 1
+            ? lastMoveNote
+            : stayed > 1
+              ? t("import.move.stayed", { count: stayed, formatted: formatNumber(stayed) })
+              : "",
         ]
           .filter(Boolean)
           .join(" ")
@@ -1285,6 +1323,16 @@ export default function PhotoImportRows({
         hint={t("import.rows.pickHint")}
         accept={`${PHOTO_ACCEPT},${VIDEO_ACCEPT},${[...VENDOR_RAW_EXTENSIONS].join(",")}`}
         onFiles={(files, fromFolder) => addFiles(files, fromFolder)}
+        onChooseFiles={
+          desktop
+            ? async () => {
+                const picked = await pickImportFilesNative();
+                if (picked === undefined) return false;
+                if (picked) void importPicked(picked);
+                return true;
+              }
+            : undefined
+        }
         onChooseFolder={
           desktop
             ? async () => {
