@@ -19,6 +19,8 @@ vi.mock("../../hooks/useDeploymentMode", () => ({ useDeploymentMode: () => "desk
 const plugin = {
   id: "com.example.birds",
   name: "Example Birds",
+  version: "2.1.0",
+  executable: "/Applications/Example Birds.app/Contents/MacOS/birds",
   page: { label: "Birds", icon: "", accent: "", surface: "default" },
   scopes: ["userdata.read"],
   capabilities: ["notifications"],
@@ -27,7 +29,9 @@ const plugin = {
 vi.mock("../../lib/plugins", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/plugins")>()),
   usePlugins: () => [plugin],
+  stopPlugin: (id: string) => stop(id),
 }));
+const stop = vi.fn();
 
 const { default: ConnectedAppsSettings } = await import("./ConnectedAppsSettings");
 const { noticesAllowed } = await import("../../lib/plugins");
@@ -69,6 +73,22 @@ afterEach(() => {
 });
 
 describe("installed apps on the desktop", () => {
+  it("shows version and place, Open when stopped, Quit when running, and how to uninstall", async () => {
+    const { setStartedPlugin } = await import("../../lib/plugins");
+    stop.mockResolvedValue(undefined);
+    show();
+    expect(screen.getByText("Version 2.1.0")).toBeTruthy();
+    expect(screen.getByText(plugin.executable)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open Example Birds" })).toBeTruthy();
+    expect(screen.getByText("How to uninstall")).toBeTruthy();
+    cleanup();
+    setStartedPlugin(plugin.id, { origin: "http://127.0.0.1:1", pageUrl: "http://127.0.0.1:1/", pageToken: "t" });
+    show();
+    fireEvent.click(screen.getByRole("button", { name: "Quit Example Birds" }));
+    await waitFor(() => expect(stop).toHaveBeenCalledWith(plugin.id));
+    setStartedPlugin(plugin.id, null);
+  });
+
   it("turns an app's notices off and on", async () => {
     show();
     const notices = await screen.findByRole("switch", { name: "Notices from Example Birds" });

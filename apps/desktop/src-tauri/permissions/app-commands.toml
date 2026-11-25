@@ -56,16 +56,19 @@ commands.allow = [
   "companion_set_paired",
   "companion_set_keep_syncing",
   "companion_set_autostart",
-  # plugins.rs: companion apps found on this computer, and starting them; each checks is_app_page.
+  # plugins.rs: companion apps found on this computer, and starting and stopping them; each checks is_app_page.
   "plugins_list",
   "plugin_start",
   "plugin_status",
+  "plugin_stop",
   "plugin_offered_imports",
   "plugin_export_import",
-  # plugin_install.rs: downloading and checking a suggested app's installer; each checks is_app_page.
+  # plugin_install.rs: downloading and checking a suggested app's installer, and finding a copy installed on its own; each checks is_app_page.
   "plugin_install",
   "plugin_install_progress",
   "plugin_install_cancel",
+  "plugin_detect",
+  "plugin_open_installed",
   # editors.rs: installed photo editors and opening files in one; each checks is_app_page.
   "editors_list",
   "editor_pick_other",

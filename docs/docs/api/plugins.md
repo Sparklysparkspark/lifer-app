@@ -60,6 +60,7 @@ Lifer starts your app the first time its page opens, then keeps it running until
 3. Answer `GET /lifer-host/health?nonce=<nonce>` with status 200, `Content-Type: application/json` and `{"proof":"<hex>"}`, where `proof` is the lowercase hex HMAC-SHA256 with the ticket string as the key and the nonce string as the message. This proves the process on that port is the one Lifer launched. Lifer checks right after READY and every 10 seconds while the page is visible. Two failures in a row count as a crash.
 4. Exit when your standard input closes or the process named by `LIFER_WATCH_PARENT_PID` is gone (check at least every 2 seconds). Lifer stops anything still running 5 seconds after closing standard input.
 5. Exit code 0 means the user closed the app: Lifer shows it as closed and doesn't restart it. Any other exit is a crash and restarts once.
+6. The user can also **Quit** your app from Connected apps: Lifer closes standard input as in step 4, without quitting itself.
 
 If your app is already running with its own window, the launched process may pass the ticket to the running instance over a channel only the same user can open (a Unix domain socket in a folder only the user can write, or a user-only named pipe on Windows), print READY for it and exit 0. Never pass the ticket over loopback TCP, a file or a command line.
 

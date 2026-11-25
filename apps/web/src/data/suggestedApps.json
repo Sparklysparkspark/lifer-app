@@ -11,22 +11,36 @@
     "icon": "M4 5h16v14H4zM8 9h8v6H8z",
     "iconSrc": "/branding/preen.png",
     "iconSrcDark": "/branding/preen-dark.png",
-    "downloads": {
-      "darwin": {
-        "url": "https://licence.preenwildlife.com/v1/download/lifer/darwin",
-        "signer": "PLACEHOLDER",
-        "pending": true
+    "install": {
+      "feed": "https://updates.preenwildlife.com/{channel}/latest.json",
+      "channel": "stable",
+      "hosts": ["updates.preenwildlife.com", "dl.preenwildlife.com"],
+      "minisignKeys": ["PLACEHOLDER"],
+      "pending": true,
+      "platforms": {
+        "darwin-aarch64": {
+          "format": "dmg",
+          "signer": "PLACEHOLDER"
+        },
+        "darwin-x86_64": {
+          "format": "dmg",
+          "signer": "PLACEHOLDER"
+        },
+        "windows-x86_64": {
+          "format": "nsis",
+          "signer": "PLACEHOLDER"
+        },
+        "linux-x86_64": {
+          "format": "deb"
+        }
       },
-      "win32": {
-        "url": "https://licence.preenwildlife.com/v1/download/lifer/win32",
-        "signer": "PLACEHOLDER",
-        "pending": true
-      },
-      "linux": {
-        "url": "https://licence.preenwildlife.com/v1/download/lifer/linux",
-        "signer": "PLACEHOLDER",
-        "signatureUrl": "https://licence.preenwildlife.com/v1/download/lifer/linux.minisig",
-        "pending": true
+      "locations": {
+        "darwin": [
+          "/Applications/Preen.app/Contents/MacOS/preen-shell",
+          "~/Applications/Preen.app/Contents/MacOS/preen-shell"
+        ],
+        "win32": ["%LOCALAPPDATA%/Preen/preen-shell.exe", "%LOCALAPPDATA%/Programs/Preen/preen-shell.exe"],
+        "linux": ["/usr/bin/preen-shell"]
       }
     }
   }

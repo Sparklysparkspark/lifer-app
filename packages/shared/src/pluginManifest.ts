@@ -50,6 +50,9 @@ export interface PluginManifest {
 export interface PluginSummary {
   id: string;
   name: string;
+  version: string;
+  /** Where its program is on this computer. */
+  executable: string;
   page: PluginPage;
   scopes: string[];
   capabilities: PluginCapability[];

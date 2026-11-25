@@ -4,7 +4,8 @@
     "albums.export.reveal",
     "photoMenu.revealInFinder",
     "settings.general.updates.macBlocked",
-    "settings.general.updates.macGatekeeper"
+    "settings.general.updates.macGatekeeper",
+    "suggestedApps.noteMac"
   ],
   "selectAll": [
     "albums.smart.selectAll",

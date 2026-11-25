@@ -12,6 +12,8 @@ const ORIGIN = "http://127.0.0.1:5123";
 const plugin: PluginSummary = {
   id: "com.example.app",
   name: "Example",
+  version: "1.0.0",
+  executable: "/Applications/Example.app/Contents/MacOS/example",
   page: { label: "Example", icon: "M0 0", accent: "#336699", surface: "default" },
   scopes: [],
   capabilities: ["notifications"],

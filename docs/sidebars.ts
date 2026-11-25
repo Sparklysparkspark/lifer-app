@@ -113,6 +113,7 @@ const sidebars: SidebarsConfig = {
         "contributing/data-pipeline",
         "contributing/rebuilding-data",
         "contributing/desktop-app",
+        "contributing/plugins",
         "contributing/translating",
         "contributing/releasing",
         "contributing/platform-checklists",

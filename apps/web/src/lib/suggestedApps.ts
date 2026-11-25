@@ -9,14 +9,37 @@ import { platform } from "./platform";
 import { usePlugins } from "./plugins";
 import { tauriInvoke } from "./tauri";
 
-export interface SuggestedInstaller {
-  url: string;
-  /** macOS team id, Windows "subject\nissued by issuer", or the Linux minisign public key. */
-  signer: string;
-  /** Linux only: where the detached minisign signature is. */
-  signatureUrl?: string;
-  /** True while url and signer are placeholders: the offer shows "Available soon" and installs nothing. */
+/** One target's trust anchor. The desktop shell reads these compiled in; the page only shows them. */
+export interface SuggestedTarget {
+  /** dmg (macOS), nsis or msi (Windows), deb or rpm (Linux). An appimage never installs from Lifer. */
+  format: string;
+  /** macOS Team ID, or the Windows certificate subject. */
+  signer?: string;
+  /** Windows only: allowed issuers; empty allows any issuer Windows trusts. */
+  issuers?: string[];
+}
+
+/** How Lifer gets the publisher's own installer (plugin_install.rs). */
+export interface SuggestedInstall {
+  /** The publisher's feed; {channel} is replaced by channel. */
+  feed: string;
+  channel?: string;
+  /** Exact hosts the feed and installer may come from, also after redirects. */
+  hosts: string[];
+  minisignKeys: string[];
+  /** True while anchors are placeholders: the offer shows "Available soon" and installs nothing. */
   pending?: boolean;
+  /** Keyed by target: darwin-aarch64, darwin-x86_64, windows-x86_64, linux-x86_64. */
+  platforms: Record<string, SuggestedTarget>;
+  /** Keyed by darwin, win32 or linux: where a copy installed on its own keeps its program. */
+  locations?: Record<string, string[]>;
+}
+
+/** What the offer page needs to know about installing on this computer. */
+export interface SuggestedInstaller {
+  /** The host the download starts from, named in the disclosure. */
+  host: string;
+  pending: boolean;
 }
 
 export interface SuggestedApp {
@@ -36,14 +59,38 @@ export interface SuggestedApp {
   /** A picture for the sidebar instead (the app's own logo, in its own colours), and its dark-theme variant. */
   iconSrc?: string;
   iconSrcDark?: string;
-  downloads: Partial<Record<"darwin" | "win32" | "linux", SuggestedInstaller>>;
+  /** Price, trial or licence words in the publisher's own terms, shown on the offer page. */
+  pricingText?: string;
+  licenseUrl?: string;
+  /** The publisher's own uninstall instructions; Lifer never removes an app itself. */
+  uninstallHelp?: string;
+  install?: SuggestedInstall;
 }
 
 export const SUGGESTED_APPS: readonly SuggestedApp[] = suggested as SuggestedApp[];
 
-const OS_KEY = { mac: "darwin", windows: "win32", other: "linux" } as const;
-/** The installer for this computer's system, if the app has one. */
-export const installerFor = (app: SuggestedApp): SuggestedInstaller | undefined => app.downloads[OS_KEY[platform]];
+const OS_KEY = { mac: "darwin", windows: "windows", other: "linux" } as const;
+const ARCH = { arm64: "aarch64", x64: "x86_64" } as Record<string, string>;
+/** This computer's target key, the same names the publisher's feed uses. */
+export function targetKey(): string {
+  const arch = (typeof window !== "undefined" && window.liferSetup?.arch) || "x64";
+  return `${OS_KEY[platform]}-${ARCH[arch] ?? arch}`;
+}
+
+/** Installing on this computer, if the app has an installer Lifer can open here. */
+export function installerFor(app: SuggestedApp): SuggestedInstaller | undefined {
+  const install = app.install;
+  const target = install?.platforms[targetKey()];
+  if (!install || !target || target.format === "appimage") return undefined;
+  const pending = install.pending === true || JSON.stringify(install).includes("PLACEHOLDER");
+  let host = "";
+  try {
+    host = new URL(install.feed).hostname;
+  } catch {
+    // A malformed feed can't install; the shell refuses it too.
+  }
+  return { host, pending: pending || !host };
+}
 
 const KEY = "lifer:showSuggestedApps";
 const listeners = new Set<() => void>();
@@ -88,6 +135,7 @@ export interface InstallProgress {
   downloaded: number;
   total: number;
   running: boolean;
+  stage: "downloading" | "verifying" | "opening";
 }
 
 const invoke = <T>(cmd: string, args: unknown) => {
@@ -95,13 +143,31 @@ const invoke = <T>(cmd: string, args: unknown) => {
   return call ? (call(cmd, args) as Promise<T>) : Promise.reject(new Error("Not the desktop app"));
 };
 
-export const installSuggestedApp = (app: SuggestedApp, installer: SuggestedInstaller) =>
-  invoke<void>("plugin_install", {
-    appId: app.id,
-    url: installer.url,
-    signer: installer.signer,
-    signatureUrl: installer.signatureUrl ?? null,
-  });
+/** The shell looks up every address, key and signer itself; the page only names the app. */
+export const installSuggestedApp = (app: SuggestedApp) => invoke<void>("plugin_install", { appId: app.id });
+
+/** Where a copy installed outside Lifer is, once its signer checks out; null when there is none. */
+export const detectInstalled = (id: string) => invoke<string | null>("plugin_detect", { appId: id });
+/** Opens that copy the way the system would; it then connects to Lifer on its own. */
+export const openInstalled = (id: string) => invoke<void>("plugin_open_installed", { appId: id });
+
+// The shell's error codes (plugin_install.rs) and their words.
+const INSTALL_ERRORS: Record<string, string> = {
+  "not-set-up": "suggestedApps.error.notSetUp",
+  "no-installer": "suggestedApps.error.noInstaller",
+  busy: "suggestedApps.error.busy",
+  offline: "suggestedApps.error.offline",
+  unavailable: "suggestedApps.error.unavailable",
+  verification: "suggestedApps.error.verification",
+  "too-large": "suggestedApps.error.tooLarge",
+  space: "suggestedApps.error.space",
+  blocked: "suggestedApps.error.blocked",
+};
+/** The i18n key for an install failure; null for a cancel, which needs no message. */
+export function installErrorKey(err: unknown): string | null {
+  if (err === "cancelled") return null;
+  return (typeof err === "string" && INSTALL_ERRORS[err]) || "suggestedApps.failed";
+}
 /** The user's click on the offer page is their consent: the app's next launch from Lifer pairs
  *  with these scopes without asking again (api plugins/routes.ts, grants). */
 export const grantSuggestedApp = (app: SuggestedApp) =>

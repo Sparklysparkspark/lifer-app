@@ -4,6 +4,7 @@ import { api, apiPath, type ApiResponse } from "../../api/client";
 import Button from "../../components/Button";
 import FormMessage from "../../components/FormMessage";
 import Switch from "../../components/Switch";
+import { useNavigate } from "react-router-dom";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useDeploymentMode } from "../../hooks/useDeploymentMode";
 import { useToast } from "../../hooks/useToast";
@@ -12,12 +13,16 @@ import { appScopeLabel } from "../../lib/appScopes";
 import { appTitle } from "../../lib/appName";
 import { getHostPreference, onHostPreference, setHostPreference } from "../../lib/hostPreference";
 import { formatDate, formatList, formatRelativeTime } from "../../lib/format";
+import { openExternal } from "../../lib/openExternal";
 import {
   opensInBackground,
+  pluginPath,
+  stopPlugin,
   useBackgroundPlugins,
   useHiddenPlugins,
   useNoticePlugins,
   usePlugins,
+  useStartedPlugins,
 } from "../../lib/plugins";
 import { SUGGESTED_APPS, setShowSuggestedApps, useShowSuggestedApps } from "../../lib/suggestedApps";
 import { SettingRow, SettingsGroup } from "./shared";
@@ -39,6 +44,8 @@ export default function ConnectedAppsSettings() {
   const confirm = useConfirm();
   const mode = useDeploymentMode();
   const installed = usePlugins() ?? [];
+  const running = useStartedPlugins();
+  const navigate = useNavigate();
   const { hidden, hide, show } = useHiddenPlugins();
   const { off, setBackground } = useBackgroundPlugins();
   const { muted, setNotices } = useNoticePlugins();
@@ -164,6 +171,14 @@ export default function ConnectedAppsSettings() {
     await load();
   }
 
+  async function quit(p: { id: string }) {
+    try {
+      await stopPlugin(p.id);
+    } catch (err) {
+      toast.error(errorMessage(err, t("connectedApps.stopFailed")));
+    }
+  }
+
   async function pair() {
     try {
       setCode(await api.post("/plugins/v1/pair-codes"));
@@ -179,6 +194,31 @@ export default function ConnectedAppsSettings() {
       {mode === "desktop" &&
         installed.map((p) => (
           <SettingsGroup key={p.id} title={appTitle(p)}>
+            <SettingRow
+              label={<span className="break-words">{t("connectedApps.versionRow", { version: p.version })}</span>}
+              description={<span className="break-all">{p.executable}</span>}
+              control={
+                running.has(p.id) ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    aria-label={t("connectedApps.stopLabel", { name: appTitle(p) })}
+                    onClick={() => void quit(p)}
+                  >
+                    {t("connectedApps.stop")}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    aria-label={t("connectedApps.openLabel", { name: appTitle(p) })}
+                    onClick={() => navigate(pluginPath(p.id))}
+                  >
+                    {t("connectedApps.open")}
+                  </Button>
+                )
+              }
+            />
             <SettingRow
               label={t("connectedApps.showInSidebarRow")}
               control={
@@ -229,6 +269,7 @@ export default function ConnectedAppsSettings() {
                 </Button>
               }
             />
+            <UninstallRow id={p.id} name={appTitle(p)} />
           </SettingsGroup>
         ))}
       {mode === "desktop" && SUGGESTED_APPS.length > 0 && (
@@ -347,5 +388,30 @@ export default function ConnectedAppsSettings() {
         </SettingsGroup>
       )}
     </>
+  );
+}
+
+/** Lifer never deletes an app: this says how, and links the publisher's own instructions when the
+ *  suggestion has them. */
+function UninstallRow({ id, name }: { id: string; name: string }) {
+  const { t } = useTranslation();
+  const help = SUGGESTED_APPS.find((a) => a.id === id)?.uninstallHelp;
+  return (
+    <SettingRow
+      label={t("connectedApps.uninstallRow")}
+      description={t("connectedApps.uninstallHint")}
+      control={
+        help && (
+          <Button
+            variant="link"
+            size="sm"
+            aria-label={t("connectedApps.uninstallHelpLabel", { name })}
+            onClick={() => openExternal(help)}
+          >
+            {t("connectedApps.uninstallHelp")}
+          </Button>
+        )
+      }
+    />
   );
 }

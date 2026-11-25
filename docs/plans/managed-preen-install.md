@@ -1,5 +1,7 @@
 # Lifer-managed install of the Cull app
 
+> **Superseded (2026-11-25).** The maintainer dropped the managed install (L1 to L5). Lifer is a launcher for third-party apps instead: it downloads the publisher's own signed installer from a compiled-in feed, checks it and opens the system installer, then finds and opens the installed app through the host hand-off. Lifer never unpacks or runs the program itself. See `docs/docs/contributing/plugins.md`. This file stays for its threat model and history.
+
 Internal plan. Lifer's side of the contract in preen-app `docs/plans/lifer-managed-install.md` (branch `managedinstall`, 684222a). This document may name Preen; the shipped Lifer code, copy and docs may not, beyond the existing Cull entry in `suggestedApps.json` and its offer page. Everything Preen-specific reaches Lifer as data in that entry (names, ids, paths, keys), never as code or strings in Rust or TypeScript. No Preen code or data is copied here.
 
 Field names marked **(proposed)** are Lifer's proposal to the Preen session; the Preen plan's names were intent only.

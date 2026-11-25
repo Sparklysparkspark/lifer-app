@@ -301,6 +301,9 @@ mod tests {
             "set_local_data_dir",
             "local_api_credential",
             "plugins_list",
+            "plugin_stop",
+            "plugin_install",
+            "plugin_open_installed",
         ] {
             let quoted = format!("\"{command}\"");
             assert!(

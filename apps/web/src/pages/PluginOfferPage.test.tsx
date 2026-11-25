@@ -11,22 +11,31 @@ const app = {
   homepage: "https://example.com",
   label: "Example",
   icon: "M0 0h1v1z",
-  downloads: { darwin: { url: "https://dl.example.com/a.dmg", signer: "ABCDE12345" } },
 };
+const live = { host: "dl.example.com", pending: false };
 const suggested = vi.fn();
 const install = vi.fn();
 const grant = vi.fn();
 const installer = vi.fn();
 const setShow = vi.fn();
 const open = vi.fn();
+const detect = vi.fn();
+const openStandalone = vi.fn();
+const plugins = vi.fn();
+const progress = vi.fn();
 vi.mock("../lib/openExternal", () => ({ openExternal: (u: string) => open(u) }));
-vi.mock("../lib/suggestedApps", () => ({
+vi.mock("../lib/plugins", () => ({ usePlugins: () => plugins(), pluginPath: (id: string) => `/apps/${id}` }));
+vi.mock("../lib/suggestedApps", async (importOriginal) => ({
+  installErrorKey: (await importOriginal<typeof import("../lib/suggestedApps")>()).installErrorKey,
+  SUGGESTED_APPS: [app],
+  detectInstalled: (id: string) => detect(id),
+  openInstalled: (id: string) => openStandalone(id),
   useSuggestedApps: () => suggested(),
   setShowSuggestedApps: (on: boolean) => setShow(on),
   installerFor: () => installer(),
   installSuggestedApp: (...a: unknown[]) => install(...a),
   grantSuggestedApp: (...a: unknown[]) => grant(...a),
-  installProgress: () => Promise.resolve({ downloaded: 50, total: 100, running: true }),
+  installProgress: () => progress(),
   cancelInstall: () => Promise.resolve(),
 }));
 vi.mock("../components/AppSidebar", () => ({ useSidebarLayout: () => false }));
@@ -49,7 +58,10 @@ const show = () =>
 beforeEach(() => {
   vi.clearAllMocks();
   suggested.mockReturnValue([app]);
-  installer.mockReturnValue(app.downloads.darwin);
+  installer.mockReturnValue(live);
+  detect.mockResolvedValue(null);
+  plugins.mockReturnValue([]);
+  progress.mockResolvedValue({ downloaded: 50, total: 100, running: true, stage: "downloading" });
 });
 afterEach(cleanup);
 
@@ -64,21 +76,70 @@ describe("PluginOfferPage", () => {
     install.mockResolvedValue(undefined);
     show();
     fireEvent.click(screen.getByRole("button", { name: "Install" }));
-    await waitFor(() => expect(install).toHaveBeenCalledWith(app, app.downloads.darwin));
+    await waitFor(() => expect(install).toHaveBeenCalledWith(app));
     await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    expect(screen.getByText("Finish in the installer, then come back here to open Example.")).toBeTruthy();
   });
 
-  it("shows a plain message when the check fails", async () => {
-    install.mockRejectedValue("This installer isn't signed by the publisher it should be.");
+  it.each([
+    ["verification", "The download didn't match what the publisher signed. Nothing was installed."],
+    ["offline", "Couldn't reach the download. Check your connection and try again."],
+    ["space", "There isn't enough free space for the download. Free some space and try again."],
+    ["blocked", "Your system wouldn't open the installer. Get Example from the publisher's website instead."],
+    ["not-set-up", "This app's publisher details are not set up yet."],
+    ["something odd", "Couldn't install Example"],
+  ])("words the %s failure plainly and offers the website", async (code, text) => {
+    install.mockRejectedValue(code);
     show();
     fireEvent.click(screen.getByRole("button", { name: "Install" }));
-    expect(await screen.findByText(/isn't signed by the publisher/)).toBeTruthy();
+    expect(await screen.findByText(text)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Download from the publisher's website instead" }));
+    expect(open).toHaveBeenCalledWith("https://example.com");
+  });
+
+  it("a cancel needs no message", async () => {
+    install.mockRejectedValue("cancelled");
+    show();
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    await waitFor(() => expect(install).toHaveBeenCalled());
+    expect(screen.queryByText(/Couldn't/)).toBeNull();
+  });
+
+  it("shows the three steps with the current one marked", async () => {
+    install.mockReturnValue(new Promise(() => undefined));
+    progress.mockResolvedValue({ downloaded: 100, total: 100, running: true, stage: "verifying" });
+    show();
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    const current = await screen.findByText("Check the publisher's signatures", { selector: "li" });
+    await waitFor(() => expect(current.getAttribute("aria-current")).toBe("step"));
+    expect(screen.getByText("Download Example")).toBeTruthy();
+    expect(screen.getByText("Open the installer")).toBeTruthy();
+  });
+
+  it("offers Open instead of Install when a signed copy is already installed", async () => {
+    detect.mockResolvedValue("/Applications/Example.app/Contents/MacOS/example");
+    openStandalone.mockResolvedValue(undefined);
+    show();
+    expect(await screen.findByText("Example is already installed on this computer.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open Example" }));
+    await waitFor(() => expect(openStandalone).toHaveBeenCalledWith(app.id));
+  });
+
+  it("once the app is installed, Open goes to its page", () => {
+    suggested.mockReturnValue([]);
+    plugins.mockReturnValue([{ id: app.id }]);
+    show();
+    expect(screen.getByText("Example is installed.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open Example" })).toBeTruthy();
+    expect(install).not.toHaveBeenCalled();
   });
 
   it("says so when there is no installer for this computer, or no such suggestion", () => {
     installer.mockReturnValue(undefined);
     show();
     expect(screen.getByText("Example isn't available for this computer yet.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download from the publisher's website instead" })).toBeTruthy();
     cleanup();
     suggested.mockReturnValue([]);
     show();
@@ -86,15 +147,14 @@ describe("PluginOfferPage", () => {
   });
 
   it("a live Preen offer starts the trial, names the counting host and says the count is anonymous", async () => {
-    const live = { url: "https://licence.preenwildlife.com/v1/download/lifer/darwin", signer: "ABCDE12345" };
-    installer.mockReturnValue(live);
+    installer.mockReturnValue({ host: "updates.preenwildlife.com", pending: false });
     suggested.mockReturnValue([{ ...app, offer: "cull" }]);
     install.mockResolvedValue(undefined);
     show();
-    expect(screen.getByText(/through licence\.preenwildlife\.com.*nothing that identifies you/)).toBeTruthy();
+    expect(screen.getByText(/through updates\.preenwildlife\.com.*nothing that identifies you/)).toBeTruthy();
     expect(screen.getByText("Free 30-day trial for Lifer users")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Start free trial" }));
-    await waitFor(() => expect(install).toHaveBeenCalledWith(expect.objectContaining({ offer: "cull" }), live));
+    await waitFor(() => expect(install).toHaveBeenCalledWith(expect.objectContaining({ offer: "cull" })));
   });
 
   it("lists what the app may do next to the button, and the click allows exactly that", async () => {
@@ -126,7 +186,7 @@ describe("PluginOfferPage", () => {
 
   describe("a placeholder offer", () => {
     beforeEach(() => {
-      installer.mockReturnValue({ url: "https://PLACEHOLDER.invalid/x", signer: "PLACEHOLDER", pending: true });
+      installer.mockReturnValue({ host: "updates.preenwildlife.com", pending: true });
       suggested.mockReturnValue([{ ...app, offer: "cull", homepage: "https://preenwildlife.com" }]);
     });
 

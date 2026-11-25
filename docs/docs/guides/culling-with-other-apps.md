@@ -9,6 +9,8 @@ If you sort keepers from the rest in a culling app, cull there first, then impor
 
 Lifer only ever reads these marks. It never deletes, moves or changes one of your files because of a mark.
 
+On the desktop, Lifer may suggest a culling app in the sidebar. It's a separate app from its own publisher: Lifer downloads the publisher's signed installer and opens it, and the app connects to Lifer once installed. See [Getting a suggested app](./connected-apps.md#suggested). To hide the suggestion, use **Hide** on its page.
+
 ## What Lifer reads
 
 Culling apps record their decisions in the photo's metadata: inside a JPEG, TIFF or DNG, and in an `.xmp` sidecar next to a RAW file (`IMG_0001.xmp` or `IMG_0001.CR3.xmp`). Lifer reads both, and turns what it finds into two things:
@@ -16,14 +18,14 @@ Culling apps record their decisions in the photo's metadata: inside a JPEG, TIFF
 - **A verdict:** picked, rejected, or none.
 - **A color label:** red, orange, yellow, green, blue, purple, gray, black or white, or none.
 
-| Field | Written by | Lifer reads it as |
-|---|---|---|
-| `xmpDM:pick` (1 or -1) and `xmpDM:good` (True or False) | Lightroom Classic 13.2 and later, Lightroom desktop 7.2 and later, digiKam, Vireo, SuperPicky | Picked or rejected |
-| `xmp:Rating` of -1 | Adobe Bridge's **Reject**, FastRawViewer (when set to), and other apps that follow the XMP standard's "-1 means rejected" | Rejected |
-| `digiKam:PickLabel` | digiKam (Rejected, Pending, Accepted) | Rejected or picked. Pending is no verdict |
-| `photomechanic:Tagged` | Photo Mechanic's tag | Picked |
-| `xmp:Label` | Lightroom, Bridge, Capture One, digiKam, SuperPicky, FastRawViewer | The color label |
-| `digiKam:ColorLabel` | digiKam | The color label |
+| Field                                                   | Written by                                                                                                                | Lifer reads it as                         |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `xmpDM:pick` (1 or -1) and `xmpDM:good` (True or False) | Lightroom Classic 13.2 and later, Lightroom desktop 7.2 and later, digiKam, Vireo, SuperPicky                             | Picked or rejected                        |
+| `xmp:Rating` of -1                                      | Adobe Bridge's **Reject**, FastRawViewer (when set to), and other apps that follow the XMP standard's "-1 means rejected" | Rejected                                  |
+| `digiKam:PickLabel`                                     | digiKam (Rejected, Pending, Accepted)                                                                                     | Rejected or picked. Pending is no verdict |
+| `photomechanic:Tagged`                                  | Photo Mechanic's tag                                                                                                      | Picked                                    |
+| `xmp:Label`                                             | Lightroom, Bridge, Capture One, digiKam, SuperPicky, FastRawViewer                                                        | The color label                           |
+| `digiKam:ColorLabel`                                    | digiKam                                                                                                                   | The color label                           |
 
 A label's text must name a color (`Red`, `Green` and so on, in English), or be one of Adobe Bridge's default label names (`Select`, `Second`, `Approved`, `Review`, `To Do`). A custom label set, or label names in another language, isn't read as a color.
 
@@ -31,19 +33,19 @@ Star ratings of 1 to 5 become the photo's rating in Lifer.
 
 ## App by app
 
-| App | Rejects | Picks | Color labels | Notes |
-|---|---|---|---|---|
-| **Lightroom Classic 13.2+** and **Lightroom desktop 7.2+** | Yes | Yes | Yes | Flags reach the files only when metadata is saved to them. See [Lightroom](#lightroom) |
-| **Lightroom Classic before 13.2** | No | No | Yes | Flags stay in the catalog. See [Lightroom](#lightroom) |
-| **Adobe Bridge** | Yes | No | Yes | **Reject** sets the rating to -1 |
-| **Photo Mechanic** | No | Yes | Only if written to `xmp:Label` | Photo Mechanic has no reject; its tag is the keeper mark. Color classes are numbered and named by you, so Lifer doesn't read them as colors |
-| **digiKam** | Yes | Yes | Yes | Pick labels and color labels both work |
-| **Capture One** | No | No | Yes | Capture One has no pick or reject flag; turn on writing XMP sidecars to share color tags |
-| **Vireo** | Yes | Yes | No | Vireo writes its reject and flag marks (`xmpDM:pick`) when **sync flags to XMP** is on, which it is by default. Its KEEP, REVIEW and REJECT triage stays inside Vireo until you turn it into flags |
-| **SuperPicky** | Yes | Yes | Yes | Picks and its "no bird" rejects are written as flags; its blue, green and red labels come along as color labels. Its 0-star rejects aren't read as rejects, since 0 stars means unrated |
-| **FastRawViewer** | With a setting | No | Yes | Turn on **Use XMP Reject rating** so a reject is written as rating -1. Its **Move to Rejected** moves files into a `_Rejected` folder, which Lifer still finds inside a trip folder |
-| **Narrative Select** | Probably | Probably | Yes | Narrative says its tags and rejects are written to metadata Lightroom can read, which suggests the `xmpDM` flags. Not yet confirmed with a real file |
-| **Excire Foto** | Not known | Not known | Yes | Stars and color labels are written to sidecars for RAW files; we found no reject flag |
+| App                                                        | Rejects        | Picks     | Color labels                   | Notes                                                                                                                                                                                              |
+| ---------------------------------------------------------- | -------------- | --------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Lightroom Classic 13.2+** and **Lightroom desktop 7.2+** | Yes            | Yes       | Yes                            | Flags reach the files only when metadata is saved to them. See [Lightroom](#lightroom)                                                                                                             |
+| **Lightroom Classic before 13.2**                          | No             | No        | Yes                            | Flags stay in the catalog. See [Lightroom](#lightroom)                                                                                                                                             |
+| **Adobe Bridge**                                           | Yes            | No        | Yes                            | **Reject** sets the rating to -1                                                                                                                                                                   |
+| **Photo Mechanic**                                         | No             | Yes       | Only if written to `xmp:Label` | Photo Mechanic has no reject; its tag is the keeper mark. Color classes are numbered and named by you, so Lifer doesn't read them as colors                                                        |
+| **digiKam**                                                | Yes            | Yes       | Yes                            | Pick labels and color labels both work                                                                                                                                                             |
+| **Capture One**                                            | No             | No        | Yes                            | Capture One has no pick or reject flag; turn on writing XMP sidecars to share color tags                                                                                                           |
+| **Vireo**                                                  | Yes            | Yes       | No                             | Vireo writes its reject and flag marks (`xmpDM:pick`) when **sync flags to XMP** is on, which it is by default. Its KEEP, REVIEW and REJECT triage stays inside Vireo until you turn it into flags |
+| **SuperPicky**                                             | Yes            | Yes       | Yes                            | Picks and its "no bird" rejects are written as flags; its blue, green and red labels come along as color labels. Its 0-star rejects aren't read as rejects, since 0 stars means unrated            |
+| **FastRawViewer**                                          | With a setting | No        | Yes                            | Turn on **Use XMP Reject rating** so a reject is written as rating -1. Its **Move to Rejected** moves files into a `_Rejected` folder, which Lifer still finds inside a trip folder                |
+| **Narrative Select**                                       | Probably       | Probably  | Yes                            | Narrative says its tags and rejects are written to metadata Lightroom can read, which suggests the `xmpDM` flags. Not yet confirmed with a real file                                               |
+| **Excire Foto**                                            | Not known      | Not known | Yes                            | Stars and color labels are written to sidecars for RAW files; we found no reject flag                                                                                                              |
 
 If your app isn't listed, it probably works when it writes `xmp:Rating` -1 for a reject or Lightroom-style flags. Check by importing a few photos with **Rejected photos** set to **Import them anyway**: rejected and picked photos say so in the [Gallery](./gallery-and-search.md)'s full-screen view.
 

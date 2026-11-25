@@ -197,11 +197,14 @@ pub fn run() {
             plugins::plugins_list,
             plugins::plugin_start,
             plugins::plugin_status,
+            plugins::plugin_stop,
             plugins::plugin_offered_imports,
             plugins::plugin_export_import,
             plugin_install::plugin_install,
             plugin_install::plugin_install_progress,
-            plugin_install::plugin_install_cancel
+            plugin_install::plugin_install_cancel,
+            plugin_install::plugin_detect,
+            plugin_install::plugin_open_installed
         ])
         .setup(|app| {
             let handle = app.handle().clone();

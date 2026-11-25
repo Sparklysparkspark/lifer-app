@@ -551,6 +551,7 @@ export function RemoveAllDataSection() {
               <li>{t("settings.storage.removeAll.listDatabase")}</li>
               <li>{t("settings.storage.removeAll.listDownloads")}</li>
               <li>{t("settings.storage.removeAll.listSettings")}</li>
+              <li>{t("settings.storage.removeAll.listApps")}</li>
             </ul>
             <p>
               <strong>{t("settings.storage.removeAll.photosKept")}</strong>

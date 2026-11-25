@@ -13,6 +13,22 @@ An app asks before it connects. Lifer shows its name and what it will be able to
 
 When you install a suggested app from its page in Lifer, the page lists what the app will be able to do next to the button. Pressing it is your answer, so the app connects without asking again the first time you open it from Lifer. That allowance lasts 30 minutes, covers only what the page listed, and works once. Until the app connects it shows in Connected apps, where **Cancel** withdraws it.
 
+## Getting a suggested app {#suggested}
+
+On the desktop, Lifer can suggest an app in the sidebar. Its page says who makes it and what it costs. Pressing the button downloads the publisher's own installer, checks that the publisher signed it, then opens it in your system's installer, in three steps you can follow and cancel. Lifer never installs or runs the app itself: you finish in the installer as you would for any app.
+
+- **On a Mac,** your Mac checks the installer again when it opens. Drag the app to Applications if it asks.
+- **On Windows,** SmartScreen may say it protected your PC, since new apps start without a reputation. Choose **More info**, check the publisher is the one the page named, then **Run anyway**.
+- **On Linux,** a package opens in your software installer. Where Lifer has no package for your system, the page links to the publisher's website instead.
+
+If a check fails, the page says why in plain words, and nothing is installed. "The download didn't match what the publisher signed" means Lifer deleted the file unopened. **Download from the publisher's website instead** is always there as a way round.
+
+When the app is already on your computer, the page says **Already installed** and offers **Open**, never a second install.
+
+## Opening, quitting and uninstalling {#manage}
+
+Each installed app has its own group in Connected apps, with its version and where it is. **Open** shows it; **Quit** closes an app Lifer started, the same way quitting Lifer does. Lifer never deletes an app: **How to uninstall** explains it and links the publisher's instructions when there are some. **Remove all Lifer data** quits running apps and deletes what Lifer kept about them, but leaves each app and its own data alone.
+
 ## What an app may do
 
 Each app keeps only what you allowed. Changes an app makes to your photos and collection are listed in Connected apps, newest first, and you can undo each one. **Revoke** disconnects an app; it asks again the next time it wants to connect.

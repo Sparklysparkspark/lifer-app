@@ -64,6 +64,7 @@ struct Manifest {
 pub struct Plugin {
     pub id: String,
     pub name: String,
+    pub version: String,
     pub page: PluginPage,
     pub scopes: Vec<String>,
     pub capabilities: Vec<String>,
@@ -84,6 +85,9 @@ pub enum Identity {
 pub struct PluginSummary {
     pub id: String,
     pub name: String,
+    pub version: String,
+    /// Where the program is, for Settings.
+    pub executable: String,
     pub page: PluginPage,
     pub scopes: Vec<String>,
     /// The host protocol allowlists messages by these (pluginHost.ts).
@@ -194,6 +198,7 @@ fn validate(m: Manifest) -> Result<Plugin, String> {
     Ok(Plugin {
         id: m.id,
         name: m.name,
+        version: m.version,
         page: m.page,
         scopes: m.scopes,
         capabilities,
@@ -297,6 +302,8 @@ fn summarize(plugins: &[Plugin], approvals: &BTreeMap<String, Identity>) -> Vec<
         .map(|p| PluginSummary {
             id: p.id.clone(),
             name: p.name.clone(),
+            version: p.version.clone(),
+            executable: display_path(&p.executable),
             page: p.page.clone(),
             scopes: p.scopes.clone(),
             capabilities: p.capabilities.clone(),
@@ -497,7 +504,7 @@ fn platform_signer(_path: &Path) -> Option<String> {
 
 /// Refuses a file another user could have swapped or changed.
 #[cfg(unix)]
-fn check_file_safety(path: &Path) -> Result<(), String> {
+pub(crate) fn check_file_safety(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::MetadataExt;
     let shown = display_path(&path.to_string_lossy());
     let meta = fs::metadata(path).map_err(|_| format!("The app at {shown} is missing."))?;
@@ -529,7 +536,7 @@ fn check_file_safety(path: &Path) -> Result<(), String> {
 
 // shortcut: Windows ACLs aren't inspected, the signer or hash pin still catches a swapped file.
 #[cfg(not(unix))]
-fn check_file_safety(_path: &Path) -> Result<(), String> {
+pub(crate) fn check_file_safety(_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
@@ -999,6 +1006,28 @@ impl PluginHost {
         }
     }
 
+    /// Stops one app the way quitting does: stdin closed, then killed after the grace period. An
+    /// instance Lifer didn't launch keeps running; Lifer only stops showing it.
+    pub fn stop(&self, id: &str) {
+        let owned = {
+            let mut slots = lock(&self.0.slots);
+            let Some(slot) = slots.get_mut(id) else {
+                return;
+            };
+            match std::mem::replace(&mut slot.state, State::Stopped(None)) {
+                State::Running(r) => {
+                    share_ticket(&r.plugin, &r.ticket, false);
+                    r.process
+                }
+                other => {
+                    slot.state = other;
+                    None
+                }
+            }
+        };
+        stop_processes(owned.into_iter().collect(), self.0.stop_grace);
+    }
+
     /// On quit: closes each launched plugin's stdin, gives them the grace period, then stops them.
     pub fn stop_all(&self) {
         self.0.quitting.store(true, Ordering::SeqCst);
@@ -1355,6 +1384,17 @@ pub(crate) async fn plugin_start(
     let ask: Ask = Arc::new(move |p, i| confirm(&ask_app, p, i, had_approval));
     let ask = (!background.unwrap_or(false)).then_some(ask);
     host.start(plugin, data_dir, ask).await
+}
+
+#[tauri::command]
+pub(crate) async fn plugin_stop(window: WebviewWindow, id: String) -> Result<(), String> {
+    if !crate::security::is_app_page(&window) {
+        return Err("not allowed".into());
+    }
+    let host = window.app_handle().state::<PluginHost>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || host.stop(&id))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1995,6 +2035,7 @@ mod tests {
             Plugin {
                 id: ID.into(),
                 name: "Fake".into(),
+                version: "1.0.0".into(),
                 page: PluginPage {
                     label: "Fake".into(),
                     icon: "M0 0".into(),
@@ -2120,6 +2161,29 @@ mod tests {
                 "it should exit on stdin close"
             );
             assert!(d.join("bye").exists());
+        }
+
+        #[test]
+        fn stopping_one_app_closes_its_stdin_and_it_can_open_again() {
+            let d = dir("stop-one");
+            let p = fake(
+                &d,
+                &format!(
+                    "{}\ncat > /dev/null\necho bye >> '{}/bye'",
+                    ready(health_server(&d)),
+                    d.display()
+                ),
+            );
+            let host = fast();
+            start(&host, &p, &d, asker(true).0).unwrap();
+            host.stop(ID);
+            assert!(d.join("bye").exists());
+            let s = tauri::async_runtime::block_on(host.status(ID));
+            assert_eq!((s.state, s.error), ("stopped", None));
+            // Not a quit: the user can open it again.
+            start(&host, &p, &d, asker(true).0).unwrap();
+            assert_eq!(launches(&d), 2);
+            host.stop_all();
         }
 
         #[test]

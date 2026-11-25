@@ -83,6 +83,8 @@ export function useStartedPlugins(): ReadonlyMap<string, StartedPlugin> {
 export const startPlugin = (id: string, background = false) =>
   invoke<PluginEndpoint>("plugin_start", { id, background });
 export const pluginStatus = (id: string) => invoke<PluginStatus>("plugin_status", { id });
+/** Quits an app Lifer started (stdin closed, then stopped after a grace period) and unloads its page. */
+export const stopPlugin = (id: string) => invoke<void>("plugin_stop", { id }).then(() => setStartedPlugin(id, null));
 
 // Shared so a second mount (sidebar, then the page) has the list at once, with no flash.
 let cached: PluginSummary[] | null = null;

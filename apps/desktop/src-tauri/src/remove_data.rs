@@ -89,7 +89,7 @@ pub(crate) async fn remove_all_data(window: WebviewWindow, app: AppHandle) -> Re
     let dialog = app
         .dialog()
         .message(
-            "This deletes Lifer's database on this computer (your collection, captures, albums and settings), along with its thumbnails, downloaded regions and caches, then quits Lifer.\n\nYour photo folders are not touched. This can't be undone.",
+            "This deletes Lifer's database on this computer (your collection, captures, albums and settings), along with its thumbnails, downloaded regions and caches, then quits Lifer.\n\nYour photo folders are not touched. Other apps you installed stay installed; each has its own uninstaller. This can't be undone.",
         )
         .title("Remove all Lifer data?")
         .kind(MessageDialogKind::Warning)
@@ -125,7 +125,8 @@ pub(crate) async fn remove_all_data(window: WebviewWindow, app: AppHandle) -> Re
 
     // Photo libraries stay: the default one (inside app data) and any the user chose.
     let mut keep = vec![app_data.join("data")];
-    // Plugin manifests belong to the apps that wrote them; only Lifer's approvals of them go.
+    // Each app owns its manifest (and its own data, wherever it keeps it); Lifer's own records of
+    // them go: approvals, grants in the database, downloaded installers and anything cached.
     keep.push(app_data.join("plugins"));
     if let Some(cfg) = store::read_config(&app_data) {
         keep.extend(cfg.data_dir.into_iter().map(PathBuf::from));
@@ -139,7 +140,10 @@ pub(crate) async fn remove_all_data(window: WebviewWindow, app: AppHandle) -> Re
     }
     let doomed = plan(&roots, &keep);
 
-    // Nothing may hold these files open: the local server, its database and local matching.
+    // Nothing may hold these files open: running apps, the local server, its database and local
+    // matching. Apps go first, while the API can still withdraw their tickets.
+    let host = app.state::<crate::plugins::PluginHost>().inner().clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || host.stop_all()).await;
     api::stop_api_async(&app).await;
     local_inference::stop(&app);
 
@@ -316,6 +320,36 @@ mod tests {
         let mut failed = Vec::new();
         remove(&dir, &mut failed);
         assert!(failed.is_empty() && !dir.exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn keeps_each_apps_manifest_and_drops_lifers_records_of_it() {
+        let root = temp("plugins");
+        let app_data = root.join("app.lifer.desktop");
+        touch(&app_data.join("plugins").join("com.example.app.json"));
+        touch(&app_data.join("plugin-approvals.json"));
+        touch(
+            &app_data
+                .join("downloads")
+                .join("apps")
+                .join("com.example.app")
+                .join("x.dmg"),
+        );
+
+        let mut doomed = plan(
+            std::slice::from_ref(&app_data),
+            &[app_data.join("data"), app_data.join("plugins")],
+        );
+        doomed.sort();
+        let app_data = normalized(&app_data);
+        assert_eq!(
+            doomed,
+            vec![
+                app_data.join("downloads"),
+                app_data.join("plugin-approvals.json")
+            ]
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 
