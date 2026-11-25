@@ -2670,6 +2670,7 @@
     "licence": "Licence terms",
     "websiteInstead": "Download from the publisher's website instead",
     "noteMac": "Your Mac checks the installer again when it opens. Drag the app to Applications if it asks.",
+    "noteIntelMac": "On this Mac the app runs on the CPU only, so it is slower than on a Mac with Apple silicon.",
     "noteWindows": "If Windows says it protected your PC, choose More info, check that the publisher is the one named above, then choose Run anyway.",
     "noteLinux": "Your system's software installer opens the package and may ask for your password.",
     "error": {

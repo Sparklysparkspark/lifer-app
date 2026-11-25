@@ -1077,6 +1077,7 @@
       "counted": "Appended to the disclosure sentence. Preen counts trial downloads as a bare total."
     },
     "stepVerify": "Second of three install steps. Lifer checks the download's signatures before opening it.",
+    "noteIntelMac": "Short note under the install button, shown only on Intel Macs. Apple silicon is the chip in newer Macs; Intel is the older chip. The app does its photo analysis on the CPU there, with no GPU acceleration.",
     "noteWindows": "Windows SmartScreen wording: More info and Run anyway are the button names Windows shows.",
     "licence": "A link to the app's licence terms on the publisher's website.",
     "websiteInstead": "A link shown when Lifer can't install the app here or the install failed.",

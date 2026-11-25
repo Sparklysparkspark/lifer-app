@@ -17,6 +17,7 @@ const suggested = vi.fn();
 const install = vi.fn();
 const grant = vi.fn();
 const installer = vi.fn();
+const targetKey = vi.fn();
 const setShow = vi.fn();
 const open = vi.fn();
 const detect = vi.fn();
@@ -33,6 +34,8 @@ vi.mock("../lib/suggestedApps", async (importOriginal) => ({
   useSuggestedApps: () => suggested(),
   setShowSuggestedApps: (on: boolean) => setShow(on),
   installerFor: () => installer(),
+  isIntelMac: (t: string | null) => t === "darwin-x86_64",
+  useTargetKey: () => targetKey(),
   installSuggestedApp: (...a: unknown[]) => install(...a),
   grantSuggestedApp: (...a: unknown[]) => grant(...a),
   installProgress: () => progress(),
@@ -59,6 +62,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   suggested.mockReturnValue([app]);
   installer.mockReturnValue(live);
+  targetKey.mockReturnValue("darwin-aarch64");
   detect.mockResolvedValue(null);
   plugins.mockReturnValue([]);
   progress.mockResolvedValue({ downloaded: 50, total: 100, running: true, stage: "downloading" });
@@ -133,6 +137,16 @@ describe("PluginOfferPage", () => {
     expect(screen.getByText("Example is installed.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Example" })).toBeTruthy();
     expect(install).not.toHaveBeenCalled();
+  });
+
+  it("tells an Intel Mac the app runs on the CPU only, and nobody else", () => {
+    const note = "On this Mac the app runs on the CPU only, so it is slower than on a Mac with Apple silicon.";
+    show();
+    expect(screen.queryByText(note)).toBeNull();
+    cleanup();
+    targetKey.mockReturnValue("darwin-x86_64");
+    show();
+    expect(screen.getByText(note)).toBeTruthy();
   });
 
   it("says so when there is no installer for this computer, or no such suggestion", () => {

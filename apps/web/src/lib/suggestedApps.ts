@@ -1,11 +1,10 @@
 // Apps Lifer can suggest installing (data/suggestedApps.json, empty until the maintainer adds
 // one). Offers exist only in the desktop app, only while "Show suggested apps" is on, and only
 // for apps that aren't installed. Nothing is requested until the user presses Install.
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { api, type ApiBody } from "../api/client";
 import { useDeploymentMode } from "../hooks/useDeploymentMode";
 import suggested from "../data/suggestedApps.json";
-import { platform } from "./platform";
 import { usePlugins } from "./plugins";
 import { tauriInvoke } from "./tauri";
 
@@ -15,6 +14,8 @@ export interface SuggestedTarget {
   format: string;
   /** macOS Team ID, or the Windows certificate subject. */
   signer?: string;
+  /** This target's own minisign keys; the install block's apply when empty. */
+  minisignKeys?: string[];
   /** Windows only: allowed issuers; empty allows any issuer Windows trusts. */
   issuers?: string[];
 }
@@ -69,19 +70,31 @@ export interface SuggestedApp {
 
 export const SUGGESTED_APPS: readonly SuggestedApp[] = suggested as SuggestedApp[];
 
-const OS_KEY = { mac: "darwin", windows: "windows", other: "linux" } as const;
-const ARCH = { arm64: "aarch64", x64: "x86_64" } as Record<string, string>;
-/** This computer's target key, the same names the publisher's feed uses. */
-export function targetKey(): string {
-  const arch = (typeof window !== "undefined" && window.liferSetup?.arch) || "x64";
-  return `${OS_KEY[platform]}-${ARCH[arch] ?? arch}`;
+let targetPromise: Promise<string | null> | undefined;
+/** This computer's target key (darwin-aarch64, darwin-x86_64, ...), asked of the desktop shell
+ *  that knows its own chip; null outside it or if it can't say. */
+export function loadTargetKey(): Promise<string | null> {
+  targetPromise ??= invoke<string>("plugin_target", {}).catch(() => null);
+  return targetPromise;
 }
 
+/** null until the shell has answered. */
+export function useTargetKey(): string | null {
+  const [key, setKey] = useState<string | null>(null);
+  useEffect(() => {
+    void loadTargetKey().then(setKey);
+  }, []);
+  return key;
+}
+
+/** An Intel Mac runs the app on the CPU only, which is slower; the offer page says so. */
+export const isIntelMac = (target: string | null) => target === "darwin-x86_64";
+
 /** Installing on this computer, if the app has an installer Lifer can open here. */
-export function installerFor(app: SuggestedApp): SuggestedInstaller | undefined {
+export function installerFor(app: SuggestedApp, target: string | null): SuggestedInstaller | undefined {
   const install = app.install;
-  const target = install?.platforms[targetKey()];
-  if (!install || !target || target.format === "appimage") return undefined;
+  const anchor = target ? install?.platforms[target] : undefined;
+  if (!install || !anchor || anchor.format === "appimage") return undefined;
   const pending = install.pending === true || JSON.stringify(install).includes("PLACEHOLDER");
   let host = "";
   try {

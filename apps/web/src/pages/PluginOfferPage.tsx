@@ -28,6 +28,8 @@ import {
   installProgress,
   installSuggestedApp,
   installerFor,
+  isIntelMac,
+  useTargetKey,
   openInstalled,
   useSuggestedApps,
   type InstallProgress,
@@ -58,6 +60,7 @@ export default function PluginOfferPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const sidebarLayout = useSidebarLayout();
+  const target = useTargetKey();
   const offered = useSuggestedApps().find((a) => a.id === id);
   const manifest = usePlugins()?.find((p) => p.id === id);
   // Suggestions hide an installed app, but this page stays to offer Open.
@@ -113,7 +116,7 @@ export default function PluginOfferPage() {
       </>
     );
 
-  const installer = installerFor(app);
+  const installer = installerFor(app, target);
   const pending = installer?.pending === true;
 
   async function install() {
@@ -268,6 +271,9 @@ export default function PluginOfferPage() {
               <p className="text-callout break-words">{t("suggestedApps.afterInstall", { name: app.name })}</p>
             )}
             {!pending && <p className="text-footnote text-ink-muted break-words">{t(SYSTEM_NOTE[platform])}</p>}
+            {!pending && isIntelMac(target) && (
+              <p className="text-footnote text-ink-muted break-words">{t("suggestedApps.noteIntelMac")}</p>
+            )}
           </>
         ) : (
           <p className="text-callout">{t("suggestedApps.noInstaller", { name: app.name })}</p>

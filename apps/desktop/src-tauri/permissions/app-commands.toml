@@ -67,6 +67,7 @@ commands.allow = [
   "plugin_install",
   "plugin_install_progress",
   "plugin_install_cancel",
+  "plugin_target",
   "plugin_detect",
   "plugin_open_installed",
   # editors.rs: installed photo editors and opening files in one; each checks is_app_page.

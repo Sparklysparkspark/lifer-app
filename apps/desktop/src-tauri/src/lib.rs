@@ -203,6 +203,7 @@ pub fn run() {
             plugin_install::plugin_install,
             plugin_install::plugin_install_progress,
             plugin_install::plugin_install_cancel,
+            plugin_install::plugin_target,
             plugin_install::plugin_detect,
             plugin_install::plugin_open_installed
         ])

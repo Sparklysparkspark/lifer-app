@@ -61,6 +61,7 @@ struct Install {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Target {
     format: String,
     /// macOS Team ID, or the Windows certificate subject.
@@ -69,6 +70,20 @@ struct Target {
     /// Windows only: allowed issuers; empty allows any issuer Windows trusts.
     #[serde(default)]
     issuers: Vec<String>,
+    /// This target's own minisign keys (an Intel build may be signed separately); empty uses the
+    /// install block's.
+    #[serde(default)]
+    minisign_keys: Vec<String>,
+}
+
+impl Target {
+    fn keys<'a>(&'a self, install: &'a Install) -> &'a [String] {
+        if self.minisign_keys.is_empty() {
+            &install.minisign_keys
+        } else {
+            &self.minisign_keys
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -100,7 +115,18 @@ fn this_target() -> String {
     } else {
         "linux"
     };
-    format!("{os}-{}", std::env::consts::ARCH)
+    target_key(os, std::env::consts::ARCH)
+}
+
+/// Rust's ARCH names (`aarch64`, `x86_64`) are the feed's, so the key is just OS and chip.
+fn target_key(os: &str, arch: &str) -> String {
+    format!("{os}-{arch}")
+}
+
+/// The page asks here for its target key instead of guessing from the user agent.
+#[tauri::command]
+pub(crate) fn plugin_target() -> String {
+    this_target()
 }
 
 fn this_os_key() -> &'static str {
@@ -131,6 +157,7 @@ fn has_placeholder(install: &Install, target: Option<&Target>) -> bool {
     fields.extend(install.hosts.iter().map(String::as_str));
     fields.extend(install.minisign_keys.iter().map(String::as_str));
     if let Some(t) = target {
+        fields.extend(t.minisign_keys.iter().map(String::as_str));
         fields.extend(t.signer.as_deref());
         fields.extend(t.issuers.iter().map(String::as_str));
     }
@@ -151,7 +178,7 @@ fn resolve<'a>(
     }
     let anchor = anchor.ok_or(NO_INSTALLER)?;
     extension(target, &anchor.format).ok_or(NO_INSTALLER)?;
-    if install.minisign_keys.is_empty() || install.hosts.is_empty() {
+    if anchor.keys(install).is_empty() || install.hosts.is_empty() {
         return Err(NOT_SET_UP);
     }
     // macOS and Windows installers also carry the OS's own code signature, pinned here.
@@ -509,7 +536,7 @@ async fn install(
                 .feed
                 .replace("{channel}", install.channel.as_deref().unwrap_or("stable")),
             hosts: &install.hosts,
-            keys: &install.minisign_keys,
+            keys: anchor.keys(install),
         };
         let file = fetch_verified(&plan, &dir, state).await?;
         let checked = file.clone();
@@ -965,6 +992,26 @@ mod tests {
     }
 
     #[test]
+    fn each_chip_gets_its_own_target_key_and_anchor() {
+        assert_eq!(target_key("darwin", "aarch64"), "darwin-aarch64");
+        assert_eq!(target_key("darwin", "x86_64"), "darwin-x86_64");
+        const KEY_B: &str = "RWQintelkeyintelkeyintelkeyintelkeyintelkeyintelkeyintelk";
+        let list: Vec<Entry> = serde_json::from_str(&format!(
+            r#"[{{"id":"a","name":"A","install":{{"feed":"https://dl.example.com/f","hosts":["dl.example.com"],
+                "minisignKeys":["{KEY_A}"],
+                "platforms":{{"darwin-aarch64":{{"format":"dmg","signer":"ARM1234567"}},
+                              "darwin-x86_64":{{"format":"dmg","signer":"INTEL12345","minisignKeys":["{KEY_B}"]}}}}}}}}]"#
+        ))
+        .unwrap();
+        let (_, i, arm) = resolve(&list, "a", "darwin-aarch64").unwrap();
+        assert_eq!(arm.signer.as_deref(), Some("ARM1234567"));
+        assert_eq!(arm.keys(i), [KEY_A.to_string()]);
+        let (_, i, intel) = resolve(&list, "a", "darwin-x86_64").unwrap();
+        assert_eq!(intel.signer.as_deref(), Some("INTEL12345"));
+        assert_eq!(intel.keys(i), [KEY_B.to_string()]);
+    }
+
+    #[test]
     fn a_placeholder_or_pending_anchor_refuses_to_install() {
         let list = entry_json("PLACEHOLDER", KEY_A, false);
         assert_eq!(
@@ -1030,8 +1077,12 @@ mod tests {
                 "{}: still has PLACEHOLDER values",
                 e.id
             );
-            assert!(!i.minisign_keys.is_empty(), "{}: no minisign key", e.id);
-            for k in &i.minisign_keys {
+            assert!(
+                i.platforms.values().all(|t| !t.keys(i).is_empty()),
+                "{}: no minisign key",
+                e.id
+            );
+            for k in i.platforms.values().flat_map(|t| t.keys(i)) {
                 assert!(
                     minisign_verify::PublicKey::from_base64(k).is_ok(),
                     "{}: bad key {k}",
