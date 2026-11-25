@@ -507,7 +507,7 @@
     "radius": "{radius} is a distance in kilometres around an approximate point.",
     "title": "Collapsible row on a species page: a map of areas where the species has historically been recorded (GBIF record clusters).",
     "titleIn": "Same heading as the Locality map title, naming the region the map shows. {region} is a region name like Canada.",
-    "noneIn": "Note on a species page. {region} is the region the user is viewing; it ends with a colon before a list of other region names that do have hotspots.",
+    "noneIn": "Note on a species page. {species} is the species name, {region} the region the user is viewing. It ends with a colon before a list of other region names, ones with hotspots or where the user photographed it.",
     "lastSeenAcross": "Map popup. {year} is the most recent year the species was recorded in this area, {years} how many distinct years it was.",
     "sensitiveWithheld": "eBird Sensitive Species: eBird's list of species whose exact locations are hidden to protect them. Use eBird's term in your language if it has one.",
     "recordShare": "Map popup. {percent} is this area's share of all records of the species in the region, {count} the number of records.",

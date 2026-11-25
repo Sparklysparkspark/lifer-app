@@ -8,6 +8,7 @@ import { useEscapeToClose } from "../../hooks/useEscapeToClose";
 import WeeklyBar from "../../components/WeeklyBar";
 import SpeciesHotspotMap from "../../components/SpeciesHotspotMap";
 import { buildInaturalistObservationsUrl } from "../../lib/inaturalist";
+import { useSpeciesName } from "../../lib/speciesName";
 import { tierLabel } from "../../lib/speciesGroups";
 import { iucnBadge, iucnCategoryName, type IucnTone } from "../../lib/iucnDisplay";
 import Panel from "../../components/Panel";
@@ -208,11 +209,20 @@ export function EncounterSummary({ encounters }: { encounters: EncountersRespons
 function SpeciesSightings({ detail, encounters }: { detail: SpeciesDetail; encounters: EncountersResponse | null }) {
   const { t } = useTranslation();
   const { species } = detail;
+  const speciesName = useSpeciesName();
   const widespread = detail.hotspots.length > 0 && detail.hotspotDistribution === "widespread";
   const clustered = detail.hotspots.length > 0 && !widespread;
   const inaturalistUrl = widespread
     ? buildInaturalistObservationsUrl(detail.regionBoundaryGeoJson, species.scientific_name)
     : null;
+  // Regions with hotspots first, then where the user photographed it.
+  const offered = [
+    ...detail.hotspotAlternatives,
+    ...detail.captures.flatMap((c) => (c.region_id && c.region_name ? [{ id: c.region_id, name: c.region_name }] : [])),
+  ]
+    .filter((r, i, all) => all.findIndex((o) => o.id === r.id) === i && r.name !== detail.hotspotRegionName)
+    .slice(0, 6);
+  const showEmptyNote = !clustered && !widespread && !!detail.hotspotRegionName && offered.length > 0;
   return (
     <div className="space-y-item">
       <WeeklyBar weeklyFrequency={detail.weeklyFrequency} regionName={detail.weeklyRegionName} />
@@ -243,7 +253,7 @@ function SpeciesSightings({ detail, encounters }: { detail: SpeciesDetail; encou
           </a>
         )}
       </div>
-      {clustered && (
+      {(clustered || showEmptyNote) && (
         <SpeciesHotspotMap
           boundaryGeoJson={detail.regionBoundaryGeoJson}
           hotspots={detail.hotspots}
@@ -251,11 +261,12 @@ function SpeciesSightings({ detail, encounters }: { detail: SpeciesDetail; encou
           regionName={detail.hotspotRegionName}
         />
       )}
-      {/* Never swap in another region's map: say so, and offer where it does have hotspots. */}
-      {!clustered && !widespread && detail.hotspotRegionName && detail.hotspotAlternatives.length > 0 && (
+      {/* Never swap in another region's map: say so, and offer where it does have hotspots or where
+          the user photographed it. */}
+      {showEmptyNote && (
         <p className="text-footnote text-muted">
-          {t("hotspotMap.noneIn", { region: detail.hotspotRegionName })}{" "}
-          {detail.hotspotAlternatives.map((r, i) => (
+          {t("hotspotMap.noneIn", { species: speciesName(species), region: detail.hotspotRegionName })}{" "}
+          {offered.map((r, i) => (
             <span key={r.id}>
               {i > 0 && ", "}
               <Link to={`?regionId=${r.id}`} className="hover:text-ink hover:underline">
@@ -285,8 +296,7 @@ export function SpeciesOverview({
   // Without a chart or map (species added by hand from iNaturalist), the counts and links sit under
   // the notes instead of in a mostly empty side column.
   const hasData = (values: number[] | null) => !!values?.some((v) => v > 0);
-  const sideColumn =
-    hasData(detail.weeklyFrequency) || detail.hotspots.length > 0 || detail.hotspotAlternatives.length > 0;
+  const sideColumn = hasData(detail.weeklyFrequency) || detail.hotspots.length > 0;
   return (
     <Panel as="section">
       <h2>

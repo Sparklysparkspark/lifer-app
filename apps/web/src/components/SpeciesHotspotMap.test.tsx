@@ -52,4 +52,19 @@ describe("SpeciesHotspotMap", () => {
     fireEvent.change(screen.getByPlaceholderText(/Filter by coordinates/), { target: { value: "49.28" } });
     expect(screen.getByText("(1 of 2 locations)")).toBeTruthy();
   });
+
+  it("with no hotspots still shows the titled region outline, without counts or filters", () => {
+    render(
+      <SpeciesHotspotMap
+        boundaryGeoJson={{ type: "Feature" }}
+        hotspots={[]}
+        scientificName="Egretta caerulea"
+        regionName="Canada"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Locality map: Canada" }));
+    expect(screen.queryByText(/locations/)).toBeNull();
+    expect(screen.queryByPlaceholderText(/Filter by coordinates/)).toBeNull();
+    expect(screen.queryByText("No locations match this filter.")).toBeNull();
+  });
 });

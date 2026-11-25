@@ -1293,7 +1293,7 @@
     "areaRadius": "(±{radius}km area, not an exact spot)",
     "title": "Locality map",
     "titleIn": "Locality map: {region}",
-    "noneIn": "No hotspot data for this species in {region}. Hotspots in:",
+    "noneIn": "No hotspot data for {species} in {region}. Try:",
     "locations": "({count, plural, one {# location} other {# locations}})",
     "locationsLastSeen": "({count, plural, one {# location} other {# locations}}, last seen {year})",
     "hide": "Hide",

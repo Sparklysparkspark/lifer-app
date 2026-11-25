@@ -108,8 +108,7 @@ export default function SpeciesHotspotMap({
   }, [hotspots, yearFilter, search, currentYear]);
 
   useEffect(() => {
-    if (!expanded || !containerRef.current || !boundaryGeoJson || filteredHotspots.length === 0 || !mapAvailable)
-      return;
+    if (!expanded || !containerRef.current || !boundaryGeoJson || !mapAvailable) return;
     ensurePmtilesProtocol();
 
     const map = new MapLibreMap({
@@ -237,7 +236,9 @@ export default function SpeciesHotspotMap({
     };
   }, [expanded, boundaryGeoJson, filteredHotspots, mapAvailable, theme, t]);
 
-  if (!boundaryGeoJson || hotspots.length === 0 || !mapAvailable) return null;
+  // With no hotspots it is just the region's outline, the page's note says why.
+  if (!boundaryGeoJson || !mapAvailable) return null;
+  const outlineOnly = hotspots.length === 0;
 
   function flyToHotspot(idx: number) {
     setSelectedIdx(idx);
@@ -262,14 +263,16 @@ export default function SpeciesHotspotMap({
       >
         <span className="font-medium">
           {regionName ? t("hotspotMap.titleIn", { region: regionName }) : t("hotspotMap.title")}{" "}
-          <span className="font-normal text-muted">
-            {/* With a year or search filter on, the count says how many of them show. */}
-            {filteredHotspots.length !== hotspots.length
-              ? t("hotspotMap.locationsOf", { shown: filteredHotspots.length, count: hotspots.length })
-              : mostRecentYear != null
-                ? t("hotspotMap.locationsLastSeen", { count: hotspots.length, year: String(mostRecentYear) })
-                : t("hotspotMap.locations", { count: hotspots.length })}
-          </span>
+          {!outlineOnly && (
+            <span className="font-normal text-muted">
+              {/* With a year or search filter on, the count says how many of them show. */}
+              {filteredHotspots.length !== hotspots.length
+                ? t("hotspotMap.locationsOf", { shown: filteredHotspots.length, count: hotspots.length })
+                : mostRecentYear != null
+                  ? t("hotspotMap.locationsLastSeen", { count: hotspots.length, year: String(mostRecentYear) })
+                  : t("hotspotMap.locations", { count: hotspots.length })}
+            </span>
+          )}
         </span>
         <span className="text-footnote text-muted hover:text-ink hover:underline">
           {expanded ? t("hotspotMap.hide") : t("hotspotMap.show")}
@@ -297,26 +300,28 @@ export default function SpeciesHotspotMap({
               {t("hotspotMap.moreOnInaturalist")}
             </a>
           )}
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Select
-              aria-label={t("hotspotMap.sightingYears")}
-              value={yearFilter}
-              onChange={(e) => setYearFilter(e.target.value as YearFilter)}
-            >
-              {(Object.keys(YEAR_FILTER_LABEL) as YearFilter[]).map((f) => (
-                <option key={f} value={f}>
-                  {t(YEAR_FILTER_LABEL[f])}
-                </option>
-              ))}
-            </Select>
-            <SearchInput
-              value={search}
-              onChange={setSearch}
-              placeholder={t("hotspotMap.searchPlaceholder")}
-              className="min-w-0 flex-1"
-            />
-          </div>
-          {filteredHotspots.length === 0 ? (
+          {!outlineOnly && (
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Select
+                aria-label={t("hotspotMap.sightingYears")}
+                value={yearFilter}
+                onChange={(e) => setYearFilter(e.target.value as YearFilter)}
+              >
+                {(Object.keys(YEAR_FILTER_LABEL) as YearFilter[]).map((f) => (
+                  <option key={f} value={f}>
+                    {t(YEAR_FILTER_LABEL[f])}
+                  </option>
+                ))}
+              </Select>
+              <SearchInput
+                value={search}
+                onChange={setSearch}
+                placeholder={t("hotspotMap.searchPlaceholder")}
+                className="min-w-0 flex-1"
+              />
+            </div>
+          )}
+          {filteredHotspots.length === 0 && !outlineOnly ? (
             <p className="text-footnote text-muted">{t("hotspotMap.noMatch")}</p>
           ) : (
             <>

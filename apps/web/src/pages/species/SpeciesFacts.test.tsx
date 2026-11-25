@@ -36,6 +36,7 @@ const detail = {
   hotspots: [],
   hotspotRegionName: null,
   hotspotAlternatives: [],
+  captures: [],
 } as unknown as SpeciesDetail;
 
 describe("SpeciesOverview", () => {
@@ -48,13 +49,19 @@ describe("SpeciesOverview", () => {
   });
 
   it("names the requested region when it has no hotspots and links to regions that do", () => {
-    const d = { ...detail, hotspotRegionName: "Canada", hotspotAlternatives: [{ id: "bz", name: "Belize" }] };
+    const d = {
+      ...detail,
+      hotspotRegionName: "Canada",
+      hotspotAlternatives: [{ id: "bz", name: "Belize" }],
+      captures: [{ region_id: "ab", region_name: "Alberta" }],
+    };
     render(
       <MemoryRouter>
         <SpeciesOverview detail={d} encounters={null} />
       </MemoryRouter>,
     );
-    expect(screen.getByText(/No hotspot data for this species in Canada/)).toBeTruthy();
+    expect(screen.getByText(/No hotspot data for Troglodytes pacificus in Canada/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Alberta" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Belize" }).getAttribute("href")).toBe("/?regionId=bz");
   });
 
