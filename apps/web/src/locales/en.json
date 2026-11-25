@@ -1995,6 +1995,8 @@
       "getFullTitle": "Downloads the full reference gallery for every species in this region, then removes the small version.",
       "gettingFull": "Getting full version…",
       "groupPackCount": "({count, plural, one {# region} other {# regions}})",
+      "groupRemoving": "{total, plural, one {Removing # region} other {Removing {done, number} of # regions}}",
+      "groupUpdating": "{count, plural, one {Updating # region} other {Updating # regions}}",
       "selectCountry": "Select all in {country}",
       "nameWithTaxon": "{name} ({taxon})",
       "packsTab": "Regions ({count, number})",

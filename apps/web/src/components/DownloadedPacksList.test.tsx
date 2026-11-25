@@ -5,9 +5,16 @@ import type { PackStatusEntry } from "../lib/packIndex";
 import type { AddedSpeciesRow } from "./AddedSpeciesList";
 
 const post = vi.fn();
+const get = vi.fn();
 vi.mock("../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/client")>()),
-  api: { get: vi.fn(), post: (...a: unknown[]) => post(...a), put: vi.fn(), patch: vi.fn(), delete: vi.fn() },
+  api: {
+    get: (...a: unknown[]) => get(...a),
+    post: (...a: unknown[]) => post(...a),
+    put: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
+  },
 }));
 vi.mock("../hooks/usePackDownloadStatus", () => ({
   usePackDownloadJob: () => ({ status: null, start: vi.fn(), cancel: vi.fn(), actionError: null, cancelling: false }),
@@ -140,5 +147,20 @@ describe("DownloadedPacksList controls and errors", () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith("/offline-packs/offload-preview", { packIds: ["pk-ca"] }));
     await waitFor(() => expect(document.body.textContent).toMatch(/Couldn't reach Lifer/));
     expect(document.body.textContent).not.toContain("Failed to fetch");
+  });
+});
+
+describe("DownloadedPacksList removal progress", () => {
+  it("shows the removal summary on a collapsed country", async () => {
+    const packs = ["a", "b", "c"].map((id) => ({ ...pack, id, region: "Canada" }) as PackStatusEntry);
+    get.mockResolvedValue({ running: true, packIds: ["b", "c"], phase: null, error: null });
+    render(
+      <ToastContext.Provider value={toast}>
+        <DownloadedPacksList packs={packs} onRefresh={vi.fn()} />
+      </ToastContext.Provider>,
+    );
+    expect(await screen.findByText("Removing 1 of 3 regions")).toBeTruthy();
+    expect(screen.getByRole("progressbar", { name: "Canada" })).toBeTruthy();
+    expect((screen.getByRole("checkbox", { name: "Select all in Canada" }) as HTMLInputElement).disabled).toBe(true);
   });
 });

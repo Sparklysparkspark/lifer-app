@@ -874,6 +874,8 @@
     "offline": "Shown on download screens only when the computer is offline or the download host can't be reached at all: installed regions still show and work, but nothing new can be downloaded.",
     "slow": "Shown beside a small spinner when the download host answers slowly (a weak signal). Downloads still work, just slower; keep it short and calm.",
     "downloaded": {
+      "groupRemoving": "Progress line under a country's header while its regions are being removed, shown even when the country is collapsed. {done} regions are gone so far, # is the total.",
+      "groupUpdating": "Progress line under a country's header while its regions are being updated, shown even when collapsed.",
       "selectCountry": "Screen-reader name of the checkbox that selects every downloaded pack of one country. {country} is its name."
     },
     "offload": {

@@ -4,6 +4,7 @@ import { TAXON_CLASS_LABEL } from "@lifer/shared";
 import { api, type ApiResponse } from "../api/client";
 import { usePackDownloadJob } from "../hooks/usePackDownloadStatus";
 import PackProgress from "./PackProgress";
+import ProgressBar from "./ProgressBar";
 import { formatBytes } from "../lib/format";
 import { errorMessage } from "../lib/errorMessage";
 import { nextPackDownloadFinish } from "../lib/waitForPackDownload";
@@ -404,6 +405,10 @@ export default function DownloadedPacksList({
           const groupBytes =
             allPacks.reduce((sum, p) => sum + p.sizeBytes, 0) + added.reduce((sum, r) => sum + r.bytes, 0);
           const collapsed = !expandedGroups.has(groupName);
+          // Summarised on the header so a collapsed country still shows work on its hidden rows.
+          const removingCount = allPacks.filter((p) => removingIds.has(p.id)).length;
+          const updatingCount = removingCount > 0 ? 0 : allPacks.filter((p) => updatingIds.has(p.id)).length;
+          const busy = removingCount + updatingCount > 0;
           // Added species sit with the country's own downloads.
           const mainCount = main.length + added.length;
           const hasBothTabs = mainCount > 0 && seaZones.length > 0;
@@ -434,7 +439,7 @@ export default function DownloadedPacksList({
                 <Checkbox
                   checked={groupSelected}
                   indeterminate={!groupSelected && groupIds.some((id) => selectedIds.has(id))}
-                  disabled={groupIds.length === 0}
+                  disabled={groupIds.length === 0 || busy}
                   aria-label={t("offlinePacks.downloaded.selectCountry", { country: groupName })}
                   onChange={() =>
                     setSelectedIds((prev) => {
@@ -465,6 +470,24 @@ export default function DownloadedPacksList({
                   </span>
                 </button>
               </div>
+              {busy && (
+                <div role="status" className="mt-1.5 ml-6">
+                  <p className="text-footnote text-muted">
+                    {removingCount > 0
+                      ? t("offlinePacks.downloaded.groupRemoving", {
+                          done: allPacks.length - removingCount,
+                          total: allPacks.length,
+                        })
+                      : t("offlinePacks.downloaded.groupUpdating", { count: updatingCount })}
+                  </p>
+                  <ProgressBar
+                    size="xs"
+                    value={removingCount > 0 ? (allPacks.length - removingCount) / allPacks.length : null}
+                    label={groupName}
+                    className="mt-1"
+                  />
+                </div>
+              )}
               {!collapsed && hasBothTabs && (
                 <div className="mt-1.5 ml-6">
                   <SegmentedControl

@@ -76,6 +76,14 @@ test.describe("removing a pack", () => {
     await expect(page.getByRole("listitem").filter({ hasText: /Removing/ })).toBeVisible({ timeout: 100 });
   });
 
+  test("the collapsed country shows the removal progress", async ({ page }) => {
+    await startRemoval(page);
+    const header = page.getByRole("button", { name: new RegExp(`^${COUNTRY.name}`) });
+    if ((await header.getAttribute("aria-expanded")) === "true") await header.click();
+    await expect(header).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("status").filter({ hasText: /Removing/ })).toBeVisible({ timeout: 3000 });
+  });
+
   test("another page opens while the removal runs", async ({ page }) => {
     const { held } = await startRemoval(page);
     await page.getByRole("navigation").getByRole("link", { name: "Gallery", exact: true }).click({ timeout: 3000 });
