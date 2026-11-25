@@ -63,6 +63,7 @@ import {
   myBranches,
   onlyTargets,
   searchTree,
+  treePath,
   visibleRows,
   type TreeNode,
   type VisibleRow,
@@ -134,9 +135,8 @@ export default function TaxaExplorer() {
   const regionId = urlRegion === regions.worldRegion?.id ? null : urlRegion;
   const regionsWithPhotos = useRegionsWithPhotos();
   // A region waits for the region list, so a World link is never fetched as a filter.
-  const treePath =
-    regionId && !regions.regionsLoaded ? null : apiPath("/collection/tree", {}, { include: "uncollected", regionId });
-  const res = useApiResource<{ collected: number; tree: TreeNode[] }>(treePath);
+  const path = regionId && !regions.regionsLoaded ? null : treePath(regionId);
+  const res = useApiResource<{ collected: number; tree: TreeNode[] }>(path);
   // Once this tree is up, the first few region pills' trees (and All regions) load in idle time,
   // so a pick draws at once. Few, as each counts toward the kept answers' size bound; ordered as
   // AreaPills shows them when some are cut, yours first.
@@ -148,9 +148,7 @@ export default function TaxaExplorer() {
     .slice(0, PREFETCH);
   usePrefetchWhenIdle(
     res.data && regions.regionsLoaded
-      ? [...(regionId ? [null] : []), ...pillsFirst.map((r) => r.id)].map((id) =>
-          apiPath("/collection/tree", {}, { include: "uncollected", regionId: id }),
-        )
+      ? [...(regionId ? [null] : []), ...pillsFirst.map((r) => r.id)].map(treePath)
       : [],
   );
   // The last tree stays up while another region's loads, so the page never drops to a spinner.
@@ -159,14 +157,14 @@ export default function TaxaExplorer() {
   const tree = res.data ?? lastTree;
   // A tree that hasn't answered in 30s shows as failed with Retry; a late answer still replaces it.
   const [timedOut, setTimedOut] = useState<string | null>(null);
-  if (timedOut && timedOut !== treePath) setTimedOut(null);
-  const waiting = !!treePath && !res.data && !res.error;
+  if (timedOut && timedOut !== path) setTimedOut(null);
+  const waiting = !!path && !res.data && !res.error;
   useEffect(() => {
     if (!waiting) return;
-    const timer = setTimeout(() => setTimedOut(treePath), TREE_TIMEOUT_MS);
+    const timer = setTimeout(() => setTimedOut(path), TREE_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [waiting, treePath]);
-  const failed = !res.data && (!!res.error || (!!treePath && timedOut === treePath));
+  }, [waiting, path]);
+  const failed = !res.data && (!!res.error || (!!path && timedOut === path));
   const retry = () => {
     setTimedOut(null);
     void res.reload();
@@ -338,7 +336,14 @@ export default function TaxaExplorer() {
         <EmptyState title={t("explorer.loadFailed")} action={{ label: t("common.retry"), onClick: retry }} />
       </main>
     );
-  if (!tree || !index) return <LoadingScreen showBackLink={false} />;
+  // The header stays up while the tree loads, as on Stats.
+  if (!tree || !index)
+    return (
+      <div className="flex-1 bg-canvas">
+        <PageHeader title={t("explorer.title")} backFallbackTo="/stats" backLabel={t("nav.stats")} />
+        <LoadingScreen showBackLink={false} />
+      </div>
+    );
 
   const toggle = (id: string) => {
     const next = new Set(expanded);

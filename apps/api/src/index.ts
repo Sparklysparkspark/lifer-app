@@ -59,6 +59,8 @@ import { startEventLoopWatchdog } from "./lib/eventLoopWatchdog.js";
 import { startParentWatchdog } from "./lib/parentWatchdog.js";
 import { LibraryFolderUnavailableError, watchLibraryFolder } from "@lifer/core/lib/libraryFolder.js";
 import { startWatchedFolders } from "./library/watchedFolders.js";
+import { startTreeWarming } from "./collection/tree.js";
+import { getOrCreateLocalUser } from "./auth/session.js";
 import { registerCollectionStateSaving, syncCollectionStateOnStartup } from "./lib/collectionState.js";
 import { registerLibraryRecordSaving } from "./lib/libraryRecords.js";
 import { isBlockedCrossSiteWrite } from "@lifer/core/lib/requestGuard.js";
@@ -285,6 +287,8 @@ startMaintenance(app.log);
 // Logs when the library folder goes missing under a running server.
 watchLibraryFolder();
 if (SINGLE_USER_MODE) startWatchedFolders();
+// Tree of life is a 10+ MB answer built in seconds; its default view stays built in the background.
+if (SINGLE_USER_MODE) startTreeWarming(async () => (await getOrCreateLocalUser()).id, app.log);
 // Which network share each mount point came from, so a share mounted under a new name still resolves.
 if (SINGLE_USER_MODE) initNetworkShares().catch((err) => app.log.warn({ err }, "Reading the network shares failed"));
 

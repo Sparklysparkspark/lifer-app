@@ -437,4 +437,24 @@ describe.skipIf(!url)("collection tree", () => {
       await db.query(`UPDATE user_species SET is_target = false WHERE user_id = $1`, [USER]);
     }
   }, 60000);
+  it("warms the All regions tree under the tag a click asks with, and builds the same body", async () => {
+    const { warmTree, clearBuiltTrees } = await import("./tree.js");
+    const path = "/api/collection/tree?include=uncollected";
+    clearBuiltTrees();
+    // The version is database-wide, so a parallel test file can bump it: a warm-up only builds once
+    // it has seen the same tag twice, and the click must land before the next bump.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const built = await warmTree(USER);
+      if (!built) continue;
+      const warm = await get(path);
+      if (warm.headers.etag !== built) continue;
+      expect(await warmTree(USER)).toBeNull();
+      clearBuiltTrees();
+      const fresh = await get(path);
+      if (fresh.headers.etag !== built) continue;
+      expect(warm.body).toBe(fresh.body);
+      return;
+    }
+    throw new Error("the version never settled");
+  }, 60000);
 });

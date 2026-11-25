@@ -34,24 +34,26 @@ import { PhotoVersionsHost } from "./components/PhotoVersions";
 import { CommandPaletteProvider } from "./components/CommandPaletteProvider";
 import CrashBoundary from "./components/CrashBoundary";
 import { SPECIES_DOWNLOADS_PATH } from "./lib/speciesDownloads";
+import { preloadablePage } from "./lib/preloadablePage";
+import { ExplorerPage as TaxaExplorer } from "./pages/explorer/explorerPage";
 
 // Every page but the collection (where the app opens) and login loads on first visit, so opening
 // Lifer doesn't wait for the code of 20 pages you may never open this session.
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
 const SpeciesDetailPage = lazy(() => import("./pages/SpeciesDetailPage"));
-const GalleryPage = lazy(() => import("./pages/GalleryPage"));
+const GalleryPage = preloadablePage(() => import("./pages/GalleryPage"));
 const SimilarPhotosPage = lazy(() => import("./pages/SimilarPhotosPage"));
-const StatsPage = lazy(() => import("./pages/StatsPage"));
+const StatsPage = preloadablePage(() => import("./pages/StatsPage"));
 const RegionPage = lazy(() => import("./pages/RegionPage"));
 const BulkImportPage = lazy(() => import("./pages/BulkImportPage"));
 const LightroomImport = lazy(() => import("./pages/import/LightroomImport"));
-const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const CollectionsPage = lazy(() => import("./pages/CollectionsPage"));
+const SettingsPage = preloadablePage(() => import("./pages/SettingsPage"));
+const CollectionsPage = preloadablePage(() => import("./pages/CollectionsPage"));
 const TripDetailPage = lazy(() => import("./pages/TripDetailPage"));
-const AlbumDetailPage = lazy(() => import("./pages/AlbumDetailPage"));
+const AlbumDetailPage = preloadablePage(() => import("./pages/AlbumDetailPage"));
 const SharePage = lazy(() => import("./pages/SharePage"));
 const ApiKeysPage = lazy(() => import("./pages/ApiKeysPage"));
-const InaturalistPage = lazy(() => import("./pages/InaturalistPage"));
+const InaturalistPage = preloadablePage(() => import("./pages/InaturalistPage"));
 const ArchivedSpeciesPage = lazy(() => import("./pages/ArchivedSpeciesPage"));
 const HiddenSpeciesPage = lazy(() => import("./pages/HiddenSpeciesPage"));
 const ArchiveHealthPage = lazy(() => import("./pages/ArchiveHealthPage"));
@@ -61,11 +63,10 @@ const ManagePlacesPage = lazy(() => import("./pages/ManagePlacesPage"));
 const PortfolioPage = lazy(() => import("./pages/PortfolioPage"));
 const TrashedPhotosPage = lazy(() => import("./pages/TrashedPhotosPage"));
 const PluginPage = lazy(() => import("./pages/PluginPage"));
-const PluginOfferPage = lazy(() => import("./pages/PluginOfferPage"));
+const PluginOfferPage = preloadablePage(() => import("./pages/PluginOfferPage"));
 const GuidePage = lazy(() => import("./pages/GuidePage"));
 const ReviewPage = lazy(() => import("./pages/ReviewPage"));
 const YearInReviewPage = lazy(() => import("./pages/YearInReviewPage"));
-const TaxaExplorer = lazy(() => import("./pages/TaxaExplorer"));
 const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
 
 // A few seconds after opening, the sidebar pages' code (and in the desktop app, where it's a local
@@ -75,15 +76,16 @@ function usePreloadPages() {
   useEffect(() => {
     const timer = setTimeout(() => {
       const pages = [
-        () => import("./pages/GalleryPage"),
+        GalleryPage.preload,
         () => import("./components/PhotoMap"),
-        () => import("./pages/CollectionsPage"),
-        () => import("./pages/AlbumDetailPage"),
-        () => import("./pages/StatsPage"),
-        () => import("./pages/InaturalistPage"),
-        () => import("./pages/SettingsPage"),
+        CollectionsPage.preload,
+        AlbumDetailPage.preload,
+        StatsPage.preload,
+        InaturalistPage.preload,
+        SettingsPage.preload,
         () => import("./pages/OfflinePacksPage"),
-        () => import("./pages/PluginOfferPage"),
+        PluginOfferPage.preload,
+        TaxaExplorer.preload,
       ];
       for (const load of pages) load().catch(ignore("Couldn't preload a page"));
       if (isTauri()) countryBoundariesResource.load().catch(ignore("Couldn't preload the country outlines"));

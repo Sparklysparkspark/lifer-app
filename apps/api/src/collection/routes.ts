@@ -227,15 +227,19 @@ interface CollectionVersion {
   notModified: boolean;
   client: PoolClient;
   release: () => void;
+  etag: string | null;
+  /** Writes were in flight, so this tag is unlikely to be asked for again. */
+  writing: boolean;
 }
 
 // Weak ETag for the collection views. collection_data_version (migration 111) is bumped by a
 // statement trigger on every table these queries read. It's read before the snapshot is taken,
 // and the snapshot's in-progress transactions go into the tag too, so a write that bumped the
 // version but hadn't committed yet can't leave an old body cached under the final tag. The
-// returned client holds that REPEATABLE READ snapshot for the data query that follows.
+// returned client holds that REPEATABLE READ snapshot for the data query that follows. Without a
+// reply it only computes the tag (a background warm-up).
 export async function collectionVersion(
-  reply: FastifyReply,
+  reply: FastifyReply | null,
   ifNoneMatch: string | undefined,
   params: unknown[],
 ): Promise<CollectionVersion> {
@@ -256,20 +260,21 @@ export async function collectionVersion(
     const snap = await client.query<{ xip: string | null }>(
       `SELECT string_agg(x::text, '.' ORDER BY x::text) AS xip FROM pg_snapshot_xip(pg_current_snapshot()) x`,
     );
-    if (!seq) return { notModified: false, client, release };
+    const writing = !!snap.rows[0].xip;
+    if (!seq) return { notModified: false, client, release, etag: null, writing };
     const tag = createHash("sha256")
       .update(JSON.stringify([BOOT_ID, seq.rows[0].v, snap.rows[0].xip, ...params]))
       .digest("base64url")
       .slice(0, 22);
     const etag = `W/"c-${tag}"`;
-    reply.header("ETag", etag);
-    reply.header("Cache-Control", "private, no-cache");
+    reply?.header("ETag", etag);
+    reply?.header("Cache-Control", "private, no-cache");
     const matches = !!ifNoneMatch && ifNoneMatch.split(",").some((t) => t.trim() === etag);
     if (matches) {
       release();
-      return { notModified: true, client, release: () => {} };
+      return { notModified: true, client, release: () => {}, etag, writing };
     }
-    return { notModified: false, client, release };
+    return { notModified: false, client, release, etag, writing };
   } catch (err) {
     release();
     throw err;

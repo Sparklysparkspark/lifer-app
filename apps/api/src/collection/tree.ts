@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
 import { MEDIA_CACHE_BUST } from "@lifer/core/config.js";
@@ -316,6 +316,56 @@ export function clearBuiltTrees(): void {
   builtTrees.clear();
 }
 
+const treeTag = (
+  userId: string,
+  regionId: string | null,
+  include: string | null,
+  hideObscure: boolean,
+  maxDepthM: number,
+) => ["tree", userId, regionId, include, hideObscure, maxDepthM];
+
+const treeJson = (rows: Row[], includeUncollected: boolean) =>
+  JSON.stringify({ collected: rows.filter((r) => r.is_collected).length, tree: buildTree(rows, includeUncollected) });
+
+// The tag the last warm-up saw, so a tree is only rebuilt once the data has settled.
+let lastWarmTag: string | null = null;
+
+/** Builds the All regions tree, the one Tree of life opens on, into the kept trees ahead of the
+ *  click. Skipped while writes are in flight or the data changed since the last call: either way
+ *  the tag would likely be stale before anyone asked for it. Resolves to the ETag it built, if any. */
+export async function warmTree(userId: string): Promise<string | null> {
+  const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
+  const version = await collectionVersion(
+    null,
+    undefined,
+    treeTag(userId, null, "uncollected", hideObscure, maxDepthM),
+  );
+  try {
+    const { etag } = version;
+    const settled = etag === lastWarmTag || lastWarmTag === null;
+    lastWarmTag = etag;
+    if (!etag || version.writing || !settled || builtTrees.has(etag)) return null;
+    const { rows } = await version.client.query<Row>(treeSql(maxDepthM, null), [userId, null, hideObscure]);
+    keepTree(etag, treeJson(rows, true));
+    return etag;
+  } finally {
+    version.release();
+  }
+}
+
+const WARM_EVERY_MS = 10_000;
+
+/** Desktop: keeps the local user's default tree built, so Tree of life opens from memory. */
+export function startTreeWarming(userId: () => Promise<string>, log: FastifyBaseLogger): void {
+  const tick = () => {
+    userId()
+      .then(warmTree)
+      .catch((err) => log.warn({ err }, "Couldn't warm the Tree of life"))
+      .finally(() => setTimeout(tick, WARM_EVERY_MS).unref());
+  };
+  setTimeout(tick, WARM_EVERY_MS).unref();
+}
+
 export async function collectionTreeRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
   // The user's collected species as a taxonomy tree, or ?format=csv for a spreadsheet.
@@ -338,16 +388,13 @@ export async function collectionTreeRoutes(fastify: FastifyInstance): Promise<vo
       // The JSON tree shares GET /collection's ETag, so switching back to a region costs a 304.
       const version = csv
         ? null
-        : await collectionVersion(reply, request.headers["if-none-match"], [
-            "tree",
-            userId,
-            regionId ?? null,
-            request.query.include ?? null,
-            hideObscure,
-            maxDepthM,
-          ]);
+        : await collectionVersion(
+            reply,
+            request.headers["if-none-match"],
+            treeTag(userId, regionId ?? null, request.query.include ?? null, hideObscure, maxDepthM),
+          );
       if (version?.notModified) return reply.code(304).send();
-      const etag = reply.getHeader("etag") as string | undefined;
+      const etag = version?.etag;
       const kept = etag ? builtTrees.get(etag) : undefined;
       if (version && kept) {
         version.release();
@@ -358,35 +405,33 @@ export async function collectionTreeRoutes(fastify: FastifyInstance): Promise<vo
       const { rows } = await (version
         ? version.client.query<Row>(treeSql(maxDepthM, source), params).finally(() => version.release())
         : pool.query<Row>(treeSql(maxDepthM, source), params));
-      const collectedRows = rows.filter((r) => r.is_collected);
 
       if (csv) {
         const lines = [
           "class,order,family,genus,scientific name,common name,photos,first photographed",
-          ...collectedRows.map((r) =>
-            [
-              r.taxon_class || OTHER,
-              r.taxon_order || OTHER,
-              r.family || OTHER,
-              r.scientific_name.split(" ")[0],
-              r.scientific_name,
-              r.common_name,
-              r.photos,
-              r.first_photographed,
-            ]
-              .map(csvField)
-              .join(","),
-          ),
+          ...rows
+            .filter((r) => r.is_collected)
+            .map((r) =>
+              [
+                r.taxon_class || OTHER,
+                r.taxon_order || OTHER,
+                r.family || OTHER,
+                r.scientific_name.split(" ")[0],
+                r.scientific_name,
+                r.common_name,
+                r.photos,
+                r.first_photographed,
+              ]
+                .map(csvField)
+                .join(","),
+            ),
         ];
         reply.header("Content-Type", "text/csv; charset=utf-8");
         reply.header("Content-Disposition", 'attachment; filename="lifer-collection.csv"');
         // The route's JSON response schema doesn't apply to a string body sent raw.
         return reply.send(lines.join("\n") as never);
       }
-      const body = JSON.stringify({
-        collected: collectedRows.length,
-        tree: buildTree(rows, request.query.include === "uncollected"),
-      });
+      const body = treeJson(rows, request.query.include === "uncollected");
       if (etag) keepTree(etag, body);
       return reply.type("application/json").send(body as never);
     },

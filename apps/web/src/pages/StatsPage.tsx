@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import PageHeader from "../components/PageHeader";
@@ -48,6 +48,10 @@ import { useUrlParam } from "../hooks/useSearchParamsKeepingState";
 import PhotoTimeline from "./stats/PhotoTimeline";
 import { parseRangeParam, rangeParam } from "./stats/timeline";
 import { useReadyMarker } from "../lib/readyMarker";
+import { prefetchApiResource, usePrefetchWhenIdle } from "../lib/resource";
+import { treePath } from "./explorer/treeModel";
+import { ExplorerPage } from "./explorer/explorerPage";
+import { ignore } from "../lib/ignore";
 import { connectionMessage } from "../lib/userMessage";
 
 const NO_STATS_ICON = (
@@ -93,6 +97,12 @@ export default function StatsPage() {
   const { stats, loadError } = data;
   useScrollMemory(!!stats);
   useReadyMarker(!!stats);
+  // Tree of life's answer takes seconds to build and parse, so it and its code load once this page is up.
+  const hasKeepers = !!stats && stats.totalKeepers > 0;
+  usePrefetchWhenIdle(hasKeepers ? [treePath(null)] : []);
+  useEffect(() => {
+    if (hasKeepers) ExplorerPage.preload().catch(ignore("Couldn't preload Tree of life"));
+  }, [hasKeepers]);
 
   const highlights = useMemo(() => portfolioHighlights(data.portfolio), [data.portfolio]);
   const scatterPoints = useMemo(
@@ -189,7 +199,13 @@ export default function StatsPage() {
                 >
                   {t("stats.yearInReview")}
                 </Link>
-                <Link to="/explore" state={backStateFor(location, t)} className={buttonClasses("secondary", "sm")}>
+                <Link
+                  to="/explore"
+                  state={backStateFor(location, t)}
+                  className={buttonClasses("secondary", "sm")}
+                  onMouseEnter={() => prefetchApiResource(treePath(null))}
+                  onFocus={() => prefetchApiResource(treePath(null))}
+                >
                   {t("explorer.title")}
                 </Link>
               </>

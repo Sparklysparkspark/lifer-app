@@ -1,8 +1,13 @@
 // The Tree of life's data, apart from how it draws: ids, the rows an expansion shows, search and
 // the detail pane's picks. Pure, so a 10,000-species tree is tested without a DOM.
 import type { TFunction } from "i18next";
+import { apiPath } from "../../api/client";
 import { formatNumber } from "../../lib/format";
 import { TIER_ORDER, tierLabel } from "../../lib/speciesGroups";
+
+/** The tree the explorer loads for a region (null: All regions), so Stats can prefetch the same path. */
+export const treePath = (regionId: string | null) =>
+  apiPath("/collection/tree", {}, { include: "uncollected", regionId });
 
 // GET /collection/tree?include=uncollected. Its children are loosely typed in the API schema.
 export interface TreeNode {
