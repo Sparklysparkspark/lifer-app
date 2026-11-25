@@ -235,13 +235,18 @@ export default function CollectionToolbar({
             label: t("collection.toolbar.targetsFirst"),
             title: t("collection.toolbar.targetTitle"),
           },
-          {
-            key: "uncollectedColour",
-            checked: prefs.uncollectedColour,
-            onChange: prefs.setUncollectedColour,
-            label: t("collection.toolbar.uncollectedColour"),
-            title: t("collection.toolbar.uncollectedColourTitle"),
-          },
+          // A trip or album only holds species you photographed, so there is nothing uncollected to colour.
+          ...(bare
+            ? []
+            : [
+                {
+                  key: "uncollectedColour",
+                  checked: prefs.uncollectedColour,
+                  onChange: prefs.setUncollectedColour,
+                  label: t("collection.toolbar.uncollectedColour"),
+                  title: t("collection.toolbar.uncollectedColourTitle"),
+                },
+              ]),
         ]}
         hideNames={{ checked: prefs.hideNames, onChange: prefs.setHideNames }}
         mapPins={mapShown ? { checked: prefs.showMapPins, onChange: prefs.setShowMapPins } : undefined}
