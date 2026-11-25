@@ -165,4 +165,18 @@ describe("SpeciesCard tier line", () => {
     expect(screen.getAllByText(/Rare/)).toHaveLength(1);
     expect(screen.getByText("Rare here")).toBeTruthy();
   });
+
+  it("hides the tier, plain or rarer-here, when rarity tags are off, in compact too", () => {
+    show({ tier: "common" }, { showRarityTags: false });
+    expect(screen.queryByText("Common")).toBeNull();
+    cleanup();
+    show({ tier: "common", localTier: "rare" }, { regionId: "r1", showRarityTags: false, compact: true });
+    expect(screen.queryByText(/Rare|Common/)).toBeNull();
+  });
+
+  it("keeps the other badges when rarity tags are off", () => {
+    show({ tier: "common", vagrant: true }, { showRarityTags: false });
+    expect(screen.queryByText("Common")).toBeNull();
+    expect(screen.getByText("Vagrant")).toBeTruthy();
+  });
 });

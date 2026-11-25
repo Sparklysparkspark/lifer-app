@@ -189,6 +189,7 @@ export default function GroupedSpeciesGrid({
   countryRegionId,
   countryRegionName,
   hideLabels,
+  showRarityTags,
   hideNames,
   groupBands = false,
   selection,
@@ -213,6 +214,7 @@ export default function GroupedSpeciesGrid({
   countryRegionId?: string;
   countryRegionName?: string;
   hideLabels?: boolean;
+  showRarityTags?: boolean;
   hideNames?: boolean;
   /** Grouped by animal group: each group heads with a band of its photographed count and bar. */
   groupBands?: boolean;
@@ -535,6 +537,7 @@ export default function GroupedSpeciesGrid({
     onChanged,
     showVolumeBadge: multiDriveInUse,
     hideLabels,
+    showRarityTags,
     hideNames,
     compact: cardMinWidth <= COMPACT_CARD_WIDTH,
     cardImageSide,

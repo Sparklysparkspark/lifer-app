@@ -16,6 +16,18 @@ describe("uncollectedColour pref", () => {
   });
 });
 
+describe("rarity tags pref", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("is on by default, switches off and survives a remount", () => {
+    const first = renderHook(() => useCollectionDisplayPrefs());
+    expect(first.result.current.showRarityTags).toBe(true);
+    act(() => first.result.current.setShowRarityTags(false));
+    first.unmount();
+    expect(renderHook(() => useCollectionDisplayPrefs()).result.current.showRarityTags).toBe(false);
+  });
+});
+
 describe("group progress pref", () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => vi.restoreAllMocks());

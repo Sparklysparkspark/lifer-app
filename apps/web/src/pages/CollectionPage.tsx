@@ -547,6 +547,7 @@ export default function CollectionPage() {
                 countryRegionId={tree.countryAncestor?.id}
                 countryRegionName={tree.countryAncestor?.name}
                 hideLabels={prefs.hideLabels}
+                showRarityTags={prefs.showRarityTags}
                 hideNames={prefs.hideNames}
                 groupBands={prefs.showGroupProgress}
                 onWidthChange={setGridWidth}

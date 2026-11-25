@@ -636,6 +636,7 @@ function AlbumDetail() {
                 targetFirst={url.targetFirst}
                 cardMinWidth={prefs.cardMinWidth}
                 hideLabels={prefs.hideLabels}
+                showRarityTags={prefs.showRarityTags}
                 hideNames={prefs.hideNames}
                 groupBands={prefs.showGroupProgress}
                 onWidthChange={setGridWidth}

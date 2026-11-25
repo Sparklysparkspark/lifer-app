@@ -27,6 +27,7 @@ const VIEW_SECTIONS: readonly ViewSection[] = [
   "hideNames",
   "mapPins",
   "groupProgress",
+  "rarityTags",
   "counting",
   "nameSettings",
 ];
@@ -250,6 +251,7 @@ export default function CollectionToolbar({
             ? { checked: prefs.showGroupProgress, onChange: prefs.setShowGroupProgress }
             : undefined
         }
+        rarityTags={{ checked: prefs.showRarityTags, onChange: prefs.setShowRarityTags }}
         // Place names are data. A province choice reads as the country where there's no province.
         counting={
           photoPlaces

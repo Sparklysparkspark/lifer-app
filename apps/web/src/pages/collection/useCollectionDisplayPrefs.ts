@@ -36,6 +36,8 @@ export function useCollectionDisplayPrefs() {
   const [mapPinsHidden, setMapPinsHidden] = usePersistedFlag("collectionMapPinsHidden");
   // Stored as hidden so the default, shown, needs nothing saved.
   const [groupProgressHidden, setGroupProgressHidden] = usePersistedFlag("collectionGroupProgressHidden");
+  // Stored as hidden so the default, shown, needs nothing saved.
+  const [rarityTagsHidden, setRarityTagsHidden] = usePersistedFlag("rarityTagsHidden");
   // Off by default: not-yet-photographed covers stay grey.
   const [uncollectedColour, setUncollectedColour] = usePersistedFlag("uncollectedColour");
   // Saved as a level, not a place, so it follows the page: a country page reads "province" as its country.
@@ -47,6 +49,8 @@ export function useCollectionDisplayPrefs() {
     setHideLabels,
     hideNames,
     setHideNames,
+    showRarityTags: !rarityTagsHidden,
+    setShowRarityTags: (on: boolean) => setRarityTagsHidden(!on),
     uncollectedColour,
     setUncollectedColour,
     speciesNames,

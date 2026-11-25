@@ -146,6 +146,7 @@ To take one off again, open its card's **⋯** menu and click **Remove from this
 - **Size** changes the card size.
 - **Photographed first** (on by default), **Seen first** and **Targets first** pin those species to the top.
 - **Hide names** for photo-only cards, or to quiz yourself.
+- **Show rarity tags** (on by default) shows or hides the rarity pill on each species card. Other badges stay.
 - **Show uncollected species in colour** turns off the gray on species you haven't photographed yet. It's off by default, and Lifer remembers your choice.
 
 On a country, state or province, **Counting** holds **Include photos from** (see [Counting only photos from here](#count-photos-from)). How cards name each species and whether they show badges are in [Settings > General](../settings.md#names-and-labels); **Name display settings** at the bottom of **View** goes there.

@@ -94,6 +94,8 @@ export interface PhotoViewMenuProps<S extends SortOption = SortOption, G extends
   mapPins?: { checked: boolean; onChange: (checked: boolean) => void };
   /** Progress per animal group: the Collection's group cards and each group's band. */
   groupProgress?: { checked: boolean; onChange: (checked: boolean) => void };
+  /** The rarity tier pill on each species card. */
+  rarityTags?: { checked: boolean; onChange: (checked: boolean) => void };
   /** Every version of a photo (prints, edits, exports) as its own item. */
   allVersions?: { checked: boolean; onChange: (checked: boolean) => void };
   /** Each burst as one stack tile, its best-rated or first photo with the count. */
@@ -121,6 +123,7 @@ export function PhotoViewMenu<S extends SortOption, G extends GroupOption>({
   hideNames,
   mapPins,
   groupProgress,
+  rarityTags,
   allVersions,
   groupBursts,
   counting,
@@ -134,6 +137,7 @@ export function PhotoViewMenu<S extends SortOption, G extends GroupOption>({
   const showHideNames = on.has("hideNames") && hideNames;
   const showMapPins = on.has("mapPins") && mapPins;
   const showGroupProgress = on.has("groupProgress") && groupProgress;
+  const showRarityTags = on.has("rarityTags") && rarityTags;
   const showAllVersions = on.has("versions") && allVersions;
   const showGroupBursts = on.has("bursts") && groupBursts;
   const showCounting = on.has("counting") && counting;
@@ -220,7 +224,13 @@ export function PhotoViewMenu<S extends SortOption, G extends GroupOption>({
           <PhotoCaptionOptions prefs={captions} />
         </div>
       )}
-      {(showOrder || showHideNames || showMapPins || showGroupProgress || showAllVersions || showGroupBursts) && (
+      {(showOrder ||
+        showHideNames ||
+        showMapPins ||
+        showGroupProgress ||
+        showRarityTags ||
+        showAllVersions ||
+        showGroupBursts) && (
         <div className="space-y-1.5">
           {showOrder &&
             order.map((o) => (
@@ -242,6 +252,11 @@ export function PhotoViewMenu<S extends SortOption, G extends GroupOption>({
           {showGroupProgress && (
             <FilterCheckbox checked={groupProgress.checked} onChange={groupProgress.onChange}>
               {t("collection.toolbar.showGroupProgress")}
+            </FilterCheckbox>
+          )}
+          {showRarityTags && (
+            <FilterCheckbox checked={rarityTags.checked} onChange={rarityTags.onChange}>
+              {t("collection.toolbar.showRarityTags")}
             </FilterCheckbox>
           )}
           {showAllVersions && (

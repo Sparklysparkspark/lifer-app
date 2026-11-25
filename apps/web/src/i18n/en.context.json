@@ -221,6 +221,7 @@
       "uncollectedColour": "View menu checkbox on the Collection page: show covers of species the user has not photographed in full colour instead of the default grey. Off by default. Sentence case.",
       "uncollectedColourTitle": "Tooltip for the uncollected-in-colour checkbox in the View menu.",
       "showMapPins": "View menu checkbox on the Collection page: show pins on the region map where the user photographed each species. On by default.",
+      "showRarityTags": "View menu checkbox on the Collection, trip and album pages: show the rarity tier pill (Common, Rare...) on each species card. On by default. Sentence case.",
       "showGroupProgress": "View menu checkbox on the Collection, trip and album pages: show how many species the user has photographed in each animal group (Birds, Mammals...), as a row of cards over the list and as a large count heading each group. On by default. Sentence case."
     },
     "map": {

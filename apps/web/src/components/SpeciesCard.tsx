@@ -60,6 +60,7 @@ function SpeciesCard({
   onChanged,
   showVolumeBadge,
   hideLabels,
+  showRarityTags = true,
   hideNames,
   compact,
   cardImageSide,
@@ -85,6 +86,8 @@ function SpeciesCard({
   showVolumeBadge?: boolean;
   /** Skip every badge in the status row. */
   hideLabels?: boolean;
+  /** Show the rarity tier pill; off hides it and leaves the other badges. */
+  showRarityTags?: boolean;
   /** Just the photo, no name box. */
   hideNames?: boolean;
   /** The smallest card sizes: tighter spacing so the name box isn't mostly empty space. */
@@ -206,7 +209,7 @@ function SpeciesCard({
   // Worldwide-only while a region is picked; the compact card has no room for the qualifier.
   const tierWorldwide = !!regionId && !item.localTier && !compact;
   const tierPill =
-    tierStep >= 0 ? (
+    showRarityTags && tierStep >= 0 ? (
       <span className={isUncollected ? "opacity-70" : ""}>
         <TierLabel>
           {localRarer
