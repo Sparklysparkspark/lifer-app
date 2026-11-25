@@ -77,6 +77,7 @@ type Named = Pick<PhotoVersion, "label" | "labelKind" | "labelSize">;
 
 const KIND_KEYS: Record<PhotoVersion["labelKind"], string> = {
   original: "versions.label.original",
+  raw: "versions.label.raw",
   edit: "versions.label.edit",
   export: "versions.label.export",
   print: "versions.label.print",
@@ -91,4 +92,20 @@ export function versionName(t: TFunction, v: Named): string {
   if (v.label) return v.label;
   const kind = t(KIND_KEYS[v.labelKind]);
   return v.labelSize ? t("versions.label.withSize", { kind, size: v.labelSize }) : kind;
+}
+
+/** Every version's name by capture id. Automatic names that repeat are numbered ("Export 1",
+ *  "Export 2"), so no two read the same; a name the user gave is kept as typed. */
+export function versionNames(t: TFunction, versions: ReadonlyArray<Named & Pick<PhotoVersion, "captureId">>) {
+  const names = versions.map((v) => versionName(t, v));
+  const seen = new Map<string, number>();
+  return new Map(
+    versions.map((v, i) => {
+      const name = names[i];
+      if (v.label || names.filter((n) => n === name).length < 2) return [v.captureId, name];
+      const number = (seen.get(name) ?? 0) + 1;
+      seen.set(name, number);
+      return [v.captureId, t("versions.label.numbered", { kind: name, number })];
+    }),
+  );
 }

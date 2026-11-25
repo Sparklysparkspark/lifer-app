@@ -102,7 +102,17 @@ Some examples:
 
 A photo with versions shows a small stack badge, like **3 versions**, in the Gallery, on species pages, trips and albums. A RAW is not counted as a version, so a RAW and its edited JPG show no badge; use the **RAW files** filter to find photos with a RAW. To hide the badges, turn off **View > Version labels** in any photo grid.
 
-Open the photo, and the viewer lists its versions by name under the photo, with the original, edits and exports marked. Click one to see it, or press <kbd>Option</kbd>+<kbd>←</kbd> and <kbd>Option</kbd>+<kbd>→</kbd> (<kbd>Alt</kbd>+<kbd>←</kbd> and <kbd>Alt</kbd>+<kbd>→</kbd> on Windows and Linux). Seeing a version doesn't change which one is the photo. When two versions are the same size, the zoom stays where it is, so you can compare details.
+Open the photo, and the viewer lists its versions by name under the photo. Click one to see it, or press <kbd>Option</kbd>+<kbd>←</kbd> and <kbd>Option</kbd>+<kbd>→</kbd> (<kbd>Alt</kbd>+<kbd>←</kbd> and <kbd>Alt</kbd>+<kbd>→</kbd> on Windows and Linux). Seeing a version doesn't change which one is the photo. When two versions are the same size, the zoom stays where it is, so you can compare details.
+
+Each version you haven't renamed is named after what it is, first match wins:
+
+- **Black and white**, **Print** (with its size, like **Print 8x10**), **Panorama**, **Enhanced** or **HDR**, from its file name or folder, as in the examples above.
+- **Edit**: a DNG, TIFF or PSD saved by an editor.
+- **Export**: a JPEG or other file an editor made, known by the editor named in its metadata (Lightroom, Photoshop, Capture One and others), an XMP document ID showing it was made from another file, an editor's suffix like `-2`, or a versions folder.
+- **RAW**: a camera RAW file on its own, like the RAW kept behind its edited JPG.
+- **Original**: the camera's own file, such as the JPEG it saved beside a RAW.
+
+When two versions would still have the same name, like two exports, they're numbered: **Export 1** and **Export 2**. A name you gave is shown as you typed it.
 
 File actions follow the version you see. In the viewer, **Open in** an editor opens the version on screen. In a photo's **⋯** menu, **Show in Finder**, **Copy file path** and **Open in** use the version shown as the photo.
 

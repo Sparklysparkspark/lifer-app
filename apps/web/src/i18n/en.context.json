@@ -1864,7 +1864,9 @@
     "oneFile": "Under the Versions dialog title when the photo is a single file.",
     "viewFile": "Screen reader label of a file's thumbnail in the Versions dialog; opens it full size. {name} is its file name.",
     "label": {
-      "withSize": "A version's name with its print size: {kind} is a version kind like Print, {size} a size like 8x10."
+      "raw": "The automatic name of a version that is only a camera RAW file (CR3, NEF, ARW...), shown beside its JPEG or edit. Usually left as RAW.",
+      "withSize": "A version's name with its print size: {kind} is a version kind like Print, {size} a size like 8x10.",
+      "numbered": "A version's automatic name when two versions of one photo would read the same: {kind} is the name, like Export, {number} counts them from 1."
     },
     "showingAll": "Under the Gallery title when every version is listed as its own photo. {count} is the number of items listed.",
     "notice": {

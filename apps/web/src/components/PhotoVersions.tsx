@@ -10,7 +10,7 @@ import {
   photoVersionsPanel,
   useVersionCounts,
   versionChanges,
-  versionName,
+  versionNames,
   type PhotoVersion,
 } from "../lib/photoVersions";
 import { formatBytes, formatDate, formatList } from "../lib/format";
@@ -539,16 +539,18 @@ export function VersionStrip({
   const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const active = versions.find((v) => v.captureId === activeId);
+  const names = versionNames(t, versions);
+  const nameOf = (v: PhotoVersion) => names.get(v.captureId) ?? "";
   // The version on screen; the panel, once open, takes these keys for its own rows.
   const panelOpen = photoVersionsPanel.use() != null;
   useKeyboardShortcuts(
     {
       versionUseAsPhoto: () => {
-        if (active && !active.shown) void actions.show(groupCaptureId, active.captureId, versionName(t, active));
+        if (active && !active.shown) void actions.show(groupCaptureId, active.captureId, nameOf(active));
       },
       versionSplitOut: (e) => {
         e.preventDefault();
-        if (active && !active.isGroup) void actions.split(groupCaptureId, active.captureId, versionName(t, active));
+        if (active && !active.isGroup) void actions.split(groupCaptureId, active.captureId, nameOf(active));
       },
     },
     { enabled: !panelOpen && renaming === null },
@@ -566,7 +568,7 @@ export function VersionStrip({
     setRenaming(null);
     const next = draft.trim() || null;
     // The auto name typed back in, or nothing changed: nothing to save.
-    if (next === v.label || (!v.label && next === versionName(t, { ...v, label: null }))) return;
+    if (next === v.label || (!v.label && next === nameOf(v))) return;
     const before = v.label;
     void saveLabel(v, next).then(() =>
       toast.show(t("versions.renamedToast"), {
@@ -616,12 +618,12 @@ export function VersionStrip({
                   aria-checked={v.captureId === activeId}
                   onClick={() => onSelect(v)}
                   onDoubleClick={() => {
-                    setDraft(versionName(t, v));
+                    setDraft(nameOf(v));
                     setRenaming(v.captureId);
                   }}
                   className={`${chip} ${v.captureId === activeId ? CHIP_ON : CHIP_OFF}`}
                 >
-                  {versionName(t, v)}
+                  {nameOf(v)}
                 </button>
               )}
             </Tooltip>
@@ -639,7 +641,7 @@ export function VersionStrip({
                 <button
                   {...tip}
                   type="button"
-                  onClick={() => void actions.show(groupCaptureId, active.captureId, versionName(t, active))}
+                  onClick={() => void actions.show(groupCaptureId, active.captureId, nameOf(active))}
                   className={CAPTION_LINK}
                 >
                   {t("versions.useAsPhoto")}
@@ -653,7 +655,7 @@ export function VersionStrip({
           <button
             type="button"
             onClick={() => {
-              setDraft(versionName(t, active));
+              setDraft(nameOf(active));
               setRenaming(active.captureId);
             }}
             className={CAPTION_LINK}

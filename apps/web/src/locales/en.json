@@ -4814,6 +4814,7 @@
     "badge": "{count, plural, one {# version} other {# versions}}",
     "label": {
       "original": "Original",
+      "raw": "RAW",
       "edit": "Edit",
       "export": "Export",
       "print": "Print",
@@ -4821,7 +4822,8 @@
       "pano": "Panorama",
       "enhanced": "Enhanced",
       "hdr": "HDR",
-      "withSize": "{kind} {size}"
+      "withSize": "{kind} {size}",
+      "numbered": "{kind} {number, number}"
     },
     "manage": "Versions",
     "rename": "Rename",

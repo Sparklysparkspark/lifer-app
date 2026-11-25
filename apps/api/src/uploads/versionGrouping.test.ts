@@ -22,7 +22,13 @@ describe("version names and roles", () => {
     expect(versionLabel("/a/Fox/Prints/IMG_1.jpg", "export")).toEqual({ kind: "print", size: null });
     expect(versionLabel("/a/Fox/IMG_1_10x27.jpg", "export")).toEqual({ kind: "print", size: "10x27" });
     expect(versionLabel("/a/Fox/IMG_1-Enhanced-NR.dng", "edit").kind).toBe("enhanced");
-    expect(versionLabel("/a/Fox/IMG_1.CR3", null).kind).toBe("original");
+    // A camera RAW never reads "Original", so it can't share a name with the JPEG beside it.
+    expect(versionLabel("/a/Fox/IMG_1.CR3", null).kind).toBe("raw");
+    expect(versionLabel("/a/Fox/IMG_1.cr3", "original").kind).toBe("raw");
+    expect(versionLabel("/a/Fox/IMG_1.jpg", "original").kind).toBe("original");
+    expect(versionLabel("/a/Fox/IMG_1.jpg", null).kind).toBe("original");
+    expect(versionLabel("/a/Fox/Adjusted/IMG_1.jpg", "export").kind).toBe("export");
+    expect(versionLabel("/a/Fox/IMG_1.dng", "edit").kind).toBe("edit");
     expect(classifyFile("IMG_1.jpg", {}, true).role).toBe("export");
   });
 

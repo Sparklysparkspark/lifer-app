@@ -752,7 +752,15 @@ async function insertCaptureTx(
     const recrop: string[] = [];
     const { versionOf } = rawLinking;
     if (versionOf)
-      await linkImportedVersionTx(client, userId, captureId, versionOf.captureId, versionOf.evidence, recrop);
+      await linkImportedVersionTx(
+        client,
+        userId,
+        captureId,
+        versionOf.captureId,
+        versionOf.evidence,
+        recrop,
+        versionOf.file,
+      );
 
     if (target.albumId) {
       await client.query(`INSERT INTO album_captures (album_id, capture_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [

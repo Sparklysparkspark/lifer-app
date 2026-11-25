@@ -34,7 +34,7 @@ const NOT_RAW_ONLY = (captureId: string) =>
 
 const Role = Nullable(Type.Enum(["original", "edit", "export"]));
 const Evidence = Nullable(Type.Enum(["document_id", "time_serial_suffix", "suggested", "manual", "version_folder"]));
-const LabelKind = Type.Enum(["original", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"], {
+const LabelKind = Type.Enum(["original", "raw", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"], {
   description: "What the version is, from its file name, folder and role, when the user hasn't named it",
 });
 

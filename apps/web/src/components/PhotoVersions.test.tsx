@@ -142,7 +142,7 @@ describe("the viewer's version switcher", () => {
           groupCaptureId: "r1",
           files: [],
           versions: [
-            version("r1", "p1", { labelKind: "original", isGroup: true, rawOnly: true }),
+            version("r1", "p1", { labelKind: "raw", isGroup: true, rawOnly: true }),
             version("r2", "p2", { labelKind: "bw", shown: true }),
           ],
           nearby: [],
@@ -158,9 +158,41 @@ describe("the viewer's version switcher", () => {
         onClose={() => {}}
       />,
     );
-    expect(await screen.findByRole("radio", { name: "Original" })).toBeTruthy();
+    expect(await screen.findByRole("radio", { name: "RAW" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Black and white" })).toBeTruthy();
     expect(screen.queryByText(/\d versions?/)).toBeNull();
+  });
+
+  it("never shows two versions under the same name, and keeps the user's names", async () => {
+    get.mockImplementation(async (path: string) => {
+      if (path.includes("/versions"))
+        return {
+          groupCaptureId: "r1",
+          files: [],
+          versions: [
+            version("r1", "p1", { labelKind: "raw", isGroup: true, rawOnly: true }),
+            version("e1", "p2", { labelKind: "export", shown: true }),
+            version("e2", "p3", { labelKind: "export" }),
+            version("e3", "p4", { labelKind: "export", label: "Mine" }),
+            version("e4", "p5", { labelKind: "export", label: "Mine" }),
+          ],
+          nearby: [],
+        };
+      if (path.startsWith("/captures/version-counts")) return { counts: { r1: 4 } };
+      if (path.includes("/ebird")) return { checklists: [] };
+      return {};
+    });
+    wrap(
+      <Lightbox
+        slides={[{ url: "/api/photos/p2/display", captureId: "r1", caption: "Caiman" }]}
+        index={0}
+        onIndexChange={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    await screen.findByRole("radio", { name: "RAW" });
+    const names = screen.getAllByRole("radio").map((r) => r.textContent);
+    expect(names).toEqual(["RAW", "Export 1", "Export 2", "Mine", "Mine"]);
   });
 
   it("renames a version in place, and Escape only cancels the rename", async () => {

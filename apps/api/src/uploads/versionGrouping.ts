@@ -16,6 +16,7 @@ import { ensureDefaultCardCropLater } from "../collection/defaultCardCrop.js";
 import { readVersionTags } from "./exif.js";
 import { lastOriginalInsertAt } from "./captureRows.js";
 import { baseStem } from "@lifer/shared";
+import { VENDOR_RAW_EXTENSIONS } from "@lifer/core/uploads/formats.js";
 
 export { baseStem };
 
@@ -47,7 +48,7 @@ export async function versionFoldersFor(userId: string): Promise<Set<string>> {
   return new Set((res.rows[0]?.names ?? DEFAULT_VERSION_FOLDERS).map((n) => n.toLowerCase()));
 }
 
-export type VersionLabelKind = "original" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
+export type VersionLabelKind = "original" | "raw" | "edit" | "export" | "print" | "bw" | "pano" | "enhanced" | "hdr";
 
 const BW_FOLDER = /^(?:b&w|bw|black and white|black & white|mono|monochrome)$/i;
 
@@ -67,7 +68,12 @@ export function versionLabel(ref: string, role: FileRole | null): { kind: Versio
             ? "enhanced"
             : /-hdr(?=$|-)/.test(stem)
               ? "hdr"
-              : (role ?? "original");
+              : role && role !== "original"
+                ? role
+                : // A camera RAW reads "RAW", so it never shares "Original" with the JPEG shot beside it.
+                  VENDOR_RAW_EXTENSIONS.has(path.extname(ref).toLowerCase())
+                  ? "raw"
+                  : "original";
   return { kind, size };
 }
 const EDIT_FORMATS = new Set([".dng", ".tif", ".tiff", ".psd", ".psb"]);
@@ -464,6 +470,8 @@ export interface EditedVersionTarget {
   regionId: string | null;
   locationLabel: string | null;
   evidence: VersionEvidence;
+  /** The imported file's own role and document, written as it links so its label is right at once. */
+  file: { role: FileRole; documentId: string | null };
 }
 
 /** The evidence that links versions on its own: the XMP document a file descends from, and its
@@ -517,7 +525,11 @@ export async function findEditedVersionTarget(
     [heads[0]],
   );
   if (!head.rows[0]) return null;
-  return { ...head.rows[0], evidence: matches.some((r) => r.by_document) ? "document_id" : "time_serial_suffix" };
+  return {
+    ...head.rows[0],
+    evidence: matches.some((r) => r.by_document) ? "document_id" : "time_serial_suffix",
+    file: classifyFile(fileName, tags),
+  };
 }
 
 /** Links a just-imported capture as a version of `groupId` inside the import's transaction and
@@ -529,8 +541,14 @@ export async function linkImportedVersionTx(
   groupId: string,
   evidence: VersionEvidence,
   recrop: string[],
+  file: { role: FileRole; documentId: string | null },
 ): Promise<boolean> {
   if (!(await linkVersionTx(client, userId, versionId, groupId, evidence, { covers: [], recrop }))) return false;
+  // Classified now, not by the later pass, so the version isn't called "Original" meanwhile.
+  await client.query(
+    `UPDATE originals SET role = $2, document_id = $3 WHERE capture_id = $1 AND kind <> 'raw' AND role IS NULL`,
+    [versionId, file.role, file.documentId],
+  );
   await showPreferredVersion(client, groupId, recrop);
   return true;
 }

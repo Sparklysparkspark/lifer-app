@@ -88,7 +88,7 @@ describe.skipIf(!url)("edited versions of a RAW", () => {
     });
   }
 
-  const call = (method: "POST" | "DELETE", route: string, payload?: unknown) =>
+  const call = (method: "GET" | "POST" | "DELETE", route: string, payload?: unknown) =>
     app.inject({ method, url: route, payload: payload as object, cookies: { [cookieName]: TOKEN } });
 
   const versionOf = async (captureId: string) =>
@@ -190,7 +190,8 @@ describe.skipIf(!url)("edited versions of a RAW", () => {
 
   it("imports the edited JPEG as the RAW's shown version, under its species, and undoes", async () => {
     const raw = await rawCapture("import/IMG_0042.CR3", PRESS);
-    const res = await upload("IMG_0042.jpg", await writeFile("import/IMG_0042.jpg", PRESS));
+    const lightroom = { ...PRESS, Software: "Adobe Lightroom 10.0 (Macintosh)" };
+    const res = await upload("IMG_0042.jpg", await writeFile("import/IMG_0042.jpg", lightroom));
     expect(res.statusCode).toBe(201);
     const { captureId, photoId } = res.json();
 
@@ -206,6 +207,14 @@ describe.skipIf(!url)("edited versions of a RAW", () => {
     expect(await shownPhoto(raw.id)).toBe(photoId);
     const own = await db.query(`SELECT species_id, location_label FROM captures_all WHERE id = $1`, [captureId]);
     expect(own.rows[0]).toEqual({ species_id: RAW_SPECIES, location_label: "Daintree" });
+    // Named at once, before any grouping pass: the RAW reads "RAW" and the edit "Export".
+    const listed = (await call("GET", `/api/captures/${raw.id}/versions`)).json() as {
+      versions: { captureId: string; labelKind: string }[];
+    };
+    expect(listed.versions.map((v) => [v.captureId, v.labelKind])).toEqual([
+      [raw.id, "raw"],
+      [captureId, "export"],
+    ]);
 
     // Showing the RAW again is the usual version switch.
     await call("POST", `/api/captures/${raw.id}/versions/show`, { captureId: raw.id });

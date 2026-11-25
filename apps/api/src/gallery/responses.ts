@@ -127,7 +127,7 @@ export const GalleryItem = Open({
       {
         of: Uuid({ description: "The photo this file is a version of" }),
         label: Nullable(Type.String({ description: "The name the user gave this version" })),
-        labelKind: Type.Enum(["original", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"]),
+        labelKind: Type.Enum(["original", "raw", "edit", "export", "print", "bw", "pano", "enhanced", "hdr"]),
         labelSize: Nullable(Type.String()),
       },
       { description: "Only with allVersions=1, on a file listed apart from the photo it belongs to" },
