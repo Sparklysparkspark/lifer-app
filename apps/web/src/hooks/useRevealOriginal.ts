@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import { tauriInvoke, type TauriInvoke } from "../lib/tauri";
 import { useDeploymentMode } from "./useDeploymentMode";
 import { useToast } from "./useToast";
 import { revealPlace } from "../lib/platform";
+import { fileNameOf, photoFilePaths } from "../lib/photoFilePaths";
 
 /** A server folder that holds originals, with one file known to be in it. */
 export interface ServerRoot {
@@ -54,7 +55,7 @@ function loadMountedRoots(invoke: TauriInvoke): Promise<ServerRoot[]> {
   return mountedRoots;
 }
 
-/** How a photo's original is shown on this computer: Reveal in Finder when the file is here (the
+/** How a photo's original is shown on this computer: Show in Finder when the file is here (the
  *  desktop app's own library, or a server's share mounted on this Mac), otherwise Copy path. */
 export function useRevealOriginal(): (ref: string | null | undefined) => RevealAction | null {
   const { t } = useTranslation();
@@ -94,7 +95,16 @@ export function useRevealOriginal(): (ref: string | null | undefined) => RevealA
       const reveal = (act: () => Promise<unknown>): RevealAction => ({
         kind: "reveal",
         label: t("photoMenu.revealInFinder", { place: revealPlace() }),
-        run: () => void act().catch(() => toast.error(t("species.edits.revealFailed"))),
+        run: () =>
+          void act().catch((err: unknown) =>
+            toast.error(
+              t(
+                err instanceof ApiError && err.status === 409
+                  ? "species.edits.revealDisconnected"
+                  : "species.edits.revealFailed",
+              ),
+            ),
+          ),
       });
       if (invoke && mode === "desktop") return reveal(() => api.post("/originals/reveal", { path: ref }));
       // Judged by the most specific folder: a nested one may be a separate mount.
@@ -124,4 +134,17 @@ export function useRevealOriginal(): (ref: string | null | undefined) => RevealA
     },
     [invoke, mode, roots, t, toast, redetect],
   );
+}
+
+/** One action per stored file (an edit and its RAW each), named by file when there are several. */
+export function useRevealFiles(refs: ReadonlyArray<string | null | undefined>): RevealAction[] {
+  const { t } = useTranslation();
+  const revealFor = useRevealOriginal();
+  const files = photoFilePaths(...refs);
+  return files.flatMap((ref) => {
+    const action = revealFor(ref);
+    if (!action) return [];
+    if (files.length === 1) return [action];
+    return [{ ...action, label: t("photoMenu.fileAction", { action: action.label, file: fileNameOf(ref) }) }];
+  });
 }

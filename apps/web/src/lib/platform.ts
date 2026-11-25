@@ -21,7 +21,7 @@ export const storeManagedUpdates =
 // Platform words and conventions in one place: components call these, never test isMac for wording.
 // The server web app has no OS truth beyond the browser's hint, so "other" gets neutral words.
 export const revealPlace = (p: Platform = platform): string =>
-  p === "mac" ? "Finder" : p === "windows" ? "Explorer" : "file manager";
+  p === "mac" ? "Finder" : p === "windows" ? "File Explorer" : "file manager";
 
 export const modKey = (p: Platform = platform): string => (p === "mac" ? "⌘" : "Ctrl");
 

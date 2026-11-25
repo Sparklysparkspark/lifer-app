@@ -2720,6 +2720,11 @@ export interface paths {
             "application/json": {
               /** @description How many dismissed suggestions could be restored */
               dismissedCount: number;
+              /** @description What a new smart album's starting rules match, so the builder shows it before counting */
+              startMatches: {
+                photoCount: number;
+                previewPhotoIds: string[];
+              };
               suggestions: ({
                 /** @description Stable for the same suggestion, to dismiss it by */
                 id: string;
@@ -3300,6 +3305,297 @@ export interface paths {
         };
       };
     };
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/apple-photos/send": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /apple-photos/send */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** @enum {unknown} */
+            mode: "check" | "send";
+            captureIds?: string[];
+            /** Format: uuid */
+            albumId?: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              started: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/apple-photos/send/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /apple-photos/send/cancel */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              cancelled: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/apple-photos/send/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /apple-photos/send/status */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result: unknown | null;
+              mode: ("check" | "send") | null;
+              photos: number;
+              found: number;
+              notFound: number;
+              added: number;
+              unchanged: number;
+              failed: number;
+              problem: ("automation_denied" | "photos_unavailable") | null;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/apple-photos/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /apple-photos/status */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              available: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
@@ -21388,6 +21684,8 @@ export interface paths {
           "application/json": {
             captureIds?: string[];
             photoIds?: string[];
+            /** @description The edited file instead of the RAW, for a photo with both */
+            edited?: boolean;
           };
         };
       };
@@ -22307,6 +22605,11 @@ export interface paths {
               photoId: string | null;
               hidden: boolean;
               linkedExisting?: boolean;
+              /**
+               * Format: uuid
+               * @description With linkedExisting: the RAW file added to that photo, for POST /uploads/raw/undo-link
+               */
+              linkedOriginalId?: string;
               /** @description sha256 (hex) of the stored file's bytes, to verify the upload */
               sha256: string;
               /** @description sha256 of the RAW sent with the photo, when one was */
@@ -29695,6 +29998,441 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/settings/file-writing": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /settings/file-writing */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /**
+               * @description RAW sidecar names: IMG_0001.xmp (stem), IMG_0001.CR3.xmp (full), or both
+               * @enum {unknown}
+               */
+              sidecarNames: "stem" | "full" | "both";
+              /** @description Write keywords inside JPEG, TIFF, PNG, DNG, WebP and HEIC files */
+              insideFiles: boolean;
+              /** @description Also write sidecars next to files in linked folders */
+              linkedFolders: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    /** PUT /settings/file-writing */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /**
+             * @description RAW sidecar names: IMG_0001.xmp (stem), IMG_0001.CR3.xmp (full), or both
+             * @enum {unknown}
+             */
+            sidecarNames?: "stem" | "full" | "both";
+            /** @description Write keywords inside JPEG, TIFF, PNG, DNG, WebP and HEIC files */
+            insideFiles?: boolean;
+            /** @description Also write sidecars next to files in linked folders */
+            linkedFolders?: boolean;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /**
+               * @description RAW sidecar names: IMG_0001.xmp (stem), IMG_0001.CR3.xmp (full), or both
+               * @enum {unknown}
+               */
+              sidecarNames: "stem" | "full" | "both";
+              /** @description Write keywords inside JPEG, TIFF, PNG, DNG, WebP and HEIC files */
+              insideFiles: boolean;
+              /** @description Also write sidecars next to files in linked folders */
+              linkedFolders: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/file-writing/apply": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /settings/file-writing/apply */
+    post: {
+      parameters: {
+        query?: {
+          /** @description 1 to start the job and return at once, for polling */
+          background?: "1";
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              started?: boolean;
+              written?: number;
+              failed?: number;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/file-writing/apply/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /settings/file-writing/apply/cancel */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              cancelled: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/file-writing/apply/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /settings/file-writing/apply/status */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              running: boolean;
+              phase: string | null;
+              downloadedBytes: number | null;
+              totalBytes: number | null;
+              processed: number | null;
+              total: number | null;
+              currentItem: string | null;
+              error: string | null;
+              finishedAt: number | null;
+              cancelRequested: boolean;
+              cancelled: boolean;
+              result: unknown | null;
+              written: number;
+              failed: number;
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/file-writing/linked-preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /settings/file-writing/linked-preview */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Linked files Lifer knows */
+              files: number;
+              /** @description Sidecars Lifer would create */
+              create: number;
+              /** @description Sidecars Lifer made before and would update */
+              update: number;
+              /** @description Sidecars another app made, left alone */
+              skip: number;
+              /** @description Linked files not reachable now (a disconnected drive) */
+              unavailable: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/settings/folder-layout": {
     parameters: {
       query?: never;
@@ -30425,6 +31163,282 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/settings/metadata-fields": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /settings/metadata-fields */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Templates for Title, Headline, Caption and extra Keywords (comma separated), each with its write rule: fillEmpty, replace (what Lifer wrote), append, or off */
+              fields: {
+                title: {
+                  template: string;
+                  /** @enum {unknown} */
+                  rule: "fillEmpty" | "replace" | "append" | "off";
+                };
+                headline: {
+                  template: string;
+                  /** @enum {unknown} */
+                  rule: "fillEmpty" | "replace" | "append" | "off";
+                };
+                caption: {
+                  template: string;
+                  /** @enum {unknown} */
+                  rule: "fillEmpty" | "replace" | "append" | "off";
+                };
+                keywords: {
+                  template: string;
+                  /** @enum {unknown} */
+                  rule: "fillEmpty" | "replace" | "append" | "off";
+                };
+                /** @enum {unknown} */
+                multiSpecies: "all" | "main";
+              };
+              variables: string[];
+              captionPresets: {
+                [key: string]: string;
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    /** PUT /settings/metadata-fields */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            title: {
+              template: string;
+              /** @enum {unknown} */
+              rule: "fillEmpty" | "replace" | "append" | "off";
+            };
+            headline: {
+              template: string;
+              /** @enum {unknown} */
+              rule: "fillEmpty" | "replace" | "append" | "off";
+            };
+            caption: {
+              template: string;
+              /** @enum {unknown} */
+              rule: "fillEmpty" | "replace" | "append" | "off";
+            };
+            keywords: {
+              template: string;
+              /** @enum {unknown} */
+              rule: "fillEmpty" | "replace" | "append" | "off";
+            };
+            /** @enum {unknown} */
+            multiSpecies: "all" | "main";
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Templates for Title, Headline, Caption and extra Keywords (comma separated), each with its write rule: fillEmpty, replace (what Lifer wrote), append, or off */
+              fields: {
+                title: {
+                  template: string;
+                  /** @enum {unknown} */
+                  rule: "fillEmpty" | "replace" | "append" | "off";
+                };
+                headline: {
+                  template: string;
+                  /** @enum {unknown} */
+                  rule: "fillEmpty" | "replace" | "append" | "off";
+                };
+                caption: {
+                  template: string;
+                  /** @enum {unknown} */
+                  rule: "fillEmpty" | "replace" | "append" | "off";
+                };
+                keywords: {
+                  template: string;
+                  /** @enum {unknown} */
+                  rule: "fillEmpty" | "replace" | "append" | "off";
+                };
+                /** @enum {unknown} */
+                multiSpecies: "all" | "main";
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/settings/metadata-preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /settings/metadata-preview */
+    get: {
+      parameters: {
+        query?: {
+          captureId?: string;
+          multiSpecies?: "all" | "main";
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description True when the user has no photos and a made-up one is shown */
+              sample: boolean;
+              captureId: string | null;
+              values: {
+                [key: string]: string | null;
+              };
+              fields: {
+                title: string;
+                headline: string;
+                caption: string;
+                keywords: string[];
+                creator: string;
+                copyright: string;
+                credit: string;
+                usageTerms: string;
+              };
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/settings/metadata-template": {
     parameters: {
       query?: never;
@@ -30523,6 +31537,8 @@ export interface paths {
         query?: {
           /** @description 1 to start the job and return at once, for polling */
           background?: "1";
+          /** @description 1 to count what would change, and what stays as someone edited it, without writing */
+          dryRun?: "1";
         };
         header?: never;
         path?: never;
@@ -30541,6 +31557,8 @@ export interface paths {
               updated?: number;
               unchanged?: number;
               failed?: number;
+              edited?: number;
+              dryRun?: boolean;
             } & {
               [key: string]: unknown;
             };
@@ -30685,6 +31703,8 @@ export interface paths {
               updated: number;
               unchanged: number;
               failed: number;
+              edited: number;
+              dryRun: boolean;
             } & {
               [key: string]: unknown;
             };
@@ -35132,6 +36152,10 @@ export interface paths {
           filter?: "all" | "featured" | "topRated";
           /** @description 0 to leave out photos whose only original is a RAW (default 1) */
           includeRaw?: "0" | "1";
+          /** @description First month counted, YYYY-MM; photos without a date are left out of any range */
+          from?: string;
+          /** @description Last month counted, YYYY-MM */
+          to?: string;
         };
         header?: never;
         path?: never;
@@ -35411,6 +36435,10 @@ export interface paths {
           filter?: "all" | "featured" | "topRated";
           /** @description 0 to leave out photos whose only original is a RAW (default 1) */
           includeRaw?: "0" | "1";
+          /** @description First month counted, YYYY-MM; photos without a date are left out of any range */
+          from?: string;
+          /** @description Last month counted, YYYY-MM */
+          to?: string;
           /** @description The EXIF chart */
           dim: "focalLength" | "iso" | "aperture" | "shutter";
           /** @description The bar, 1 for the first */
@@ -35488,6 +36516,10 @@ export interface paths {
           filter?: "all" | "featured" | "topRated";
           /** @description 0 to leave out photos whose only original is a RAW (default 1) */
           includeRaw?: "0" | "1";
+          /** @description First month counted, YYYY-MM; photos without a date are left out of any range */
+          from?: string;
+          /** @description Last month counted, YYYY-MM */
+          to?: string;
         };
         header?: never;
         path?: never;
@@ -35749,6 +36781,88 @@ export interface paths {
               } & {
                 [key: string]: unknown;
               })[];
+            } & {
+              [key: string]: unknown;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the stats.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/stats/timeline": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /stats/timeline */
+    get: {
+      parameters: {
+        query?: {
+          /** @description all (default), featured (species cover photos) or topRated (5 stars) */
+          filter?: "all" | "featured" | "topRated";
+          /** @description 0 to leave out photos whose only original is a RAW (default 1) */
+          includeRaw?: "0" | "1";
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Photos per month and taxon class, months with none left out */
+              months: ({
+                /** @description YYYY-MM */
+                month: string;
+                taxonClass: string | null;
+                count: number;
+              } & {
+                [key: string]: unknown;
+              })[];
+              /** @description Photos without a date */
+              undated: number;
             } & {
               [key: string]: unknown;
             };
@@ -42422,6 +43536,11 @@ export interface paths {
               photoId: string | null;
               hidden: boolean;
               linkedExisting?: boolean;
+              /**
+               * Format: uuid
+               * @description With linkedExisting: the RAW file added to that photo, for POST /uploads/raw/undo-link
+               */
+              linkedOriginalId?: string;
               /** @description sha256 (hex) of the stored file's bytes, to verify the upload */
               sha256: string;
               /** @description sha256 of the RAW sent with the photo, when one was */
@@ -43027,6 +44146,78 @@ export interface paths {
             [name: string]: unknown;
           };
           content?: never;
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Not signed in */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/uploads/raw/undo-link": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /uploads/raw/undo-link */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** Format: uuid */
+            originalId: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
         };
         /** @description The request doesn't match this operation's parameters or body */
         400: {
@@ -43704,6 +44895,7 @@ export interface paths {
               /** @enum {unknown} */
               tier: "ok" | "tight" | "critical";
               free: number | null;
+              volume: number | null;
               /** @description Bytes to free so the rest of the batch fits */
               toFree: number;
             };

@@ -9,6 +9,7 @@ import { downloadWithToast } from "../lib/downloadFile";
 import { useToast } from "../hooks/useToast";
 import { useRevealOriginal } from "../hooks/useRevealOriginal";
 import { isPhotoVersionsOpen, openPhotoVersions } from "../lib/photoVersions";
+import { fileNameOf, photoFilePaths } from "../lib/photoFilePaths";
 
 /** What the menu needs to know about one photo; every page maps its own item to this. */
 export interface PhotoMenuPhoto {
@@ -18,6 +19,8 @@ export interface PhotoMenuPhoto {
   rating?: number | null;
   speciesId?: string | null;
   originalRef?: string | null;
+  /** The RAW beside an edited original, offered in Show in Finder too. */
+  rawRef?: string | null;
   originalKind?: string | null;
   /** False for a linked file Lifer didn't copy in; only then is its path worth copying. */
   originalManaged?: boolean | null;
@@ -46,6 +49,7 @@ export default function PhotoMenu({
   onTagSpecies,
   location,
   onSetLocation,
+  onAdjustTime,
   onInatSent,
   onVersionsChange,
   onHide,
@@ -73,6 +77,8 @@ export default function PhotoMenu({
   location?: string | null;
   /** Coordinates, places, and the place name and region (CoordinatesModal), as on the map. */
   onSetLocation?: () => void;
+  /** Opens the date and time editor for this photo. */
+  onAdjustTime?: () => void;
   /** After a send to iNaturalist, e.g. to reload so the badge shows. */
   onInatSent?: () => void;
   /** After a change in the Versions panel, e.g. to reload the shown photo. */
@@ -92,6 +98,7 @@ export default function PhotoMenu({
     fn();
   };
   const kind = photo.kind ?? "image";
+  const files = photoFilePaths(photo.originalRef, photo.rawRef);
   const unavailable = !!photo.originalRef && photo.originalAvailable === false;
   const download = (path: string, name: string) =>
     act(() => void downloadWithToast(toast, `/api/photos/${photo.photoId}/${path}?download=1`, name));
@@ -138,6 +145,7 @@ export default function PhotoMenu({
               {location && <span className="block truncate text-caption text-muted">{location}</span>}
             </MenuItem>
           )}
+          {onAdjustTime && <MenuItem onSelect={act(onAdjustTime)}>{t("gallery.adjustTime.action")}</MenuItem>}
           <MenuLink to={`/gallery?similarTo=${photo.captureId}`}>{t("photoMenu.similar")}</MenuLink>
           {kind === "image" && !isPhotoVersionsOpen() && (
             <MenuItem onSelect={act(() => openPhotoVersions(photo.captureId, onVersionsChange))}>
@@ -161,14 +169,20 @@ export default function PhotoMenu({
               {photo.hasRaw && (
                 <MenuItem onSelect={download("original-raw", "original.raw")}>{t("photoMenu.downloadRaw")}</MenuItem>
               )}
-              <RevealOriginalMenuItem originalRef={photo.originalRef} onSelect={onClose} />
-              {/* A linked file's path is worth copying even when it can be revealed. */}
-              {reveal?.kind === "reveal" && photo.originalManaged === false && (
-                <MenuItem onSelect={act(() => copyPath(photo.originalRef!))}>{t("photoMenu.copyPath")}</MenuItem>
-              )}
+              <RevealOriginalMenuItem refs={[photo.originalRef, photo.rawRef]} onSelect={onClose} />
+              {/* Where Show in Finder works, the path can be copied too; elsewhere that item copies it. */}
+              {reveal?.kind === "reveal" &&
+                files.map((ref) => (
+                  <MenuItem key={ref} onSelect={act(() => copyPath(ref))}>
+                    {files.length > 1
+                      ? t("photoMenu.fileAction", { action: t("photoMenu.copyPath"), file: fileNameOf(ref) })
+                      : t("photoMenu.copyPath")}
+                  </MenuItem>
+                ))}
               {/* By photo, so a version opens its own file. */}
               <OpenInMenuItems
                 targets={photo.photoId ? { photoIds: [photo.photoId] } : { captureIds: [photo.captureId] }}
+                hasEdit={!!photo.hasRaw && photo.originalKind !== "raw"}
                 onSelect={onClose}
               />
             </>

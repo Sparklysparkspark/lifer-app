@@ -1,19 +1,19 @@
 import { MenuItem } from "./Menu";
-import { useRevealOriginal } from "../hooks/useRevealOriginal";
+import { useRevealFiles } from "../hooks/useRevealOriginal";
 
-/** A photo menu's Reveal in Finder (or Copy path, when the file isn't on this computer). */
+/** A photo menu's Show in Finder (or Copy path, when the file isn't on this computer), one per
+ *  stored file, so an edit and its RAW can each be found. */
 export default function RevealOriginalMenuItem({
-  originalRef,
+  refs,
   onSelect,
 }: {
-  originalRef: string | null | undefined;
+  refs: ReadonlyArray<string | null | undefined>;
   /** Runs first, e.g. to close the menu. */
   onSelect?: () => void;
 }) {
-  const reveal = useRevealOriginal()(originalRef);
-  if (!reveal) return null;
-  return (
+  return useRevealFiles(refs).map((reveal) => (
     <MenuItem
+      key={reveal.label}
       onSelect={() => {
         onSelect?.();
         reveal.run();
@@ -21,5 +21,5 @@ export default function RevealOriginalMenuItem({
     >
       {reveal.label}
     </MenuItem>
-  );
+  ));
 }

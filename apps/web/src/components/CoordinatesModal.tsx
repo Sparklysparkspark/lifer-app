@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, apiPath } from "../api/client";
 import { formatCoordinates, parseCoordinates } from "../lib/coordinates";
@@ -39,8 +39,11 @@ export default function CoordinatesModal({
   onUndone,
   onClose,
   place: current,
+  scope,
 }: {
   captureIds: string[];
+  /** The viewer's "Apply to all photos in this burst" checkbox. */
+  scope?: ReactNode;
   /** The photo's current point, when there's one photo and it has one. */
   lat?: number | null;
   lon?: number | null;
@@ -228,6 +231,7 @@ export default function CoordinatesModal({
       }
     >
       <form id="coordinates-form" onSubmit={submit} className="space-y-3 text-callout">
+        {scope}
         <PlacePicker
           placeholder={t("coordinates.searchPlaces")}
           near={point ?? (hasPoint ? { lat: lat!, lon: lon! } : null)}

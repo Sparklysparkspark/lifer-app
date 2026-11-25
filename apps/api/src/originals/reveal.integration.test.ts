@@ -129,6 +129,18 @@ describe.skipIf(!url)("revealing an original on the desktop", () => {
       expect(await editorPaths({ captureIds: [group.capture] })).toEqual([print.file]);
       expect(await editorPaths({ photoIds: [group.photo] })).toEqual([group.file]);
       expect(await editorPaths({ photoIds: [print.photo] })).toEqual([print.file]);
+
+      // A RAW and its edit: the RAW, unless the edited file is asked for.
+      const solo = await add("solo");
+      const raw = path.join(dataDir, "solo.cr3");
+      writeFileSync(raw, "raw");
+      await db.query(
+        `INSERT INTO originals (user_id, capture_id, kind, ref_type, ref, managed, content_hash, file_size)
+         VALUES ($1, $2, 'raw', 'path', $3, false, 'editor-hash-solo-raw', 1)`,
+        [userId, solo.capture, raw],
+      );
+      expect(await editorPaths({ captureIds: [solo.capture] })).toEqual([raw]);
+      expect(await editorPaths({ captureIds: [solo.capture], edited: true })).toEqual([solo.file]);
     } finally {
       await db.query(`UPDATE captures_all SET current_photo_id = NULL WHERE species_id = $1`, [SPECIES]);
       await db.query(`DELETE FROM captures_all WHERE species_id = $1`, [SPECIES]);

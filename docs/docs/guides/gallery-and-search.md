@@ -119,7 +119,9 @@ Hover a photo and click its **⋯**, or right-click it, for:
 - **Edit tags**
 - **Correct the ID**: pick the species it really shows. Above the search, **Could also be** lists the other species the photo most likely shows, with how closely each matches (once species matching has compared it). A message says where it moved, with **View** to go there and **Undo** to move it back.
 - **Download original** and **Download RAW**, when there's one. A "Preparing download..." message shows while a large file is fetched.
-- **Reveal in Finder**, on the desktop app.
+- **Adjust date and time**: see [Fixing a wrong camera clock](#adjust-time).
+- **Show in Finder** (**Show in File Explorer** on Windows), on the desktop app: opens the folder that holds the file. A photo with a RAW and an edited file offers each. If the file is on a drive that isn't connected, Lifer says so. **Copy file path** copies where the file is.
+- **Open in** your photo editor, on the desktop app. See [Opening photos in your editor](#editor).
 - **Hide photo**: keeps a weak photo out of the Gallery, your life list and Stats without deleting it. Find it again under **Hidden** in the Gallery's **Filters**, or click **Undo** on the message, which also makes it the featured photo again if you had picked it as one. A featured photo Lifer chose for you is picked again by the usual rules. See [Hidden photos](./culling-with-other-apps.md#hidden).
 - **Delete photo** (or **Delete video**). It goes to the [Trash](./trash.md).
 
@@ -159,7 +161,7 @@ Press <kbd>Esc</kbd> or click **Cancel** to leave select mode.
 
 ### The photo viewer
 
-Click a photo to open it full screen.
+Click a photo to open it full screen. The **⋯** button in the top corner has the same menu as a photo in the grid, so you can rate, move, tag, delete or find the file without leaving the viewer. It stays there in full screen too.
 
 ![The photo viewer](/img/photo-viewer.jpg)
 
@@ -173,9 +175,17 @@ Click a photo to open it full screen.
 | <kbd>Space</kbd>                            | Play or pause a video                                                                                                                                 |
 | <kbd>Esc</kbd>                              | Leave full screen, then close                                                                                                                         |
 
-To zoom, pinch on a trackpad or hold <kbd>Ctrl</kbd> and scroll (up to 6x), or press <kbd>+</kbd> and <kbd>-</kbd>. Zooming centres on the pointer. Double-click to zoom to 2.5x, and again to zoom back out. The viewer and compare zoom the same way. Once zoomed, drag or scroll to move around; the photo stops at its edges, and the controls hide until you zoom back out. The caption shows the species, date, star rating, camera settings and file names, and lets you edit tags. Click a star to rate, or **Correct the ID** to move the photo to another species.
+To zoom, pinch on a trackpad or hold <kbd>Ctrl</kbd> and scroll (up to 6x), or press <kbd>+</kbd> and <kbd>-</kbd>. Zooming centres on the pointer. Double-click to zoom to 2.5x, and again to zoom back out. The viewer and compare zoom the same way. Once zoomed, drag or scroll to move around; the photo stops at its edges, and the controls hide until you zoom back out. The caption shows the species, date, star rating, camera settings and file names, and lets you edit tags. Click a file name, or **Show in Finder** beside it, to open the folder that holds it. Click a star to rate, or **Correct the ID** to move the photo to another species.
 
 **Add appearance** under the stars records how the animal looks: its life stage (egg to adult), sex, plumage (like breeding or eclipse) and colour morph (like a dark morph), so a juvenile or a rare morph that looks nothing like the usual adult is easy to tell apart. What you set shows as small labels in the viewer, and a species page lists the stages and morphs among your photos of it. Appearance syncs with a linked server like other edits; it isn't written into the photo files.
+
+### Opening photos in your editor {#editor}
+
+On the desktop app, **Open in** opens a photo in a photo editor installed on your computer. Lifer looks for Lightroom Classic, Lightroom, darktable, DxO PhotoLab, Aftershoot, Capture One, Affinity Photo, Photoshop, Pixelmator Pro, GIMP, Photomator and RawTherapee, and uses the first one it finds in that order, rather than whatever your computer opens photos with.
+
+To use another, choose it in **Settings > General > Edit photos with**: any editor found, **System default**, or **Other…** to pick any app. The choice is kept on this computer. If that app is later removed, Lifer uses the next one found and tells you once.
+
+A RAW opens as the RAW, so the editor reads its `.xmp` sidecar and your edits carry over. For a photo with a RAW and an edited file, **Open edited file in** opens the edit instead. **Open with** lists the other editors found, for a one-off.
 
 ### Adding coordinates {#coordinates}
 
@@ -206,6 +216,12 @@ How Lifer groups them, from the capture time, camera, lens, location and the pic
 - The strip holds up to the 300 photos nearest the open one, and says so when a scene has more.
 
 Lifer works the groups out as you look, from the photos already in your library. Nothing is changed or written to your files.
+
+### Editing a whole burst {#burst-edits}
+
+A burst is one moment in one place, so in the photo viewer the dialogs for **Edit coordinates** (with the place and region), **Adjust date and time** and **Correct the ID** offer **Apply to all N photos in this burst**, ticked to start with. The coordinates dialog also says how many of them already have coordinates. Untick it to change only the photo on screen; Lifer remembers your choice for each kind of edit. One message and one **Undo** cover the whole burst. Ratings, tags and the featured photo stay per photo.
+
+In the grid, select a photo that's part of a burst and choose **Select whole burst** to add the rest of its photos to the selection, then use any action in the bar on all of them.
 
 ## Similar photos {#similar-photos}
 

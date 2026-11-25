@@ -187,6 +187,7 @@ pub fn run() {
             server_link::forget_server_link,
             editors::editors_list,
             editors::open_in,
+            editors::editor_pick_other,
             server_paths::server_root_on_this_mac,
             server_paths::reveal_server_file,
             sync::sync_status,

@@ -678,7 +678,7 @@ export function clearGallerySearchCaches(): void {
   vocabCache.clear();
 }
 
-async function libraryStamp(userId: string): Promise<string> {
+export async function libraryStamp(userId: string): Promise<string> {
   const hit = stampCache.get(userId);
   if (hit && Date.now() - hit.at < STAMP_TTL_MS) return hit.stamp;
   const res = await pool.query<{ stamp: string }>(

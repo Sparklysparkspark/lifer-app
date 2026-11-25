@@ -15,10 +15,12 @@ export function GalleryPhotoMenu({
   item,
   edits,
   closeMenu,
+  onAdjustTime,
 }: {
   item: GalleryItem;
   edits: GalleryEdits;
   closeMenu: () => void;
+  onAdjustTime?: () => void;
   /** From Menu, which measures the panel and moves it to stay on the page. */
   ref?: Ref<HTMLDivElement>;
   style?: CSSProperties;
@@ -44,6 +46,7 @@ export function GalleryPhotoMenu({
       onTagSpecies={tagSpecies}
       location={[item.locationLabel, item.regionName].filter(Boolean).join(", ")}
       onSetLocation={() => edits.setPlacingCaptureId(item.captureId)}
+      onAdjustTime={onAdjustTime}
       onInatSent={edits.reload}
       onVersionsChange={edits.reload}
       onHide={() => void edits.hide([item.captureId])}

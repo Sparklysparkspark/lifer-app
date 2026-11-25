@@ -11,7 +11,9 @@ import BackToCollectionLink from "./BackToCollectionLink";
 const revealRun = vi.fn();
 vi.mock("../hooks/useRevealOriginal", () => ({
   useRevealOriginal: () => (ref: string | null | undefined) =>
-    ref ? { kind: "reveal", label: "Reveal in Finder", run: revealRun } : null,
+    ref ? { kind: "reveal", label: "Show in Finder", run: revealRun } : null,
+  useRevealFiles: (refs: string[]) =>
+    refs.map((ref) => ({ kind: "reveal", label: refs.length > 1 ? `Show in Finder: ${ref}` : "Show in Finder", run: revealRun })),
 }));
 
 const toast: ToastApi = { success: vi.fn(), error: vi.fn(), info: vi.fn(), show: vi.fn(), dismiss: vi.fn() };
@@ -288,8 +290,39 @@ describe("the viewer's file names", () => {
       </MemoryRouter>,
     );
     const name = screen.getByRole("button", { name: "6F9A9304.cr3" });
-    expect(name.getAttribute("title")).toContain("Reveal in Finder");
+    expect(name.getAttribute("title")).toContain("Show in Finder");
     fireEvent.click(name);
     expect(revealRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers Show in Finder for each file beside the names, and the page's photo menu under ⋯", () => {
+    revealRun.mockClear();
+    const onClose = vi.fn();
+    const two: LightboxSlide[] = [
+      {
+        url: "/a.jpg",
+        caption: "Heron",
+        captureId: "c1",
+        info: { files: ["/p/IMG_1.jpg", "/p/IMG_1.cr3"] },
+        menu: () => (
+          <div role="menu">
+            <button role="menuitem">Delete photo</button>
+          </div>
+        ),
+      },
+    ];
+    render(
+      <MemoryRouter>
+        <ToastContext.Provider value={toast}>
+          <Lightbox slides={two} index={0} onIndexChange={() => {}} onClose={onClose} />
+        </ToastContext.Provider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Show in Finder: /p/IMG_1.cr3" }));
+    expect(revealRun).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Show in Finder: /p/IMG_1.jpg" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete photo" }));
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

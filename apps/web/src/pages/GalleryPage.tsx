@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api } from "../api/client";
+import { api, apiPath } from "../api/client";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
 import { photoFilePaths } from "../lib/photoFilePaths";
 import { Spinner } from "../components/LoadingScreen";
@@ -41,6 +41,8 @@ import { useGalleryListing } from "./gallery/useGalleryListing";
 import { useGalleryEdits } from "./gallery/useGalleryEdits";
 import { collapseBursts, useGalleryBursts } from "./gallery/useGalleryBursts";
 import SceneStrip from "./gallery/SceneStrip";
+import AdjustTimeDialog from "./gallery/AdjustTimeDialog";
+import { useBurstScope } from "../hooks/useBurstScope";
 import { GallerySummary, GalleryToolbar } from "./gallery/GalleryHeader";
 import SaveSmartAlbumModal from "./gallery/SaveSmartAlbumModal";
 import { ManagePinsModal, PinFilterModal, PinnedFilters } from "./gallery/PinnedFilters";
@@ -137,9 +139,11 @@ export default function GalleryPage() {
   useReadyMarker(!!items);
   const bursts = useGalleryBursts(allVersions ? null : items);
   // View > Group bursts: one tile per burst. The grid's indexes are mapped back to `items`.
+  // A similar group is there to show its frames, so it never folds.
+  const foldBursts = display.groupBursts && !allVersions && !similarTo;
   const gridItems = useMemo(
-    () => (items && display.groupBursts && !allVersions ? collapseBursts(items, bursts) : items),
-    [items, display.groupBursts, allVersions, bursts],
+    () => (items && foldBursts ? collapseBursts(items, bursts) : items),
+    [items, foldBursts, bursts],
   );
   const itemIndex = useCallback(
     (i: number) => (gridItems === items || !gridItems || !items ? i : items.indexOf(gridItems[i])),
@@ -162,6 +166,7 @@ export default function GalleryPage() {
   const queryKey = galleryParams(query).toString();
   const select = useSelectMode(items, galleryItemId, startInSelectMode, { resetKey: queryKey });
   const { selectMode, setSelectMode, selectedIds, setSelectedIds, dragPreviewIds, dragProps } = select;
+  const soleSelected = selectedIds.size === 1 ? items?.find((it) => selectedIds.has(it.captureId)) : undefined;
   const { toggle } = select;
   const { onDragSelectStart, onDragSelectEnter } = dragProps;
   const openFromGrid = useCallback((i: number) => setLightboxIndex(itemIndex(i)), [itemIndex]);
@@ -216,6 +221,28 @@ export default function GalleryPage() {
     });
   }
 
+  // A selected photo whose burst isn't all selected: one selected frame of each such burst.
+  const burstsToFill = useMemo(() => {
+    const selectedPer = new Map<string, { frame: string; selected: number; count: number }>();
+    for (const id of selectedIds) {
+      const b = bursts.get(id);
+      if (!b) continue;
+      const seen = selectedPer.get(b.burstId);
+      selectedPer.set(b.burstId, { frame: id, selected: (seen?.selected ?? 0) + 1, count: b.count });
+    }
+    return [...selectedPer.values()].filter((b) => b.selected < b.count).map((b) => b.frame);
+  }, [selectedIds, bursts]);
+
+  // Each burst's frames, loaded in the grid or not, from the scene the viewer's strip shows.
+  async function selectWholeBursts() {
+    const results = await Promise.allSettled(
+      burstsToFill.map((id) => api.get(apiPath("/captures/{id}/scene", { id }))),
+    );
+    const frames = results.flatMap((r) => (r.status === "fulfilled" ? r.value.burst : []));
+    if (results.some((r) => r.status === "rejected")) toast.error(t("bursts.selectFailed"));
+    if (frames.length > 0) setSelectedIds((prev) => new Set([...prev, ...frames]));
+  }
+
   function placeSelectionOnMap() {
     setPlacing({
       captureIds: [...selectedIds],
@@ -265,6 +292,10 @@ export default function GalleryPage() {
   const { rateCapture, tagCapture } = edits;
   // Changes every render; the ref keeps the slides memoized.
   const reassignRef = useLatest(edits.reassignSpecies);
+  // Read when the viewer's menu draws, so the slides needn't rebuild each time `edits` changes.
+  const editsRef = useLatest(edits);
+  const [adjustingTimeId, setAdjustingTimeId] = useState<string | null>(null);
+  const dateScope = useBurstScope("date", adjustingTimeId);
   // Saved by CoordinatesModal; the loaded photos follow without a reload.
   const setItems = listing.setItems;
   const applyCoordinates = useCallback(
@@ -333,12 +364,28 @@ export default function GalleryPage() {
             lat: i.lat == null ? null : Number(i.lat),
             lon: i.lon == null ? null : Number(i.lon),
             hasRegion: !!i.regionId,
-            onChange: readOnly ? undefined : (point, region) => applyCoordinates([i.captureId], point, region),
+            onChange: readOnly
+              ? undefined
+              : (point, region, ids) => applyCoordinates(ids ?? [i.captureId], point, region),
+            onUndone: edits.reload,
           },
           captureId: i.captureId,
           onVersionsChange: hiddenView ? undefined : edits.reload,
           onFrameSaved: edits.reload,
-          onReassign: readOnly ? undefined : (species: SpeciesResult) => void reassignRef.current(i.captureId, species),
+          onReassign: readOnly
+            ? undefined
+            : (species: SpeciesResult, ids?: string[]) => void reassignRef.current(i.captureId, species, ids),
+          burstEdits: true,
+          menu: readOnly
+            ? undefined
+            : (close: () => void) => (
+                <GalleryPhotoMenu
+                  item={i}
+                  edits={editsRef.current}
+                  closeMenu={close}
+                  onAdjustTime={() => setAdjustingTimeId(i.captureId)}
+                />
+              ),
           info: {
             cameraModel: i.cameraModel,
             lens: i.lens,
@@ -359,6 +406,7 @@ export default function GalleryPage() {
       rateCapture,
       tagCapture,
       reassignRef,
+      editsRef,
       hiddenView,
       speciesName,
       applyCoordinates,
@@ -427,7 +475,12 @@ export default function GalleryPage() {
     ) : hiddenView ? (
       <HiddenTileMenu onUnhide={() => void unhide([item.captureId])} />
     ) : (
-      <GalleryPhotoMenu item={item} edits={edits} closeMenu={() => setOpenMenuKey(null)} />
+      <GalleryPhotoMenu
+        item={item}
+        edits={edits}
+        closeMenu={() => setOpenMenuKey(null)}
+        onAdjustTime={() => setAdjustingTimeId(item.captureId)}
+      />
     );
 
   return (
@@ -530,8 +583,10 @@ export default function GalleryPage() {
             selectionLacksRegion={
               !!items && items.filter((it) => selectedIds.has(it.captureId) && !it.regionId).length === selectedIds.size
             }
+            revealRefs={[soleSelected?.originalRef, soleSelected?.rawRef]}
+            onSelectBursts={burstsToFill.length > 0 ? () => void selectWholeBursts() : undefined}
             suggestedRegionIds={[
-              selectedIds.size === 1 ? items?.find((it) => selectedIds.has(it.captureId))?.regionId : null,
+              soleSelected?.regionId,
               ...query.regionIds.filter((id) => id !== UNCATEGORIZED_REGION_ID),
             ]}
           />
@@ -602,7 +657,7 @@ export default function GalleryPage() {
         ) : (
           <GalleryGrid
             items={gridItems ?? items}
-            bursts={display.groupBursts ? bursts : undefined}
+            bursts={foldBursts ? bursts : undefined}
             display={display}
             groupBy={groupBy}
             namingStyles={facets.namingStyles}
@@ -711,6 +766,14 @@ export default function GalleryPage() {
         />
       )}
 
+      {adjustingTimeId && (
+        <AdjustTimeDialog
+          captureIds={dateScope.ids}
+          scope={dateScope.control}
+          onClose={() => setAdjustingTimeId(null)}
+          onChanged={edits.reload}
+        />
+      )}
       {edits.addingToAlbumCaptureId && (
         <AddToAlbumModal
           captureIds={[edits.addingToAlbumCaptureId]}

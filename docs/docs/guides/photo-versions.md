@@ -104,7 +104,7 @@ A photo with versions shows a small stack badge, like **3 versions**, in the Gal
 
 Open the photo, and the viewer lists its versions by name under the photo, with the original, edits and exports marked. Click one to see it, or press <kbd>Option</kbd>+<kbd>←</kbd> and <kbd>Option</kbd>+<kbd>→</kbd> (<kbd>Alt</kbd>+<kbd>←</kbd> and <kbd>Alt</kbd>+<kbd>→</kbd> on Windows and Linux). Seeing a version doesn't change which one is the photo. When two versions are the same size, the zoom stays where it is, so you can compare details.
 
-File actions follow the version you see. In the viewer, **Open in** an editor opens the version on screen. In a photo's **⋯** menu, **Reveal in Finder**, **Copy original's path** and **Open in** use the version shown as the photo.
+File actions follow the version you see. In the viewer, **Open in** an editor opens the version on screen. In a photo's **⋯** menu, **Show in Finder**, **Copy file path** and **Open in** use the version shown as the photo.
 
 - **Rename**: double-click a version's name, or click **Rename**, type a name like "Gallery print" and press <kbd>Enter</kbd>. <kbd>Esc</kbd> cancels. Clear the name to go back to the one Lifer chose.
 - **Use this as the photo**: shows that version everywhere the photo appears: grids, the species card and albums. Use it to show the RAW's preview instead of an edit. Undo is in the message that follows.

@@ -206,6 +206,8 @@ Sizes: S about 1 to 2 days, M 3 to 5 days, L 1 to 2 weeks. Model per the review 
 | RF-M2 | Online relief detail from Mapterhorn above zoom 5 in Automatic mode, silent offline fallback, credits | `lib/pmtiles.ts`, `lib/mapCredits.ts`, `pmtilesAvailable.ts`, guides | M | Opus (network, privacy) | None | Licence not yet confirmed; service may change (no SLA) | Offline e2e: map draws, no error (S9) |
 | RF-M3 | Stats atlas: relief map, glass panels, month histogram brush filtering pins | `StatsPage.tsx`, `stats/*`, shared Panel `tone="glass"` | L | Sonnet, Opus review | Possibly a pins-by-month param on the map API | Duplicating Photo map; heavy first paint (P1) | P1 budget on Stats; brush e2e |
 
+**RF-M3 status (2026-11-24):** the timeline half is built. Stats has **Photos over time** (`pages/stats/PhotoTimeline.tsx`): stacked bars per month or year in five animal groups, a keyboard-operable brush that narrows every filtered Stats section through `from` / `to` on `GET /stats` (and the CSV and EXIF bar lists), the range kept in `?dates=`, and **Show on map**, which opens the Photo map with the Gallery's date filter instead of a second map. Data: `GET /stats/timeline` (photos per month and taxon class, plus the undated count). The relief atlas is **not** built: `PhotoMap` is the Gallery's map (URL state, side panel, placing) and not cheap to embed, and a Stats-only map would be the duplicate this row warns about. To build it, split a read-only `PhotoMap` view (pins, relief style, no tray) taking a date range, then float glass panels (countries from `countriesPhotographed`, gear from `gearUsage`) over it and retire `CountriesCard`. Open: the five group colours come from the shared taxa tokens, whose simulated colour-blind separation is low (protanopia birds against mammals about 7 delta E, deuteranopia mammals against reptiles about 4); the chart adds a legend with counts, a table and a hover list, but a lighter or darker step per group in the taxa tokens would fix it everywhere.
+
 ### Wave 4: metadata templates
 
 | ID | Scope | Files | Size | Model | API / schema | Risks | Tests |
@@ -257,6 +259,16 @@ Correction to the starting assumption: `lr:HierarchicalSubject` is already writt
 - **Sandbox:** the Lifer desktop app is not sandboxed, so no sandbox entitlement is needed, only the Automation prompt. A Mac App Store build would need the Apple Events temporary exception.
 - **Matching a photo to a Photos item:** Photos has no stable file path. Match by the Photos `original filename` plus capture date, or by a Lifer-added marker. If the photo isn't in the Photos library, do nothing, never import silently.
 - **Recommendation:** an opt-in, macOS-only "Add keywords in Apple Photos" action using AppleScript, writing only keywords Lifer owns (reusing the RF-K2 written-values record). Fallback that needs no permission: an "Export for Photos" folder of JPEGs carrying keywords, which Photos reads at import. Not verified on a real Photos library.
+
+### Gap fixes (2026-11-24)
+
+Gaps 1 to 6 above are addressed; the guide's "What works and the options" section describes the result.
+
+1. **Sidecar names:** Settings > Metadata > Where keywords go > Sidecar names for RAW files (`IMG_0001.xmp`, `IMG_0001.CR3.xmp`, Both). Moves, trash and export handle both names (`uploads/sidecarNames.ts`).
+2. **In-file toggle:** Write keywords inside photo files (default on); off writes `IMG_0001.JPG.xmp`. Archive health skips a file rewritten mid-hash and pauses during Update existing photos.
+3. **Linked folders:** opt-in sidecars with a dry-run count, keywords and title only, and only into sidecars Lifer created (`xmp:CreatorTool` Lifer) (`uploads/fileWriting.ts`).
+4. **Apple Photos:** Send keywords to Apple Photos, Mac desktop app only, AppleScript through osascript, check first then add (`integrations/applePhotos/`). Not yet run against a real Photos library.
+5. and 6. **DxO, Peakto:** marked untested in the guide, with a how-to-check note each; no diagnostics code.
 
 ## Decisions for you
 

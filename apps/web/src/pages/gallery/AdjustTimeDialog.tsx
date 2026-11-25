@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type ApiResponse } from "../../api/client";
 import Modal from "../../components/Modal";
@@ -48,16 +48,19 @@ export default function AdjustTimeDialog({
   captureIds: selected,
   onClose,
   onChanged,
+  scope,
 }: {
   captureIds: string[];
+  /** The viewer's "Apply to all photos in this burst" checkbox. */
+  scope?: ReactNode;
   onClose: () => void;
   /** After the dates moved (and again after Undo): leave select mode, reload the photos. */
   onChanged: () => void;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
-  // The selection as it was when the dialog opened, for the preview, the shift and its Undo.
-  const [captureIds] = useState(selected);
+  // The photos for the preview, the shift and its Undo: held from Apply on, as the selection clears.
+  const [captureIds, setCaptureIds] = useState(selected);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("shift");
@@ -67,6 +70,8 @@ export default function AdjustTimeDialog({
   const [mins, setMins] = useState("0");
   const [correct, setCorrect] = useState("");
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  // Follows the viewer's "Apply to all photos in this burst" until Apply.
+  if (progress == null && selected.length > 0 && selected.join() !== captureIds.join()) setCaptureIds(selected);
 
   useEffect(() => {
     let live = true;
@@ -142,6 +147,7 @@ export default function AdjustTimeDialog({
       }
     >
       <div className="flex flex-col gap-4 text-callout">
+        {scope}
         <SegmentedControl
           size="md"
           value={mode}

@@ -23,6 +23,8 @@ import { importRoutes } from "./imports/routes.js";
 import { folderImportRoutes } from "./imports/folderRoutes.js";
 import { settingsRoutes } from "./settings/routes.js";
 import { metadataSettingsRoutes } from "./settings/metadataRoutes.js";
+import { fileWriteRoutes } from "./settings/fileWriteRoutes.js";
+import { applePhotosRoutes } from "./integrations/applePhotos/routes.js";
 import { offlinePacksRoutes } from "./offlinePacks/routes.js";
 import { syncRoutes } from "./sync/routes.js";
 import { phoneSyncRoutes } from "./sync/phone.js";
@@ -89,6 +91,8 @@ export async function apiRoutes(api: FastifyInstance): Promise<void> {
   await api.register(folderImportRoutes);
   await api.register(settingsRoutes);
   await api.register(metadataSettingsRoutes);
+  await api.register(fileWriteRoutes);
+  await api.register(applePhotosRoutes);
   await api.register(offlinePacksRoutes);
   await api.register(syncRoutes);
   await api.register(phoneSyncRoutes);

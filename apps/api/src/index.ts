@@ -34,6 +34,7 @@ import { scheduleMovedPhotos } from "./movedPhotos/relink.js";
 import { scheduleVersionGrouping } from "./uploads/versionGrouping.js";
 import { seedCatalogIfEmpty } from "./species/catalogSeedUpdate.js";
 import { ensureRegionRollup } from "./regions/rollup.js";
+import { warmAlbumSuggestions } from "./albums/suggestions.js";
 import { startAssetAutoDownloads } from "./settings/assets.js";
 import { relinkCachedReferenceFiles } from "./species/relinkReferenceFiles.js";
 import { ensureGalleryEmbeddingsOnStartup } from "./species/galleryEmbeddingsAsset.js";
@@ -307,6 +308,8 @@ seedCatalogIfEmpty(pool)
       startReferencePhotoScoring();
       // Builds the Tree of life's region rollup after an update or a catalog change (regions/rollup.ts).
       void ensureRegionRollup();
+      // So New smart album opens with its suggestions already counted (albums/suggestions.ts).
+      warmAlbumSuggestions().catch((err) => app.log.warn({ err }, "Couldn't count album suggestions"));
       // Finishes packs whose hotspots never landed (the app quit between a pack's two steps).
       resumePendingPackHotspots().catch((err) => app.log.warn({ err }, "Couldn't resume pending pack hotspots"));
       // Carries on moving a trip's files when the app quit partway through.

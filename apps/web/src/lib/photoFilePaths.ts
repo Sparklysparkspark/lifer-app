@@ -3,3 +3,8 @@
 export function photoFilePaths(...refs: Array<string | null | undefined>): string[] {
   return [...new Set(refs.filter((r): r is string => !!r))];
 }
+
+/** A stored path's file name, on either OS's separators. */
+export function fileNameOf(ref: string): string {
+  return ref.split(/[\\/]/).pop() || ref;
+}

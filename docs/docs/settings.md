@@ -226,9 +226,9 @@ When something is wrong, a second row, **N files have problems**, opens a list o
 - **Can't be read**: the disk refused to read it.
 - **Missing**: the file is gone but the folder it was in is still there. Files a trip scan couldn't find are listed here too.
 
-Editing a photo, in Lightroom or in Lifer, is never flagged. Each file in the list has **Reveal in Finder** (or **Copy original's path**) and **Ignore**. Ignore on a changed file accepts its contents as they are now; on a missing or unreadable one it hides it until the file is back, and then it clears itself. **Ignore all**, at the top of the list, does the same for every file on it, including any past the first 2,000 shown, after a confirmation that says how many.
+Editing a photo, in Lightroom or in Lifer, is never flagged. Each file in the list has **Show in Finder** (or **Copy file path**) and **Ignore**. Ignore on a changed file accepts its contents as they are now; on a missing or unreadable one it hides it until the file is back, and then it clears itself. **Ignore all**, at the top of the list, does the same for every file on it, including any past the first 2,000 shown, after a confirmation that says how many.
 
-When Lifer runs from a server whose library folder is also mounted on your Mac (a NAS share under /Volumes), **Reveal in Finder** opens the file there. The Mac finds the share by looking for a sample file the server names, so it only ever looks for the server's own library folders. Mounting or moving the share is picked up when you come back to Lifer's window, or when a reveal misses, with no reload needed.
+When Lifer runs from a server whose library folder is also mounted on your Mac (a NAS share under /Volumes), **Show in Finder** opens the file there. The Mac finds the share by looking for a sample file the server names, so it only ever looks for the server's own library folders. Mounting or moving the share is picked up when you come back to Lifer's window, or when a reveal misses, with no reload needed.
 
 ### Remove all Lifer data {#remove-all-data}
 

@@ -5,12 +5,16 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tauri::{AppHandle, WebviewWindow};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::security::is_app_page;
 
 /// The system's own handler for the file type, offered beside the editors found.
 const SYSTEM: &str = "system";
+/// An app the user picked in the system's own file picker, kept on this computer only.
+const OTHER: &str = "other";
+const OTHER_FILE: &str = "other-editor.txt";
 const MAX_FILES: usize = 200;
 // Keeps a scan of a big Applications or Program Files folder to a moment.
 const MAX_DEPTH: usize = 3;
@@ -38,45 +42,33 @@ struct Editor {
     name: &'static str,
     /// macOS: start of the .app name.
     mac: &'static str,
-    /// Windows: a folder name the program sits under, and the start of its .exe name.
+    /// Windows: a folder name the program sits under, and the start of its .exe name; empty when
+    /// there is no Windows version.
     win_dir: &'static str,
     win_exe: &'static str,
-    /// Linux: the command on PATH.
-    bin: &'static str,
+    /// Linux: commands on PATH, Flatpak's exported app ids included.
+    bins: &'static [&'static str],
 }
 
-const EDITORS: [Editor; 8] = [
+/// In the order Lifer suggests them: raw developers before pixel editors, so the first one found
+/// is the default rather than whatever the system opens photos with.
+const EDITORS: [Editor; 12] = [
     Editor {
         id: "lightroom-classic",
         name: "Lightroom Classic",
         mac: "Adobe Lightroom Classic",
         win_dir: "lightroom classic",
         win_exe: "lightroom",
-        bin: "",
+        bins: &[],
     },
+    // The cloud app's bundle is exactly this name; a prefix alone would also match Classic.
     Editor {
-        id: "photoshop",
-        name: "Photoshop",
-        mac: "Adobe Photoshop",
-        win_dir: "adobe photoshop",
-        win_exe: "photoshop",
-        bin: "",
-    },
-    Editor {
-        id: "capture-one",
-        name: "Capture One",
-        mac: "Capture One",
-        win_dir: "capture one",
-        win_exe: "captureone",
-        bin: "",
-    },
-    Editor {
-        id: "dxo",
-        name: "DxO PhotoLab",
-        mac: "DxO PhotoLab",
-        win_dir: "dxo",
-        win_exe: "dxo.photolab",
-        bin: "",
+        id: "lightroom",
+        name: "Lightroom",
+        mac: "Adobe Lightroom.app",
+        win_dir: "adobe lightroom cc",
+        win_exe: "lightroom",
+        bins: &[],
     },
     Editor {
         id: "darktable",
@@ -84,23 +76,55 @@ const EDITORS: [Editor; 8] = [
         mac: "darktable",
         win_dir: "darktable",
         win_exe: "darktable",
-        bin: "darktable",
+        bins: &["darktable", "org.darktable.Darktable"],
     },
     Editor {
-        id: "rawtherapee",
-        name: "RawTherapee",
-        mac: "RawTherapee",
-        win_dir: "rawtherapee",
-        win_exe: "rawtherapee",
-        bin: "rawtherapee",
+        id: "dxo",
+        name: "DxO PhotoLab",
+        mac: "DxO PhotoLab",
+        win_dir: "dxo",
+        win_exe: "dxo.photolab",
+        bins: &[],
+    },
+    Editor {
+        id: "aftershoot",
+        name: "Aftershoot",
+        mac: "Aftershoot",
+        win_dir: "aftershoot",
+        win_exe: "aftershoot",
+        bins: &["aftershoot"],
+    },
+    Editor {
+        id: "capture-one",
+        name: "Capture One",
+        mac: "Capture One",
+        win_dir: "capture one",
+        win_exe: "captureone",
+        bins: &[],
     },
     Editor {
         id: "affinity",
-        name: "Affinity",
+        name: "Affinity Photo",
         mac: "Affinity",
         win_dir: "affinity",
         win_exe: "photo",
-        bin: "",
+        bins: &[],
+    },
+    Editor {
+        id: "photoshop",
+        name: "Photoshop",
+        mac: "Adobe Photoshop",
+        win_dir: "adobe photoshop",
+        win_exe: "photoshop",
+        bins: &[],
+    },
+    Editor {
+        id: "pixelmator-pro",
+        name: "Pixelmator Pro",
+        mac: "Pixelmator Pro",
+        win_dir: "",
+        win_exe: "",
+        bins: &[],
     },
     Editor {
         id: "gimp",
@@ -108,7 +132,23 @@ const EDITORS: [Editor; 8] = [
         mac: "GIMP",
         win_dir: "gimp",
         win_exe: "gimp-",
-        bin: "gimp",
+        bins: &["gimp", "org.gimp.GIMP"],
+    },
+    Editor {
+        id: "photomator",
+        name: "Photomator",
+        mac: "Photomator",
+        win_dir: "",
+        win_exe: "",
+        bins: &[],
+    },
+    Editor {
+        id: "rawtherapee",
+        name: "RawTherapee",
+        mac: "RawTherapee",
+        win_dir: "rawtherapee",
+        win_exe: "rawtherapee",
+        bins: &["rawtherapee", "com.rawtherapee.RawTherapee"],
     },
 ];
 
@@ -214,6 +254,9 @@ fn locate(e: &Editor, os: Os, roots: &Roots) -> Option<PathBuf> {
                 .find_map(|r| find(r, MAX_DEPTH, &mut 0, &pred))
         }
         Os::Windows => {
+            if e.win_exe.is_empty() {
+                return None;
+            }
             let pred = |p: &Path| {
                 p.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe"))
                     && lower(p).starts_with(e.win_exe)
@@ -224,16 +267,11 @@ fn locate(e: &Editor, os: Os, roots: &Roots) -> Option<PathBuf> {
                 .iter()
                 .find_map(|r| find(r, MAX_DEPTH + 1, &mut 0, &pred))
         }
-        Os::Linux => {
-            if e.bin.is_empty() {
-                return None;
-            }
-            roots
-                .path
-                .iter()
-                .map(|d| d.join(e.bin))
-                .find(|p| p.is_file())
-        }
+        Os::Linux => e
+            .bins
+            .iter()
+            .flat_map(|b| roots.path.iter().map(move |d| d.join(b)))
+            .find(|p| p.is_file()),
     }
 }
 
@@ -257,13 +295,74 @@ fn detect(os: Os, roots: &Roots) -> Vec<EditorInfo> {
     found
 }
 
+/// The app picked with Other..., while it is still there.
+fn other_editor(app: &AppHandle) -> Option<PathBuf> {
+    let saved = std::fs::read_to_string(crate::app_data_dir(app).join(OTHER_FILE)).ok()?;
+    let program = PathBuf::from(saved.trim());
+    program.exists().then_some(program)
+}
+
+fn other_info(program: &Path) -> EditorInfo {
+    EditorInfo {
+        id: OTHER.into(),
+        name: program
+            .file_stem()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Other app".into()),
+    }
+}
+
 #[tauri::command]
-pub fn editors_list(window: WebviewWindow) -> Vec<EditorInfo> {
+pub fn editors_list(app: AppHandle, window: WebviewWindow) -> Vec<EditorInfo> {
     if !is_app_page(&window) {
         return Vec::new();
     }
     let os = current_os();
-    detect(os, &system_roots(os))
+    let mut found = detect(os, &system_roots(os));
+    if let Some(program) = other_editor(&app) {
+        let at = found.len().saturating_sub(usize::from(!found.is_empty()));
+        found.insert(at, other_info(&program));
+        if found.len() == 1 {
+            found.push(EditorInfo {
+                id: SYSTEM.into(),
+                name: "System default".into(),
+            });
+        }
+    }
+    found
+}
+
+/// Other...: the system's file picker chooses the app, so a page never names a program to run.
+/// None when the picker was cancelled.
+#[tauri::command]
+pub async fn editor_pick_other(
+    app: AppHandle,
+    window: WebviewWindow,
+) -> Result<Option<EditorInfo>, String> {
+    if !is_app_page(&window) {
+        return Err("Not allowed".into());
+    }
+    let dialog = app.dialog().file().set_title("Choose a photo editor");
+    let dialog = match current_os() {
+        Os::Mac => dialog
+            .set_directory("/Applications")
+            .add_filter("Applications", &["app"]),
+        Os::Windows => dialog.add_filter("Programs", &["exe"]),
+        Os::Linux => dialog,
+    };
+    let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_file())
+        .await
+        .ok()
+        .flatten();
+    let Some(picked) = picked.and_then(|p| p.into_path().ok()) else {
+        return Ok(None);
+    };
+    std::fs::write(
+        crate::app_data_dir(&app).join(OTHER_FILE),
+        picked.to_string_lossy().as_bytes(),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(Some(other_info(&picked)))
 }
 
 fn launch(os: Os, program: &Path, files: &[PathBuf]) -> Result<(), String> {
@@ -309,6 +408,10 @@ pub fn open_in(
         return Ok(());
     }
     let os = current_os();
+    if editor_id == OTHER {
+        let program = other_editor(&app).ok_or("That editor isn't installed")?;
+        return launch(os, &program, &files);
+    }
     let editor = EDITORS
         .iter()
         .find(|e| e.id == editor_id)
@@ -347,7 +450,11 @@ mod tests {
         fs::create_dir_all(dir.join("darktable.app")).unwrap();
         fs::create_dir_all(dir.join("Adobe Lightroom.app")).unwrap(); // the cloud app, not Classic
         let found = detect(Os::Mac, &roots(&dir));
-        assert_eq!(ids(&found), ["photoshop", "darktable", "system"]);
+        // In Lifer's suggested order, not the folder's.
+        assert_eq!(
+            ids(&found),
+            ["lightroom", "darktable", "photoshop", "system"]
+        );
     }
 
     #[test]
@@ -368,9 +475,10 @@ mod tests {
         let dir = scratch("linux");
         fs::create_dir_all(dir.join("bin")).unwrap();
         fs::write(dir.join("bin/rawtherapee"), b"").unwrap();
+        fs::write(dir.join("bin/org.darktable.Darktable"), b"").unwrap(); // a Flatpak export
         assert_eq!(
             ids(&detect(Os::Linux, &roots(&dir))),
-            ["rawtherapee", "system"]
+            ["darktable", "rawtherapee", "system"]
         );
     }
 
@@ -378,5 +486,35 @@ mod tests {
     fn lists_nothing_when_no_editor_is_installed() {
         let dir = scratch("none");
         assert!(detect(Os::Mac, &roots(&dir)).is_empty());
+    }
+
+    #[test]
+    fn finds_lightroom_classic_and_mac_only_editors_and_skips_them_on_windows() {
+        let dir = scratch("mac2");
+        fs::create_dir_all(dir.join("Adobe Lightroom Classic/Adobe Lightroom Classic.app"))
+            .unwrap();
+        fs::create_dir_all(dir.join("Pixelmator Pro.app")).unwrap();
+        fs::create_dir_all(dir.join("Aftershoot.app")).unwrap();
+        assert_eq!(
+            ids(&detect(Os::Mac, &roots(&dir))),
+            [
+                "lightroom-classic",
+                "aftershoot",
+                "pixelmator-pro",
+                "system"
+            ]
+        );
+        let win = scratch("win2");
+        fs::create_dir_all(win.join("Pixelmator Pro")).unwrap();
+        fs::write(win.join("Pixelmator Pro/pixelmator.exe"), b"").unwrap();
+        assert!(detect(Os::Windows, &roots(&win)).is_empty());
+    }
+
+    #[test]
+    fn names_a_picked_app_by_its_file() {
+        assert_eq!(
+            other_info(Path::new("/Applications/ON1 Photo RAW.app")).name,
+            "ON1 Photo RAW"
+        );
     }
 }

@@ -1,10 +1,10 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useOpenInEditors } from "../../hooks/useOpenInEditors";
+import { useRevealFiles } from "../../hooks/useRevealOriginal";
 import { useInatStatus } from "../../hooks/useInatStatus";
 import { useSendToInat } from "../../hooks/useSendToInat";
-import RegionBrowser from "../../components/RegionBrowser";
-import PlaceNameInput from "../../components/PlaceNameInput";
+import SetRegionDialog from "../../components/SetRegionDialog";
 import SpeciesPicker from "../../components/SpeciesPicker";
 import TagEditor from "../../components/TagEditor";
 import AddToAlbumModal from "../../components/AddToAlbumModal";
@@ -13,6 +13,8 @@ import Button from "../../components/Button";
 import StarRating from "../../components/StarRating";
 import type { GalleryEdits } from "./useGalleryEdits";
 import AdjustTimeDialog from "./AdjustTimeDialog";
+import ApplePhotosDialog from "../../components/ApplePhotosDialog";
+import { useApplePhotosAvailable } from "../../hooks/useApplePhotosAvailable";
 import CoordinatesModal from "../../components/CoordinatesModal";
 import type { Appearance } from "@lifer/shared";
 import { AppearanceModal } from "../../components/Appearance";
@@ -20,62 +22,8 @@ import { SelectionBar, type BarAction } from "../../components/SelectionActionRo
 import { deleteBarActions } from "../../hooks/useDeleteCaptures";
 import { COMPARE_MAX, COMPARE_MIN } from "../../lib/compareZoom";
 
-// Same region picker as a photo's location editor, for the whole selection.
-function SetRegionDialog({
-  count,
-  onSet,
-  onClose,
-  suggestedRegionIds,
-}: {
-  count: number;
-  onSet: (regionId: string, locationLabel: string) => Promise<void>;
-  onClose: () => void;
-  suggestedRegionIds: Array<string | null | undefined>;
-}) {
-  const { t } = useTranslation();
-  const [regionId, setRegionId] = useState<string | null>(null);
-  const [label, setLabel] = useState("");
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t("gallery.select.setRegionTitle", { count })}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            {t("common.cancel")}
-          </Button>
-          <Button
-            disabled={!regionId}
-            onClick={() => {
-              if (regionId) void onSet(regionId, label);
-              onClose();
-            }}
-          >
-            {t("gallery.select.setRegionApply")}
-          </Button>
-        </>
-      }
-    >
-      <RegionBrowser
-        regionId={regionId}
-        onChange={setRegionId}
-        allowAnyRegion
-        suggestedRegionIds={suggestedRegionIds}
-      />
-      <div className="mt-4 text-callout">
-        <label htmlFor="bulk-place-name" className="mb-1 block text-muted">
-          {t("captureEdit.location.placeName")}
-          <span className="ml-1.5 text-footnote">{t("import.rows.optional")}</span>
-        </label>
-        <PlaceNameInput id="bulk-place-name" value={label} onChange={setLabel} regionId={regionId} />
-        <p className="mt-1 text-footnote text-muted">{t("gallery.select.setRegionPlaceHint")}</p>
-      </div>
-    </Modal>
-  );
-}
-
-type BarDialog = "correctId" | "tag" | "rate" | "region" | "album" | "adjustTime" | "coordinates" | "appearance";
+type BarDialog =
+  "correctId" | "tag" | "rate" | "region" | "album" | "adjustTime" | "coordinates" | "appearance" | "applePhotos";
 
 // Select mode's bar. In the album picker it only adds to that album; otherwise each action opens
 // its own dialog: correct the ID, tag, rate, set the region, add to any album; or downloads,
@@ -98,6 +46,8 @@ export function GallerySelectBar({
   total,
   onSelectAll,
   onDeselectAll,
+  revealRefs,
+  onSelectBursts,
 }: {
   selectedIds: ReadonlySet<string>;
   selectingAll: boolean;
@@ -130,12 +80,18 @@ export function GallerySelectBar({
   total?: number;
   onSelectAll?: () => void;
   onDeselectAll?: () => void;
+  /** The one selected photo's stored files, for Show in Finder. */
+  revealRefs?: ReadonlyArray<string | null | undefined>;
+  /** Adds the rest of each selected photo's burst; set while some burst is only partly selected. */
+  onSelectBursts?: () => void;
 }) {
   const { t } = useTranslation();
   const { bulk } = edits;
   const openInEditors = useOpenInEditors();
+  const reveals = useRevealFiles(selectedIds.size === 1 ? (revealRefs ?? []) : []);
   const inat = useInatStatus();
   const sendToInat = useSendToInat();
+  const applePhotos = useApplePhotosAvailable();
   const count = selectedIds.size;
   const [dialog, setDialog] = useState<BarDialog | null>(null);
   const close = () => setDialog(null);
@@ -176,6 +132,7 @@ export function GallerySelectBar({
             ]
           : []),
         ...(regionFirst ? [regionAction] : []),
+        ...(onSelectBursts ? [{ key: "selectBursts", label: t("bursts.selectWhole"), onClick: onSelectBursts }] : []),
         {
           key: "correctId",
           label: bulk.batchReassigning ? t("gallery.select.reassigning") : t("gallery.select.correctId"),
@@ -212,6 +169,7 @@ export function GallerySelectBar({
           onClick: () => openInEditors.openIn(editor, { captureIds: [...selectedIds].slice(0, 200) }),
           menuOnly: true,
         })),
+        ...reveals.map((reveal) => ({ key: `reveal-${reveal.label}`, label: reveal.label, onClick: reveal.run, menuOnly: true })),
         {
           key: "appearance",
           label: t("appearance.action"),
@@ -224,6 +182,16 @@ export function GallerySelectBar({
           onClick: () => setDialog("adjustTime"),
           menuOnly: true,
         },
+        ...(applePhotos
+          ? [
+              {
+                key: "applePhotos",
+                label: t("applePhotos.action"),
+                onClick: () => setDialog("applePhotos"),
+                menuOnly: true,
+              },
+            ]
+          : []),
         ...deleteActions,
       ];
 
@@ -335,6 +303,7 @@ export function GallerySelectBar({
           }}
         />
       )}
+      {dialog === "applePhotos" && <ApplePhotosDialog captureIds={[...selectedIds]} onClose={close} />}
     </SelectionBar>
   );
 }

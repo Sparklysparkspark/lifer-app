@@ -94,11 +94,11 @@ Keep in mind:
 
 This only affects species recognition. Your photos are still uploaded to and stored on the server as usual.
 
-## Reveal in Finder for the server's files {#reveal-in-finder}
+## Show in Finder for the server's files {#reveal-in-finder}
 
-If the server's photo folders are also shared to your Mac (for example a NAS share mounted at `/Volumes/NAS`), photo menus offer **Reveal in Finder** for the server's files too. There's nothing to set up: when you connect, the app looks for one of your photos under each mounted volume in `/Volumes`, up to four folders deep, and checks that it's the same size as on the server. Once found, it remembers where the share is, and looks again if the share moves.
+If the server's photo folders are also shared to your Mac (for example a NAS share mounted at `/Volumes/NAS`), photo menus offer **Show in Finder** for the server's files too. There's nothing to set up: when you connect, the app looks for one of your photos under each mounted volume in `/Volumes`, up to four folders deep, and checks that it's the same size as on the server. Once found, it remembers where the share is, and looks again if the share moves.
 
-When the share isn't mounted on this Mac, or the app can't find it, photo menus offer **Copy original's path** instead, which copies the file's path on the server. Mount the share in Finder (**Go > Connect to Server**) and reload the window to switch back to Reveal in Finder.
+When the share isn't mounted on this Mac, or the app can't find it, photo menus offer **Copy file path** instead, which copies the file's path on the server. Mount the share in Finder (**Go > Connect to Server**) and reload the window to switch back to Show in Finder.
 
 ## What's different when connected
 

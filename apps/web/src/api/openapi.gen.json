@@ -3183,11 +3183,24 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["dismissedCount", "suggestions"],
+                  "required": ["dismissedCount", "startMatches", "suggestions"],
                   "properties": {
                     "dismissedCount": {
                       "type": "integer",
                       "description": "How many dismissed suggestions could be restored"
+                    },
+                    "startMatches": {
+                      "type": "object",
+                      "required": ["photoCount", "previewPhotoIds"],
+                      "properties": {
+                        "photoCount": { "type": "integer" },
+                        "previewPhotoIds": {
+                          "type": "array",
+                          "items": { "type": "string", "format": "uuid" },
+                          "maxItems": 8
+                        }
+                      },
+                      "description": "What a new smart album's starting rules match, so the builder shows it before counting"
                     },
                     "suggestions": {
                       "type": "array",
@@ -3689,6 +3702,205 @@
             "content": {
               "application/json": {
                 "schema": { "type": "object", "required": ["ok"], "properties": { "ok": { "type": "boolean" } } }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/apple-photos/send": {
+      "post": {
+        "summary": "POST /apple-photos/send",
+        "tags": ["apple-photos"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["mode"],
+                "properties": {
+                  "mode": { "enum": ["check", "send"] },
+                  "captureIds": { "type": "array", "items": { "type": "string", "format": "uuid" }, "maxItems": 20000 },
+                  "albumId": { "type": "string", "format": "uuid" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["started"],
+                  "properties": { "started": { "type": "boolean" } }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/apple-photos/send/cancel": {
+      "post": {
+        "summary": "POST /apple-photos/send/cancel",
+        "tags": ["apple-photos"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["cancelled"],
+                  "properties": { "cancelled": { "type": "boolean" } }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/apple-photos/send/status": {
+      "get": {
+        "summary": "GET /apple-photos/send/status",
+        "tags": ["apple-photos"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "running",
+                    "phase",
+                    "downloadedBytes",
+                    "totalBytes",
+                    "processed",
+                    "total",
+                    "currentItem",
+                    "error",
+                    "finishedAt",
+                    "cancelRequested",
+                    "cancelled",
+                    "result",
+                    "mode",
+                    "photos",
+                    "found",
+                    "notFound",
+                    "added",
+                    "unchanged",
+                    "failed",
+                    "problem"
+                  ],
+                  "properties": {
+                    "running": { "type": "boolean" },
+                    "phase": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "downloadedBytes": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                    "totalBytes": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                    "processed": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                    "total": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                    "currentItem": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "error": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "finishedAt": {
+                      "anyOf": [
+                        { "type": "number", "description": "Epoch ms of the last completion" },
+                        { "type": "null" }
+                      ]
+                    },
+                    "cancelRequested": { "type": "boolean" },
+                    "cancelled": { "type": "boolean" },
+                    "result": { "anyOf": [{}, { "type": "null" }] },
+                    "mode": { "anyOf": [{ "enum": ["check", "send"] }, { "type": "null" }] },
+                    "photos": { "type": "integer" },
+                    "found": { "type": "integer" },
+                    "notFound": { "type": "integer" },
+                    "added": { "type": "integer" },
+                    "unchanged": { "type": "integer" },
+                    "failed": { "type": "integer" },
+                    "problem": {
+                      "anyOf": [{ "enum": ["automation_denied", "photos_unavailable"] }, { "type": "null" }]
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/apple-photos/status": {
+      "get": {
+        "summary": "GET /apple-photos/status",
+        "tags": ["apple-photos"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["available"],
+                  "properties": { "available": { "type": "boolean" } }
+                }
               }
             }
           },
@@ -20060,6 +20272,10 @@
                     "items": { "type": "string", "format": "uuid" },
                     "minItems": 1,
                     "maxItems": 200
+                  },
+                  "edited": {
+                    "type": "boolean",
+                    "description": "The edited file instead of the RAW, for a photo with both"
                   }
                 },
                 "additionalProperties": false
@@ -20639,6 +20855,11 @@
                     },
                     "hidden": { "type": "boolean" },
                     "linkedExisting": { "type": "boolean" },
+                    "linkedOriginalId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "description": "With linkedExisting: the RAW file added to that photo, for POST /uploads/raw/undo-link"
+                    },
                     "sha256": {
                       "type": "string",
                       "description": "sha256 (hex) of the stored file's bytes, to verify the upload"
@@ -26471,6 +26692,310 @@
         }
       }
     },
+    "/settings/file-writing": {
+      "get": {
+        "summary": "GET /settings/file-writing",
+        "tags": ["settings"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["sidecarNames", "insideFiles", "linkedFolders"],
+                  "properties": {
+                    "sidecarNames": {
+                      "enum": ["stem", "full", "both"],
+                      "description": "RAW sidecar names: IMG_0001.xmp (stem), IMG_0001.CR3.xmp (full), or both"
+                    },
+                    "insideFiles": {
+                      "type": "boolean",
+                      "description": "Write keywords inside JPEG, TIFF, PNG, DNG, WebP and HEIC files"
+                    },
+                    "linkedFolders": {
+                      "type": "boolean",
+                      "description": "Also write sidecars next to files in linked folders"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      },
+      "put": {
+        "summary": "PUT /settings/file-writing",
+        "tags": ["settings"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sidecarNames": {
+                    "enum": ["stem", "full", "both"],
+                    "description": "RAW sidecar names: IMG_0001.xmp (stem), IMG_0001.CR3.xmp (full), or both"
+                  },
+                  "insideFiles": {
+                    "type": "boolean",
+                    "description": "Write keywords inside JPEG, TIFF, PNG, DNG, WebP and HEIC files"
+                  },
+                  "linkedFolders": {
+                    "type": "boolean",
+                    "description": "Also write sidecars next to files in linked folders"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["sidecarNames", "insideFiles", "linkedFolders"],
+                  "properties": {
+                    "sidecarNames": {
+                      "enum": ["stem", "full", "both"],
+                      "description": "RAW sidecar names: IMG_0001.xmp (stem), IMG_0001.CR3.xmp (full), or both"
+                    },
+                    "insideFiles": {
+                      "type": "boolean",
+                      "description": "Write keywords inside JPEG, TIFF, PNG, DNG, WebP and HEIC files"
+                    },
+                    "linkedFolders": {
+                      "type": "boolean",
+                      "description": "Also write sidecars next to files in linked folders"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/settings/file-writing/apply": {
+      "post": {
+        "summary": "POST /settings/file-writing/apply",
+        "tags": ["settings"],
+        "parameters": [
+          {
+            "name": "background",
+            "in": "query",
+            "required": false,
+            "description": "1 to start the job and return at once, for polling",
+            "schema": { "type": "string", "const": "1" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "started": { "type": "boolean" },
+                    "written": { "type": "integer" },
+                    "failed": { "type": "integer" }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/settings/file-writing/apply/cancel": {
+      "post": {
+        "summary": "POST /settings/file-writing/apply/cancel",
+        "tags": ["settings"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["cancelled"],
+                  "properties": { "cancelled": { "type": "boolean" } }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/settings/file-writing/apply/status": {
+      "get": {
+        "summary": "GET /settings/file-writing/apply/status",
+        "tags": ["settings"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "running",
+                    "phase",
+                    "downloadedBytes",
+                    "totalBytes",
+                    "processed",
+                    "total",
+                    "currentItem",
+                    "error",
+                    "finishedAt",
+                    "cancelRequested",
+                    "cancelled",
+                    "result",
+                    "written",
+                    "failed"
+                  ],
+                  "properties": {
+                    "running": { "type": "boolean" },
+                    "phase": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "downloadedBytes": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                    "totalBytes": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                    "processed": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                    "total": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                    "currentItem": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "error": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "finishedAt": {
+                      "anyOf": [
+                        { "type": "number", "description": "Epoch ms of the last completion" },
+                        { "type": "null" }
+                      ]
+                    },
+                    "cancelRequested": { "type": "boolean" },
+                    "cancelled": { "type": "boolean" },
+                    "result": { "anyOf": [{}, { "type": "null" }] },
+                    "written": { "type": "integer" },
+                    "failed": { "type": "integer" }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/settings/file-writing/linked-preview": {
+      "get": {
+        "summary": "GET /settings/file-writing/linked-preview",
+        "tags": ["settings"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["files", "create", "update", "skip", "unavailable"],
+                  "properties": {
+                    "files": { "type": "integer", "description": "Linked files Lifer knows" },
+                    "create": { "type": "integer", "description": "Sidecars Lifer would create" },
+                    "update": { "type": "integer", "description": "Sidecars Lifer made before and would update" },
+                    "skip": { "type": "integer", "description": "Sidecars another app made, left alone" },
+                    "unavailable": {
+                      "type": "integer",
+                      "description": "Linked files not reachable now (a disconnected drive)"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
     "/settings/folder-layout": {
       "put": {
         "summary": "PUT /settings/folder-layout",
@@ -26966,6 +27491,285 @@
         }
       }
     },
+    "/settings/metadata-fields": {
+      "get": {
+        "summary": "GET /settings/metadata-fields",
+        "tags": ["settings"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["fields", "variables", "captionPresets"],
+                  "properties": {
+                    "fields": {
+                      "type": "object",
+                      "required": ["title", "headline", "caption", "keywords", "multiSpecies"],
+                      "properties": {
+                        "title": {
+                          "type": "object",
+                          "required": ["template", "rule"],
+                          "properties": {
+                            "template": { "type": "string", "maxLength": 2000 },
+                            "rule": { "enum": ["fillEmpty", "replace", "append", "off"] }
+                          },
+                          "additionalProperties": false
+                        },
+                        "headline": {
+                          "type": "object",
+                          "required": ["template", "rule"],
+                          "properties": {
+                            "template": { "type": "string", "maxLength": 2000 },
+                            "rule": { "enum": ["fillEmpty", "replace", "append", "off"] }
+                          },
+                          "additionalProperties": false
+                        },
+                        "caption": {
+                          "type": "object",
+                          "required": ["template", "rule"],
+                          "properties": {
+                            "template": { "type": "string", "maxLength": 2000 },
+                            "rule": { "enum": ["fillEmpty", "replace", "append", "off"] }
+                          },
+                          "additionalProperties": false
+                        },
+                        "keywords": {
+                          "type": "object",
+                          "required": ["template", "rule"],
+                          "properties": {
+                            "template": { "type": "string", "maxLength": 2000 },
+                            "rule": { "enum": ["fillEmpty", "replace", "append", "off"] }
+                          },
+                          "additionalProperties": false
+                        },
+                        "multiSpecies": { "enum": ["all", "main"] }
+                      },
+                      "additionalProperties": false,
+                      "description": "Templates for Title, Headline, Caption and extra Keywords (comma separated), each with its write rule: fillEmpty, replace (what Lifer wrote), append, or off"
+                    },
+                    "variables": { "type": "array", "items": { "type": "string" } },
+                    "captionPresets": { "type": "object", "patternProperties": { "^.*$": { "type": "string" } } }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      },
+      "put": {
+        "summary": "PUT /settings/metadata-fields",
+        "tags": ["settings"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title", "headline", "caption", "keywords", "multiSpecies"],
+                "properties": {
+                  "title": {
+                    "type": "object",
+                    "required": ["template", "rule"],
+                    "properties": {
+                      "template": { "type": "string", "maxLength": 2000 },
+                      "rule": { "enum": ["fillEmpty", "replace", "append", "off"] }
+                    },
+                    "additionalProperties": false
+                  },
+                  "headline": {
+                    "type": "object",
+                    "required": ["template", "rule"],
+                    "properties": {
+                      "template": { "type": "string", "maxLength": 2000 },
+                      "rule": { "enum": ["fillEmpty", "replace", "append", "off"] }
+                    },
+                    "additionalProperties": false
+                  },
+                  "caption": {
+                    "type": "object",
+                    "required": ["template", "rule"],
+                    "properties": {
+                      "template": { "type": "string", "maxLength": 2000 },
+                      "rule": { "enum": ["fillEmpty", "replace", "append", "off"] }
+                    },
+                    "additionalProperties": false
+                  },
+                  "keywords": {
+                    "type": "object",
+                    "required": ["template", "rule"],
+                    "properties": {
+                      "template": { "type": "string", "maxLength": 2000 },
+                      "rule": { "enum": ["fillEmpty", "replace", "append", "off"] }
+                    },
+                    "additionalProperties": false
+                  },
+                  "multiSpecies": { "enum": ["all", "main"] }
+                },
+                "additionalProperties": false,
+                "description": "Templates for Title, Headline, Caption and extra Keywords (comma separated), each with its write rule: fillEmpty, replace (what Lifer wrote), append, or off"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["fields"],
+                  "properties": {
+                    "fields": {
+                      "type": "object",
+                      "required": ["title", "headline", "caption", "keywords", "multiSpecies"],
+                      "properties": {
+                        "title": {
+                          "type": "object",
+                          "required": ["template", "rule"],
+                          "properties": {
+                            "template": { "type": "string", "maxLength": 2000 },
+                            "rule": { "enum": ["fillEmpty", "replace", "append", "off"] }
+                          },
+                          "additionalProperties": false
+                        },
+                        "headline": {
+                          "type": "object",
+                          "required": ["template", "rule"],
+                          "properties": {
+                            "template": { "type": "string", "maxLength": 2000 },
+                            "rule": { "enum": ["fillEmpty", "replace", "append", "off"] }
+                          },
+                          "additionalProperties": false
+                        },
+                        "caption": {
+                          "type": "object",
+                          "required": ["template", "rule"],
+                          "properties": {
+                            "template": { "type": "string", "maxLength": 2000 },
+                            "rule": { "enum": ["fillEmpty", "replace", "append", "off"] }
+                          },
+                          "additionalProperties": false
+                        },
+                        "keywords": {
+                          "type": "object",
+                          "required": ["template", "rule"],
+                          "properties": {
+                            "template": { "type": "string", "maxLength": 2000 },
+                            "rule": { "enum": ["fillEmpty", "replace", "append", "off"] }
+                          },
+                          "additionalProperties": false
+                        },
+                        "multiSpecies": { "enum": ["all", "main"] }
+                      },
+                      "additionalProperties": false,
+                      "description": "Templates for Title, Headline, Caption and extra Keywords (comma separated), each with its write rule: fillEmpty, replace (what Lifer wrote), append, or off"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/settings/metadata-preview": {
+      "get": {
+        "summary": "GET /settings/metadata-preview",
+        "tags": ["settings"],
+        "parameters": [
+          { "name": "captureId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "multiSpecies", "in": "query", "required": false, "schema": { "enum": ["all", "main"] } }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["sample", "captureId", "values", "fields"],
+                  "properties": {
+                    "sample": {
+                      "type": "boolean",
+                      "description": "True when the user has no photos and a made-up one is shown"
+                    },
+                    "captureId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "values": {
+                      "type": "object",
+                      "patternProperties": { "^.*$": { "anyOf": [{ "type": "string" }, { "type": "null" }] } }
+                    },
+                    "fields": {
+                      "type": "object",
+                      "required": [
+                        "title",
+                        "headline",
+                        "caption",
+                        "keywords",
+                        "creator",
+                        "copyright",
+                        "credit",
+                        "usageTerms"
+                      ],
+                      "properties": {
+                        "title": { "type": "string" },
+                        "headline": { "type": "string" },
+                        "caption": { "type": "string" },
+                        "keywords": { "type": "array", "items": { "type": "string" } },
+                        "creator": { "type": "string" },
+                        "copyright": { "type": "string" },
+                        "credit": { "type": "string" },
+                        "usageTerms": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
     "/settings/metadata-template": {
       "put": {
         "summary": "PUT /settings/metadata-template",
@@ -27044,6 +27848,13 @@
             "required": false,
             "description": "1 to start the job and return at once, for polling",
             "schema": { "type": "string", "const": "1" }
+          },
+          {
+            "name": "dryRun",
+            "in": "query",
+            "required": false,
+            "description": "1 to count what would change, and what stays as someone edited it, without writing",
+            "schema": { "type": "string", "const": "1" }
           }
         ],
         "responses": {
@@ -27057,7 +27868,9 @@
                     "started": { "type": "boolean" },
                     "updated": { "type": "integer" },
                     "unchanged": { "type": "integer" },
-                    "failed": { "type": "integer" }
+                    "failed": { "type": "integer" },
+                    "edited": { "type": "integer" },
+                    "dryRun": { "type": "boolean" }
                   },
                   "additionalProperties": true
                 }
@@ -27139,7 +27952,9 @@
                     "result",
                     "updated",
                     "unchanged",
-                    "failed"
+                    "failed",
+                    "edited",
+                    "dryRun"
                   ],
                   "properties": {
                     "running": { "type": "boolean" },
@@ -27161,7 +27976,9 @@
                     "result": { "anyOf": [{}, { "type": "null" }] },
                     "updated": { "type": "integer" },
                     "unchanged": { "type": "integer" },
-                    "failed": { "type": "integer" }
+                    "failed": { "type": "integer" },
+                    "edited": { "type": "integer" },
+                    "dryRun": { "type": "boolean" }
                   },
                   "additionalProperties": true
                 }
@@ -30103,6 +30920,20 @@
             "required": false,
             "description": "0 to leave out photos whose only original is a RAW (default 1)",
             "schema": { "enum": ["0", "1"] }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "First month counted, YYYY-MM; photos without a date are left out of any range",
+            "schema": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$" }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "Last month counted, YYYY-MM",
+            "schema": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$" }
           }
         ],
         "responses": {
@@ -30467,6 +31298,20 @@
             "schema": { "enum": ["0", "1"] }
           },
           {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "First month counted, YYYY-MM; photos without a date are left out of any range",
+            "schema": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$" }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "Last month counted, YYYY-MM",
+            "schema": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$" }
+          },
+          {
             "name": "dim",
             "in": "query",
             "required": true,
@@ -30536,6 +31381,20 @@
             "required": false,
             "description": "0 to leave out photos whose only original is a RAW (default 1)",
             "schema": { "enum": ["0", "1"] }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "First month counted, YYYY-MM; photos without a date are left out of any range",
+            "schema": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$" }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "Last month counted, YYYY-MM",
+            "schema": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$" }
           }
         ],
         "responses": {
@@ -30756,6 +31615,73 @@
                         "additionalProperties": true
                       }
                     }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the stats.read scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/stats/timeline": {
+      "get": {
+        "summary": "GET /stats/timeline",
+        "tags": ["stats"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "stats.read",
+        "parameters": [
+          {
+            "name": "filter",
+            "in": "query",
+            "required": false,
+            "description": "all (default), featured (species cover photos) or topRated (5 stars)",
+            "schema": { "enum": ["all", "featured", "topRated"] }
+          },
+          {
+            "name": "includeRaw",
+            "in": "query",
+            "required": false,
+            "description": "0 to leave out photos whose only original is a RAW (default 1)",
+            "schema": { "enum": ["0", "1"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["months", "undated"],
+                  "properties": {
+                    "months": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["month", "taxonClass", "count"],
+                        "properties": {
+                          "month": { "type": "string", "description": "YYYY-MM" },
+                          "taxonClass": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "count": { "type": "integer" }
+                        },
+                        "additionalProperties": true
+                      },
+                      "description": "Photos per month and taxon class, months with none left out"
+                    },
+                    "undated": { "type": "integer", "minimum": 0, "description": "Photos without a date" }
                   },
                   "additionalProperties": true
                 }
@@ -37730,6 +38656,11 @@
                     },
                     "hidden": { "type": "boolean" },
                     "linkedExisting": { "type": "boolean" },
+                    "linkedOriginalId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "description": "With linkedExisting: the RAW file added to that photo, for POST /uploads/raw/undo-link"
+                    },
                     "sha256": {
                       "type": "string",
                       "description": "sha256 (hex) of the stored file's bytes, to verify the upload"
@@ -38423,6 +39354,48 @@
         }
       }
     },
+    "/uploads/raw/undo-link": {
+      "post": {
+        "summary": "POST /uploads/raw/undo-link",
+        "tags": ["uploads"],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["originalId"],
+                "properties": { "originalId": { "type": "string", "format": "uuid" } },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "required": ["ok"], "properties": { "ok": { "type": "boolean" } } }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
     "/uploads/skipped": {
       "post": {
         "summary": "POST /uploads/skipped",
@@ -38907,7 +39880,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["tier", "free", "toFree"],
+                  "required": ["tier", "free", "volume", "toFree"],
                   "properties": {
                     "tier": { "enum": ["ok", "tight", "critical"] },
                     "free": {
@@ -38915,6 +39888,9 @@
                         { "type": "number", "description": "Bytes free on the fullest drive involved" },
                         { "type": "null" }
                       ]
+                    },
+                    "volume": {
+                      "anyOf": [{ "type": "number", "description": "Device id of that drive" }, { "type": "null" }]
                     },
                     "toFree": { "type": "number", "description": "Bytes to free so the rest of the batch fits" }
                   }

@@ -1,5 +1,11 @@
 {
   "bursts": {
+    "apply": {
+      "label": "Checkbox in an edit dialog of the photo viewer (coordinates, date and time, Correct the ID): make the change to every photo of the open photo's burst, not just this one. {count} is the number of photos in the burst.",
+      "haveCoordinates": "Under the Apply to all checkbox in the coordinates dialog: how many photos of the burst already have coordinates; saving replaces them."
+    },
+    "selectWhole": "Gallery selection bar button: also select the other photos of each selected photo's burst.",
+    "selectFailed": "Error toast when Select whole burst couldn't load a burst's photos.",
     "badge": "On a photo in the grid: how many other photos are in its burst (photos taken in one press of the shutter), like +11.",
     "burstAndScene": "Above the viewer's strip of nearby photos. A scene is the bursts taken one after another at one sighting.",
     "frame": "Accessible name of a photo in the open burst, like Frame 3 of 12.",
@@ -434,6 +440,9 @@
         "groupNoDate": "A group of photos without a capture date in the Needs placing list. {formatted} is {count} formatted.",
         "place": "Button on a group before a pin is down: drops a pin in the middle of the map.",
         "placeHint": "Tooltip of that Place button.",
+        "placeAll": "Button under a trip's heading in the Needs placing list, before a pin is down: places every photo of the trip, not just one group.",
+        "changeRegion": "Button on a group (or under a trip's heading) in the Needs placing list: opens the region picker to file those photos under another country or province.",
+        "regionSet": "Toast after Change region in the Needs placing list, with an Undo button. {formatted} is {count} formatted.",
         "showPhotos": "Button that opens a group in the Needs placing list to show (and tick) its photos.",
         "hidePhotos": "Button that closes a group's photos again.",
         "outside": "Note under a group's Place button when the pin is outside the group's province or country. {region} is its name.",
@@ -582,7 +591,8 @@
       "optional": "Hint next to the Location field label.",
       "tripHint": "Notice after an import. {name} is a trip whose dates the photos fall in, though they weren't added to it.",
       "unsupported": "Import screen, after picking or dropping files: some aren't a format Lifer imports (a GIF, a text file). {names} lists up to five file names, comma separated; {more} counts the rest.",
-      "reassignFailed": "Error toast after importing a RAW file that belongs to a photo already in the library, when the user had picked a different species for it."
+      "reassignFailed": "Error toast after importing a RAW file that belongs to a photo already in the library, when the user had picked a different species for it.",
+      "undoKept": "Notice after Undo of an import: some imported files joined photos that were already in the library, and Lifer couldn't tell which file to take off, so it changed nothing on those photos."
     },
     "move": {
       "label": "A switch beside the Import drop area, desktop app only. On: originals are moved to the system Trash after they're safely copied into the library.",
@@ -815,6 +825,7 @@
     }
   },
   "lightbox": {
+    "revealHint": "Tooltip on the photo viewer's Show in Finder button beside the file names.",
     "viewSpecies": "Link in the photo viewer to the photo's species page. The arrow marks it as leaving the viewer."
   },
   "manageTags": {
@@ -962,12 +973,17 @@
   },
   "openIn": {
     "item": "Menu item (desktop app): open the photo file in an installed photo editor. {name} is the editor, like Photoshop.",
-    "failed": "Error toast. {name} is the editor, like Photoshop."
+    "failed": "Error toast. {name} is the editor, like Photoshop.",
+    "edited": "Menu item (desktop app) for a photo with a RAW and an edited file: open the edited file, not the RAW. {name} is the editor.",
+    "with": "Menu item (desktop app): open the photo in another installed editor than the chosen one. {name} is the editor, like darktable.",
+    "fallback": "Info toast when the editor chosen in Settings was uninstalled. {name} is the editor used instead.",
+    "pickFailed": "Error toast after choosing an app with Other... in Settings > General > Edit photos with."
   },
   "photoMenu": {
     "feature": "Menu item: set this photo as the species' featured photo, the one its card shows.",
     "correctId": "Menu item: move the photo to the species it really shows.",
-    "revealInFinder": "Menu item (desktop app): show the original file in the system file manager. {place} is Finder, Explorer or file manager.",
+    "revealInFinder": "Menu item and button (desktop app): show the original file in the system file manager, as the OS words it (macOS: Show in Finder). {place} is Finder, File Explorer or file manager.",
+    "fileAction": "A file action for one of a photo's several files (a RAW and its edit). {action} is the action, like Show in Finder or Copy file path; {file} is the file name, like IMG_1234.CR3.",
     "connectVolume": "Photo menu item when the original is on a disconnected drive. {volume} is the drive's name.",
     "tagSpecies": "Photo menu item: also list this photo under a second species that appears in it.",
     "location": "Photo menu item: opens the location dialog (coordinates, saved places, place name and region). The photo's place shows under it.",
@@ -1007,6 +1023,13 @@
       "undone": "{count} is a number of species."
     },
     "general": {
+      "editor": {
+        "group": "Settings > General heading for the photo editor choice (desktop app).",
+        "title": "Label of the picker of which installed photo editor (Lightroom Classic, darktable...) opens photos.",
+        "description": "Under Edit photos with. A sidecar is the small .xmp file beside a RAW that holds its edits.",
+        "system": "Picker option: whatever app the operating system opens photos with.",
+        "other": "Picker option: opens the system's file picker to choose any other app."
+      },
       "language": {
         "automatic": "First option of the language picker: use the browser's or operating system's language when Lifer has it, else English.",
         "description": "Under the Language heading in Settings > General. Species common names are data from the catalog, not part of the interface."
@@ -1205,6 +1228,113 @@
     "versions": {
       "found": "After looking for versions in one folder: {linked} files grouped as versions, {suggested} offered for the user to confirm on the Import page.",
       "review": "Link under the result of looking for versions; opens the Import page, where possible versions are reviewed."
+    },
+    "metadata": {
+      "credits": {
+        "applyConfirm": {
+          "message": "Confirmation before writing to photos. {updated} is how many photos would change; {edited} is how many have a field the user edited in another app and keep it."
+        },
+        "applyKeptEdits": "Shown after applying. {count} is how many photos kept a value someone edited in another app."
+      },
+      "templates": {
+        "title": "Settings group heading for the templates Lifer writes into each photo's Title, Headline, Description and extra Keywords.",
+        "fields": {
+          "title": "Label of the photo Title field (the title other apps show).",
+          "headline": "Label of the Headline field, a short summary line in the photo's metadata.",
+          "caption": "Label of the Description field, also called the caption.",
+          "keywords": "Label of the field for extra keywords written beside the species keywords."
+        },
+        "hints": {
+          "title": "One-line description under the Title field label.",
+          "headline": "One-line description under the Headline field label.",
+          "caption": "One-line description under the Description field label.",
+          "keywords": "One-line description under the Extra keywords field label."
+        },
+        "placeholders": {
+          "title": "Placeholder inside the empty Title template box.",
+          "headline": "Placeholder inside the empty Headline template box.",
+          "caption": "Placeholder inside the empty Description template box.",
+          "keywords": "Placeholder inside the empty Extra keywords box. Keywords are separated by commas."
+        },
+        "rules": {
+          "fillEmpty": {
+            "label": "Option in a menu choosing how a field is written. Writes only if the file's field is empty.",
+            "hint": "Explains the Fill if empty option."
+          },
+          "replace": {
+            "label": "Option in a menu choosing how a field is written. Lifer overwrites only text it wrote itself earlier.",
+            "hint": "Explains the Replace what Lifer wrote option."
+          },
+          "append": {
+            "label": "Option in a menu choosing how a field is written. Lifer adds its text after the existing text.",
+            "hint": "Explains the Add to the end option."
+          },
+          "off": {
+            "label": "Option in a menu choosing how a field is written. Lifer does not write the field.",
+            "hint": "Explains the Don't write option."
+          }
+        },
+        "ruleLabel": "Screen reader name of the write rule menu. {field} is the field name, such as Title.",
+        "presets": {
+          "label": "Button opening a menu of ready-made caption templates.",
+          "place": "Name of a caption preset that lists species, scientific name, place, region and date.",
+          "imageOf": "Name of a caption preset that reads like 'An image of an Osprey taken on 3 May 2026 with a 500mm f/7.1'."
+        },
+        "help": {
+          "chips": "Help text for the template boxes. {brace} is the opening curly brace character that starts a token; keep the placeholder. Tokens show as small chips.",
+          "optional": "Help text about optional wording. {example} is a sample template shown literally, such as [[ taken on {longdate}]]; keep it as is, including the double square brackets."
+        },
+        "multi": {
+          "label": "Switch label. On means every species in a photo is named; off means only the main species.",
+          "allHint": "Description shown while the switch is on.",
+          "mainHint": "Description shown while the switch is off."
+        },
+        "preview": {
+          "label": "Heading of the live preview showing every field for one photo.",
+          "sample": "Shown when the library has no photos and a made-up photo is used.",
+          "photo": "{name} is the camera file name of the photo used for the preview, such as IMG_4411.",
+          "another": "Button that previews the templates on a different photo from the library.",
+          "off": "Preview text for a field whose write rule is Don't write.",
+          "empty": "Preview text for a field that would write nothing for this photo."
+        },
+        "saved": "Message after saving the templates.",
+        "saveFailed": "Error when saving the templates fails.",
+        "anotherFailed": "Error when loading a different preview photo fails.",
+        "dryRunFailed": "Error when counting which photos would change fails.",
+        "applyNothing": "Message when applying would change no photo."
+      },
+      "tokenGroups": {
+        "taxonomy": "Group heading in the token menu for scientific classification tokens.",
+        "place": "Group heading in the token menu for place and trip tokens.",
+        "capture": "Group heading in the token menu for tokens about how and when the photo was taken.",
+        "aggregate": "Group heading in the token menu for tokens that cover every species in a photo."
+      },
+      "tokens": {
+        "species": "Token menu item and chip: the common name of the species.",
+        "scientific": "Token menu item and chip: the scientific (Latin) name.",
+        "group": "Token menu item and chip: the broad group such as Birds or Mammals.",
+        "genus": "Token menu item and chip: the taxonomic genus.",
+        "family": "Token menu item and chip: the taxonomic family.",
+        "order": "Token menu item and chip: the taxonomic order.",
+        "class": "Token menu item and chip: the taxonomic class.",
+        "place": "Token menu item and chip: the place name where the photo was taken.",
+        "region": "Token menu item and chip: province or state.",
+        "country": "Token menu item and chip: the country.",
+        "trip": "Token menu item and chip: the name of the trip.",
+        "date": "Token menu item and chip: the date taken, like 2026-05-03.",
+        "longdate": "Token menu item and chip: the date taken written out, like 3 May 2026.",
+        "year": "Token menu item and chip: the year taken.",
+        "month": "Token menu item and chip: the month taken as a number.",
+        "camera": "Token menu item and chip: the camera model.",
+        "lens": "Token menu item and chip: the lens name.",
+        "focal": "Token menu item and chip: the focal length, like 500mm.",
+        "aperture": "Token menu item and chip: the aperture, like f/7.1.",
+        "shutter": "Token menu item and chip: the shutter speed, like 1/2000s.",
+        "iso": "Token menu item and chip: the ISO sensitivity.",
+        "rating": "Token menu item and chip: the star rating.",
+        "names": "Token menu item and chip: the names of every species in the photo.",
+        "count": "Token menu item and chip: how many species the photo shows."
+      }
     }
   },
   "share": {
@@ -1313,6 +1443,21 @@
     "groupProgress": "Spoken name of the progress bar under an animal group's heading. {group} is a group name such as Owls or Frogs & Toads."
   },
   "stats": {
+    "timeline": {
+      "title": "Stats chart: how many photos were taken each month or year, each bar split by animal group.",
+      "groupBy": "Accessible name of the switch between one bar per month and one per year.",
+      "months": "Switch option: one bar per month. Also the column heading of the chart's table.",
+      "years": "Switch option: one bar per year. Also the column heading of the chart's table.",
+      "herps": "Animal group in the chart's legend: reptiles, turtles and amphibians together.",
+      "sea": "Animal group in the chart's legend: fish, sharks, rays and other sea creatures such as corals and crabs.",
+      "total": "All animal groups together, in the chart's hover card and table.",
+      "range": "The dates picked on the chart. {from} and {to} are a month and year, like Mar 2019, or a year.",
+      "brushLabel": "Accessible name of each handle of the chart's date range picker. {range} is the dates picked, like Mar 2019 to Aug 2021, or All dates.",
+      "allDates": "Button: stop narrowing the Stats page to the dates picked on the chart.",
+      "showOnMap": "Button: open the photo map with only the photos taken in the dates picked on the chart.",
+      "undated": "Under the chart: photos it can't place because they have no capture date. {formatted} is {count} with digit grouping.",
+      "emptyRange": "Shown instead of the stats when the dates picked on the chart hold no photos."
+    },
     "filter": {
       "all": "Option of the Stats page's photo filter. Keepers: the edited photos kept in the library.",
       "featured": "Option of the Stats page's photo filter: only each species' featured photo."
@@ -1344,8 +1489,7 @@
     },
     "noValue": "Placeholder in a stats table when there is no value (not applicable).",
     "options": {
-      "axisOption": "Option of the scatter plot's axis pickers, e.g. \"X: Focal length\". {axis} is X or Y, {field} an EXIF field name.",
-      "totalKeepers": "A keeper is any edited photo the user kept, except one rated 1 star."
+      "axisOption": "Option of the scatter plot's axis pickers, e.g. \"X: Focal length\". {axis} is X or Y, {field} an EXIF field name."
     }
   },
   "tierDetails": {
@@ -1492,6 +1636,11 @@
     "selectAll": "Selection bar: selects every item in the list, including ones not loaded yet.",
     "selection": {
       "selected": "Selection bar count of chosen items."
+    },
+    "templateField": {
+      "chip": "Screen reader name of a token chip in a template. {name} is the token's name, such as Common name.",
+      "insert": "Button opening the menu of tokens to insert into a template.",
+      "insertHint": "Tooltip for the Insert button. {brace} is the opening curly brace character; keep the placeholder."
     }
   },
   "upload": {
@@ -1728,5 +1877,99 @@
       "genus": "Taxonomic rank.",
       "species": "Taxonomic rank, used in search results."
     }
+  },
+  "worksWith": {
+    "title": "Settings group heading in Connected apps listing photo apps that read the species keywords Lifer writes into photos.",
+    "guide": "Link button on each row that opens that app's section of the online user guide.",
+    "guideLabel": "Screen reader label for the guide link. {name} is an app name such as Adobe Bridge.",
+    "lightroom": {
+      "name": "Product name, do not translate.",
+      "how": "One line under the app name: how to see Lifer's keywords in Adobe Lightroom Classic."
+    },
+    "photos": {
+      "name": "Product name, do not translate. Shown on Mac only.",
+      "how": "One line: how to get Lifer's keywords into Apple Photos. RAW sidecars are separate .xmp files next to a RAW photo."
+    },
+    "folders": {
+      "name": "Plain folders of photos, with no catalog app.",
+      "how": "One line: keywords are stored in the photo files, so any app that reads them works."
+    },
+    "bridge": {
+      "name": "Product name, do not translate.",
+      "how": "One line: how to see Lifer's nested keyword tree in Adobe Bridge."
+    },
+    "photoshop": {
+      "name": "Product name, do not translate.",
+      "how": "One line: where Photoshop shows Lifer's keywords. Camera Raw is Adobe's RAW converter."
+    },
+    "dxo": {
+      "name": "Product name, do not translate.",
+      "how": "One line: DxO PhotoLab only partly reads Lifer's keywords."
+    },
+    "peakto": {
+      "name": "Product name, do not translate.",
+      "how": "One line: how to sync Lifer's keywords with Peakto. XMP round trip is the name of a Peakto setting."
+    }
+  },
+  "fileWriting": {
+    "title": "Settings group heading in Settings > Metadata: where Lifer writes species keywords (inside photo files or in separate .xmp sidecar files).",
+    "saveFailed": "Error under the group when a setting couldn't be saved.",
+    "sidecarNames": {
+      "label": "Row label. A sidecar is a separate small .xmp file next to a RAW photo that holds its keywords.",
+      "description": "Row description. IMG_0001.xmp and IMG_0001.CR3.xmp are example file names, do not translate them. App names are product names.",
+      "stem": "Dropdown option: an example file name, do not translate.",
+      "full": "Dropdown option: an example file name, do not translate.",
+      "both": "Dropdown option: write both sidecar file names."
+    },
+    "insideFiles": {
+      "label": "Switch label: write keywords into JPEG and similar files themselves.",
+      "description": "Row description. The format names are file types, do not translate.",
+      "help": {
+        "changes": "Info tip paragraph. Checksum is a fingerprint of the file's bytes. Archive health is Lifer's feature that checks files for damage.",
+        "sidecar": "Info tip paragraph explaining what turning the switch off means for other apps."
+      }
+    },
+    "linked": {
+      "label": "Switch label. Linked folders are folders Lifer reads photos from without copying them into its library.",
+      "description": "Row description under the switch.",
+      "help": "Info tip paragraph: the safety rule for existing sidecar files.",
+      "previewFailed": "Error when Lifer couldn't count what turning this on would write.",
+      "confirm": {
+        "title": "Confirmation dialog title shown before turning the switch on.",
+        "create": "List item in the confirmation: how many sidecar files Lifer would create.",
+        "update": "List item: how many sidecar files Lifer made earlier would be updated.",
+        "skip": "List item: how many sidecar files made by other apps would not be touched.",
+        "unavailable": "List item: photos on unplugged drives that would be skipped.",
+        "action": "Confirm button: turn the setting on and write the sidecar files."
+      }
+    },
+    "apply": {
+      "label": "Row label: rewrite photos already in Lifer after changing these settings.",
+      "description": "Row description.",
+      "action": "Button that starts updating existing photos.",
+      "running": "Progress label while photos are being updated.",
+      "result": "Result after the update finished. {count} is a number of photos.",
+      "stopped": "Result after the user stopped the update. {count} is a number of photos.",
+      "failedFiles": "Error: how many photos could not be updated. {count} is a number.",
+      "failed": "Error when the update failed."
+    }
+  },
+  "applePhotos": {
+    "action": "Menu item for selected photos or an album. Apple Photos is a product name. Shown in the desktop app on Apple computers only.",
+    "title": "Dialog title.",
+    "checking": "Progress label while Lifer searches the Apple Photos library for the chosen photos.",
+    "sending": "Progress label while keywords are added in Apple Photos.",
+    "found": "Summary before sending. {count} is a number of photos.",
+    "notFound": "Summary line: photos not in the Apple Photos library are skipped. {count} is a number.",
+    "explain": "Explains that Lifer only adds keywords and never removes any.",
+    "noneFound": "Shown when no chosen photo was found in Apple Photos, with how Lifer looks for them.",
+    "send": "Primary button that adds the keywords.",
+    "done": "Result after sending. {count} is a number of photos.",
+    "unchanged": "Result line: photos that already had all the keywords. {count} is a number.",
+    "failed": "Error line: photos that could not be changed. {count} is a number.",
+    "denied": "Error when macOS blocked Lifer from controlling Photos. System Settings, Privacy & Security and Automation are names in macOS; use the names macOS uses in your language.",
+    "unavailable": "Error when the Photos app couldn't be opened.",
+    "error": "Error for any other failure talking to Apple Photos.",
+    "tryAgain": "Button that runs the search again."
   }
 }

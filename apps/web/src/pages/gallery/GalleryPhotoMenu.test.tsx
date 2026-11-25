@@ -10,7 +10,7 @@ import type { GalleryItem } from "./types";
 
 vi.mock("../../hooks/useInatStatus", () => ({ useInatStatus: () => null }));
 vi.mock("../../hooks/useOpenInEditors", () => ({ useOpenInEditors: () => ({ editors: [], openIn: () => {} }) }));
-vi.mock("../../hooks/useRevealOriginal", () => ({ useRevealOriginal: () => () => null }));
+vi.mock("../../hooks/useRevealOriginal", () => ({ useRevealOriginal: () => () => null, useRevealFiles: () => [] }));
 
 afterEach(cleanup);
 

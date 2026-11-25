@@ -171,9 +171,10 @@ export async function originalsRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // Where the files of these photos are on this computer, the RAW when there is one, for "Open in"
-  // an editor. Desktop only, like Reveal: the paths mean nothing on a server. A photo id names one
-  // version exactly (the one on screen in the viewer); a capture id means the photo it shows.
+  // Where the files of these photos are on this computer, for "Open in" an editor: the RAW when
+  // there is one (editors read its sidecar), or the edited file when asked. Desktop only, like
+  // Reveal: the paths mean nothing on a server. A photo id names one version exactly (the one on
+  // screen in the viewer); a capture id means the photo it shows.
   const EditorIds = Type.Array(Type.String({ format: "uuid" }), { minItems: 1, maxItems: 200 });
   app.post(
     "/originals/editor-paths",
@@ -181,7 +182,13 @@ export async function originalsRoutes(fastify: FastifyInstance): Promise<void> {
       preValidation: [requireAuth, desktopOnly],
       schema: {
         body: Type.Object(
-          { captureIds: Type.Optional(EditorIds), photoIds: Type.Optional(EditorIds) },
+          {
+            captureIds: Type.Optional(EditorIds),
+            photoIds: Type.Optional(EditorIds),
+            edited: Type.Optional(
+              Type.Boolean({ description: "The edited file instead of the RAW, for a photo with both" }),
+            ),
+          },
           { additionalProperties: false },
         ),
         response: replies(Type.Object({ paths: Type.Array(Type.String()) })),
@@ -195,8 +202,8 @@ export async function originalsRoutes(fastify: FastifyInstance): Promise<void> {
          JOIN originals o ON o.capture_id = ${filesCaptureOf("c")} AND o.kind IN ('raw', 'jpeg')
          WHERE c.user_id = $3
            AND (p.id = ANY($2::uuid[]) OR (c.id = ANY($1::uuid[]) AND p.id = c.current_photo_id))
-         ORDER BY p.id, (o.kind = 'raw') DESC`,
-        [request.body.captureIds ?? [], request.body.photoIds ?? [], request.user!.id],
+         ORDER BY p.id, (o.kind = 'raw') <> $4 DESC`,
+        [request.body.captureIds ?? [], request.body.photoIds ?? [], request.user!.id, request.body.edited === true],
       );
       const paths: string[] = [];
       for (const row of res.rows) {

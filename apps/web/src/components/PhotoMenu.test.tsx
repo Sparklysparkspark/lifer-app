@@ -10,8 +10,15 @@ vi.mock("../hooks/useInatStatus", () => ({ useInatStatus: () => ({ available: tr
 vi.mock("../hooks/useSendToInat", () => ({ useSendToInat: () => async () => true }));
 vi.mock("../hooks/useOpenInEditors", () => ({ useOpenInEditors: () => ({ editors: [], openIn: () => {} }) }));
 vi.mock("../hooks/useRevealOriginal", () => ({
-  useRevealOriginal: () => (ref: string | null) =>
-    ref ? { kind: "reveal", label: "Reveal in Finder", run: () => {} } : null,
+  useRevealOriginal: () => (ref: string | null) => (ref ? { kind: "reveal", label: "Show in Finder", run: () => {} } : null),
+  useRevealFiles: (refs: Array<string | null | undefined>) => {
+    const files = [...new Set(refs.filter(Boolean))] as string[];
+    return files.map((ref) => ({
+      kind: "reveal",
+      label: files.length > 1 ? `Show in Finder: ${ref.split("/").pop()}` : "Show in Finder",
+      run: () => {},
+    }));
+  },
 }));
 
 afterEach(cleanup);
@@ -75,8 +82,8 @@ describe("PhotoMenu", () => {
       "Versions",
       "Download original",
       "Download RAW",
-      "Reveal in Finder",
-      "Copy original's path",
+      "Show in Finder",
+      "Copy file path",
       "Send to iNaturalist",
       "Hide photo",
       "Remove from album",
@@ -87,7 +94,14 @@ describe("PhotoMenu", () => {
   it("leaves out what the page doesn't offer or the photo lacks", () => {
     renderMenu({ photo: { ...photo, originalKind: "raw", originalManaged: true, inatObservationId: "9" } });
     expect(screen.queryByRole("group", { name: "Rate" })).toBeNull();
-    expect(items()).toEqual(["Similar photos", "Versions", "Download RAW", "Reveal in Finder", "View on iNaturalist"]);
+    expect(items()).toEqual([
+      "Similar photos",
+      "Versions",
+      "Download RAW",
+      "Show in Finder",
+      "Copy file path",
+      "View on iNaturalist",
+    ]);
   });
 
   it("explains an unreachable original instead of offering its files", () => {
@@ -115,5 +129,19 @@ describe("PhotoMenu", () => {
     unmount();
     renderMenu({ photo: { ...photo, originalKind: "raw" }, onDelete: () => {}, onDeleteWithRaw: withRaw });
     expect(screen.queryByRole("menuitem", { name: "Delete with RAW files" })).toBeNull();
+  });
+
+  it("offers Show in Finder and Copy file path for each file of a RAW and its edit, and the date editor", () => {
+    const adjust = vi.fn();
+    renderMenu({ photo: { ...photo, rawRef: "/Volumes/A/IMG_1.CR3", originalRef: "/Volumes/A/IMG_1.jpg" }, onAdjustTime: adjust });
+    for (const name of [
+      "Show in Finder: IMG_1.jpg",
+      "Show in Finder: IMG_1.CR3",
+      "Copy file path: IMG_1.jpg",
+      "Copy file path: IMG_1.CR3",
+    ])
+      expect(screen.getByRole("menuitem", { name })).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Adjust date and time" }));
+    expect(adjust).toHaveBeenCalledTimes(1);
   });
 });

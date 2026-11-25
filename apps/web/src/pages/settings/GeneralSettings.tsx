@@ -12,7 +12,7 @@ import Select from "../../components/Select";
 import { useLocalePreference } from "../../hooks/useLocalePreference";
 import { AVAILABLE_LOCALES } from "../../i18n";
 import { nativeLanguageName } from "../../i18n/resolveLocale";
-import { useIsTauri } from "../../hooks/useDeploymentMode";
+import { useDeploymentMode, useIsTauri } from "../../hooks/useDeploymentMode";
 import { useOnline } from "../../hooks/useOnline";
 import { useTheme } from "../../hooks/useTheme";
 import { DEV_BUILD_VERSION, GITHUB_REPO, macUpdateDownloadUrl } from "../../lib/appInfo";
@@ -22,6 +22,7 @@ import { tauriInvoke } from "../../lib/tauri";
 import { APP_UPDATE_PHASES } from "./phases";
 import { SettingLinkRow, SettingRow, SettingSwitchRow, SettingsGroup } from "./shared";
 import MapSettingsRows from "./MapSettingsRows";
+import PhotoEditorRow from "./PhotoEditorRow";
 import { useServerSetting } from "./useServerSetting";
 import { useSettings } from "../../hooks/useSettings";
 import Switch from "../../components/Switch";
@@ -35,6 +36,7 @@ const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases/latest`;
 export default function GeneralSettings() {
   const { t } = useTranslation();
   const isTauri = useIsTauri();
+  const mode = useDeploymentMode();
   return (
     <>
       <SettingsGroup title={t("settings.general.appearance")}>
@@ -45,6 +47,12 @@ export default function GeneralSettings() {
       <SettingsGroup title={t("settings.general.map.title")}>
         <MapSettingsRows />
       </SettingsGroup>
+      {/* The files are on this computer only in the desktop app's own library. */}
+      {isTauri && mode === "desktop" && (
+        <SettingsGroup title={t("settings.general.editor.group")}>
+          <PhotoEditorRow />
+        </SettingsGroup>
+      )}
       <SettingsGroup title={t("settings.general.names.title")}>
         <NameRows />
       </SettingsGroup>

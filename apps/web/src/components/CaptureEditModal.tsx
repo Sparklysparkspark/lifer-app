@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, apiPath } from "../api/client";
 import { formatPercent } from "../lib/format";
@@ -31,8 +31,11 @@ export default function CaptureEditModal({
   onTagSpecies,
   tagOptions,
   onTagsChange,
+  scope,
 }: {
   edit: CaptureEdit;
+  /** The viewer's "Apply to all photos in this burst" checkbox, for Correct the ID. */
+  scope?: ReactNode;
   capture: EditedCapture;
   tagOptions: string[];
   /** Tags save as they're added or removed, like everywhere else tags are edited. */
@@ -72,6 +75,7 @@ export default function CaptureEditModal({
       <p className="mb-3 text-callout text-muted">
         {reassign ? t("captureEdit.reassign.description") : t("captureEdit.tagSpecies.description")}
       </p>
+      {reassign && scope && <div className="mb-3">{scope}</div>}
       {reassign && capture.captureId && (
         <LikelySpecies
           captureId={capture.captureId}

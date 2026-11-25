@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -36,7 +36,11 @@ const RATE_NEXT_ACTIONS: KeyAction[] = [
   "rate5Next",
 ];
 import { useToast } from "../hooks/useToast";
-import { useRevealOriginal } from "../hooks/useRevealOriginal";
+import { useRevealFiles, useRevealOriginal } from "../hooks/useRevealOriginal";
+import { useDropdownMenu } from "../hooks/useDropdownMenu";
+import { fileNameOf } from "../lib/photoFilePaths";
+import Menu from "./Menu";
+import { useBurstScope } from "../hooks/useBurstScope";
 import { useOpenInEditors } from "../hooks/useOpenInEditors";
 import { useApiRoute } from "../lib/resource";
 import { api, apiPath } from "../api/client";
@@ -84,7 +88,10 @@ export interface LightboxSlide {
   rating?: number | null;
   onRate?: (rating: number | null) => void;
   /** Adds "Correct the ID", for the viewer's own photos. */
-  onReassign?: (species: SpeciesResult) => void;
+  /** `captureIds`: the photo's whole burst, when the page offers burstEdits and it's ticked. */
+  onReassign?: (species: SpeciesResult, captureIds?: string[]) => void;
+  /** The page applies coordinates and Correct the ID to many photos, so the dialogs offer the burst. */
+  burstEdits?: boolean;
   /** The slide's photo, so "Correct the ID" can offer its likeliest other species. */
   captureId?: string;
   // Adds a "View species" link; omitted on the species page itself.
@@ -119,7 +126,13 @@ export interface LightboxSlide {
     lon: number | null;
     /** The photo has a region, so none is offered from the point. */
     hasRegion: boolean;
-    onChange?: (point: { lat: number; lon: number } | null, region: { id: string; name: string } | null) => void;
+    onChange?: (
+      point: { lat: number; lon: number } | null,
+      region: { id: string; name: string } | null,
+      captureIds?: string[],
+    ) => void;
+    /** Reloads the page after Undo of a burst's coordinates, which this one photo can't hand back. */
+    onUndone?: () => void;
   } | null;
   /** When set, shows a download button for this slide. */
   download?: { url: string; filename: string } | null;
@@ -127,10 +140,8 @@ export interface LightboxSlide {
   onVersionsChange?: () => void;
   /** After "Save frame" adds a photo, so the page behind lists it at once. */
   onFrameSaved?: () => void;
-}
-
-function fileNameOf(ref: string): string {
-  return ref.split(/[\\/]/).pop() || ref;
+  /** The page's photo menu (a MenuPanel) for the viewer's ⋯ button; `close` closes it. */
+  menu?: (close: () => void) => ReactElement;
 }
 
 // Neighbours kept decoded each way, and the most decoded pixels they may hold between them.
@@ -204,6 +215,70 @@ function RevealFileName({ fileRef, revealable }: { fileRef: string; revealable: 
   );
 }
 
+/** The viewer's ⋯ menu: the page's own photo menu for the shown photo, so the viewer offers what
+ *  the grid's tile menu does. In the corner, so it stays in fullscreen too. */
+function LightboxMenu({
+  menu,
+  buttonClass,
+}: {
+  menu: (close: () => void) => ReactElement;
+  buttonClass: string;
+}) {
+  const { t } = useTranslation();
+  const { openKey, setOpenKey, ref } = useDropdownMenu<true>();
+  return (
+    // Clicks in the menu, portaled or not, must not reach the backdrop that closes the viewer.
+    <div onClick={(e) => e.stopPropagation()}>
+      <Menu
+        open={!!openKey}
+        onToggle={() => setOpenKey(openKey ? null : true)}
+        menuRef={ref}
+        className="relative"
+        trigger={(props) => (
+          <Tooltip content={{ label: t("ui.moreOptions") }}>
+            {(tip) => (
+              // raw-control: a lightbox overlay control, light on the dark backdrop.
+              <button
+                type="button"
+                {...tip}
+                {...props}
+                ref={(el) => {
+                  tip.ref?.(el);
+                  if (typeof props.ref === "function") props.ref(el);
+                  else if (props.ref) props.ref.current = el;
+                }}
+                className={buttonClass}
+                aria-label={t("ui.moreOptions")}
+              >
+                ⋯
+              </button>
+            )}
+          </Tooltip>
+        )}
+      >
+        {menu(() => setOpenKey(null))}
+      </Menu>
+    </div>
+  );
+}
+
+/** Show in Finder beside the file names, one per file, so it's found without the menu. */
+function RevealFileButtons({ refs }: { refs: string[] }) {
+  const { t } = useTranslation();
+  return useRevealFiles(refs)
+    .filter((r) => r.kind === "reveal")
+    .map((r) => (
+      <Tooltip key={r.label} content={{ label: t("lightbox.revealHint") }}>
+        {(tip) => (
+          // raw-control: a link in the caption, light on the dark backdrop. design-token: as the links above
+          <button {...tip} type="button" onClick={r.run} className="ml-2 text-white/70 underline hover:text-white">
+            {r.label}
+          </button>
+        )}
+      </Tooltip>
+    ));
+}
+
 export default function Lightbox({
   slides,
   index,
@@ -237,7 +312,7 @@ export default function Lightbox({
   const { t } = useTranslation();
   const location = useLocation();
   const [videoControlsIdle, setVideoControlsIdle] = useState(false);
-  // shortcut: the viewer offers the last-used editor only; the photo menus list them all.
+  // shortcut: the caption offers the chosen editor only; the ⋯ menu lists them all.
   const { editors, openIn } = useOpenInEditors();
   const checklist = useApiRoute(
     slides[index]?.captureId ? apiPath("/captures/{id}/ebird", { id: slides[index].captureId }) : null,
@@ -246,6 +321,12 @@ export default function Lightbox({
   const [correcting, setCorrecting] = useState<LightboxSlide | null>(null);
   const [editingCoordinates, setEditingCoordinates] = useState<LightboxSlide | null>(null);
   const [editingAppearance, setEditingAppearance] = useState<LightboxSlide | null>(null);
+  const coordinatesScope = useBurstScope(
+    "coordinates",
+    editingCoordinates?.burstEdits ? editingCoordinates.captureId : null,
+    { has: (f) => f.lat != null, text: (count) => t("bursts.apply.haveCoordinates", { count }) },
+  );
+  const speciesScope = useBurstScope("species", correcting?.burstEdits ? correcting.captureId : null);
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef);
@@ -674,6 +755,8 @@ export default function Lightbox({
               )}
             </Tooltip>
           )}
+          {/* Another version shown here is not the photo the menu acts on. */}
+          {!otherVersion && slide.menu && <LightboxMenu menu={slide.menu} buttonClass={iconButtonClass} />}
           <Tooltip content={{ label: t("lightbox.close"), shortcut: shortcutLabel("backToGrid") }}>
             {(tip) => (
               // raw-control: a lightbox overlay control, light on the dark backdrop.
@@ -896,6 +979,7 @@ export default function Lightbox({
                     <RevealFileName fileRef={ref} revealable={!otherVersion} />
                   </span>
                 ))}
+                {!otherVersion && <RevealFileButtons refs={files} />}
               </p>
             )}
             {versions.length > 1 && groupCaptureId && activeVersion && (
@@ -965,7 +1049,8 @@ export default function Lightbox({
             capture={{ captureId: correcting.captureId, tags: [] }}
             tagOptions={[]}
             onTagsChange={() => {}}
-            onReassign={correcting.onReassign}
+            onReassign={(species) => correcting.onReassign!(species, speciesScope.ids[0] ? speciesScope.ids : undefined)}
+            scope={speciesScope.control}
             onClose={() => setCorrecting(null)}
           />
         </div>
@@ -984,11 +1069,19 @@ export default function Lightbox({
       {editingCoordinates?.coordinates?.onChange && editingCoordinates.captureId && (
         <div onClick={(e) => e.stopPropagation()}>
           <CoordinatesModal
-            captureIds={[editingCoordinates.captureId]}
+            captureIds={coordinatesScope.ids.length > 0 ? coordinatesScope.ids : [editingCoordinates.captureId]}
             lat={editingCoordinates.coordinates.lat}
             lon={editingCoordinates.coordinates.lon}
             suggestRegion={!editingCoordinates.coordinates.hasRegion}
-            onSaved={editingCoordinates.coordinates.onChange}
+            scope={coordinatesScope.control}
+            onUndone={coordinatesScope.ids.length > 1 ? editingCoordinates.coordinates.onUndone : undefined}
+            onSaved={(point, region) =>
+              editingCoordinates.coordinates!.onChange!(
+                point,
+                region,
+                coordinatesScope.ids[0] ? coordinatesScope.ids : undefined,
+              )
+            }
             onClose={() => setEditingCoordinates(null)}
           />
         </div>

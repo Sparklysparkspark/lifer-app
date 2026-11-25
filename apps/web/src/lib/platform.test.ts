@@ -4,7 +4,7 @@ import { modKey, primaryButtonFirst, revealPlace } from "./platform";
 describe("platform conventions", () => {
   it("picks words per OS", () => {
     expect(revealPlace("mac")).toBe("Finder");
-    expect(revealPlace("windows")).toBe("Explorer");
+    expect(revealPlace("windows")).toBe("File Explorer");
     expect(revealPlace("other")).toBe("file manager");
     expect(modKey("mac")).toBe("⌘");
     expect(modKey("windows")).toBe("Ctrl");

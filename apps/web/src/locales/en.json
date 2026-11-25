@@ -1100,6 +1100,9 @@
         "groupNoDate": "{count, plural, one {# photo} other {{formatted} photos}}, no date",
         "place": "Place",
         "placeHint": "Drops a pin in the middle of the map. Drag it, then Place again.",
+        "placeAll": "Place all",
+        "changeRegion": "Change region",
+        "regionSet": "{count, plural, one {Region set on # photo} other {Region set on {formatted} photos}}",
         "showPhotos": "Show photos",
         "hidePhotos": "Hide photos",
         "outside": "This point is outside {region}.",
@@ -1473,6 +1476,7 @@
       "removedRemembered": "{count, plural, one {Removed # file from this import. Lifer won't offer it again from this folder.} other {Removed {formatted} files from this import. Lifer won't offer them again from this folder.}}",
       "undo": "Undo",
       "undoPartlyFailed": "Undo partly failed: {count, plural, one {# file} other {# files}} couldn't be removed. Try undo again.",
+      "undoKept": "{count, plural, one {# photo already in Lifer was left as it was} other {# photos already in Lifer were left as they were}}: Lifer couldn't tell which file this import added.",
       "placesSet": "{count, plural, one {Place set for # photo} other {Places set for {formatted} photos}}",
       "placesFailed": "The photos are in, but their places couldn't be set. Set them from the map's Needs placing list.",
       "importPhotos": "Import {count, plural, =0 {photos} one {# photo} other {# photos}}",
@@ -1789,6 +1793,7 @@
     }
   },
   "lightbox": {
+    "revealHint": "Opens the folder that holds this file",
     "saveFrame": "Save frame at {time} as a photo",
     "frameSaved": "Frame saved as a photo",
     "frameDuplicate": "That frame is already in Lifer",
@@ -2415,7 +2420,11 @@
   },
   "openIn": {
     "item": "Open in {name}",
-    "failed": "Couldn't open the photo in {name}"
+    "edited": "Open edited file in {name}",
+    "with": "Open with {name}",
+    "failed": "Couldn't open the photo in {name}",
+    "fallback": "The photo editor you chose isn't on this computer anymore, so photos open in {name}. Choose another in Settings > General.",
+    "pickFailed": "Couldn't use that app. Choose another one."
   },
   "photoMenu": {
     "versions": "Versions",
@@ -2428,12 +2437,13 @@
     "feature": "Set as featured photo",
     "hide": "Hide {kind, select, video {video} audio {recording} other {photo}}",
     "rate": "Rate",
-    "revealInFinder": "Reveal in {place}",
+    "revealInFinder": "Show in {place}",
+    "fileAction": "{action}: {file}",
     "unfeature": "Remove as featured photo",
     "unhide": "Unhide",
     "viewSpecies": "View species",
     "similar": "Similar photos",
-    "copyPath": "Copy original's path",
+    "copyPath": "Copy file path",
     "tagSpecies": "Also features another species",
     "location": "Location",
     "connectVolume": "Connect \"{volume}\" to view this original",
@@ -2579,6 +2589,13 @@
     "general": {
       "about": "About",
       "appearance": "Appearance",
+      "editor": {
+        "group": "Photo editing",
+        "title": "Edit photos with",
+        "description": "Used by Open in, in the photo viewer and photo menus. RAW files open with their sidecar, so your edits carry over.",
+        "system": "System default",
+        "other": "Other…"
+      },
       "gettingStarted": {
         "openGuide": "Open the guide"
       },
@@ -3091,6 +3108,9 @@
     },
     "storage": {
       "title": "Where photos live",
+      "freeSpace": {
+        "label": "Free space"
+      },
       "location": {
         "label": "Library folder",
         "move": "Move",
@@ -3233,14 +3253,13 @@
     "title": "Settings",
     "metadata": {
       "credits": {
-        "title": "Copyright and captions",
+        "title": "Copyright and credits",
         "creator": "Creator",
         "creatorPlaceholder": "Your name",
         "copyright": "Copyright notice",
         "credit": "Credit line",
         "usageTerms": "Usage terms",
         "usageTermsPlaceholder": "Optional, for example: All rights reserved",
-        "caption": "Caption",
         "description": "Written into new photos, and updated when a photo's species or place changes.",
         "help": {
           "where": "Lifer writes these into JPEG, TIFF, PNG, DNG and HEIC files themselves, and into an .xmp sidecar for RAW files and videos, where Lightroom and other apps read them.",
@@ -3256,12 +3275,12 @@
         "save": "Save",
         "saved": "Saved. New and changed photos get these details.",
         "saveFailed": "Couldn't save these details",
-        "apply": "Apply to existing photos",
-        "applyDescription": "Writes these details into photos already in your library. Only files that differ are changed.",
+        "apply": "Apply to all confirmed photos",
+        "applyDescription": "Writes these details and templates into photos already in your library. Only files that differ are changed.",
         "applyAction": "Apply",
         "applyConfirm": {
           "title": "Write these details into your photos?",
-          "message": "Lifer updates each photo file in your library whose creator, copyright or caption differs. You can stop at any time."
+          "message": "Updates {updated, plural, one {# photo} other {# photos}}, keeps {edited, plural, one {# you edited elsewhere} other {# you edited elsewhere}}. You can stop at any time."
         },
         "applying": "Writing photo details",
         "applyResult": "{updated, plural, one {# photo updated} other {# photos updated}}, {unchanged, plural, one {# already up to date} other {# already up to date}}.",
@@ -3269,7 +3288,8 @@
         "fieldsLabel": "Written into each photo",
         "applySaveFirst": "Save your changes first, then apply them to photos already in your library.",
         "applyStopped": "Stopped. {updated, plural, one {# photo updated} other {# photos updated}}, {unchanged, plural, one {# already up to date} other {# already up to date}}.",
-        "applyFailedFiles": "{count, plural, one {# file couldn't be written. It may be read-only or on a drive that isn't connected.} other {# files couldn't be written. They may be read-only or on a drive that isn't connected.}}"
+        "applyFailedFiles": "{count, plural, one {# file couldn't be written. It may be read-only or on a drive that isn't connected.} other {# files couldn't be written. They may be read-only or on a drive that isn't connected.}}",
+        "applyKeptEdits": "{count, plural, one {# photo kept a value you edited in another app.} other {# photos kept values you edited in another app.}}"
       },
       "fileNames": {
         "label": "Name new photos",
@@ -3301,7 +3321,106 @@
         "saveFailed": "Couldn't change this setting"
       },
       "insert": "Insert:",
-      "unknownVariable": "Lifer doesn't know {variable}. Pick a variable from Insert."
+      "unknownVariable": "Lifer doesn't know {variable}. Pick a variable from Insert.",
+      "templates": {
+        "title": "Titles, captions and keywords",
+        "fields": {
+          "title": "Title",
+          "headline": "Headline",
+          "caption": "Description or caption",
+          "keywords": "Extra keywords"
+        },
+        "hints": {
+          "title": "Shown as the photo's title in other apps.",
+          "headline": "A short summary line. Empty unless you add one.",
+          "caption": "Longer text describing the photo.",
+          "keywords": "Separate keywords with commas. Added to the species keywords Lifer already writes."
+        },
+        "placeholders": {
+          "title": "Type text, or insert a token",
+          "headline": "Optional",
+          "caption": "Optional, for example a photo of a species",
+          "keywords": "Optional, for example wildlife, birding"
+        },
+        "rules": {
+          "fillEmpty": {
+            "label": "Fill if empty",
+            "hint": "Writes only when the photo has nothing there yet."
+          },
+          "replace": {
+            "label": "Replace what Lifer wrote",
+            "hint": "Updates text Lifer wrote earlier, and keeps anything typed in another app."
+          },
+          "append": {
+            "label": "Add to the end",
+            "hint": "Adds this after whatever the photo already has."
+          },
+          "off": {
+            "label": "Don't write",
+            "hint": "Leaves this field alone."
+          }
+        },
+        "ruleLabel": "When writing {field}",
+        "presets": {
+          "label": "Presets",
+          "place": "Species, place and date",
+          "imageOf": "A photo of a species, with date and lens"
+        },
+        "help": {
+          "chips": "Type {brace} or use Insert to add a token. Tokens show as chips: Backspace or Delete removes one.",
+          "optional": "Wording inside double square brackets, such as {example}, is kept only when every token inside it has a value for the photo."
+        },
+        "multi": {
+          "label": "Name every species in a photo",
+          "allHint": "A photo with several species names all of them.",
+          "mainHint": "A photo with several species names only the main one."
+        },
+        "preview": {
+          "label": "Preview",
+          "sample": "Using a sample photo, since your library has none yet.",
+          "photo": "Using {name}. Changes show here before you save.",
+          "another": "Try another photo",
+          "off": "Not written",
+          "empty": "Nothing written"
+        },
+        "saved": "Saved. New and changed photos get these templates.",
+        "saveFailed": "Couldn't save these templates",
+        "anotherFailed": "Couldn't load another photo",
+        "dryRunFailed": "Couldn't check which photos would change",
+        "applyNothing": "Every photo is already up to date."
+      },
+      "tokenGroups": {
+        "taxonomy": "Taxonomy",
+        "place": "Place and trip",
+        "capture": "Capture",
+        "aggregate": "All species in a photo"
+      },
+      "tokens": {
+        "species": "Common name",
+        "scientific": "Scientific name",
+        "group": "Group",
+        "genus": "Genus",
+        "family": "Family",
+        "order": "Order",
+        "class": "Class",
+        "place": "Place",
+        "region": "Region",
+        "country": "Country",
+        "trip": "Trip",
+        "date": "Date",
+        "longdate": "Long date",
+        "year": "Year",
+        "month": "Month",
+        "camera": "Camera",
+        "lens": "Lens",
+        "focal": "Focal length",
+        "aperture": "Aperture",
+        "shutter": "Shutter speed",
+        "iso": "ISO",
+        "rating": "Rating",
+        "names": "All species names",
+        "count": "Species count"
+      }
     },
     "phones": {
       "title": "Connect phone",
@@ -3459,7 +3578,8 @@
       "ratingFailed": "Couldn't save the rating",
       "reassignFailed": "Couldn't reassign this photo",
       "reassignSomeFailed": "{failed} of {total, plural, one {# photo} other {# photos}} couldn't be reassigned",
-      "revealFailed": "Couldn't reveal that file. It may be unavailable.",
+      "revealFailed": "Couldn't show that file. It may have been moved or deleted.",
+      "revealDisconnected": "The drive this file is on isn't connected. Connect it and try again.",
       "tagSpeciesFailed": "Couldn't tag that species",
       "tagsFailed": "Couldn't save the tags",
       "undo": "Undo",
@@ -3704,6 +3824,21 @@
   },
   "stats": {
     "yearInReview": "Year in review",
+    "timeline": {
+      "title": "Photos over time",
+      "groupBy": "Group by",
+      "months": "Months",
+      "years": "Years",
+      "herps": "Reptiles and amphibians",
+      "sea": "Fish and sea life",
+      "total": "Total",
+      "range": "{from} to {to}",
+      "brushLabel": "Dates counted: {range}",
+      "allDates": "All dates",
+      "showOnMap": "Show on map",
+      "undated": "{count, plural, one {# photo} other {{formatted} photos}} without a date",
+      "emptyRange": "No photos in these dates"
+    },
     "filter": {
       "all": "All keepers",
       "featured": "Featured only",
@@ -3768,7 +3903,6 @@
       "keeperInfo": "A \"keeper\" is any photo you've edited and kept, plus RAW-only photos while Include RAW photos is on, except one rated 1 star.",
       "keeperInfoRating": "Rate a photo 1 star to exclude it from your stats, useful for an ID shot you only kept to confirm the species, not one you'd count as a real photo.",
       "byMonth": "By month",
-      "monthlyMetric": "Monthly metric",
       "photoCount": "{count, plural, one {# photo} other {# photos}}",
       "namesAndMore": "{names} and more",
       "notAvailable": "N/A",
@@ -3827,7 +3961,6 @@
       "photosByFocalLength": "Photos by focal length",
       "speciesByFocalLength": "Species by focal length",
       "newLifers": "New lifers",
-      "totalKeepers": "Total keepers",
       "axisOption": "{axis}: {field}"
     }
   },
@@ -3838,7 +3971,7 @@
     },
     "lowSpace": {
       "message": "Your disk is nearly full ({free} free). Free some space so Lifer can keep importing and saving.",
-      "dismiss": "Hide until next launch"
+      "dismiss": "Dismiss"
     },
     "libraryFolder": {
       "cantSave": "Lifer can't save photos right now",
@@ -4412,6 +4545,11 @@
     "deselectAll": "Deselect all",
     "selection": {
       "selected": "{count, number} selected"
+    },
+    "templateField": {
+      "chip": "{name}. Backspace or Delete removes it.",
+      "insert": "Insert",
+      "insertHint": "Adds a token to the text. You can also type {brace}."
     }
   },
   "updates": {
@@ -4579,6 +4717,12 @@
   },
   "bursts": {
     "groupOption": "Group bursts",
+    "apply": {
+      "label": "Apply to all {count, plural, one {# photo} other {# photos}} in this burst",
+      "haveCoordinates": "{count, plural, one {# already has} other {# already have}} coordinates, which this replaces"
+    },
+    "selectWhole": "Select whole burst",
+    "selectFailed": "Couldn't select every photo in the burst. Try again.",
     "badge": "+{count, number}",
     "badgeLabel": "Burst of {count, plural, one {# photo} other {# photos}}",
     "stripLabel": "Burst and scene",
@@ -5029,5 +5173,99 @@
       "add": "Choose folder",
       "pickTitle": "Choose where your photos are now"
     }
+  },
+  "worksWith": {
+    "title": "Works with",
+    "guide": "Guide",
+    "guideLabel": "Guide for {name}",
+    "lightroom": {
+      "name": "Lightroom Classic",
+      "how": "Import your photos, or choose Read Metadata from File. The Lifer plugin tags and sends photos."
+    },
+    "photos": {
+      "name": "Apple Photos",
+      "how": "Select photos and choose Send keywords to Apple Photos, or import JPEG files that carry them."
+    },
+    "folders": {
+      "name": "Folders",
+      "how": "Nothing to set up. Any app that reads XMP or IPTC sees the keywords."
+    },
+    "bridge": {
+      "name": "Adobe Bridge",
+      "how": "Turn on Read Hierarchical Keywords in Preferences, then refresh the folder."
+    },
+    "photoshop": {
+      "name": "Adobe Photoshop",
+      "how": "Open a photo and choose File Info. RAW files open in Camera Raw."
+    },
+    "dxo": {
+      "name": "DxO PhotoLab",
+      "how": "Partly supported. Keywords inside JPEG files are the most reliable."
+    },
+    "peakto": {
+      "name": "Peakto",
+      "how": "Set XMP round trip to Automatic and watch your Lifer folder."
+    }
+  },
+  "fileWriting": {
+    "title": "Where keywords go",
+    "saveFailed": "Couldn't save this setting",
+    "sidecarNames": {
+      "label": "Sidecar names for RAW files",
+      "description": "Lightroom and Bridge read IMG_0001.xmp. digiKam and Capture One read IMG_0001.CR3.xmp.",
+      "stem": "IMG_0001.xmp",
+      "full": "IMG_0001.CR3.xmp",
+      "both": "Both"
+    },
+    "insideFiles": {
+      "label": "Write keywords inside photo files",
+      "description": "JPEG, TIFF, PNG, DNG, WebP and HEIC. When off, a sidecar file goes beside each one instead.",
+      "help": {
+        "changes": "Writing inside a file changes its modified date and checksum. Archive health expects these changes and never reports them as damage.",
+        "sidecar": "Lightroom and Apple Photos only read keywords inside these files. Keywords already inside a file stay there."
+      }
+    },
+    "linked": {
+      "label": "Also write keywords next to linked files",
+      "description": "Adds a sidecar file beside photos in linked folders. The photos themselves never change.",
+      "help": "Lifer only updates sidecars it made. A sidecar from another app is left alone.",
+      "previewFailed": "Couldn't check the linked folders. Try again.",
+      "confirm": {
+        "title": "Write sidecars in linked folders?",
+        "create": "{count, plural, one {# new sidecar file} other {# new sidecar files}}",
+        "update": "{count, plural, one {# sidecar Lifer made before, updated} other {# sidecars Lifer made before, updated}}",
+        "skip": "{count, plural, one {# sidecar from another app, left alone} other {# sidecars from other apps, left alone}}",
+        "unavailable": "{count, plural, one {# photo on a drive that isn't connected, skipped} other {# photos on drives that aren't connected, skipped}}",
+        "action": "Write sidecars"
+      }
+    },
+    "apply": {
+      "label": "Update existing photos",
+      "description": "Writes keywords where these settings say, for photos already in Lifer.",
+      "action": "Update",
+      "running": "Updating photos",
+      "result": "{count, plural, one {# photo updated} other {# photos updated}}",
+      "stopped": "Stopped after {count, plural, one {# photo} other {# photos}}",
+      "failedFiles": "{count, plural, one {# photo couldn't be updated} other {# photos couldn't be updated}}",
+      "failed": "Couldn't update the photos. Try again."
+    }
+  },
+  "applePhotos": {
+    "action": "Send keywords to Apple Photos",
+    "title": "Send keywords to Apple Photos",
+    "checking": "Looking for these photos in Apple Photos",
+    "sending": "Adding keywords",
+    "found": "{count, plural, one {# photo found in Apple Photos} other {# photos found in Apple Photos}}",
+    "notFound": "{count, plural, one {# photo isn't in your Photos library and is skipped} other {# photos aren't in your Photos library and are skipped}}",
+    "explain": "Lifer adds species names and tags as keywords. Keywords already in Photos stay.",
+    "noneFound": "None of these photos are in your Photos library. Lifer looks for each photo by its original file name and the time it was taken.",
+    "send": "Add keywords",
+    "done": "{count, plural, one {Keywords added to # photo} other {Keywords added to # photos}}",
+    "unchanged": "{count, plural, one {# photo already had them} other {# photos already had them}}",
+    "failed": "{count, plural, one {# photo couldn't be changed} other {# photos couldn't be changed}}",
+    "denied": "Lifer isn't allowed to control Photos. In System Settings, open Privacy & Security, then Automation, turn on Photos under Lifer, and try again.",
+    "unavailable": "Photos couldn't be opened. Open Photos, then try again.",
+    "error": "Couldn't reach Apple Photos. Try again.",
+    "tryAgain": "Try again"
   }
 }

@@ -115,6 +115,25 @@ describe("GalleryPage", () => {
     expect(get.mock.calls.filter((c) => (c[0] as string).startsWith("/gallery?")).length).toBe(2);
   });
 
+  it("shows every frame of a similar group even with Group bursts on", async () => {
+    const frames = ["a", "b", "c"].map((id, i) => ({
+      ...item(id, `Heron ${id}`),
+      takenAt: `2026-05-01T10:00:0${i}Z`,
+    }));
+    routeGets({ "/gallery": () => ({ items: frames, nextCursor: null, total: 3 }) });
+    post.mockImplementation((path: string) =>
+      path === "/gallery/bursts"
+        ? Promise.resolve({ bursts: [{ burstId: "c-a", count: 3, captureIds: ["c-a", "c-b", "c-c"] }] })
+        : new Promise(() => {}),
+    );
+    renderGallery("/gallery?similarTo=c-a&bursts=1");
+    expect(await screen.findByRole("img", { name: "Heron a" })).toBeTruthy();
+    await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/gallery/bursts", expect.anything()));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getAllByRole("img", { name: /^Heron/ })).toHaveLength(3);
+    expect(screen.queryByText("+2")).toBeNull();
+  });
+
   it("searches as you type and shows what the search found", async () => {
     routeGets({
       "/gallery": () => ({ items: [item("a", "Great Blue Heron")], nextCursor: null, total: 1 }),

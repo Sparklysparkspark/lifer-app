@@ -300,18 +300,31 @@ export function useGalleryEdits({
     reload: () => loadRef.current({ keepLoaded: true }),
   });
 
-  async function reassignSpecies(captureId: string, to: SpeciesResult) {
+  /** `captureIds`: the viewer's whole burst, when "Apply to all" is ticked. One message and Undo. */
+  async function reassignSpecies(captureId: string, to: SpeciesResult, captureIds: string[] = [captureId]) {
     setEditing(null);
     closeMenu();
     setReassignError(null);
     const from = items?.find((it) => it.captureId === captureId)?.speciesId;
-    try {
-      await api.patch(apiPath("/captures/{id}/reassign", { id: captureId }), { speciesId: to.id });
-      load({ keepLoaded: true });
-      showMoved([{ captureId, from }], to);
-    } catch (err) {
-      setReassignError(errorMessage(err, t("gallery.edits.reassignFailed")));
-    }
+    // A burst frame the grid doesn't list was filed with the open photo: a burst is one subject.
+    const fromOf = (id: string) => items?.find((it) => it.captureId === id)?.speciesId ?? from;
+    const results = await Promise.allSettled(
+      captureIds.map((id) => api.patch(apiPath("/captures/{id}/reassign", { id }), { speciesId: to.id })),
+    );
+    const moved = captureIds.filter((_, i) => results[i].status === "fulfilled");
+    const failed = results.find((r) => r.status === "rejected");
+    if (failed && captureIds.length === 1)
+      setReassignError(errorMessage(failed.reason, t("gallery.edits.reassignFailed")));
+    else if (failed)
+      setReassignError(
+        t("gallery.edits.reassignSomeFailed", { failed: captureIds.length - moved.length, count: captureIds.length }),
+      );
+    if (moved.length === 0) return;
+    load({ keepLoaded: true });
+    showMoved(
+      moved.map((id) => ({ captureId: id, from: fromOf(id) })),
+      to,
+    );
   }
 
   // No batch endpoint: one PATCH per selected photo.

@@ -26,7 +26,7 @@ On a fresh user account, for each of macOS, Windows 11 and Linux (GNOME and KDE)
 - [ ] 100% and 150% display scale, and dragging the window between monitors of different scale: text stays sharp, nothing clips.
 - [ ] High contrast (Settings > Accessibility > Contrast themes): every control is visible and the keyboard focus outline shows.
 - [ ] Right-click menus open on photos, species cards, albums and trips, as on macOS.
-- [ ] A library on a UNC path (`\\nas\photos`) and on a mapped drive letter: import, open an original, Reveal in Explorer, then disconnect the share and reconnect. Photos come back without a rescan.
+- [ ] A library on a UNC path (`\\nas\photos`) and on a mapped drive letter: import, open an original, Show in File Explorer, then disconnect the share and reconnect. Photos come back without a rescan.
 - [ ] Open in: each installed editor (Lightroom Classic, Photoshop, Capture One, DxO, Affinity, GIMP, darktable, RawTherapee) opens the RAW when there is one.
 
 ## Linux
