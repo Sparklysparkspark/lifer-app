@@ -252,11 +252,14 @@ describe.skipIf(!url)("capture routes", () => {
         code: "invalid_request",
       });
       const unknown = await post({ speciesId: NO_SUCH_SPECIES });
-      expect([unknown.statusCode, unknown.json()]).toEqual([400, { error: "Unknown species" }]);
+      expect([unknown.statusCode, unknown.json()]).toEqual([
+        400,
+        { error: "Unknown species", code: "unknown_species" },
+      ]);
       const primary = await post({ speciesId: SPECIES_A });
       expect([primary.statusCode, primary.json()]).toEqual([
         400,
-        { error: "That's already this photo's primary species" },
+        { error: "That's already this photo's primary species", code: "primary_species" },
       ]);
       expect(await tags(captureId)).toEqual([]);
       const notFound = [

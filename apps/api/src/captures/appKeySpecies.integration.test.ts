@@ -150,7 +150,9 @@ describe.skipIf(!url)("app keys adding species to photos they imported", () => {
   it("adds a species to a photo the key imported, safely repeated, never touching the primary", async () => {
     expect((await addSpecies(captureId, EXTRA)).statusCode).toBe(201);
     expect((await addSpecies(captureId, EXTRA)).statusCode).toBe(201);
-    expect((await addSpecies(captureId, PRIMARY)).statusCode).toBe(400);
+    const primaryRes = await addSpecies(captureId, PRIMARY);
+    expect(primaryRes.statusCode).toBe(400);
+    expect(primaryRes.json().code).toBe("primary_species");
     const tags = await db.query(`SELECT species_id FROM capture_species WHERE capture_id = $1`, [captureId]);
     expect(tags.rows).toEqual([{ species_id: EXTRA }]);
     const primary = await db.query(`SELECT species_id FROM captures_all WHERE id = $1`, [captureId]);

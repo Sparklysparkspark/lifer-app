@@ -278,11 +278,12 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.code(403).send({ error: "This key can only tag photos it imported", code: "not_imported_by_key" });
       }
       if (capture.species_id === speciesId) {
-        return reply.code(400).send({ error: "That's already this photo's primary species" });
+        return reply.code(400).send({ error: "That's already this photo's primary species", code: "primary_species" });
       }
 
       const speciesRes = await pool.query(`SELECT id FROM species WHERE id = $1`, [speciesId]);
-      if (speciesRes.rows.length === 0) return reply.code(400).send({ error: "Unknown species" });
+      if (speciesRes.rows.length === 0)
+        return reply.code(400).send({ error: "Unknown species", code: "unknown_species" });
 
       await pool.query(`INSERT INTO capture_species (capture_id, species_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [
         captureId,
