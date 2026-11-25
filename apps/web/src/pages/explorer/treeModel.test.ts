@@ -3,15 +3,18 @@ import {
   ancestorIds,
   circleArcs,
   collectedLeaves,
+  markable,
   myBranches,
   indexTree,
+  onlyTargets,
+  rarityOf,
   rarestFirst,
   searchTree,
   visibleRows,
   type TreeNode,
 } from "./treeModel";
 
-const leaf = (name: string, collected: number, tier = "common"): TreeNode => ({
+const leaf = (name: string, collected: number, tier = "common", targetCount = 0, seenCount = 0): TreeNode => ({
   rank: "species",
   name,
   commonName: `${name} bird`,
@@ -19,6 +22,9 @@ const leaf = (name: string, collected: number, tier = "common"): TreeNode => ({
   collected,
   total: 1,
   photos: collected,
+  targetCount,
+  seenCount,
+  tiers: { [tier]: 1 },
   photoId: collected ? `p-${name}` : null,
   tier,
   children: [],
@@ -29,6 +35,12 @@ const clade = (rank: TreeNode["rank"], name: string, children: TreeNode[]): Tree
   collected: children.reduce((n, c) => n + c.collected, 0),
   total: children.reduce((n, c) => n + c.total, 0),
   photos: 0,
+  targetCount: children.reduce((n, c) => n + c.targetCount, 0),
+  seenCount: children.reduce((n, c) => n + c.seenCount, 0),
+  tiers: children.reduce<Record<string, number>>((out, c) => {
+    for (const [tier, n] of Object.entries(c.tiers)) out[tier] = (out[tier] ?? 0) + n;
+    return out;
+  }, {}),
   photoId: null,
   children,
 });
@@ -129,6 +141,62 @@ describe("treeModel", () => {
     const tree = [clade("genus", "G", [leaf("a", 1), leaf("b", 0, "legendary"), leaf("c", 1, "rare")])];
     const index = indexTree(tree);
     expect(rarestFirst(collectedLeaves(index, "genus:G")).map((l) => l.node.name)).toEqual(["c", "a"]);
+  });
+});
+
+describe("marks", () => {
+  // a: photographed; b: targeted; c: seen; d: photographed and targeted; e: nothing yet.
+  const family = clade("family", "F", [
+    leaf("a", 1),
+    leaf("b", 0, "common", 1),
+    leaf("c", 0, "common", 0, 1),
+    leaf("d", 1, "common", 1),
+    leaf("e", 0),
+  ]);
+  const tree = [clade("class", "C", [family, clade("family", "Bare", [leaf("x", 0)])])];
+
+  it("changes only the species not photographed yet when targeting or marking a group as seen", () => {
+    expect(markable(family, "target")).toEqual(["c", "e"]);
+    expect(markable(family, "seen")).toEqual(["b", "e"]);
+    // Removing takes every target, photographed or not.
+    expect(markable(family, "untarget")).toEqual(["b", "d"]);
+    expect(markable(family, "unseen")).toEqual(["c"]);
+  });
+
+  it("targets a single species whether photographed or not, but never marks a photographed one seen", () => {
+    expect(markable(leaf("a", 1), "target")).toEqual(["a"]);
+    expect(markable(leaf("a", 1), "seen")).toEqual([]);
+    expect(markable(leaf("b", 0, "common", 1), "target")).toEqual([]);
+  });
+
+  it("keeps only the branches holding a target, down to the targeted species", () => {
+    const shown = onlyTargets(tree);
+    expect(shown).toHaveLength(1);
+    expect(shown[0].children.map((f) => f.name)).toEqual(["F"]);
+    expect(shown[0].children[0].children.map((s) => s.name)).toEqual(["b", "d"]);
+    // A group keeps its own progress.
+    expect(shown[0].children[0].total).toBe(5);
+  });
+
+  it("carries targets onto arcs, merged ones included", () => {
+    const arcs = circleArcs(indexTree(tree), "class:C", { rings: 1 });
+    expect(arcs.find((a) => a.id === "class:C/family:F")!.targetCount).toBe(2);
+    const merged = circleArcs(indexTree(tree), "class:C", { rings: 1, minAngle: 10 });
+    expect(merged).toMatchObject([{ id: null, more: 2, targetCount: 2 }]);
+  });
+});
+
+describe("rarityOf", () => {
+  it("averages the rated species' tiers and counts the rare or rarer ones", () => {
+    const family = clade("family", "F", [leaf("a", 0, "common"), leaf("b", 0, "rare"), leaf("c", 0, "legendary")]);
+    // (0 + 3 + 4) / 3 rounds to uncommon.
+    expect(rarityOf(family)).toEqual({ step: 2, rarePlus: 2, rated: 3 });
+    expect(rarityOf(leaf("u", 0, "unrated"))).toBeNull();
+    expect(rarityOf(clade("family", "G", [leaf("a", 0, "common"), leaf("u", 0, "unrated")]))).toEqual({
+      step: 0,
+      rarePlus: 0,
+      rated: 1,
+    });
   });
 });
 

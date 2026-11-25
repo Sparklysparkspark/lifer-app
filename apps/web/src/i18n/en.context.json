@@ -1869,6 +1869,7 @@
     "focus": "Shows only this group and what is inside it, as if it were the top of the tree.",
     "zoomOut": "Screen reader name of the middle of the circle view; it goes up one group.",
     "arcLabel": "Screen reader name of one ring segment in the circle view, like Owls, 3 of 12 species.",
+    "arcLabelTargets": "Screen reader name of a ring segment holding species on your targets, like Owls, 3 of 12 species, 2 targets. Targets are species you want to photograph.",
     "moreGroups": "A ring segment standing in for groups too small to draw separately.",
     "rank": {
       "class": "Taxonomic rank, shown small above a group's name.",
@@ -1876,6 +1877,30 @@
       "family": "Taxonomic rank.",
       "genus": "Taxonomic rank.",
       "species": "Taxonomic rank, used in search results."
+    },
+    "marks": {
+      "targets": "On a group in the Tree of life, and the toolbar link to the Targets list: how many of its species are on your targets (species you want to photograph).",
+      "seen": "On a group: how many of its species you marked as seen without photographing them.",
+      "targetGroup": "Button and menu item on a group: adds every species in it you have not photographed to your targets.",
+      "seenGroup": "Button and menu item on a group: marks every species in it you have not photographed as seen (saw it, no photo).",
+      "untargetGroup": "Button and menu item on a group: takes every species in it off your targets.",
+      "confirmTarget": "Confirmation title before targeting a large group. {name} is the group, like Owls.",
+      "confirmSeen": "Confirmation title before marking a large group as seen. {name} is the group, like Owls.",
+      "confirmUntarget": "Confirmation title before removing a large group's targets. {name} is the group, like Owls.",
+      "doneUntarget": "Notice after species were taken off your targets, with an Undo button.",
+      "doneUnseen": "Notice after a species' seen mark was removed, with an Undo button.",
+      "targetsOnly": "View option switch: show only the groups and species on your targets.",
+      "legend": "Legend under the circle view for the small target marker on segments holding species on your targets.",
+      "noTargets": "Shown when Show only my targets is on and none of your targets are in the region or group shown.",
+      "showAll": "Button under that message: turns Show only my targets off."
+    },
+    "randomHelp": "Tooltip on the Random species button in the Tree of life.",
+    "showMorePhotos": "Link under the photo grid of a group in the Tree of life: shows photos of more of its species.",
+    "rarity": {
+      "show": "View option switch: shade the circle and label rows by rarity tier (common to legendary).",
+      "help": "Tooltip on the Show rarity switch. Local rarity is how rare a species is in the picked region.",
+      "group": "On a group: {tier} is its average rarity tier name, like Uncommon; {rated} is how many of its species have a tier. Example: Mostly Uncommon, 4 of 20 rare or rarer.",
+      "legend": "Screen reader name of the rarity scale under the circle, which lists the tiers from Common to Legendary."
     }
   },
   "worksWith": {

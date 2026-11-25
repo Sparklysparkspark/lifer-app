@@ -1,16 +1,21 @@
-// The Tree of life's detail pane: the selected group or species, its best photos, how much of it
-// you have, its rarest finds, and ways onward (species page, a random species).
+// The Tree of life's detail pane: the selected group or species, every photographed species in it
+// (rarest first, scrolling, 30 at a time), how much of it you have, its rarest finds, its Targets and
+// Seen marks, and ways onward. The parent keys it by id, so a new pick starts at the first page.
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation } from "react-router-dom";
 import Button from "../../components/Button";
 import ProgressiveImg from "../../components/ProgressiveImg";
+import type { MenuAction } from "../../components/Menu";
 import { buttonClasses } from "../../lib/buttonClasses";
 import { backStateFor } from "../../lib/backLabel";
 import { formatNumber } from "../../lib/format";
 import { tierLabel } from "../../lib/speciesGroups";
+import MarkCounts from "./MarkCounts";
+import RarityChip from "./RarityChip";
 import { ancestorIds, collectedLeaves, rarestFirst, type TreeIndex, type TreeNode } from "./treeModel";
 
-const MOSAIC = 6;
+const PAGE = 30;
 const RAREST = 5;
 
 function ProgressRing({ collected, total }: { collected: number; total: number }) {
@@ -48,29 +53,36 @@ export default function ExplorerDetail({
   id,
   label,
   onSelect,
-  onRandom,
   onFocusGroup,
   onOpenPhotos,
+  marks,
+  rarity,
 }: {
   index: TreeIndex;
   id: string;
   label: (node: TreeNode) => string;
   onSelect: (id: string) => void;
-  onRandom: (() => void) | null;
   /** Re-roots the tree at this group; null when it already is the root or is a species. */
   onFocusGroup: (() => void) | null;
   /** Opens the viewer on these species' best photos at `start`. */
   onOpenPhotos: (nodes: TreeNode[], start: number) => void;
+  /** Add to targets, mark as seen and their reverses, for this species or the species shown under this group. */
+  marks: MenuAction[];
+  /** Show the rarity line, as the View option does on the tree. */
+  rarity: boolean;
 }) {
   const { t } = useTranslation();
   const location = useLocation();
+  const [shown, setShown] = useState(PAGE);
   const entry = index.byId.get(id);
   if (!entry) return null;
   const { node } = entry;
   const isSpecies = node.rank === "species";
   const leaves = collectedLeaves(index, id);
   const rarest = rarestFirst(leaves);
-  const mosaic = rarest.filter((l) => l.node.photoId).slice(0, MOSAIC);
+  const withPhotos = rarest.filter((l) => l.node.photoId);
+  const mosaic = withPhotos.slice(0, shown);
+  const more = withPhotos.length - mosaic.length;
   const crumbs = ancestorIds(index, id);
 
   return (
@@ -99,6 +111,16 @@ export default function ExplorerDetail({
         {isSpecies && node.tier && node.tier !== "unrated" && (
           <p className="text-footnote text-muted">{tierLabel(node.tier)}</p>
         )}
+        {rarity && (
+          <p className="mt-1">
+            <RarityChip node={node} />
+          </p>
+        )}
+        {(node.targetCount > 0 || node.seenCount > 0) && (
+          <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+            <MarkCounts node={node} />
+          </p>
+        )}
       </div>
 
       {node.collected === 0 ? (
@@ -118,30 +140,41 @@ export default function ExplorerDetail({
         </div>
       ) : (
         mosaic.length > 0 && (
-          <ul className={`grid gap-1 ${mosaic.length === 1 ? "grid-cols-1" : "grid-cols-3"}`}>
-            {mosaic.map((leaf, i) => (
-              <li key={leaf.id} className={mosaic.length > 1 && i === 0 ? "col-span-2 row-span-2" : ""}>
-                {/* raw-control: the whole photo is the button that opens it full size. */}
-                <button
-                  type="button"
-                  aria-label={t("explorer.openPhoto", { name: label(leaf.node) })}
-                  onClick={() =>
-                    onOpenPhotos(
-                      mosaic.map((m) => m.node),
-                      i,
-                    )
-                  }
-                  className="block aspect-square w-full overflow-hidden rounded-control transition hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                >
-                  <ProgressiveImg
-                    thumbSrc={`/api/photos/${leaf.node.photoId}/thumb`}
-                    alt=""
-                    className="h-full w-full object-cover"
-                  />
-                </button>
-              </li>
-            ))}
-          </ul>
+          // Scrolls inside the pane, so the counts and actions below stay in reach.
+          <div className="max-h-[28rem] overflow-y-auto">
+            <ul className={`grid gap-1 ${mosaic.length === 1 ? "grid-cols-1" : "grid-cols-3"}`}>
+              {mosaic.map((leaf, i) => (
+                <li key={leaf.id} className={mosaic.length > 1 && i === 0 ? "col-span-2 row-span-2" : ""}>
+                  {/* raw-control: the whole photo is the button that opens it full size. */}
+                  <button
+                    type="button"
+                    aria-label={t("explorer.openPhoto", { name: label(leaf.node) })}
+                    onClick={() =>
+                      onOpenPhotos(
+                        mosaic.map((m) => m.node),
+                        i,
+                      )
+                    }
+                    className="block aspect-square w-full overflow-hidden rounded-control transition hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    <ProgressiveImg
+                      thumbSrc={`/api/photos/${leaf.node.photoId}/thumb`}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {more > 0 && (
+              <Button variant="link" size="sm" onClick={() => setShown(shown + PAGE)} className="mt-2">
+                {t("explorer.showMorePhotos", {
+                  count: Math.min(more, PAGE),
+                  formatted: formatNumber(Math.min(more, PAGE)),
+                })}
+              </Button>
+            )}
+          </div>
         )
       )}
 
@@ -185,12 +218,16 @@ export default function ExplorerDetail({
             {t("explorer.focus")}
           </Button>
         )}
-        {onRandom && (
-          <Button variant="secondary" size="sm" onClick={onRandom}>
-            {t("explorer.random")}
-          </Button>
-        )}
       </div>
+      {marks.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {marks.map((m) => (
+            <Button key={m.label} variant="secondary" size="sm" onClick={m.onSelect}>
+              {m.label}
+            </Button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

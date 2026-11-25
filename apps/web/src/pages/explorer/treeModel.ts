@@ -1,6 +1,8 @@
 // The Tree of life's data, apart from how it draws: ids, the rows an expansion shows, search and
 // the detail pane's picks. Pure, so a 10,000-species tree is tested without a DOM.
-import { TIER_ORDER } from "../../lib/speciesGroups";
+import type { TFunction } from "i18next";
+import { formatNumber } from "../../lib/format";
+import { TIER_ORDER, tierLabel } from "../../lib/speciesGroups";
 
 // GET /collection/tree?include=uncollected. Its children are loosely typed in the API schema.
 export interface TreeNode {
@@ -9,6 +11,11 @@ export interface TreeNode {
   collected: number;
   total: number;
   photos: number;
+  /** Species on your targets and seen (not photographed) under the node; 0 or 1 on a species. */
+  targetCount: number;
+  seenCount: number;
+  /** Species per rarity tier under the node: the region's local tier where it has one. */
+  tiers: Record<string, number>;
   photoId: string | null;
   speciesId?: string;
   commonName?: string | null;
@@ -157,6 +164,79 @@ export function rarestFirst(leaves: IndexedNode[]): IndexedNode[] {
   return [...leaves].sort((a, b) => tierRank(a.node.tier) - tierRank(b.node.tier));
 }
 
+export type MarkAction = "target" | "untarget" | "seen" | "unseen";
+const WANTS: Record<MarkAction, (n: TreeNode) => boolean> = {
+  target: (n) => n.targetCount === 0,
+  untarget: (n) => n.targetCount > 0,
+  // Seen never applies to a species you have photographed.
+  seen: (n) => n.collected === 0 && n.seenCount === 0,
+  unseen: (n) => n.seenCount > 0,
+};
+
+/** The species ids a mark would change. On a group, adding a target or a seen mark only touches the
+ *  species not photographed yet; a species on its own can be targeted either way, as on its card. */
+export function markable(node: TreeNode, action: MarkAction): string[] {
+  const out: string[] = [];
+  const walk = (n: TreeNode) => {
+    if (n.rank !== "species") return n.children.forEach(walk);
+    const group = node.rank !== "species";
+    if (WANTS[action](n) && !(group && action === "target" && n.collected > 0)) out.push(n.speciesId!);
+  };
+  walk(node);
+  return out;
+}
+
+/** Only the branches holding a target, down to the targeted species. Counts stay the group's own. */
+export function onlyTargets(nodes: TreeNode[]): TreeNode[] {
+  return nodes
+    .filter((n) => n.targetCount > 0)
+    .map((n) => (n.rank === "species" ? n : { ...n, children: onlyTargets(n.children) }));
+}
+
+// Commonest first, so a higher step is rarer.
+export const RARITY_STEPS = ["common", "occasional", "uncommon", "rare", "legendary"] as const;
+// One hue in lightness steps (each at least 1.3:1 from the next in both themes, colourBlind.test.ts),
+// so the scale reads without telling colours apart. Literal for Tailwind.
+export const RARITY_FILL = ["fill-accent/20", "fill-accent/40", "fill-accent/60", "fill-accent/80", "fill-accent/100"];
+export const RARITY_BG = ["bg-accent/20", "bg-accent/40", "bg-accent/60", "bg-accent/80", "bg-accent/100"];
+
+export interface Rarity {
+  /** Index into RARITY_STEPS of the rated species' mean tier. */
+  step: number;
+  /** Species rare or rarer, of the rated ones. */
+  rarePlus: number;
+  rated: number;
+}
+
+/** A node's average rarity; null when none of its species has a tier. */
+export function rarityOf(node: TreeNode): Rarity | null {
+  let rated = 0;
+  let sum = 0;
+  let rarePlus = 0;
+  for (const [tier, n] of Object.entries(node.tiers)) {
+    const i = RARITY_STEPS.indexOf(tier as (typeof RARITY_STEPS)[number]);
+    if (i < 0) continue;
+    rated += n;
+    sum += i * n;
+    if (i >= 3) rarePlus += n;
+  }
+  return rated ? { step: Math.round(sum / rated), rarePlus, rated } : null;
+}
+
+/** A species' tier, or a group's average tier and how many are rare or rarer. */
+export function rarityText(t: TFunction, node: TreeNode): string | null {
+  const rarity = rarityOf(node);
+  if (!rarity) return null;
+  const tier = tierLabel(RARITY_STEPS[rarity.step]);
+  if (node.rank === "species") return tier;
+  return t("explorer.rarity.group", {
+    tier,
+    count: rarity.rarePlus,
+    formatted: formatNumber(rarity.rarePlus),
+    rated: formatNumber(rarity.rated),
+  });
+}
+
 export interface Arc {
   /** Null for the "N more" arc that stands in for groups too thin to see. */
   id: string | null;
@@ -169,6 +249,7 @@ export interface Arc {
   /** Species you have and catalogue species under the arc. */
   collected: number;
   total: number;
+  targetCount: number;
 }
 
 /** The Circle view's arcs: `rings` levels below `center` (or the whole tree), each child's angle
@@ -184,17 +265,18 @@ export function circleArcs(
     if (total === 0) return;
     const span = end - start;
     let at = start;
-    const thin = { id: null, ring, start: 0, end, more: 0, collected: 0, total: 0 };
+    const thin = { id: null, ring, start: 0, end, more: 0, collected: 0, total: 0, targetCount: 0 };
     for (const id of ids) {
-      const { collected, total: species } = index.byId.get(id)!.node;
+      const { collected, total: species, targetCount } = index.byId.get(id)!.node;
       const angle = (span * species) / total;
       if (angle < minAngle) {
         thin.more++;
         thin.collected += collected;
         thin.total += species;
+        thin.targetCount += targetCount;
         continue;
       }
-      out.push({ id, ring, start: at, end: at + angle, collected, total: species });
+      out.push({ id, ring, start: at, end: at + angle, collected, total: species, targetCount });
       if (ring < rings) place(childrenOf(index, id, genus), ring + 1, at, at + angle);
       at += angle;
     }

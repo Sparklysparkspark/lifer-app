@@ -97,6 +97,8 @@ Open a species card's **⋯** menu:
 
 To archive a whole family at once, set **Group** to **Family group** and click **Archive group** on the family's heading.
 
+To target or mark a whole class, order or family as seen, use the [Tree of life](./stats.md#tree-of-life).
+
 You can't hide or archive species you've already photographed.
 
 After you hide or archive a species, mark it as seen or add it to your targets, a message at the bottom of the screen offers **Undo**.

@@ -52,14 +52,29 @@ The **Tree of life** groups the species in your downloaded regions by class, ord
 
 - Click a group's name to open it and see it in the panel on the right (a sheet on a phone). The arrow beside it opens and closes it.
 - Click a species to see it in the panel, with **Open species page**. Clicking never closes anything, and the tree stays as you left it when you come back from a species page.
-- The panel shows the group's best photos, how many of its species you have, your photo count and its **Rarest finds**. Click a group above it in the panel to move up.
+- The panel shows a photo of every species you have in the group, rarest first (scroll it, and **Show 30 more species** adds the next ones), how many of its species you have, your photo count and its **Rarest finds**. Click a group above it in the panel to move up.
 - Click any photo to see it full size, with arrows through the photos shown.
 - Type in **Jump to a group or species** to open the tree down to it. Press Enter for the next match.
-- **Expand one level** opens every group shown one level deeper; **Collapse all** closes them. **Random species** picks one of your species to look at.
+- **Expand one level** opens every group shown one level deeper; **Collapse all** closes them. **Random species**, beside **View**, picks one of your species to look at, from the selected group when one is picked.
 - With the keyboard, the arrow keys move, Right opens a group, Left closes it or moves up, Enter shows a row in the panel and Space opens its photo.
 - Pick a country above the tree, then an area inside it, to see only that region's species: the counts, the faded species, the panel and **Export CSV** all follow it. Groups with nothing there disappear. **All regions** shows everything again.
-- In **Circle**, click a group to zoom into it and the middle to step back out. **Focus on this group** in the panel does the same in the list. Back, the trackpad swipe and the back shortcut step out one group at a time; the **Stats** link at the top leaves the page.
+- In **Circle**, click a group to zoom into it and the middle to step back out. **Focus on this group** in the panel does the same in the list. Back, the trackpad swipe and the back shortcut step out one group at a time, leaving nothing selected; the **Stats** link at the top leaves the page.
 - **Show genera** under **View** adds the genus level. Point at it for what a genus is.
+
+### Rarity in the tree
+
+**Show rarity** under **View** shades each segment of the circle by how rare its species are, lighter for common and stronger for rarer, with the scale under the circle. A species shows its own tier; a group shows its average, like **Mostly Uncommon, 4 of 20 rare or rarer**, in the middle of the circle and when you point at it. In the list, rows get the same label. With a region picked, it uses that region's local rarity where the region has one (otherwise the species' overall rarity). It's on when you pick a region and off without one, until you change it; Lifer remembers your choice.
+
+### Targets and seen in the tree
+
+Species on your targets show the target icon, and species you've seen but not photographed show the eye, as on the species cards. A group says how many it holds, like **3 targets** and **2 seen**, and in **Circle** a small target marks every group holding one (the legend under the circle says so).
+
+- Select a species, then **Add to targets** or **Mark as seen** in the panel (or the reverse to take it off).
+- Select a group for **Target 12 species you haven't photographed**, **Mark 12 species as seen** and **Remove 3 targets**. They only change the species shown in the tree: the region you picked, and only your targets while **Show only my targets** is on. Targeting and marking seen skip species you've already photographed.
+- Right-click a row or a ring segment for the same actions.
+- More than 10 species asks first, with the exact count. A message at the bottom of the screen offers **Undo**.
+- **Show only my targets** under **View** narrows the tree and the circle to the groups holding your targets. Lifer remembers it.
+- The **3 targets** button beside **View** opens Collection's Targets list for the same region.
 
 ## Export to CSV
 

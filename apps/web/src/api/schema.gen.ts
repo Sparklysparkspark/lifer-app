@@ -9556,6 +9556,14 @@ export interface paths {
                 total: number;
                 /** @description Your photos under this node */
                 photos: number;
+                /** @description Species on your targets under this node; 1 or 0 on a species */
+                targetCount: number;
+                /** @description Species marked seen (not photographed) under this node; 1 or 0 on a species */
+                seenCount: number;
+                /** @description Species per rarity tier under this node; with a region, its local tier where it has one */
+                tiers: {
+                  [key: string]: number;
+                };
                 photoId: string | null;
                 speciesId?: string;
                 commonName?: string | null;
@@ -36830,7 +36838,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** GET /stats/timeline */
+    /** Photos per month by animal group */
     get: {
       parameters: {
         query?: {

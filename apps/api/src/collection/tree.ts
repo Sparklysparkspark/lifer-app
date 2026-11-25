@@ -24,6 +24,12 @@ interface TreeNode {
   total: number;
   /** Your photos under this node. */
   photos: number;
+  /** Species on your targets, and seen but not photographed, under this node (0 or 1 on a species). */
+  targetCount: number;
+  seenCount: number;
+  /** Species per rarity tier under this node: the region's local tier where it has one, else the
+   *  species' own. Only tiers present are listed. */
+  tiers: Record<string, number>;
   photoId: string | null;
   /** Species leaves only, so the explorer links to the species and names it by preference. */
   speciesId?: string;
@@ -42,6 +48,13 @@ const TreeNodeSchema = Open({
   collected: Type.Integer(),
   total: Type.Integer({ description: "Catalogue species under this node, photographed or not" }),
   photos: Type.Integer({ description: "Your photos under this node" }),
+  targetCount: Type.Integer({ description: "Species on your targets under this node; 1 or 0 on a species" }),
+  seenCount: Type.Integer({
+    description: "Species marked seen (not photographed) under this node; 1 or 0 on a species",
+  }),
+  tiers: Type.Record(Type.String(), Type.Integer(), {
+    description: "Species per rarity tier under this node; with a region, its local tier where it has one",
+  }),
   photoId: Nullable(Type.String()),
   speciesId: Type.Optional(Type.String()),
   commonName: Type.Optional(Nullable(Type.String())),
@@ -76,7 +89,10 @@ interface Row {
   family: string | null;
   photos: number;
   is_collected: boolean;
+  is_target: boolean;
+  is_seen: boolean;
   tier: string | null;
+  rarity: string | null;
   reference_photo: string | null;
   has_reference_thumb: boolean;
   first_photographed: Date | null;
@@ -120,7 +136,9 @@ const treeSql = (maxDepthM: number, region: RegionSource) => `WITH RECURSIVE ${
   }
   SELECT s.id AS species_id, s.scientific_name, s.common_name, s.taxon_class, s.taxon_order, s.family,
     COALESCE(us.state = 'collected', false) AS is_collected,
+    COALESCE(us.is_target, false) AS is_target, COALESCE(us.state = 'seen', false) AS is_seen,
     COALESCE(uto.tier, r.tier) AS tier,
+    ${region ? "COALESCE(lrs.local_tier, uto.tier, r.tier)" : "COALESCE(uto.tier, r.tier)"} AS rarity,
     s.reference_photo, s.reference_thumb_path IS NOT NULL AS has_reference_thumb,
     CASE WHEN us.state = 'collected'
       THEN (SELECT count(*)::int FROM captures c WHERE c.user_id = $1 AND c.species_id = s.id) ELSE 0 END AS photos,
@@ -133,6 +151,7 @@ const treeSql = (maxDepthM: number, region: RegionSource) => `WITH RECURSIVE ${
   LEFT JOIN species_rarity r ON r.species_id = s.id
   LEFT JOIN user_tier_overrides uto ON uto.user_id = $1 AND uto.species_id = s.id AND uto.region_id IS NULL
   LEFT JOIN user_species us ON us.user_id = $1 AND us.species_id = s.id
+  ${region ? "LEFT JOIN region_species lrs ON lrs.region_id = $4 AND lrs.species_id = s.id" : ""}
   LEFT JOIN user_archived_species uas ON uas.user_id = $1 AND uas.species_id = s.id
   LEFT JOIN LATERAL (
     SELECT c.current_photo_id AS photo_id, c.quality_rating, c.taken_at FROM captures c
@@ -177,7 +196,18 @@ export function buildTree(rows: Row[], includeUncollected = false): TreeNode[] {
     names.forEach((name, i) => {
       let node = level.find((n) => n.name === name);
       if (!node) {
-        node = { rank: RANKS[i], name, collected: 0, total: 0, photos: 0, photoId: null, children: [] };
+        node = {
+          rank: RANKS[i],
+          name,
+          collected: 0,
+          total: 0,
+          photos: 0,
+          targetCount: 0,
+          seenCount: 0,
+          tiers: {},
+          photoId: null,
+          children: [],
+        };
         if (i === names.length - 1)
           Object.assign(node, {
             speciesId: row.species_id,
@@ -192,6 +222,10 @@ export function buildTree(rows: Row[], includeUncollected = false): TreeNode[] {
         level.push(node);
       }
       node.total++;
+      if (row.is_target) node.targetCount++;
+      if (row.is_seen) node.seenCount++;
+      const tier = row.rarity ?? "unrated";
+      node.tiers[tier] = (node.tiers[tier] ?? 0) + 1;
       if (!row.is_collected) {
         level = node.children;
         return;

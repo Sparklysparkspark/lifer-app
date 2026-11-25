@@ -4,6 +4,7 @@
 /// <reference types="node" />
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { RARITY_BG, RARITY_FILL } from "../pages/explorer/treeModel";
 
 const themeCss = readFileSync(new URL("../theme.css", import.meta.url), "utf8");
 const MIN_DELTA_E = 12;
@@ -134,5 +135,30 @@ describe("taxa colours for colour-blind viewers", () => {
       .filter(([, , c]) => c < 3)
       .map(([g, s, c]) => `${g} on ${s}: ${c.toFixed(2)}`);
     expect(weak).toEqual([]);
+  });
+});
+
+// The Tree of life's rarity scale: the accent at rising opacity over the canvas, one hue, so it must
+// read by lightness alone.
+describe("rarity scale", () => {
+  const light = tokens(themeCss.slice(themeCss.indexOf(":root"), themeCss.indexOf(".dark")));
+  const dark = { ...light, ...tokens(themeCss.slice(themeCss.indexOf(".dark"), themeCss.indexOf("@theme"))) };
+  const alphas = RARITY_FILL.map((c) => Number(c.split("/")[1]) / 100);
+  const blend = (fg: string, bg: string, a: number) =>
+    `#${[1, 3, 5]
+      .map((i) => Math.round(a * parseInt(fg.slice(i, i + 2), 16) + (1 - a) * parseInt(bg.slice(i, i + 2), 16)))
+      .map((v) => v.toString(16).padStart(2, "0"))
+      .join("")}`;
+
+  it("uses the same steps for arcs and list chips", () => {
+    expect(RARITY_BG.map((c) => c.replace("bg-", "fill-"))).toEqual(RARITY_FILL);
+  });
+  it.each([
+    ["light", light],
+    ["dark", dark],
+  ])("keeps each step at least 1.3:1 from the next in %s mode", (_mode, theme) => {
+    const steps = alphas.map((a) => blend(theme.accent, theme.canvas, a));
+    const close = steps.slice(1).filter((c, i) => contrast(c, steps[i]) < 1.3);
+    expect(close).toEqual([]);
   });
 });

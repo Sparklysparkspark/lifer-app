@@ -4,15 +4,18 @@
 // on a phone). The list is windowed over the expanded rows, so 10,000 species scroll like 100, and
 // its expansion, focus, selection and scroll survive opening a photo, a species page and coming back.
 // The region and the focused group live in the URL, each change its own history entry, so Back and
-// the swipe step out one layer at a time.
+// the swipe step out one layer at a time, leaving nothing selected. Species and groups can be added
+// to your targets or marked seen from the detail pane or a right-click (useTreeMarks).
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import { apiPath } from "../api/client";
 import Button from "../components/Button";
 import EmptyState from "../components/EmptyState";
 import FilterPopover from "../components/FilterPopover";
 import Lightbox, { type LightboxSlide } from "../components/Lightbox";
+import Menu, { MenuItems, MenuPanel } from "../components/Menu";
+import { TargetIcon } from "../components/MarkIcon";
 import Modal from "../components/Modal";
 import PhotoPlaceholder from "../components/PhotoPlaceholder";
 import ProgressiveImg from "../components/ProgressiveImg";
@@ -27,11 +30,13 @@ import { Tooltip } from "../components/Tooltip";
 import { useWindowRange } from "../components/windowing";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { taxonDisplayLabel } from "@lifer/shared";
+import { buttonClasses } from "../lib/buttonClasses";
 import { downloadWithToast } from "../lib/downloadFile";
 import { formatNumber } from "../lib/format";
 import { useApiResource } from "../lib/resource";
 import { speciesGroupLabel, taxonClassLabel } from "../lib/speciesGroups";
 import { namePartClass, useSpeciesNameParts } from "../lib/speciesName";
+import { useDropdownMenu } from "../hooks/useDropdownMenu";
 import { useToast } from "../hooks/useToast";
 import { usePersistedState } from "../hooks/usePersistedState";
 import { useScrollMemory } from "../hooks/useScrollMemory";
@@ -41,13 +46,17 @@ import { useRegionTree } from "./collection/useRegionTree";
 import { usePersistedFlag } from "./collection/useCollectionDisplayPrefs";
 import { matches } from "../lib/keymap";
 import ExplorerDetail from "./explorer/ExplorerDetail";
+import MarkCounts from "./explorer/MarkCounts";
+import RarityChip from "./explorer/RarityChip";
 import TreeCircle from "./explorer/TreeCircle";
+import { useTreeMarks } from "./explorer/useTreeMarks";
 import {
   ancestorIds,
   collectedLeaves,
   explorerMemory as memory,
   indexTree,
   myBranches,
+  onlyTargets,
   searchTree,
   visibleRows,
   type TreeNode,
@@ -137,12 +146,22 @@ export default function TaxaExplorer() {
     void res.reload();
   };
   const loading = !res.data && !failed && !!tree;
-  const index = useMemo(() => (tree ? indexTree(tree.tree) : null), [tree]);
+  // A View option: only the branches holding your targets, and group actions act on those alone.
+  const [targetsOnly, setTargetsOnly] = usePersistedState("explorer.targetsOnly", false);
+  const index = useMemo(
+    () => (tree ? indexTree(targetsOnly ? onlyTargets(tree.tree) : tree.tree) : null),
+    [tree, targetsOnly],
+  );
+  const marksFor = useTreeMarks(() => void res.reload());
+  const menu = useDropdownMenu<{ id: string; point: { x: number; y: number } }>();
   useScrollMemory(!!index);
   const wide = useSyncExternalStore(subscribeWide, isWide, () => true);
   const [view, setView] = usePersistedState<"list" | "circle">("explorer.view", "list");
   // Most genera hold one species, so the simple shape skips them.
   const [genus, setGenus] = usePersistedState("explorer.genus", false);
+  // Unset until changed by hand: on with a region picked (its local tiers), off without.
+  const [rarityPref, setRarity] = usePersistedState<boolean | null>("explorer.rarity", null);
+  const rarity = rarityPref ?? !!regionId;
   // Same key as the Collection View menu, so the choice is shared.
   const [uncollectedColour, setUncollectedColour] = usePersistedFlag("uncollectedColour");
 
@@ -189,6 +208,13 @@ export default function TaxaExplorer() {
   );
   const [selected, select] = useState<string | null>(memory.selected);
   const focusState = params.get("focus");
+  // Back out of a group clears the selection, as the step-out controls below do.
+  const navigationType = useNavigationType();
+  const [lastFocus, setLastFocus] = useState(focusState);
+  if (focusState !== lastFocus) {
+    setLastFocus(focusState);
+    if (navigationType === "POP" && (!focusState || lastFocus?.startsWith(`${focusState}/`))) select(null);
+  }
   useEffect(() => {
     memory.expanded = expandedState;
     memory.selected = selected;
@@ -295,7 +321,20 @@ export default function TaxaExplorer() {
     go({ focus: id });
     window.scrollTo(0, 0);
   };
-  const zoomOut = focus ? () => zoomTo(shownPath(focus).at(-1) ?? null) : null;
+  const stepOut = (id: string | null) => {
+    zoomTo(id);
+    select(null);
+  };
+  const zoomOut = focus ? () => stepOut(shownPath(focus).at(-1) ?? null) : null;
+  const openMenu = (id: string) => (e: React.MouseEvent) => {
+    const { node } = index.byId.get(id)!;
+    if (marksFor(node, label(node)).length === 0) return;
+    e.preventDefault();
+    menu.setOpenKey({ id, point: { x: e.clientX, y: e.clientY } });
+  };
+  const menuNode = menu.openKey ? index.byId.get(menu.openKey.id)?.node : undefined;
+  const targets = tree.tree.reduce((n, c) => n + c.targetCount, 0);
+  const targetsLink = `/collection?${new URLSearchParams({ show: "target", ...(urlRegion ? { region: urlRegion } : {}) })}`;
 
   const found = searchTree(index, query, label).filter((id) => genus || index.byId.get(id)!.node.rank !== "genus");
   const results = found.slice(0, RESULTS);
@@ -366,11 +405,11 @@ export default function TaxaExplorer() {
   const selectedEntry = selected ? index.byId.get(selected) : undefined;
   const detail = selected && selectedEntry && (
     <ExplorerDetail
+      key={selected}
       index={index}
       id={selected}
       label={label}
       onSelect={choose}
-      onRandom={randomUnder(selected)}
       onFocusGroup={
         selectedEntry.node.rank !== "species" && selected !== focus && (genus || selectedEntry.node.rank !== "genus")
           ? () => {
@@ -380,12 +419,15 @@ export default function TaxaExplorer() {
           : null
       }
       onOpenPhotos={(nodes, start) => setLightbox({ index: start, slides: nodes.map((n) => slideFor(n, label(n))) })}
+      marks={marksFor(selectedEntry.node, label(selectedEntry.node))}
+      rarity={rarity}
     />
   );
   const first = range?.[0] ?? 0;
   const last = Math.min(range?.[1] ?? 40, rows.length - 1);
   const focusable = active && rows.some((r) => r.id === active) ? active : rows[0]?.id;
-  const random = randomUnder(null);
+  // One Random, beside View: from the selected group when there is one, else from everything.
+  const random = randomUnder(selectedEntry ? selected : null);
   const optionId = (i: number) => `${listId}-${i}`;
 
   return (
@@ -410,7 +452,7 @@ export default function TaxaExplorer() {
           />
         ) : (
           <div
-            className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-8"
+            className="lg:grid lg:grid-cols-[minmax(0,1fr)_26rem] xl:grid-cols-[minmax(0,1fr)_30rem] lg:items-start lg:gap-8"
             data-uncollected-colour={uncollectedColour || undefined}
           >
             <div className={`min-w-0 transition-opacity ${loading ? "opacity-60" : ""}`} aria-busy={loading}>
@@ -539,7 +581,19 @@ export default function TaxaExplorer() {
                     { value: "circle", label: t("explorer.circle") },
                   ]}
                 />
-                <FilterPopover label={t("collection.toolbar.view")} activeCount={0}>
+                <FilterPopover label={t("collection.toolbar.view")} activeCount={targetsOnly ? 1 : 0}>
+                  <Tooltip content={{ label: t("explorer.rarity.show"), description: t("explorer.rarity.help") }}>
+                    {(tip) => (
+                      <label {...tip} className="mb-3 flex items-center justify-between gap-4 text-callout text-ink">
+                        {t("explorer.rarity.show")}
+                        <Switch checked={rarity} onChange={setRarity} label={t("explorer.rarity.show")} />
+                      </label>
+                    )}
+                  </Tooltip>
+                  <label className="mb-3 flex items-center justify-between gap-4 text-callout text-ink">
+                    {t("explorer.marks.targetsOnly")}
+                    <Switch checked={targetsOnly} onChange={setTargetsOnly} label={t("explorer.marks.targetsOnly")} />
+                  </label>
                   <Tooltip content={{ label: t("explorer.rank.genus"), description: t("explorer.generaHelp") }}>
                     {(tip) => (
                       <label {...tip} className="flex items-center justify-between gap-4 text-callout text-ink">
@@ -566,6 +620,22 @@ export default function TaxaExplorer() {
                     )}
                   </Tooltip>
                 </FilterPopover>
+                {random && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={random}
+                    tooltip={{ label: t("explorer.random"), description: t("explorer.randomHelp") }}
+                  >
+                    {t("explorer.random")}
+                  </Button>
+                )}
+                {targets > 0 && (
+                  <Link to={targetsLink} className={buttonClasses("secondary", "sm", "gap-1.5")}>
+                    <TargetIcon />
+                    {t("explorer.marks.targets", { count: targets, formatted: formatNumber(targets) })}
+                  </Link>
+                )}
                 <div className="ml-auto flex flex-wrap gap-2">
                   {view === "list" && (
                     <>
@@ -593,11 +663,6 @@ export default function TaxaExplorer() {
                       </Button>
                     </>
                   )}
-                  {random && (
-                    <Button variant="secondary" size="sm" onClick={random}>
-                      {t("explorer.random")}
-                    </Button>
-                  )}
                 </div>
               </div>
               {focus && (
@@ -605,7 +670,7 @@ export default function TaxaExplorer() {
                   aria-label={t("explorer.focusPath")}
                   className="sticky top-[var(--mac-title-bar,0px)] z-10 mb-2 flex flex-wrap items-center gap-x-1 bg-canvas py-1.5 text-footnote"
                 >
-                  <Button variant="link" size="sm" onClick={() => zoomTo(null)}>
+                  <Button variant="link" size="sm" onClick={() => stepOut(null)}>
                     {t("explorer.allGroups")}
                   </Button>
                   {[...shownPath(focus), focus].map((id) => (
@@ -618,7 +683,7 @@ export default function TaxaExplorer() {
                           {label(index.byId.get(id)!.node)}
                         </span>
                       ) : (
-                        <Button variant="link" size="sm" onClick={() => zoomTo(id)}>
+                        <Button variant="link" size="sm" onClick={() => stepOut(id)}>
                           {label(index.byId.get(id)!.node)}
                         </Button>
                       )}
@@ -633,6 +698,11 @@ export default function TaxaExplorer() {
                   title={t("explorer.regionEmpty")}
                   action={{ label: t("explorer.allRegions"), onClick: () => go({ region: null }) }}
                 />
+              ) : index.roots.length === 0 ? (
+                <EmptyState
+                  title={t("explorer.marks.noTargets")}
+                  action={{ label: t("explorer.marks.showAll"), onClick: () => setTargetsOnly(false) }}
+                />
               ) : view === "circle" ? (
                 <TreeCircle
                   index={index}
@@ -641,6 +711,11 @@ export default function TaxaExplorer() {
                   selected={selected}
                   label={label}
                   onZoomOut={zoomOut}
+                  rarity={rarity}
+                  onMenu={(id, point) => {
+                    const { node } = index.byId.get(id)!;
+                    if (marksFor(node, label(node)).length > 0) menu.setOpenKey({ id, point });
+                  }}
                   onPick={(id) => {
                     const entry = index.byId.get(id)!;
                     const group = entry.node.rank !== "species";
@@ -679,6 +754,7 @@ export default function TaxaExplorer() {
                         aria-selected={selected === id}
                         tabIndex={id === focusable ? 0 : -1}
                         onFocus={() => setActive(id)}
+                        onContextMenu={openMenu(id)}
                         onClick={() => {
                           setActive(id);
                           select(id);
@@ -782,9 +858,11 @@ export default function TaxaExplorer() {
                                   })}
                                 </span>
                               )}
+                              <MarkCounts node={node} />
+                              {rarity && <RarityChip node={node} />}
                             </div>
                           ) : (
-                            <p className="text-footnote text-muted tabular-nums">
+                            <p className="flex items-center gap-1.5 text-footnote text-muted tabular-nums">
                               {faded
                                 ? t("explorer.notYet")
                                 : node.photos > 0 &&
@@ -792,6 +870,8 @@ export default function TaxaExplorer() {
                                     count: node.photos,
                                     formatted: formatNumber(node.photos),
                                   })}
+                              <MarkCounts node={node} iconsOnly />
+                              {rarity && <RarityChip node={node} />}
                             </p>
                           )}
                         </div>
@@ -811,6 +891,13 @@ export default function TaxaExplorer() {
               </Modal>
             )}
           </div>
+        )}
+        {menu.openKey && menuNode && (
+          <Menu open onToggle={menu.close} menuRef={menu.ref} anchorPoint={menu.openKey.point}>
+            <MenuPanel className="w-80">
+              <MenuItems items={marksFor(menuNode, label(menuNode))} />
+            </MenuPanel>
+          </Menu>
         )}
         {lightbox && (
           <Lightbox

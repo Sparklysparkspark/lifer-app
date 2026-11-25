@@ -9006,7 +9006,18 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "required": ["rank", "name", "collected", "total", "photos", "photoId", "children"],
+                        "required": [
+                          "rank",
+                          "name",
+                          "collected",
+                          "total",
+                          "photos",
+                          "targetCount",
+                          "seenCount",
+                          "tiers",
+                          "photoId",
+                          "children"
+                        ],
                         "properties": {
                           "rank": { "type": "string", "description": "class | order | family | genus | species" },
                           "name": { "type": "string" },
@@ -9016,6 +9027,19 @@
                             "description": "Catalogue species under this node, photographed or not"
                           },
                           "photos": { "type": "integer", "description": "Your photos under this node" },
+                          "targetCount": {
+                            "type": "integer",
+                            "description": "Species on your targets under this node; 1 or 0 on a species"
+                          },
+                          "seenCount": {
+                            "type": "integer",
+                            "description": "Species marked seen (not photographed) under this node; 1 or 0 on a species"
+                          },
+                          "tiers": {
+                            "type": "object",
+                            "patternProperties": { "^.*$": { "type": "integer" } },
+                            "description": "Species per rarity tier under this node; with a region, its local tier where it has one"
+                          },
                           "photoId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "speciesId": { "type": "string" },
                           "commonName": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
@@ -31638,7 +31662,7 @@
     },
     "/stats/timeline": {
       "get": {
-        "summary": "GET /stats/timeline",
+        "summary": "Photos per month by animal group",
         "tags": ["stats"],
         "security": [{ "apiKey": [] }],
         "x-required-scope": "stats.read",

@@ -4948,6 +4948,7 @@
     "zoomOut": "Step back out",
     "circleLabel": "Tree of life as a circle",
     "arcLabel": "{name}, {collected} of {total} species",
+    "arcLabelTargets": "{name}, {collected} of {total} species, {count, plural, one {# target} other {{formatted} targets}}",
     "moreGroups": "{count, plural, one {# more group} other {# more groups}}",
     "rank": {
       "class": "Class",
@@ -4962,7 +4963,31 @@
     "speciesOf": "{collected} of {total} species",
     "photoCount": "{count, plural, one {# photo} other {{formatted} photos}}",
     "rarest": "Rarest finds",
-    "openSpecies": "Open species page"
+    "openSpecies": "Open species page",
+    "marks": {
+      "targets": "{count, plural, one {# target} other {{formatted} targets}}",
+      "seen": "{count, plural, one {# seen} other {{formatted} seen}}",
+      "targetGroup": "{count, plural, one {Target # species you haven't photographed} other {Target {formatted} species you haven't photographed}}",
+      "seenGroup": "{count, plural, one {Mark # species as seen} other {Mark {formatted} species as seen}}",
+      "untargetGroup": "{count, plural, one {Remove # target} other {Remove {formatted} targets}}",
+      "confirmTarget": "{count, plural, one {Add # species in {name} to your targets?} other {Add {formatted} species in {name} to your targets?}}",
+      "confirmSeen": "{count, plural, one {Mark # species in {name} as seen?} other {Mark {formatted} species in {name} as seen?}}",
+      "confirmUntarget": "{count, plural, one {Remove # target in {name}?} other {Remove {formatted} targets in {name}?}}",
+      "doneUntarget": "Removed {count, plural, one {# species} other {# species}} from your targets.",
+      "doneUnseen": "Marked {count, plural, one {# species} other {# species}} as unseen.",
+      "targetsOnly": "Show only my targets",
+      "legend": "Holds species on your targets",
+      "noTargets": "None of your targets are here",
+      "showAll": "Show every species"
+    },
+    "randomHelp": "One of your species, from the selected group when one is picked.",
+    "showMorePhotos": "{count, plural, one {Show # more species} other {Show {formatted} more species}}",
+    "rarity": {
+      "show": "Show rarity",
+      "help": "Shades the circle and labels the list by how rare species are. With a region picked, its local rarity.",
+      "group": "Mostly {tier}, {count, plural, one {# of {rated} rare or rarer} other {{formatted} of {rated} rare or rarer}}",
+      "legend": "Rarity, commonest to rarest"
+    }
   },
   "review": {
     "title": "Review identifications",

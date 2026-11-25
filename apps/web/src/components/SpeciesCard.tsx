@@ -26,31 +26,13 @@ import NameChangedModal from "./NameChangedModal";
 import CardCropEditor from "./CardCropEditor";
 import { namePartClass, useSpeciesName, useSpeciesNameParts } from "../lib/speciesName";
 import SpeciesNameText from "./SpeciesNameText";
+import { SeenIcon, TargetIcon } from "./MarkIcon";
 
 // What a card action did, so the parent can patch its list instead of reloading: a field patch,
 // the species leaving this view, or "reload" after a failed optimistic change.
 export type SpeciesChange = Partial<CollectionItem> | "removed" | "reload";
 export type SpeciesChangeHandler = (speciesId: string | string[], change: SpeciesChange) => void;
 
-// The seen and target marks: house line icons (an eye, a target), not text glyphs.
-function MarkIcon({ d }: { d: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-3.5 w-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d={d} />
-    </svg>
-  );
-}
-const SEEN_ICON = "M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z";
-const TARGET_ICON = "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM12 11.5v1";
 // The light chip the marks and the photo count sit on over a photo.
 const CHIP = "rounded-full bg-surface/90 text-muted shadow";
 const MARK = `flex h-5 w-5 items-center justify-center ${CHIP}`;
@@ -499,12 +481,12 @@ function SpeciesCard({
               <div className="absolute left-1.5 top-1.5 flex gap-1">
                 {isSeen && (
                   <span className={MARK} title={t("speciesCard.seenTitle")}>
-                    <MarkIcon d={SEEN_ICON} />
+                    <SeenIcon />
                   </span>
                 )}
                 {isTarget && (
                   <span className={MARK} title={t("speciesCard.targetTitle")}>
-                    <MarkIcon d={TARGET_ICON} />
+                    <TargetIcon />
                   </span>
                 )}
               </div>

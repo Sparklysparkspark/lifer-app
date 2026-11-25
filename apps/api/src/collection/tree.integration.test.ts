@@ -59,6 +59,7 @@ describe.skipIf(!url)("collection tree", () => {
     ({ SESSION_COOKIE_NAME: cookieName } = await import("@lifer/core/config.js"));
     const { collectionRoutes } = await import("./routes.js");
     const { collectionTreeRoutes } = await import("./tree.js");
+    const { collectionBulkRoutes } = await import("./bulk.js");
     ({ ensureRegionRollup, regionRollupFresh } = await import("../regions/rollup.js"));
 
     await cleanup();
@@ -116,16 +117,18 @@ describe.skipIf(!url)("collection tree", () => {
     await app.register(cookie);
     await app.register(collectionRoutes, { prefix: "/api" });
     await app.register(collectionTreeRoutes, { prefix: "/api" });
+    await app.register(collectionBulkRoutes, { prefix: "/api" });
     await app.ready();
   });
 
+  // Deleting the 20,000-species checklist takes more than the default 10s on a busy machine.
   afterAll(async () => {
     await app?.close();
     await cleanup();
     await db.end();
     const { pool } = await import("@lifer/core/db.js");
     await pool.end();
-  });
+  }, 60000);
 
   it("totals equal the collection count and species with no family or order land under Other", async () => {
     const count = (await get("/api/collection/count")).json();
@@ -168,6 +171,52 @@ describe.skipIf(!url)("collection tree", () => {
       ["Treeus betus", 0, true],
     ]);
     expect(leaves[1]).toMatchObject({ speciesId: SP_C, total: 1, photos: 0 });
+  });
+
+  it("counts targets and seen species in every node, and on each species", async () => {
+    type N = { name: string; targetCount: number; seenCount: number; children: N[] };
+    await db.query(`UPDATE user_species SET is_target = true WHERE user_id = $1 AND species_id = ANY($2)`, [
+      USER,
+      [SP_A, SP_C],
+    ]);
+    try {
+      const tree: N[] = (await get("/api/collection/tree?include=uncollected")).json().tree;
+      const aves = tree.find((n) => n.name === "aves")!;
+      // Seen: Beta, Delta and Epsilon; targets: Alpha (photographed) and Beta.
+      expect([aves.targetCount, aves.seenCount]).toEqual([2, 3]);
+      const family = aves.children.find((n) => n.name === "Passeriformes")!.children[0];
+      expect([family.targetCount, family.seenCount]).toEqual([2, 1]);
+      const counts = Object.fromEntries(family.children[0].children.map((s) => [s.name, [s.targetCount, s.seenCount]]));
+      expect(counts).toEqual({ "Treeus alphus": [1, 0], "Treeus betus": [1, 1] });
+    } finally {
+      await db.query(`UPDATE user_species SET is_target = false WHERE user_id = $1`, [USER]);
+    }
+  });
+
+  it("tallies rarity per node: the region's local tier where it has one, else the species' own", async () => {
+    type N = { name: string; tiers: Record<string, number>; children: N[] };
+    await db.query(
+      `INSERT INTO species_rarity (species_id, range_score, abundance_score, composite, tier)
+       VALUES ($1, 0, 0, 0, 'common'), ($2, 0, 0, 0, 'uncommon')`,
+      [SP_A, SP_C],
+    );
+    await db.query(`UPDATE region_species SET local_tier = 'rare' WHERE region_id = $1 AND species_id = $2`, [
+      COUNTRY,
+      SP_A,
+    ]);
+    try {
+      const family = async (q: string) =>
+        ((await get(`/api/collection/tree?include=uncollected${q}`)).json().tree as N[])
+          .find((n) => n.name === "aves")!
+          .children.find((n) => n.name === "Passeriformes")!.children[0];
+      expect((await family("")).tiers).toEqual({ common: 1, uncommon: 1 });
+      const local = await family(`&regionId=${COUNTRY}`);
+      expect(local.tiers).toEqual({ rare: 1, uncommon: 1 });
+      expect(local.children[0].children.find((s) => s.name === "Treeus alphus")!.tiers).toEqual({ rare: 1 });
+    } finally {
+      await db.query(`DELETE FROM species_rarity WHERE species_id = ANY($1)`, [[SP_A, SP_C]]);
+      await db.query(`UPDATE region_species SET local_tier = NULL WHERE region_id = $1`, [COUNTRY]);
+    }
   });
 
   it("gives every node a picture, groups with no photo a faded species picture differing from the group above", async () => {
@@ -289,6 +338,29 @@ describe.skipIf(!url)("collection tree", () => {
     const res = await get(`/api/collection/tree?include=uncollected&regionId=${COUNTRY}`);
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json().collected).toBe(2);
+
+    // A whole class targeted from the tree is one bulk call, well inside the statement timeout.
+    const ids = (
+      await db.query<{ id: string }>(`SELECT id FROM species WHERE gbif_key >= $1 AND gbif_key < $1 + $2`, [
+        BIG_GBIF,
+        BIG,
+      ])
+    ).rows.map((r) => r.id);
+    const post = (action: string, speciesIds: string[]) =>
+      app.inject({
+        method: "POST",
+        url: "/api/collection/bulk",
+        cookies: { [cookieName]: TOKEN },
+        payload: { action, speciesIds },
+      });
+    const started = Date.now();
+    const targeted = await post("target", ids);
+    const took = Date.now() - started;
+    expect(targeted.statusCode, targeted.body).toBe(200);
+    expect(targeted.json().changedIds).toHaveLength(BIG);
+    expect(took).toBeLessThan(5000);
+    expect((await post("untarget", targeted.json().changedIds)).json().changedIds).toHaveLength(BIG);
+    await db.query(`DELETE FROM user_species WHERE user_id = $1 AND species_id = ANY($2)`, [USER, ids]);
   }, 30000);
 
   it("exports a CSV with a header, one line per species and escaped commas", async () => {
