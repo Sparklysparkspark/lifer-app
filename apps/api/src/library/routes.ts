@@ -38,6 +38,7 @@ import { createJob, describeError, type JobContext } from "../lib/job.js";
 import { log } from "@lifer/core/lib/log.js";
 import { stemOf } from "../trips/rawLink.js";
 import { catchUpPhotoBackfills } from "../species/embeddingBackfill.js";
+import { markImportedByKey } from "../uploads/captureRows.js";
 
 // Each file costs an exiftool round-trip and often a resize, so files run in parallel.
 const CONCURRENCY = 4;
@@ -107,6 +108,15 @@ function freshExtra(): ReimportExtra {
 }
 
 const reimportJob = createJob<ReimportResult, ReimportExtra>("library-reimport", freshExtra());
+
+/** A connected app's folder import: the key that asked, and each file filed or already in Lifer
+ *  with its capture, relative to the folder. */
+interface AppImport {
+  keyId: string | null;
+  filed: { relativePath: string; captureId: string }[];
+}
+// The current scan's, when a connected app started it.
+let appImport: AppImport | null = null;
 // Root the current job's relative paths resolve against. Server-side only, for previews.
 let jobWalkDir: string | null = null;
 // Whose scan the shared job belongs to. A server can have several accounts; only the one that
@@ -173,8 +183,12 @@ async function runReimportJob(
   organize: boolean,
   foreign: boolean,
   cullOption: CullMarksOption,
+  app: AppImport | null = null,
 ): Promise<ReimportResult> {
   const job = reimportJob.status;
+  const filed = (relativePath: string, captureId: string | null | undefined) => {
+    if (app && captureId) app.filed.push({ relativePath, captureId });
+  };
   try {
     const { jpegs, raws } = await listManagedFiles(walkDir);
     ctx.update({ totalJpegs: jpegs.length, totalRaws: raws.length, phase: "jpegs", processed: 0, total: jpegs.length });
@@ -204,6 +218,12 @@ async function runReimportJob(
           option: cullOption,
           raws: rawsByStem.get(stemOf(path.basename(absolutePath))),
         });
+        if ("captureId" in outcome) filed(relativePath, outcome.captureId);
+        // A failure here only leaves the app unable to tag the photo, never fails its import.
+        if (outcome.status === "recovered" && app?.keyId)
+          await markImportedByKey(outcome.captureId, app.keyId).catch((err: unknown) =>
+            log.warn({ err, captureId: outcome.captureId }, "Couldn't record which key imported this capture"),
+          );
         if (outcome.status === "recovered") {
           job.jpegsRecovered++;
           if (outcome.hidden) job.jpegsHidden++;
@@ -244,9 +264,11 @@ async function runReimportJob(
     ctx.update({ phase: "raws", processed: 0, total: raws.length });
     await mapWithConcurrency(raws, CONCURRENCY, async (absolutePath) => {
       if (ctx.signal.aborted) return;
-      ctx.update({ currentItem: path.relative(walkDir, absolutePath) });
+      const relativePath = path.relative(walkDir, absolutePath);
+      ctx.update({ currentItem: relativePath });
       try {
         const outcome = await recoverRaw(userId, absolutePath, volumeContext, organize, foreign);
+        if ("captureId" in outcome) filed(relativePath, outcome.captureId);
         if (outcome.status === "recovered") job.rawsRecovered++;
         else if (outcome.status === "already-known") job.rawsAlreadyKnown++;
         else if (outcome.status === "relinked") job.rawsRelinked++;
@@ -301,12 +323,14 @@ function startScan(
   organize: boolean,
   foreign: boolean,
   cullOption: CullMarksOption,
+  app: AppImport | null = null,
 ): boolean {
   const started = reimportJob.start(
-    (ctx) => runReimportJob(ctx, userId, walkDir, volumeContext, organize, foreign, cullOption),
+    (ctx) => runReimportJob(ctx, userId, walkDir, volumeContext, organize, foreign, cullOption, app),
     freshExtra(),
   );
   if (!started) return false;
+  appImport = app;
   jobWalkDir = walkDir;
   jobUserId = userId;
   jobImport = { volumeContext, organize, foreign, cullOption };
@@ -319,27 +343,31 @@ export function startWatchedFolderScan(userId: string, folder: string): boolean 
 }
 
 /** A folder import a connected app asked for: files stay where they are (`copy` false) or a copy is
- *  staged in the library and filed by species. Returns false while another scan runs. */
-export function startFolderImport(userId: string, folder: string, copy: boolean): boolean {
-  if (!copy) return startScan(userId, folder, null, false, true, "skip");
+ *  staged in the library and filed by species. `keyId` is the app's key, recorded on new captures.
+ *  Returns false while another scan runs. */
+export function startFolderImport(userId: string, folder: string, copy: boolean, keyId: string | null): boolean {
+  const app: AppImport = { keyId, filed: [] };
+  if (!copy) return startScan(userId, folder, null, false, true, "skip", app);
   const staged = path.join(ORIGINALS_DIR, "Imported by apps", `${path.basename(folder)} ${Date.now()}`);
   const started = reimportJob.start(async (ctx) => {
     ctx.update({ phase: "copying", currentItem: path.basename(folder) });
     await cp(folder, staged, { recursive: true });
     ctx.throwIfCancelled();
-    return runReimportJob(ctx, userId, staged, null, true, true, "skip");
+    return runReimportJob(ctx, userId, staged, null, true, true, "skip", app);
   }, freshExtra());
   if (!started) return false;
+  appImport = app;
   jobWalkDir = staged;
   jobUserId = userId;
   jobImport = { volumeContext: null, organize: true, foreign: true, cullOption: "skip" };
   return true;
 }
 
-/** The progress of the current scan, for the owner only. */
+/** The progress of the current scan, for the owner only. `filed` (folder-relative) once it ends. */
 export function folderImportProgress(userId: string) {
   const s = reimportJob.status;
   if (!isJobOwner(userId)) return { running: s.running, processed: 0, total: 0 };
+  const filed = s.running ? undefined : appImport?.filed;
   const done = s.processedJpegs + s.processedRaws;
   return {
     running: s.running,
@@ -351,6 +379,7 @@ export function folderImportProgress(userId: string) {
     needReview: s.unmatched.length + s.rawsUnmatched,
     error: s.error,
     cancelled: s.cancelled,
+    filed,
   };
 }
 

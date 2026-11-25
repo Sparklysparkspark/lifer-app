@@ -191,7 +191,9 @@ describe.skipIf(!url)("capture routes", () => {
           payload: payload as object,
           headers: { "x-api-key": READ_KEY },
         });
-        expect([route, anonymous.statusCode, readOnly.statusCode]).toEqual([route, 401, 401]);
+        // Adding a species tells a key without the scope apart from an unknown one.
+        const keyRefusal = method === "POST" && route.endsWith("/species") ? 403 : 401;
+        expect([route, anonymous.statusCode, readOnly.statusCode]).toEqual([route, 401, keyRefusal]);
       }
       const before = await captureRow(captureId);
       expect(before.species_id).toBe(SPECIES_A);

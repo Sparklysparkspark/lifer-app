@@ -4,7 +4,6 @@ description: Build your own integrations against a Lifer server with API keys.
 slug: /api/overview
 ---
 
-
 # Lifer API
 
 A self-hosted Lifer server exposes an HTTP API so you can build your own integrations, like: show a
@@ -28,7 +27,7 @@ is shown once. Send it on every request as the `x-api-key` header:
 curl -H "x-api-key: $LIFER_KEY" http://lifer.local:4000/api/life-list/summary
 ```
 
-A request with no key, an unknown key, or a key without the route's scope gets `401` with `{"error": "Not authenticated"}` (the three look the same on purpose). A key can't create or revoke other keys; only you, signed in, can. Keep keys server-side: a key
+A request with no key, an unknown key, or a key without the route's scope gets `401` with `{"error": "Not authenticated"}` (the three look the same on purpose). The one exception is `POST /api/captures/{id}/species`: there a valid key without the scope gets `403` with `"code": "missing_scope"` and the accepted `scopes`, so an app can tell it from a revoked key. A key can't create or revoke other keys; only you, signed in, can. Keep keys server-side: a key
 is as good as your login for whatever it's allowed to do.
 
 **Use a key, not the login cookie.** The web app itself signs in with a session cookie, and the
@@ -38,21 +37,21 @@ the header `x-lifer-client: 1` and come from Lifer's own site. Anything else get
 login. Requests with `x-api-key` skip this check entirely, so scripts using a key don't need the
 extra header.
 
-| Scope | Allows |
-|---|---|
-| `photos.read` | The photo feed (`GET /captures`) and image files: thumbnails, display images, originals, RAWs, videos |
-| `photos.write` | Importing photos (`POST /uploads`, [resumable uploads](#large-files)) and editing them: species, extra species, rating, tags, capture time, location, life stage, sex, plumage and morph |
-| `collection.read` | The life list and its summary counts, and the species you added to checklists yourself |
-| `collection.write` | Adding species to region checklists yourself, and removing them again |
-| `gallery.read` | The gallery listing, content search, similar-photo groups and the map |
-| `species.read` | Species search and details, reference photos |
-| `stats.read` | Statistics, including the life list as CSV |
-| `trips.read` | Trips and their photos |
-| `album.read` / `album.write` | Reading and managing albums, smart albums and their rules, smart album suggestions and pinned Gallery filters |
-| `share.read` / `share.write` | Reading, creating and revoking album share links |
-| `userdata.read` | Your own data for companion apps: the species you photographed, marked seen or made targets (`GET /userdata/v1/species`), and display images of your own photos. Never catalog data |
-| `imports.write` | Importing new photos from a companion app |
-| `opendata.read` | The species lists of the regions you installed (`/opendata/v1/regions`), and reference vectors whose photos are CC0 or CC BY, with attribution |
+| Scope                        | Allows                                                                                                                                                                                   |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `photos.read`                | The photo feed (`GET /captures`) and image files: thumbnails, display images, originals, RAWs, videos                                                                                    |
+| `photos.write`               | Importing photos (`POST /uploads`, [resumable uploads](#large-files)) and editing them: species, extra species, rating, tags, capture time, location, life stage, sex, plumage and morph |
+| `collection.read`            | The life list and its summary counts, and the species you added to checklists yourself                                                                                                   |
+| `collection.write`           | Adding species to region checklists yourself, and removing them again                                                                                                                    |
+| `gallery.read`               | The gallery listing, content search, similar-photo groups and the map                                                                                                                    |
+| `species.read`               | Species search and details, reference photos                                                                                                                                             |
+| `stats.read`                 | Statistics, including the life list as CSV                                                                                                                                               |
+| `trips.read`                 | Trips and their photos                                                                                                                                                                   |
+| `album.read` / `album.write` | Reading and managing albums, smart albums and their rules, smart album suggestions and pinned Gallery filters                                                                            |
+| `share.read` / `share.write` | Reading, creating and revoking album share links                                                                                                                                         |
+| `userdata.read`              | Your own data for companion apps: the species you photographed, marked seen or made targets (`GET /userdata/v1/species`), and display images of your own photos. Never catalog data      |
+| `imports.write`              | Importing new photos from a companion app, and adding species to the photos that key imported                                                                                            |
+| `opendata.read`              | The species lists of the regions you installed (`/opendata/v1/regions`), and reference vectors whose photos are CC0 or CC BY, with attribution                                           |
 
 ## Conventions
 
@@ -78,33 +77,62 @@ extra header.
 
 Every photo in your library, ordered by when it last changed. Built for syncing.
 
-| Query | Meaning |
-|---|---|
-| `since` | Only photos changed after this time: new photos, and changes to species, rating, tags, location, capture time, life stage, sex, plumage, morph, or moving to/from the trash |
-| `cursor` | The previous page's `nextCursor` |
-| `limit` | Page size, 1-500 (default 100). Larger values are capped at 500 |
-| `speciesId` | Only photos showing this species |
-| `includeDeleted=1` | Include photos in the trash, with `deletedAt` set (`0`, the default, leaves them out) |
+| Query              | Meaning                                                                                                                                                                     |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `since`            | Only photos changed after this time: new photos, and changes to species, rating, tags, location, capture time, life stage, sex, plumage, morph, or moving to/from the trash |
+| `cursor`           | The previous page's `nextCursor`                                                                                                                                            |
+| `limit`            | Page size, 1-500 (default 100). Larger values are capped at 500                                                                                                             |
+| `speciesId`        | Only photos showing this species                                                                                                                                            |
+| `includeDeleted=1` | Include photos in the trash, with `deletedAt` set (`0`, the default, leaves them out)                                                                                       |
 
 ```json
 {
   "items": [
     {
-      "captureId": "…", "photoId": "…",
-      "speciesId": "…", "scientificName": "Aix galericulata", "commonName": "Mandarin Duck", "taxonClass": "aves",
+      "captureId": "…",
+      "photoId": "…",
+      "speciesId": "…",
+      "scientificName": "Aix galericulata",
+      "commonName": "Mandarin Duck",
+      "taxonClass": "aves",
       "additionalSpecies": [],
-      "takenAt": "2025-04-12T09:31:05.000Z", "createdAt": "…", "updatedAt": "2026-09-25T18:02:11.482193Z", "deletedAt": null,
-      "lat": 49.28, "lon": -123.12, "regionId": "…", "regionName": "British Columbia", "locationLabel": "Stanley Park", "tripId": null,
-      "camera": { "model": "EOS R5", "lens": "RF100-500mm", "focalLengthMm": 500, "aperture": 7.1, "shutter": "1/1000", "iso": 800 },
-      "rating": 4, "tags": ["courtship"],
-      "lifeStage": "adult", "sex": "male", "plumage": "breeding", "morph": null,
-      "kind": "image", "width": 2048, "height": 1365,
+      "takenAt": "2025-04-12T09:31:05.000Z",
+      "createdAt": "…",
+      "updatedAt": "2026-09-25T18:02:11.482193Z",
+      "deletedAt": null,
+      "lat": 49.28,
+      "lon": -123.12,
+      "regionId": "…",
+      "regionName": "British Columbia",
+      "locationLabel": "Stanley Park",
+      "tripId": null,
+      "camera": {
+        "model": "EOS R5",
+        "lens": "RF100-500mm",
+        "focalLengthMm": 500,
+        "aperture": 7.1,
+        "shutter": "1/1000",
+        "iso": 800
+      },
+      "rating": 4,
+      "tags": ["courtship"],
+      "lifeStage": "adult",
+      "sex": "male",
+      "plumage": "breeding",
+      "morph": null,
+      "kind": "image",
+      "width": 2048,
+      "height": 1365,
       "originals": {
         "jpeg": { "fileName": "IMG_4411.jpg", "sizeBytes": 8123456, "sha256": "…" },
         "raw": { "fileName": "IMG_4411.CR3", "sizeBytes": 41234567, "sha256": "…" },
         "video": null
       },
-      "images": { "thumb": "/api/photos/…/thumb", "display": "/api/photos/…/display", "original": "/api/photos/…/original" }
+      "images": {
+        "thumb": "/api/photos/…/thumb",
+        "display": "/api/photos/…/display",
+        "original": "/api/photos/…/original"
+      }
     }
   ],
   "nextCursor": "…"
@@ -136,10 +164,18 @@ Cheap enough to poll. `?regionId=` adds progress on that region's checklist.
 
 ```json
 {
-  "photographedSpecies": 412, "seenOnlySpecies": 9, "photos": 18230, "newThisYear": 37,
+  "photographedSpecies": 412,
+  "seenOnlySpecies": 9,
+  "photos": 18230,
+  "newThisYear": 37,
   "byTaxonClass": { "aves": 301, "mammalia": 64, "squamata": 22 },
-  "latestLifer": { "speciesId": "…", "commonName": "Bohemian Waxwing", "scientificName": "Bombycilla garrulus",
-                   "firstCollected": "2026-09-20", "coverImage": "/api/photos/…/display" },
+  "latestLifer": {
+    "speciesId": "…",
+    "commonName": "Bohemian Waxwing",
+    "scientificName": "Bombycilla garrulus",
+    "firstCollected": "2026-09-20",
+    "coverImage": "/api/photos/…/display"
+  },
   "region": { "regionId": "…", "name": "British Columbia", "photographed": 212, "checklistSize": 661 }
 }
 ```
@@ -155,16 +191,16 @@ catalog's own checklists, so catalog updates and downloaded regions never remove
 never removes anything the catalog lists. Species imported by hand from iNaturalist are stored the
 same way, as the importing user's additions.
 
-| Request | |
-|---|---|
-| `PUT /api/regions/{regionId}/checklist-additions/{speciesId}` | Adds it (collection.write). No body. Safe to repeat: a second call answers `200` with `"added": false` |
-| `DELETE /api/regions/{regionId}/checklist-additions/{speciesId}` | Removes your addition (collection.write). `404` with `"code": "not_added"` if you hadn't added it there |
-| `GET /api/regions/{id}/checklist-additions` | The species you added to this region (collection.read) |
-| `GET /api/sea-zones` | Every ocean area, with its ID and name (collection.read) |
-| `PUT /api/sea-zones/{seaZoneId}/checklist-additions/{speciesId}` | Adds it to an ocean area's checklist (collection.write). No body. Safe to repeat |
+| Request                                                             |                                                                                                         |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `PUT /api/regions/{regionId}/checklist-additions/{speciesId}`       | Adds it (collection.write). No body. Safe to repeat: a second call answers `200` with `"added": false`  |
+| `DELETE /api/regions/{regionId}/checklist-additions/{speciesId}`    | Removes your addition (collection.write). `404` with `"code": "not_added"` if you hadn't added it there |
+| `GET /api/regions/{id}/checklist-additions`                         | The species you added to this region (collection.read)                                                  |
+| `GET /api/sea-zones`                                                | Every ocean area, with its ID and name (collection.read)                                                |
+| `PUT /api/sea-zones/{seaZoneId}/checklist-additions/{speciesId}`    | Adds it to an ocean area's checklist (collection.write). No body. Safe to repeat                        |
 | `DELETE /api/sea-zones/{seaZoneId}/checklist-additions/{speciesId}` | Removes your addition (collection.write). `404` with `"code": "not_added"` if you hadn't added it there |
-| `GET /api/sea-zones/{id}/checklist-additions` | The species you added to this ocean area (collection.read) |
-| `GET /api/species/{id}/checklist-additions` | The regions (`items`) and ocean areas (`seaZones`) you added this species to (collection.read) |
+| `GET /api/sea-zones/{id}/checklist-additions`                       | The species you added to this ocean area (collection.read)                                              |
+| `GET /api/species/{id}/checklist-additions`                         | The regions (`items`) and ocean areas (`seaZones`) you added this species to (collection.read)          |
 
 ```json
 { "ok": true, "added": true, "alreadyOnChecklist": false }
@@ -183,11 +219,11 @@ One row per species you photographed, marked seen or made a target, ordered by w
 including marks you removed. Only your own data: no regions, checklists, tiers, seasonality, common
 names, descriptions or reference photos. Match species by `scientificName`.
 
-| Query | Meaning |
-|---|---|
-| `since` | Only changes after this time (an `updatedAt` from an earlier call) |
-| `cursor` | The previous page's `nextCursor` |
-| `limit` | Page size, 1-500 (default 100). Larger values are capped at 500 |
+| Query    | Meaning                                                            |
+| -------- | ------------------------------------------------------------------ |
+| `since`  | Only changes after this time (an `updatedAt` from an earlier call) |
+| `cursor` | The previous page's `nextCursor`                                   |
+| `limit`  | Page size, 1-500 (default 100). Larger values are capped at 500    |
 
 ```json
 {
@@ -226,14 +262,14 @@ original on a drive that isn't connected returns `409`.
 
 `multipart/form-data` with:
 
-| Field | |
-|---|---|
-| `file` | The photo: JPEG, PNG, WebP, TIFF or HEIC (or a RAW on its own). Or send `uploadId` instead (see [Uploading large files](#large-files)) |
-| `rawFile` | Optional RAW belonging to `file`. Or `rawUploadId` for a RAW sent as a resumable upload |
-| `speciesId` | Required. Look it up with `GET /api/species?q=mallard` (species.read) |
-| `regionId`, `locationLabel`, `albumId`, `tripId` | Optional |
-| `skipDuplicates` | `1` to return the existing photo (`200`, `"duplicate": true`) when you already have this exact file, instead of importing it again. Use this in any script that might resend files |
-| `cullMarks` | What to do with a photo a culling app rejected: `ignore` (the default) imports it, `skip` answers `200` with `"skipped": "rejected"` and imports nothing, `hide` imports it hidden (`"hidden": true`). See [Culling with other apps](../guides/culling-with-other-apps.md) |
+| Field                                            |                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `file`                                           | The photo: JPEG, PNG, WebP, TIFF or HEIC (or a RAW on its own). Or send `uploadId` instead (see [Uploading large files](#large-files))                                                                                                                                     |
+| `rawFile`                                        | Optional RAW belonging to `file`. Or `rawUploadId` for a RAW sent as a resumable upload                                                                                                                                                                                    |
+| `speciesId`                                      | Required. Look it up with `GET /api/species?q=mallard` (species.read)                                                                                                                                                                                                      |
+| `regionId`, `locationLabel`, `albumId`, `tripId` | Optional                                                                                                                                                                                                                                                                   |
+| `skipDuplicates`                                 | `1` to return the existing photo (`200`, `"duplicate": true`) when you already have this exact file, instead of importing it again. Use this in any script that might resend files                                                                                         |
+| `cullMarks`                                      | What to do with a photo a culling app rejected: `ignore` (the default) imports it, `skip` answers `200` with `"skipped": "rejected"` and imports nothing, `hide` imports it hidden (`"hidden": true`). See [Culling with other apps](../guides/culling-with-other-apps.md) |
 
 Capture time, GPS, camera details and the **star rating** are read from the file itself, so ratings
 set in Lightroom, digiKam or a culling tool come along, and so do a culling app's pick or reject
@@ -277,27 +313,27 @@ curl -X POST http://lifer.local:4000/api/uploads -H "x-api-key: $LIFER_KEY" \
 
 Uploads belong to the key's user. A finished upload waits 2 hours for its import, and an unfinished one is removed 2 hours after its last piece. Status codes to expect:
 
-| Status | Meaning |
-|---|---|
-| `404` | No such upload, or it belongs to someone else |
-| `409` | The `Upload-Offset` doesn't match the server's (ask with `HEAD`), or the upload is already being imported by another request |
-| `410` | The upload expired or was already imported. Send the file again |
-| `413` | The file is over the server's `MAX_UPLOAD_BYTES` (no limit unless the server sets one), or a proxy refused a piece as too large: send smaller pieces |
+| Status | Meaning                                                                                                                                              |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `404`  | No such upload, or it belongs to someone else                                                                                                        |
+| `409`  | The `Upload-Offset` doesn't match the server's (ask with `HEAD`), or the upload is already being imported by another request                         |
+| `410`  | The upload expired or was already imported. Send the file again                                                                                      |
+| `413`  | The file is over the server's `MAX_UPLOAD_BYTES` (no limit unless the server sets one), or a proxy refused a piece as too large: send smaller pieces |
 
 `GET /api/captures/{id}/suggestions` (photos.read) lists the other species a photo most likely shows, ranked like an import's `suggestions` from the vector stored for it, best first and without its current species. It's empty when the photo has no stored vector yet or species matching isn't set up.
 
 ### Editing photos (photos.write)
 
-| Request | Body |
-|---|---|
-| `PATCH /api/captures/{id}/reassign` | `{ "speciesId": "…" }` changes the species |
-| `POST /api/captures/{id}/species` | `{ "speciesId": "…" }` adds another species in the same photo |
-| `DELETE /api/captures/{id}/species/{speciesId}` | removes an additional species |
-| `PATCH /api/captures/{id}/rating` | `{ "rating": 1-5 }`, or `null` to clear |
-| `PATCH /api/captures/{id}/tags` | `{ "tags": ["…"] }` replaces the tags |
-| `PATCH /api/captures/{id}/taken-at` | `{ "takenAt": "ISO time" }` |
-| `PATCH /api/captures/{id}/region` | `{ "regionId": "…", "locationLabel": "…" }` (either or both) |
-| `POST /api/captures/appearance` | `{ "captureIds": ["…"], "lifeStage": "juvenile", "sex": "female", "plumage": "…", "morph": "…" }` for one photo or many; a field left out stays, `null` clears |
+| Request                                         | Body                                                                                                                                                           |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PATCH /api/captures/{id}/reassign`             | `{ "speciesId": "…" }` changes the species                                                                                                                     |
+| `POST /api/captures/{id}/species`               | `{ "speciesId": "…" }` adds another species in the same photo; safe to repeat. An `imports.write` key may use it too, only on photos it imported               |
+| `DELETE /api/captures/{id}/species/{speciesId}` | removes an additional species                                                                                                                                  |
+| `PATCH /api/captures/{id}/rating`               | `{ "rating": 1-5 }`, or `null` to clear                                                                                                                        |
+| `PATCH /api/captures/{id}/tags`                 | `{ "tags": ["…"] }` replaces the tags                                                                                                                          |
+| `PATCH /api/captures/{id}/taken-at`             | `{ "takenAt": "ISO time" }`                                                                                                                                    |
+| `PATCH /api/captures/{id}/region`               | `{ "regionId": "…", "locationLabel": "…" }` (either or both)                                                                                                   |
+| `POST /api/captures/appearance`                 | `{ "captureIds": ["…"], "lifeStage": "juvenile", "sex": "female", "plumage": "…", "morph": "…" }` for one photo or many; a field left out stays, `null` clears |
 
 Changes are also written into the photo's own metadata (or its RAW sidecar) where Lifer manages the
 file, so Lightroom and digiKam see them too.

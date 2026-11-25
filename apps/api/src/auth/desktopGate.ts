@@ -3,7 +3,7 @@
 // guard), without forwarded headers (nothing legitimate proxies to it) and, for every /api route
 // that isn't public, with the desktop app's own credential (localCredential.ts). Other programs
 // on the computer get a 401. One exception: an API key may reach a route whose static scope is a
-// plugin, MCP or companion scope, and requireScope then checks the key.
+// plugin, MCP or companion scope (or is in APP_KEY_ROUTES), and requireScope then checks the key.
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { hasForwardedHeaders } from "@lifer/core/lib/requestGuard.js";
 import { isAllowedLocalHost } from "./hostCheck.js";
@@ -37,9 +37,14 @@ export const MCP_SCOPES: ReadonlySet<string> = new Set([
  *  credential, so the key itself is what gets checked, on routes that name one of these. */
 export const COMPANION_SCOPES: ReadonlySet<string> = new Set(["companion"]);
 
+/** photos.write routes a connected app's key may still reach: the route itself limits a key to
+ *  captures that key imported (captures/routes.ts). */
+export const APP_KEY_ROUTES: ReadonlySet<string> = new Set(["POST /api/captures/:id/species"]);
+
 // Keys come from local programs, never web pages, so any Origin header disqualifies the request.
 function isPluginKeyRequest(request: FastifyRequest, route: string): boolean {
   if (typeof request.headers["x-api-key"] !== "string" || request.headers.origin !== undefined) return false;
+  if (APP_KEY_ROUTES.has(`${request.method} ${route}`)) return true;
   // A route's own HEAD (tus resumes with one) before the GET that answers HEAD otherwise.
   const entry =
     routeCatalog.get(`${request.method} ${route}`) ?? routeCatalog.get(publicRouteKey(request.method, route));

@@ -287,7 +287,8 @@ describe.skipIf(!url)("userdata endpoints (API key)", () => {
         url: r.url.replace(/:\w+/g, id).replace(/\*$/, ""),
         headers: { "x-api-key": TOKEN },
       });
-      if (res.statusCode !== 401) allowed.push(`${r.method} ${r.url} ${res.statusCode}`);
+      const refused = res.statusCode === 401 || (res.statusCode === 403 && res.json().code === "missing_scope");
+      if (!refused) allowed.push(`${r.method} ${r.url} ${res.statusCode}`);
     }
     expect(allowed).toEqual([]);
   });

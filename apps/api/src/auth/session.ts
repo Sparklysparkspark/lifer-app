@@ -123,12 +123,14 @@ export const requireAuth = Object.assign(
   { authKind: "session" as const },
 );
 
+type VerifiedKey = { id: string; email: string; device: boolean; keyName: string; keyId: string; scopes: string[] };
+
 // Checks an `x-api-key` header and that its permissions include `scope`. Returns the owning user,
-// or null for every failure alike (missing header, unknown key, wrong scope).
+// "missing_scope" for a valid key without the scope, or null for a missing or unknown key.
 async function verifyApiKeyScope(
   request: FastifyRequest,
   scopes: readonly string[],
-): Promise<{ id: string; email: string; device: boolean; keyName: string } | null> {
+): Promise<VerifiedKey | "missing_scope" | null> {
   const token = request.headers["x-api-key"];
   if (typeof token !== "string" || !token) return null;
 
@@ -138,20 +140,33 @@ async function verifyApiKeyScope(
     [keyHash],
   );
   const row = res.rows[0];
-  if (!row || !scopes.some((s) => row.permissions.includes(s))) return null;
+  if (!row) return null;
+  if (!scopes.some((s) => row.permissions.includes(s))) return "missing_scope";
 
   // Fire-and-forget: a slow or failed write must not hold up the request.
   pool.query(`UPDATE api_keys SET last_used_at = now() WHERE id = $1`, [row.id]).catch(() => {});
-  return { id: row.user_id, email: row.email, device: row.permissions.includes("companion"), keyName: row.name };
+  return {
+    id: row.user_id,
+    email: row.email,
+    device: row.permissions.includes("companion"),
+    keyName: row.name,
+    keyId: row.id,
+    scopes: row.permissions,
+  };
 }
 
 /**
  * Fastify preValidation hook factory: passes for any valid session cookie, or for an `x-api-key`
  * whose permissions include `scope`. Attaches request.user either way. In desktop mode it passes for
  * the desktop app's own requests. The hook carries its scope, which the OpenAPI document reads
- * (lib/schema.ts routeCatalog).
+ * (lib/schema.ts routeCatalog). Every key failure is a 401, unless `missingScope403` lets a valid
+ * key without the scope tell that apart from a revoked one.
  */
-export function requireScope(scope: string, alsoAccept: readonly string[] = []) {
+export function requireScope(
+  scope: string,
+  alsoAccept: readonly string[] = [],
+  { missingScope403 = false }: { missingScope403?: boolean } = {},
+) {
   const hook = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const sessionUser = await getSessionUser(request);
     if (sessionUser) {
@@ -159,13 +174,20 @@ export function requireScope(scope: string, alsoAccept: readonly string[] = []) 
       return;
     }
     const apiKeyUser = await verifyApiKeyScope(request, [scope, ...alsoAccept]);
-    if (!apiKeyUser) {
+    if (apiKeyUser === "missing_scope" && missingScope403) {
+      const scopes = [scope, ...alsoAccept];
+      reply.code(403).send({ error: `This key lacks the ${scopes.join(" or ")} scope`, code: "missing_scope", scopes });
+      return;
+    }
+    if (!apiKeyUser || apiKeyUser === "missing_scope") {
       reply.code(401).send({ error: "Not authenticated" });
       return;
     }
     request.user = { id: apiKeyUser.id, email: apiKeyUser.email };
     request.deviceKey = apiKeyUser.device;
     request.apiKeyName = apiKeyUser.keyName;
+    request.apiKeyId = apiKeyUser.keyId;
+    request.apiKeyScopes = apiKeyUser.scopes;
   };
   return Object.assign(hook, { scope, alsoAccept, authKind: "scope" as const });
 }

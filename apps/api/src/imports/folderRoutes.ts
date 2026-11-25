@@ -26,6 +26,18 @@ const Progress = Type.Object({
   needReview: Type.Optional(Type.Integer()),
   error: Type.Optional(Nullable(Type.String())),
   cancelled: Type.Optional(Type.Boolean()),
+  files: Type.Optional(
+    Type.Array(
+      Type.Object({
+        path: Type.String({ description: "The file's path: the folder as sent, joined with its place inside it" }),
+        captureId: Type.String({ format: "uuid" }),
+      }),
+      {
+        description:
+          "Once the import has ended: each file Lifer filed or already had, with its photo. Skipped and failed files are left out.",
+      },
+    ),
+  ),
 });
 
 const MAX_LOOKUP_NAMES = 500;
@@ -52,6 +64,8 @@ const SpeciesLookupReply = Type.Object({
 
 // The import job is one shared scan, so only the latest run's id has progress to show.
 let currentRun = 0;
+// The latest run's folder as the app sent it, so `files` paths read back in the app's own terms.
+let currentFolder = "";
 
 export async function folderImportRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
@@ -86,10 +100,11 @@ export async function folderImportRoutes(fastify: FastifyInstance): Promise<void
       const known =
         isWithin(path.resolve(ORIGINALS_DIR), dir) || (await tagWithRegisteredVolume(userId, dir)).volumeId !== null;
       const mode = request.body.mode === "in-place" && known ? "in-place" : "copy";
-      if (!startFolderImport(userId, dir, mode === "copy")) {
+      if (!startFolderImport(userId, dir, mode === "copy", request.apiKeyId ?? null)) {
         return reply.code(409).send({ error: "An import is already running." });
       }
       currentRun++;
+      currentFolder = folder;
       return reply.code(202).send({ id: String(currentRun), mode });
     },
   );
@@ -142,7 +157,10 @@ export async function folderImportRoutes(fastify: FastifyInstance): Promise<void
     },
     async (request, reply) => {
       if (request.params.id !== String(currentRun)) return reply.code(404).send({ error: "No such import." });
-      return folderImportProgress(request.user!.id);
+      const { filed, ...progress } = { filed: undefined, ...folderImportProgress(request.user!.id) };
+      if (!filed) return progress;
+      const files = filed.map((f) => ({ path: path.join(currentFolder, f.relativePath), captureId: f.captureId }));
+      return { ...progress, files };
     },
   );
 }

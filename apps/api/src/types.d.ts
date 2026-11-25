@@ -7,5 +7,8 @@ declare module "fastify" {
     deviceKey?: boolean;
     /** The API key's name when a key (not a session) made the request; a paired app's is its manifest name. */
     apiKeyName?: string;
+    /** The API key's id and scopes when a key made the request. */
+    apiKeyId?: string;
+    apiKeyScopes?: string[];
   }
 }

@@ -6,6 +6,7 @@ import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
 import type { PoolClient } from "pg";
 import { pool, withTransaction } from "@lifer/core/db.js";
+import { SINGLE_USER_MODE } from "@lifer/core/config.js";
 import { IdParams, Nullable, Ok, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { requireScope } from "../auth/session.js";
 import { syncCaptureXmpSidecarsLogged } from "../uploads/xmpSidecarSync.js";
@@ -245,10 +246,11 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
 
   // Tags a second species in a photo (a hawk catching a fish). It counts as collected too.
+  // A connected app's imports.write key may add (never remove) species on photos it imported itself.
   app.post(
     "/captures/:id/species",
     {
-      preValidation: requireScope("photos.write"),
+      preValidation: requireScope("photos.write", ["imports.write"], { missingScope403: true }),
       config: captureNotFound,
       schema: { params: IdParams, body: SpeciesBody, response: replies(Ok, 201) },
     },
@@ -261,12 +263,20 @@ export async function captureRoutes(fastify: FastifyInstance): Promise<void> {
         species_id: string;
         current_photo_id: string | null;
         taken_at: string | null;
-      }>(`SELECT species_id, current_photo_id, taken_at FROM captures WHERE id = $1 AND user_id = $2`, [
-        captureId,
-        userId,
-      ]);
+        imported_by_key_id: string | null;
+      }>(
+        `SELECT species_id, current_photo_id, taken_at, imported_by_key_id FROM captures_all
+          WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL AND hidden_at IS NULL`,
+        [captureId, userId],
+      );
       const capture = captureRes.rows[0];
       if (!capture) return reply.code(404).send({ error: "Capture not found" });
+      // On the desktop the gate lets any app key through to here, so every key is held to its own imports.
+      const keyLimited =
+        request.apiKeyId !== undefined && (SINGLE_USER_MODE || !request.apiKeyScopes?.includes("photos.write"));
+      if (keyLimited && capture.imported_by_key_id !== request.apiKeyId) {
+        return reply.code(403).send({ error: "This key can only tag photos it imported", code: "not_imported_by_key" });
+      }
       if (capture.species_id === speciesId) {
         return reply.code(400).send({ error: "That's already this photo's primary species" });
       }

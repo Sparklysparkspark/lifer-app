@@ -63,7 +63,7 @@ import {
   type ChosenVolume,
 } from "./common.js";
 import { moveManagedOriginalToSpeciesFolder, speciesFolder, type Subfolder } from "./managedFolders.js";
-import { insertCapture, insertOriginal } from "./captureRows.js";
+import { insertCapture, insertOriginal, markImportedByKey } from "./captureRows.js";
 import { findEditedVersionTarget, linkImportedVersionTx, type EditedVersionTarget } from "./versionGrouping.js";
 import { invalidateUserVectors } from "@lifer/core/species/embeddings.js";
 
@@ -116,6 +116,14 @@ export async function photoUploadRoutes(fastify: FastifyInstance): Promise<void>
         ok = outcome.code < 400;
       } finally {
         await Promise.all(sources.map((s) => s.finish(ok).catch(() => {})));
+      }
+      // Only a capture this request created; a RAW joining an existing photo (linkedExisting) isn't.
+      const created = outcome.body as { captureId?: string; linkedExisting?: boolean };
+      if (outcome.code === 201 && request.apiKeyId && created.captureId && !created.linkedExisting) {
+        const keyId = request.apiKeyId;
+        await markImportedByKey(created.captureId, keyId).catch((err) =>
+          request.log.warn({ err, captureId: created.captureId }, "Couldn't record which key imported this capture"),
+        );
       }
       if (outcome.code === 201 && fields.moveSourcePath) outcome = await moveSourceAway(request, fields, outcome);
       // Any of the route's answers, each serialized through its status's schema.

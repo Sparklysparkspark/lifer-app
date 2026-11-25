@@ -220,8 +220,10 @@ describe("desktop mode plugin keys", () => {
 
   it("refuses a plugin key on every route without a plugin scope", async () => {
     const { routeCatalog } = await import("../lib/schema.js");
-    const { PLUGIN_SCOPES } = await import("./desktopGate.js");
-    const others = [...routeCatalog.values()].filter((r) => r.auth !== null && !PLUGIN_SCOPES.has(r.scope ?? ""));
+    const { PLUGIN_SCOPES, APP_KEY_ROUTES } = await import("./desktopGate.js");
+    const others = [...routeCatalog.values()].filter(
+      (r) => r.auth !== null && !PLUGIN_SCOPES.has(r.scope ?? "") && !APP_KEY_ROUTES.has(`${r.method} ${r.url}`),
+    );
     expect(others.length).toBeGreaterThan(10);
     for (const r of others) {
       const res = await gated.inject({
@@ -231,6 +233,24 @@ describe("desktop mode plugin keys", () => {
       });
       expect(res.statusCode, `${r.method} ${r.url}`).toBe(401);
     }
+  });
+
+  it("lets keys reach only the app-key photo route, with a missing scope told apart", async () => {
+    const { APP_KEY_ROUTES } = await import("./desktopGate.js");
+    expect([...APP_KEY_ROUTES]).toEqual(["POST /api/captures/:id/species"]);
+    const add = (key: string) =>
+      gated.inject({
+        method: "POST",
+        url: "/api/captures/00000000-0000-4000-8000-000000000009/species",
+        headers: { ...HOST, "x-api-key": key },
+        payload: { speciesId: "00000000-0000-4000-8000-000000000008" },
+      });
+    const missing = await add("plugin-key");
+    expect(missing.statusCode).toBe(403);
+    expect(missing.json()).toMatchObject({ code: "missing_scope" });
+    expect((await add("nope")).statusCode).toBe(401);
+    // A photos.write key gets past the scope check but not to a photo its key didn't import.
+    expect((await add("broad-key")).statusCode).toBe(404);
   });
 
   it("refuses keys without a plugin scope, even on routes their scope covers", async () => {

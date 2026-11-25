@@ -237,7 +237,7 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
     get: {
       summary: "Progress of a folder import",
       description:
-        "Counts of photos looked at, imported, already in Lifer, skipped and waiting for review. 404 for any id but the latest import's.",
+        "Counts of photos looked at, imported, already in Lifer, skipped and waiting for review. Once `running` is false, `files` lists each file Lifer filed or already had as `{ path, captureId }`: `path` is the folder as you sent it joined with the file's place inside it. Skipped and failed files are left out. 404 for any id but the latest import's.",
     },
   },
 
@@ -455,7 +455,13 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
   "/captures/{id}/suggestions": {
     get: { summary: "Other likely species for a photo, from its stored vector. Empty when there is none" },
   },
-  "/captures/{id}/species": { post: { summary: "Add another species shown in the photo" } },
+  "/captures/{id}/species": {
+    post: {
+      summary: "Add another species shown in the photo",
+      description:
+        "Body `{ speciesId }`. Adds a species next to the photo's primary one and never changes or removes any; safe to repeat. 400 for the primary species itself. A key with `imports.write` instead of `photos.write` (and on the desktop app, any key) may only tag photos it imported itself: 403 with code `not_imported_by_key` otherwise. A valid key with neither scope gets 403 with code `missing_scope` and the accepted `scopes`, not a 401.",
+    },
+  },
   "/captures/{id}/species/{speciesId}": { delete: { summary: "Remove an additional species" } },
   "/captures/{id}/rating": { patch: { summary: "Set the star rating" } },
   "/captures/appearance": {

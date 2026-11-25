@@ -5320,7 +5320,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Add another species shown in the photo */
+    /**
+     * Add another species shown in the photo
+     * @description Body `{ speciesId }`. Adds a species next to the photo's primary one and never changes or removes any; safe to repeat. 400 for the primary species itself. A key with `imports.write` instead of `photos.write` (and on the desktop app, any key) may only tag photos it imported itself: 403 with code `not_imported_by_key` otherwise. A valid key with neither scope gets 403 with code `missing_scope` and the accepted `scopes`, not a 401.
+     */
     post: {
       parameters: {
         query?: never;
@@ -14265,7 +14268,7 @@ export interface paths {
     };
     /**
      * Progress of a folder import
-     * @description Counts of photos looked at, imported, already in Lifer, skipped and waiting for review. 404 for any id but the latest import's.
+     * @description Counts of photos looked at, imported, already in Lifer, skipped and waiting for review. Once `running` is false, `files` lists each file Lifer filed or already had as `{ path, captureId }`: `path` is the folder as you sent it joined with the file's place inside it. Skipped and failed files are left out. 404 for any id but the latest import's.
      */
     get: {
       parameters: {
@@ -14294,6 +14297,13 @@ export interface paths {
               needReview?: number;
               error?: string | null;
               cancelled?: boolean;
+              /** @description Once the import has ended: each file Lifer filed or already had, with its photo. Skipped and failed files are left out. */
+              files?: {
+                /** @description The file's path: the folder as sent, joined with its place inside it */
+                path: string;
+                /** Format: uuid */
+                captureId: string;
+              }[];
             };
           };
         };

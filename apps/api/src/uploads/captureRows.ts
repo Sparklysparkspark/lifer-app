@@ -2,6 +2,7 @@
 // the library reimport) fills the same columns the same way.
 import { fingerprintFile } from "../movedPhotos/fingerprint.js";
 import type { PoolClient } from "pg";
+import { pool } from "@lifer/core/db.js";
 import type { CullMarks } from "@lifer/shared";
 import type { ExtractedExif } from "./exif.js";
 
@@ -29,6 +30,11 @@ export interface CaptureInsert {
   identificationState?: "suggested" | "confirmed";
   /** The match percentage a suggestion was filed with. */
   suggestionPercent?: number | null;
+}
+
+/** Records which API key imported a new capture, so that key may later add species to it. */
+export async function markImportedByKey(captureId: string, keyId: string, db: Queryable = pool): Promise<void> {
+  await db.query(`UPDATE captures_all SET imported_by_key_id = $2 WHERE id = $1`, [captureId, keyId]);
 }
 
 /** Inserts through the `captures` view, so the caller hides the capture last, if at all. */

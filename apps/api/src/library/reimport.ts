@@ -77,10 +77,11 @@ interface SpeciesRow {
 
 export type JpegOutcome =
   | { status: "recovered"; captureId: string; photoId: string; scientificName: string; hidden?: boolean }
-  | { status: "already-known" }
+  /** captureId: the capture the known file belongs to, if any. */
+  | { status: "already-known"; captureId?: string | null }
   /** Already imported in place from this folder, and now moved into the library (consolidate). */
-  | { status: "moved" }
-  | { status: "relinked" }
+  | { status: "moved"; captureId?: string | null }
+  | { status: "relinked"; captureId?: string | null }
   | { status: "ignored" }
   /** Rejected in a culling app, and the reimport was set to skip those. */
   | { status: "rejected" }
@@ -214,18 +215,19 @@ export async function recoverJpeg(
   forcedSpeciesId: string | null = null,
 ): Promise<JpegOutcome> {
   const contentHash = await computeContentHash(absolutePath);
-  const known = await pool.query<{ id: string; ref: string; volume_id: string | null }>(
+  const known = await pool.query<{ id: string; ref: string; volume_id: string | null; capture_id: string | null }>(
     // Two originals can share bytes: the one at this very path first.
-    `SELECT id, ref, volume_id FROM originals WHERE content_hash = $1 AND user_id = $2
+    `SELECT id, ref, volume_id, capture_id FROM originals WHERE content_hash = $1 AND user_id = $2
       ORDER BY (ref = $3) DESC LIMIT 1`,
     [contentHash, userId, absolutePath],
   );
   if (known.rows.length > 0) {
     const row = known.rows[0];
+    const captureId = row.capture_id;
     if (organize && foreign && (await moveInIfLeftInPlace(userId, row.id, absolutePath, "jpeg")))
-      return { status: "moved" };
+      return { status: "moved", captureId };
     const repaired = await repairIfStale(row.id, row.ref, row.volume_id, absolutePath, volumeContext);
-    return { status: repaired ? "relinked" : "already-known" };
+    return { status: repaired ? "relinked" : "already-known", captureId };
   }
 
   if (await isIgnoredLibraryFile(userId, contentHash)) return { status: "ignored" };
@@ -396,9 +398,9 @@ export async function recoverJpeg(
 
 export type RawOutcome =
   | { status: "recovered"; captureId: string }
-  | { status: "already-known" }
-  | { status: "moved" }
-  | { status: "relinked" }
+  | { status: "already-known"; captureId?: string | null }
+  | { status: "moved"; captureId?: string | null }
+  | { status: "relinked"; captureId?: string | null }
   | { status: "unmatched" };
 
 function sanitizeFilenameStem(name: string): string {
@@ -415,18 +417,19 @@ export async function recoverRaw(
   foreign = false,
 ): Promise<RawOutcome> {
   const contentHash = await computeContentHash(absolutePath);
-  const known = await pool.query<{ id: string; ref: string; volume_id: string | null }>(
+  const known = await pool.query<{ id: string; ref: string; volume_id: string | null; capture_id: string | null }>(
     // Two originals can share bytes: the one at this very path first.
-    `SELECT id, ref, volume_id FROM originals WHERE content_hash = $1 AND user_id = $2
+    `SELECT id, ref, volume_id, capture_id FROM originals WHERE content_hash = $1 AND user_id = $2
       ORDER BY (ref = $3) DESC LIMIT 1`,
     [contentHash, userId, absolutePath],
   );
   if (known.rows.length > 0) {
     const row = known.rows[0];
+    const captureId = row.capture_id;
     if (organize && foreign && (await moveInIfLeftInPlace(userId, row.id, absolutePath, "raw")))
-      return { status: "moved" };
+      return { status: "moved", captureId };
     const repaired = await repairIfStale(row.id, row.ref, row.volume_id, absolutePath, volumeContext);
-    return { status: repaired ? "relinked" : "already-known" };
+    return { status: repaired ? "relinked" : "already-known", captureId };
   }
 
   const tags = await readExifTags(absolutePath);
