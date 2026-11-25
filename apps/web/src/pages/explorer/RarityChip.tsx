@@ -2,24 +2,15 @@
 // band scale and its tier, or for a group the average tier and how many are rare or rarer.
 import { useTranslation } from "react-i18next";
 import { tierLabel } from "../../lib/speciesGroups";
+import TierLabel, { Swatch } from "../../components/TierLabel";
 import { RARITY_BG, RARITY_STEPS, rarityOf, rarityText, type TreeNode } from "./treeModel";
-
-/** A legend or chip dot. */
-export function Swatch({ className }: { className: string }) {
-  return <span aria-hidden="true" className={`h-2.5 w-2.5 shrink-0 rounded-full ${className}`} />;
-}
 
 /** `text` replaces the tier wording, as the detail pane's "Legendary in Canada". */
 export default function RarityChip({ node, text }: { node: TreeNode; text?: string }) {
   const { t } = useTranslation();
   const rarity = rarityOf(node);
   if (!rarity) return null;
-  return (
-    <span className="inline-flex items-center gap-1 text-footnote text-muted">
-      <Swatch className={RARITY_BG[rarity.step]} />
-      {text ?? rarityText(t, node)}
-    </span>
-  );
+  return <TierLabel>{text ?? rarityText(t, node)}</TierLabel>;
 }
 
 /** The band's scale under the circle, commonest to rarest. */

@@ -22,7 +22,8 @@ import {
   type View,
 } from "./arcMotion";
 import { previewAfterDwell, previewNow } from "./previewStore";
-import { RarityLegend, Swatch } from "./RarityChip";
+import { RarityLegend } from "./RarityChip";
+import { Swatch } from "../../components/TierLabel";
 import { circleArcs, RARITY_FILL, rarityOf, rarityText, type Arc, type TreeIndex, type TreeNode } from "./treeModel";
 
 const SIZE = 600;

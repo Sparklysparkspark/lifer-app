@@ -27,8 +27,8 @@ import CardCropEditor from "./CardCropEditor";
 import { namePartClass, useSpeciesName, useSpeciesNameParts } from "../lib/speciesName";
 import SpeciesNameText from "./SpeciesNameText";
 import { SeenIcon, TargetIcon } from "./MarkIcon";
-import { Swatch } from "../pages/explorer/RarityChip";
-import { RARITY_BG, RARITY_STEPS } from "../pages/explorer/treeModel";
+import TierLabel from "./TierLabel";
+import { RARITY_STEPS } from "../pages/explorer/treeModel";
 
 // What a card action did, so the parent can patch its list instead of reloading: a field patch,
 // the species leaving this view, or "reload" after a failed optimistic change.
@@ -125,7 +125,7 @@ function SpeciesCard({
     await api.patch(apiPath("/species/{id}/card-crop", { id: item.speciesId }), { ...body, photoId: ownCoverPhotoId });
     onChanged?.(item.speciesId, "reload");
   }
-  // The badges sit inside the card's link: open the tier's details instead of following it.
+  // The menu's rarity item opens the tier's details.
   const openTier = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -186,20 +186,13 @@ function SpeciesCard({
                       title: t("speciesCard.badge.vagrantTitle"),
                       className: "bg-surface-muted text-ink",
                     }
-                  : localRarer
+                  : item.userAddedRegion
                     ? {
-                        label: t("speciesCard.badge.localTier", { tier: tierLabel(item.localTier!) }),
-                        title: t("speciesCard.badge.localTierTitle"),
-                        className: "bg-surface-muted text-muted",
-                        onClick: openTier,
+                        label: t("speciesCard.badge.addedByYou"),
+                        title: t("speciesCard.badge.addedByYouTitle", { list: checklistLabel(item.userAddedRegion) }),
+                        className: "border border-dashed border-line text-muted",
                       }
-                    : item.userAddedRegion
-                      ? {
-                          label: t("speciesCard.badge.addedByYou"),
-                          title: t("speciesCard.badge.addedByYouTitle", { list: checklistLabel(item.userAddedRegion) }),
-                          className: "border border-dashed border-line text-muted",
-                        }
-                      : null;
+                    : null;
   const { openKey: menuOpen, setOpenKey: setMenuOpen, ref: menuRef } = useDropdownMenu<true>();
   const confirm = useConfirm();
   const toast = useToast();
@@ -208,11 +201,22 @@ function SpeciesCard({
   const displayName = primaryName.text;
   // Wraps and shrinks rather than truncating: an ellipsis can cut off the epithet that tells
   // look-alike species apart. Starts at text-footnote.
-  // A calm tier line for every rated species. The "rarer here" badge already says its tier.
+  // One tier pill for every rated species, whichever way the tier applies.
   const tierStep = shownTier ? RARITY_STEPS.indexOf(shownTier as (typeof RARITY_STEPS)[number]) : -1;
-  const showTierLine = tierStep >= 0 && !(!hideLabels && badge?.onClick === openTier);
   // Worldwide-only while a region is picked; the compact card has no room for the qualifier.
   const tierWorldwide = !!regionId && !item.localTier && !compact;
+  const tierPill =
+    tierStep >= 0 ? (
+      <span className={isUncollected ? "opacity-70" : ""}>
+        <TierLabel>
+          {localRarer
+            ? t("speciesCard.tierHere", { tier: tierLabel(shownTier!) })
+            : tierWorldwide
+              ? t("speciesCard.tierWorldwide", { tier: tierLabel(shownTier!) })
+              : tierLabel(shownTier!)}
+        </TierLabel>
+      </span>
+    ) : null;
   const { ref: secondNameRef, fontSize: secondNameFontSize } = useFitText(
     [secondaryName.map((p) => p.text).join(" "), hideNames],
     { maxPx: 12, minPx: 8 },
@@ -529,45 +533,37 @@ function SpeciesCard({
                 </p>,
               ]
             : []),
-          showTierLine && (
-            <p
-              key="tier"
-              className={`flex items-center gap-1 text-footnote text-muted ${isUncollected ? "opacity-70" : ""}`}
-            >
-              <Swatch className={RARITY_BG[tierStep]} />
-              <span className="min-w-0 break-words">
-                {tierWorldwide
-                  ? t("speciesCard.tierWorldwide", { tier: tierLabel(shownTier!) })
-                  : tierLabel(shownTier!)}
-              </span>
-            </p>
-          ),
         ]}
         badge={
-          // One badge at most, the most unusual thing about the species.
-          !hideLabels && badge ? (
-            badge.onClick ? (
-              <Tooltip content={badge.title ? { label: badge.title } : undefined}>
-                {(tip) => (
-                  // raw-control: drawn as the badge it is, so it reads the same as the plain one.
-                  <button
-                    type="button"
-                    {...tip}
-                    onClick={badge.onClick}
-                    className={`inline-block rounded-badge px-1.5 py-0.5 text-footnote hover:underline ${badge.className}`}
+          // The tier pill, then at most one special badge. The compact card has room for one.
+          (tierPill && !(compact && badge)) || (!hideLabels && badge) ? (
+            <div className="flex flex-wrap gap-1">
+              {tierPill && !(compact && badge) && tierPill}
+              {!hideLabels &&
+                badge &&
+                (badge.onClick ? (
+                  <Tooltip content={badge.title ? { label: badge.title } : undefined}>
+                    {(tip) => (
+                      // raw-control: drawn as the badge it is, so it reads the same as the plain one.
+                      <button
+                        type="button"
+                        {...tip}
+                        onClick={badge.onClick}
+                        className={`inline-block rounded-badge px-1.5 py-0.5 text-footnote hover:underline ${badge.className}`}
+                      >
+                        {badge.label}
+                      </button>
+                    )}
+                  </Tooltip>
+                ) : (
+                  <span
+                    title={badge.title}
+                    className={`inline-block rounded-badge px-1.5 py-0.5 text-footnote ${badge.className}`}
                   >
                     {badge.label}
-                  </button>
-                )}
-              </Tooltip>
-            ) : (
-              <span
-                title={badge.title}
-                className={`inline-block rounded-badge px-1.5 py-0.5 text-footnote ${badge.className}`}
-              >
-                {badge.label}
-              </span>
-            )
+                  </span>
+                ))}
+            </div>
           ) : null
         }
         textClassName={isUncollected ? "text-uncollected" : ""}

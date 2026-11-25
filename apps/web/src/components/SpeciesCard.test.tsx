@@ -157,11 +157,12 @@ describe("SpeciesCard tier line", () => {
     expect(screen.getByText("Rare")).toBeTruthy();
   });
 
-  it("shows a local tier plainly, and leaves a rarer-here badge to say it alone", () => {
+  it("shows a local tier plainly, and a rarer-here tier in the same line with 'here'", () => {
     show({ tier: "common", localTier: "common" }, { regionId: "r1" });
     expect(screen.getByText("Common")).toBeTruthy();
     cleanup();
     show({ tier: "common", localTier: "rare" }, { regionId: "r1" });
     expect(screen.getAllByText(/Rare/)).toHaveLength(1);
+    expect(screen.getByText("Rare here")).toBeTruthy();
   });
 });

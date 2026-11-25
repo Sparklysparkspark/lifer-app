@@ -184,11 +184,11 @@ Rarity is **how hard a species is to find and photograph** in a place. There are
 
 ### Rarity here and worldwide {#tiers-here-and-worldwide}
 
-Every species card with a rarity shows it in a quiet line under its names, with a small colour swatch (the wording always says it too). In a region it's the rarity **there**; a species with only a worldwide rarity reads "Rare worldwide". Species without enough data show nothing, and the smallest card size drops the "worldwide".
+Every species card with a rarity shows it as a quiet grey pill under its names. In a region it's the rarity **there**; a species with only a worldwide rarity reads "Rare worldwide", and one that is rarer there than worldwide reads "Rare here". It is the same swatch and wording everywhere Lifer shows a rarity. Species without enough data show nothing, and the smallest card size drops the "worldwide".
 
-A card can also carry one badge for what's unusual:
+A card can also carry one more pill for what's unusual (the smallest card size shows only that one):
 
-- **The "here" badge** ("Rare here") appears on a region's checklist when the species is rarer there than worldwide, and replaces the quiet line. **Rarity here** in Group and Sort uses the local rarity.
+- **Rarity here** ("Rare here" in the pill) appears on a region's checklist when the species is rarer there than worldwide. **Rarity here** in Group and Sort uses the local rarity.
 
 A bird that's Common worldwide can be Rare here at the edge of its range.
 
@@ -198,7 +198,7 @@ A bird that's Common worldwide can be Rare here at the edge of its range.
 - The same species can differ from place to place. Great Blue Herons are Common in Florida, where they stand on every pond, and Occasional in most other states.
 - A **country's** rarity is its easiest well-surveyed province: where you'd go to find it.
 - A **vagrant** (records bunched into a year or two, far from its usual range) is Legendary there, with a **Vagrant here** badge. An **introduced** species with an established population is rated like any other, with an **Introduced here** badge.
-- Tap a rarity badge to see the numbers behind it. Under **Your rarity** you can set a different rarity if you know better; the card then shows "(yours)".
+- Open **Rarity** in a card's menu to see the numbers behind it. Under **Your rarity** you can set a different rarity if you know better; the card then shows "(yours)".
 
 ### What rarity isn't {#what-a-tier-isnt}
 

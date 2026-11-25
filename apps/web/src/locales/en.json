@@ -3749,6 +3749,7 @@
   "speciesCard": {
     "select": "Select {name}",
     "tierWorldwide": "{tier} worldwide",
+    "tierHere": "{tier} here",
     "badge": {
       "nameChanged": "Name changed",
       "nameChangedTitle": "This species was split. Tap to pick which one is in your photos.",
@@ -3764,8 +3765,6 @@
       "endemicTitle": "Only ever recorded in one country",
       "vagrant": "Vagrant",
       "vagrantTitle": "Records here are concentrated in very few years, likely a vagrant, not an established local presence",
-      "localTier": "{tier} here",
-      "localTierTitle": "Harder to find here than overall. Tap for why.",
       "addedByYou": "Added by you",
       "addedByYouTitle": "You added this to {list} yourself"
     },

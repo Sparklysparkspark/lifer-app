@@ -1419,12 +1419,12 @@
     }
   },
   "speciesCard": {
+    "tierHere": "Small line under a species card's names when the species is rarer in the picked region than worldwide: {tier} is the rarity name, like Rare, giving Rare here.",
     "tierWorldwide": "Small line under a species card's names when a region is picked but the species has only a worldwide rarity: {tier} is the rarity name, like Common, giving Common worldwide.",
     "badge": {
       "rediscovered": "Badge on a species card: the user photographed a species that had been rarely recorded or unrecorded for 25 years.",
       "ghost": "Badge on a species card: a species with very few records anywhere.",
       "vagrant": "Badge on a species card. A vagrant is a bird or animal far outside its usual range (a birding term).",
-      "localTier": "Badge on a species card. {tier} is a rarity name such as Rare; the species is rarer in this region than worldwide.",
       "addedByYouTitle": "{list} is a species list name, e.g. \"British Columbia's species list\"."
     },
     "removedFromList": "{name} is a species name, {list} a species list name, e.g. \"British Columbia's species list\".",
