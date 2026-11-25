@@ -76,7 +76,7 @@ Keyboard shortcuts, also in the menus:
 | Shortcut               | Does                                                          |
 | ---------------------- | ------------------------------------------------------------- |
 | Command-1 to Command-5 | Collection, Gallery, Map, Albums, Stats                       |
-| Command-I              | Import photos                                                 |
+| Shift-Command-I        | Import photos                                                 |
 | Command-F or Command-K | Search                                                        |
 | Command-comma          | Settings                                                      |
 | Control-Command-S      | Show or hide the sidebar (Control-Alt-S on Windows and Linux) |

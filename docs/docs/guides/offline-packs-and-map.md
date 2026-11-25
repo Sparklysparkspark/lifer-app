@@ -55,7 +55,7 @@ The **Downloaded** list in **Species downloads** lets you:
 
 ## Removing a region {#offloading-a-pack}
 
-Removing a downloaded region deletes its reference photos and checklist data. Lifer first shows how much space you'll get back and how many regions' checklists will need downloading again. **Your own photos are never touched**. Species you photographed, or that another downloaded region still covers, keep their reference photos.
+Removing a downloaded region deletes its reference photos and checklist data. Lifer first shows how much space you'll get back and how many regions' checklists will need downloading again. **Your own photos are never touched**. Species you photographed, or that another downloaded region still covers, keep their reference photos. While a country's regions are removed, its row shows the progress, like **Removing 3 of 8 regions**, even when folded.
 
 ## Species you added {#added-species}
 

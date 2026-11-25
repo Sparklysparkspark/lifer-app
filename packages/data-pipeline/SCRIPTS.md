@@ -278,6 +278,9 @@ count as one for the gate's freshness check, and nothing else needs to rerun.
   the regions stage after the fish. `--apply`, `--zones=`, `--offline`
 - `compute-sea-zones.ts`: one sea zone's checklist from live GBIF polygon searches, for a targeted
   recompute; ~13s a request, so not for every zone. `--apply`, `--zones=`, `--recompute`
+- `restore-published-rows.ts` (`npm run restore-published-rows`): puts back checklist rows the
+  2026-10-10 province rebuild dropped only for lack of an iNaturalist photo, read from the
+  published packs (cached in `data/published-packs-cache`), flagged vagrant.
 
 ### Rarity tiers (`packages/data-pipeline/src/scripts/`)
 
@@ -443,6 +446,8 @@ species iNaturalist leaves without open photos are a later step.
   `data/build/models/clip-vit-l14-v2-fp32.onnx`). Switch `EMBEDDING_MODEL_VERSION`
   (`packages/core/src/config.ts`) and the catalog seed's default in the same change as
   the `--apply`, or the vectors stage recomputes every vector with the old model.
+- `load-species-notes.ts` (`npm run load-species-notes`): loads the offline-written habitat,
+  identification and summary notes into `species`. Skips unchanged rows. `--dry-run`
 
 ### Data checks (`packages/data-pipeline/src/scripts/`)
 
@@ -451,6 +456,8 @@ species iNaturalist leaves without open photos are a later step.
   likely-bad data for review.
 - `flag-vagrant-mismatch-inat.ts`: a read-only report of listings iNaturalist doesn't back up.
 - `verify-vagrant-flags.ts`: checks vagrant flags against GBIF distributions.
+- `benchmark-matching.ts` (`npm run benchmark-matching`): species-matching quality per taxon class
+  on the catalog's own gallery photos, through the import path. `--per-class=`, `--label=`.
 
 The two vagrant scripts write their JSONL logs to `data/reports/vagrant/` at the repo root
 (gitignored), or to `VAGRANT_REPORTS_DIR` when it's set.

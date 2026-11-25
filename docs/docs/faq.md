@@ -15,7 +15,7 @@ No. A species is **photographed** only when you've attached your own photo of it
 
 ## What do the rarity levels mean? Is "Legendary" endangered? {#what-do-the-rarity-tiers-mean-is-legendary-endangered}
 
-No. Rarity levels (Common, Occasional, Uncommon, Rare, Legendary) are about **how hard a species is to find and photograph** in a place: Common is seen anywhere, anytime; Occasional in the right habitat; Uncommon needs a dedicated search; Rare needs travel and patience; Legendary is once in a lifetime. A species' IUCN conservation status is shown separately. Where there's too little data, it shows **Unrated** (or **Not enough data here** on a region's checklist). Marine invertebrates and species added from iNaturalist aren't rated yet. See [Rarity tiers](./guides/collection-and-checklists.md#rarity-tiers).
+No. Rarity levels (Common, Occasional, Uncommon, Rare, Legendary) are about **how hard a species is to find and photograph** in a place: Common is seen anywhere, anytime; Occasional in the right habitat; Uncommon needs a dedicated search; Rare needs travel and patience; Legendary is once in a lifetime. A species' IUCN conservation status is shown separately. Where there's too little data, it shows **Unrated**. Marine invertebrates and species added from iNaturalist aren't rated yet. See [Rarity tiers](./guides/collection-and-checklists.md#rarity-tiers).
 
 ## Which animals are covered?
 
@@ -25,7 +25,7 @@ Downloaded regions have full regional checklists and reference photos for:
 - Reptiles, turtles and amphibians.
 - Marine invertebrates: corals, jellies and anemones, echinoderms, nudibranchs, shells and marine mollusks, cephalopods, and crustaceans.
 
-Insects, plants, fungi and anything else on iNaturalist can be added too: search for one species at a time, or paste a whole list (for example a column copied from a spreadsheet) with **Import a list**. See [Add insects, plants, fungi and more](./guides/inaturalist.md#any-taxa).
+Insects, plants, fungi and anything else on iNaturalist can be added too: one species at a time, a pasted list of names, or a whole group in a place, like the spiders of Canada. See [Insects, plants and other groups](./guides/collection-and-checklists.md#other-taxa).
 
 ## Should I use the desktop app or a server?
 
@@ -65,7 +65,7 @@ Open **Settings > Library** and choose **Hidden species** or **Archived species*
 
 ## Can I script Lifer or connect it to Home Assistant?
 
-Yes, on a server. Create an API key in **Settings > Account > API keys > Manage API keys** and see the [API overview](./api/overview.md) for the endpoints and permissions.
+Yes, on a server. Create a key under **Settings > Integrations > API keys** and see the [API overview](./api/overview.md) for the endpoints and permissions.
 
 ## Can I use Lifer with Immich, Lightroom or digiKam?
 

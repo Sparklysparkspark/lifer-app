@@ -11,12 +11,12 @@ Lifer is a personal application: one person's photo library, on their own comput
 
 ## At a glance
 
-| | Desktop app | Home server on a LAN | Internet, behind a reverse proxy |
-|---|---|---|---|
-| Who can reach the API | Programs on the same computer | Devices on your network | Anyone |
-| Sign-in | None to type: the app's own window holds a per-launch secret | Email and password, session cookie | Email and password over HTTPS |
-| Main risk | Software running as your own user | Other devices on the network, plain HTTP | Password guessing, unknown bugs |
-| What you should do | Treat your OS account as the boundary | Create the account at once; consider HTTPS | HTTPS proxy, `TRUST_PROXY`, strong password, update promptly |
+|                       | Desktop app                                                  | Home server on a LAN                       | Internet, behind a reverse proxy                             |
+| --------------------- | ------------------------------------------------------------ | ------------------------------------------ | ------------------------------------------------------------ |
+| Who can reach the API | Programs on the same computer                                | Devices on your network                    | Anyone                                                       |
+| Sign-in               | None to type: the app's own window holds a per-launch secret | Email and password, session cookie         | Email and password over HTTPS                                |
+| Main risk             | Software running as your own user                            | Other devices on the network, plain HTTP   | Password guessing, unknown bugs                              |
+| What you should do    | Treat your OS account as the boundary                        | Create the account at once; consider HTTPS | HTTPS proxy, `TRUST_PROXY`, strong password, update promptly |
 
 ## Desktop app
 
@@ -103,9 +103,9 @@ Lifer has had no third-party security audit. It's a one-maintainer project, so t
 ### API keys
 
 - Keys are `lifer_` followed by 32 random bytes. The database stores only their SHA-256 (`apps/api/src/auth/apiKeys.ts`). The key is shown once, when it's created.
-- Each key has a list of scopes, chosen when it's created; an unknown scope is refused rather than dropped (`apps/api/src/auth/apiKeyRoutes.ts`). The scopes are `gallery.read`, `species.read`, `stats.read`, `trips.read`, `album.read`, `album.write`, `share.read`, `share.write`, `photos.read`, `photos.write`, `collection.read` and `collection.write`.
+- Each key has a list of scopes, chosen when it's created; an unknown scope is refused rather than dropped (`apps/api/src/auth/apiKeyRoutes.ts`). The scopes are `gallery.read`, `species.read`, `stats.read`, `trips.read`, `album.read`, `album.write`, `share.read`, `share.write`, `photos.read`, `photos.write`, `collection.read` and `collection.write`. Connected apps, phones and linked desktops get theirs by pairing, not from the API keys page: `userdata.read`, `userdata.write`, `imports.write`, `opendata.read`, `host.preference`, `companion` and `sync`.
 - A key reaches only routes that call `requireScope` with one of its scopes. Routes that use `requireAuth` (settings, account, storage, most maintenance) accept a session cookie only, never a key.
-- API keys are a server feature. The desktop app doesn't offer them, and its request gate turns away any request without the app's own credential, keys included.
+- On the desktop app, the request gate (`apps/api/src/auth/desktopGate.ts`) turns away any request without the app's own credential, with one exception: a key, sent without an `Origin` header, may reach routes guarded by a connected-app, MCP or phone scope (`PLUGIN_SCOPES`, `MCP_SCOPES`, `COMPANION_SCOPES`, plus `APP_KEY_ROUTES`). Every other route stays credential only.
 
 See the [API guide](./api/overview.md#authentication) for using them.
 
@@ -149,12 +149,12 @@ Other browser protections, from `@fastify/helmet` in `apps/api/src/index.ts`:
 
 Password checks have their own strict limits (`apps/api/src/auth/rateLimiter.ts`). The client address is the connection's own unless [`TRUST_PROXY`](#home-server-on-a-lan) names a proxy to believe:
 
-| What | Limit |
-|---|---|
-| Login, per email and client address | 10 failed attempts in 15 minutes |
-| Login, per email across all addresses | 50 failed attempts in 15 minutes |
+| What                                             | Limit                            |
+| ------------------------------------------------ | -------------------------------- |
+| Login, per email and client address              | 10 failed attempts in 15 minutes |
+| Login, per email across all addresses            | 50 failed attempts in 15 minutes |
 | Share link password, per link and client address | 10 failed attempts in 15 minutes |
-| Share link password, per link | 50 failed attempts in 15 minutes |
+| Share link password, per link                    | 50 failed attempts in 15 minutes |
 
 Only failures count, and a correct sign-in clears both login counters. A browser that has signed in to the account before, or unlocked that share link before, skips the cross-address cap: it carries a signed "known device" cookie (`lifer_known_device`, `apps/api/src/auth/knownDevice.ts`, kept for a year). So someone guessing from many addresses can't lock the owner, or a returning visitor, out. The per-address limit still applies to a known device. The cookie names the account by a hash of its email and is signed with HMAC-SHA256 under a key derived from the server's [secrets key](#secrets), so it survives restarts and can't be forged. IPv6 clients are grouped by /64. The counters are in memory: they reset when Lifer restarts and wouldn't be shared between several API processes (Lifer runs one).
 
@@ -203,16 +203,16 @@ No route on a server takes a URL to fetch.
 
 ## Secrets at rest {#secrets}
 
-| Secret | Where | How it's stored |
-|---|---|---|
-| Account password | `users.password_hash` | Argon2id hash |
-| Session tokens, API keys | `sessions.id`, `api_keys.key_hash` | SHA-256 |
-| Share link tokens | `shared_links.token_hash`, `shared_links.token_encrypted` | SHA-256 to find a link; the owner's copy AES-256-GCM encrypted |
-| Share link passwords | `shared_links.password_hash` | Argon2id hash |
-| iNaturalist access and refresh tokens | `user_inaturalist_accounts` | AES-256-GCM encrypted |
-| The key for the encrypted values | `secrets/at-rest-key-v1` in the app data folder (`APP_DATA_DIR`) | Plain, mode 0600 in a 0700 folder; never in the database |
-| Database password, server | `secrets/db-password` in the app data folder, generated on first start (or your own, in `DATABASE_URL`) | Plain text, mode 0600 in a 0700 folder |
-| Database password, desktop | `app-data/postgres-password` | Plain text, mode 0600 |
+| Secret                                | Where                                                                                                   | How it's stored                                                |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Account password                      | `users.password_hash`                                                                                   | Argon2id hash                                                  |
+| Session tokens, API keys              | `sessions.id`, `api_keys.key_hash`                                                                      | SHA-256                                                        |
+| Share link tokens                     | `shared_links.token_hash`, `shared_links.token_encrypted`                                               | SHA-256 to find a link; the owner's copy AES-256-GCM encrypted |
+| Share link passwords                  | `shared_links.password_hash`                                                                            | Argon2id hash                                                  |
+| iNaturalist access and refresh tokens | `user_inaturalist_accounts`                                                                             | AES-256-GCM encrypted                                          |
+| The key for the encrypted values      | `secrets/at-rest-key-v1` in the app data folder (`APP_DATA_DIR`)                                        | Plain, mode 0600 in a 0700 folder; never in the database       |
+| Database password, server             | `secrets/db-password` in the app data folder, generated on first start (or your own, in `DATABASE_URL`) | Plain text, mode 0600 in a 0700 folder                         |
+| Database password, desktop            | `app-data/postgres-password`                                                                            | Plain text, mode 0600                                          |
 
 The encrypted values use AES-256-GCM through `node:crypto`, with a random IV each time and the kind of secret bound in as associated data, so a value moved to another column doesn't decrypt (`apps/api/src/lib/secretBox.ts`). The key is 32 random bytes the server makes on first use. Each value starts with its key's version (`lifer-enc:v1:`), so a new key can be introduced later: old values still decrypt with their own key file and are re-encrypted as they're read. On Windows the file modes don't apply; the app data folder's own permissions do.
 

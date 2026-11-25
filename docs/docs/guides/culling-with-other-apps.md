@@ -9,7 +9,7 @@ If you sort keepers from the rest in a culling app, cull there first, then impor
 
 Lifer only ever reads these marks. It never deletes, moves or changes one of your files because of a mark.
 
-On the desktop, Lifer may suggest a culling app in the sidebar. It's a separate app from its own publisher: Lifer downloads the publisher's signed installer and opens it, and the app connects to Lifer once installed. See [Getting a suggested app](./connected-apps.md#suggested). To hide the suggestion, use **Hide** on its page.
+On the desktop, Lifer may suggest a culling app in the sidebar, labelled **Cull**. It's a separate app from its own publisher: Lifer downloads the publisher's signed installer and opens it, and the app connects to Lifer once installed. See [Getting a suggested app](./connected-apps.md#suggested). To hide the suggestion, use **Hide** on its page.
 
 ## What Lifer reads
 

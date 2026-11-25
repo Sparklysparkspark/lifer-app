@@ -59,7 +59,7 @@ If your computer or server has a graphics card, Lifer tests it and uses it for f
 
 ## 4. Import your first photos {#first-import}
 
-1. Click **Import photos** in the toolbar (or press Command-I in the desktop app) to open the **Import photos** page.
+1. Click **Import photos** in the toolbar (or press Shift-Command-I in the desktop app) to open the **Import photos** page.
 2. Optionally, type a **Location** for this batch, like "Prince George".
 3. If suggestions are on, choose the **Region for species suggestions**.
 4. Drag photos onto the page, or click **choose files** or **choose a folder**. You can include RAW files alongside the edited JPEGs; Lifer pairs them up.

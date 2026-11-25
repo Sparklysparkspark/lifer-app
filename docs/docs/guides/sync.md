@@ -18,7 +18,7 @@ Both ways, between this computer and the server:
 - Trips and saved spots.
 - Your choice to keep a photo under its old name after a species was split.
 
-Not synced: downloaded regions are offered rather than copied (see [Downloaded regions on both sides](../install/connect-desktop-to-server.md#packs)), and share links, API keys and accounts live on the server only.
+Not synced: downloaded regions are offered rather than copied (see [Downloaded regions on both sides](../install/connect-desktop-to-server.md#packs)), and share links, API keys and accounts live on the server only. Extra species in one photo, lists added from iNaturalist and named target lists stay on the computer they were made on; the target marks a list sets do sync.
 
 ## See what is waiting
 

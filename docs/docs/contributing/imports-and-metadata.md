@@ -63,7 +63,7 @@ The rules, strongest first. Only the first two link on their own:
 2. **Same shutter press and name** (`time_serial_suffix`): the same strict fingerprint, with sub-seconds and a serial number present, and stems that match once suffixes are removed. Two files whose document IDs differ never link this way.
 3. **Same shutter press only** (`suggested`): offered in the review after an import, never linked until a person confirms.
 
-Several candidate groups is ambiguous and nothing links. Size and dimensions are never a signal, since crops and panoramas differ. A split or dismissed suggestion stays `dismissed`, so the rules never link it again. A group shows its newest edit, else its camera original, unless the user picks another file ("Use this as the photo", which swaps the two captures' photo rows).
+Several candidate groups is ambiguous and nothing links. Size and dimensions are never a signal, since crops and panoramas differ. A split or dismissed suggestion stays `dismissed`, so the rules never link it again. A group shows its newest edit, else its camera original, unless the user picks another file ("Use as the photo", which swaps the two captures' photo rows).
 
 ## EXIF, GPS and time
 

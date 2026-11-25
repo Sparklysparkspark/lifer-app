@@ -79,6 +79,7 @@ Search results are sorted by relevance (or highest rated first when you type `be
 
   Pick any number in each. Choices in one group widen it (**Flying** or **Behaviour**); the two groups narrow each other (**Flying** and **Environmental**). Shot type needs species recognition from **Settings > Offline data**.
 
+- **Appearance**: **Life stage**, **Sex**, **Plumage** and **Colour morph**, offering only the ones you've [set on your photos](#the-photo-viewer), with counts. Choices within one widen it; different ones narrow each other.
 - **Region**, listing only regions you have photos from, plus **No region set yet**.
 - **Place name**: start typing and pick one of your place names (only names used in the **Region** filter's region when one is set). Click **×** on it to clear it.
 - **Tag**, once you've added tags.
@@ -165,20 +166,20 @@ Click a photo to open it full screen. The viewer is the same wherever a photo op
 
 ![The photo viewer](/img/photo-viewer.jpg)
 
-| Key                                         | What it does                                                                                                                      |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| <kbd>←</kbd> <kbd>→</kbd>                   | Previous or next photo, wrapping around at the ends                                                                               |
-| <kbd>1</kbd> to <kbd>5</kbd>                | Set the star rating. Press the same number again to clear it.                                                                     |
-| <kbd>0</kbd>                                | Clear the rating                                                                                                                  |
-| <kbd>Shift</kbd>+<kbd>1</kbd> to <kbd>5</kbd> | Rate and go to the next photo (<kbd>Shift</kbd>+<kbd>0</kbd> clears and goes on)                                                |
-| <kbd>S</kbd>                                | Correct the ID                                                                                                                    |
-| <kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd>  | In a video, skip 10 seconds                                                                                                       |
-| <kbd>,</kbd> <kbd>.</kbd>                   | In a video, step back or forward a frame                                                                                          |
-| <kbd>F</kbd>                                | Full screen (hidden when Lifer is already full screen)                                                                            |
-| <kbd>Option</kbd>+<kbd>←</kbd> <kbd>→</kbd> | Previous or next version of the photo (<kbd>Alt</kbd> on Windows and Linux). See [Photo versions](./photo-versions.md#switching). |
-| <kbd>Cmd</kbd>+<kbd>0</kbd>                 | Fit the photo to the window again after zooming (<kbd>Ctrl</kbd>+<kbd>0</kbd> on Windows and Linux)                               |
-| <kbd>Space</kbd>                            | Play or pause a video                                                                                                             |
-| <kbd>Esc</kbd>                              | Leave full screen, then close                                                                                                     |
+| Key                                           | What it does                                                                                                                      |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| <kbd>←</kbd> <kbd>→</kbd>                     | Previous or next photo, wrapping around at the ends                                                                               |
+| <kbd>1</kbd> to <kbd>5</kbd>                  | Set the star rating. Press the same number again to clear it.                                                                     |
+| <kbd>0</kbd>                                  | Clear the rating                                                                                                                  |
+| <kbd>Shift</kbd>+<kbd>1</kbd> to <kbd>5</kbd> | Rate and go to the next photo (<kbd>Shift</kbd>+<kbd>0</kbd> clears and goes on)                                                  |
+| <kbd>S</kbd>                                  | Correct the ID                                                                                                                    |
+| <kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd>    | In a video, skip 10 seconds                                                                                                       |
+| <kbd>,</kbd> <kbd>.</kbd>                     | In a video, step back or forward a frame                                                                                          |
+| <kbd>F</kbd>                                  | Full screen (hidden when Lifer is already full screen)                                                                            |
+| <kbd>Option</kbd>+<kbd>←</kbd> <kbd>→</kbd>   | Previous or next version of the photo (<kbd>Alt</kbd> on Windows and Linux). See [Photo versions](./photo-versions.md#switching). |
+| <kbd>Cmd</kbd>+<kbd>0</kbd>                   | Fit the photo to the window again after zooming (<kbd>Ctrl</kbd>+<kbd>0</kbd> on Windows and Linux)                               |
+| <kbd>Space</kbd>                              | Play or pause a video                                                                                                             |
+| <kbd>Esc</kbd>                                | Leave full screen, then close                                                                                                     |
 
 To zoom, pinch on a trackpad or hold <kbd>Ctrl</kbd> and scroll (up to 6x), or press <kbd>+</kbd> and <kbd>-</kbd>. Zooming centres on the pointer. Double-click to zoom to 2.5x, and again to zoom back out. The viewer and compare zoom the same way. Once zoomed, drag or scroll to move around; the photo stops at its edges, and the controls hide until you zoom back out. The caption shows the species, when the photo was taken (like Nov 17, 2026, 7:42 PM; rest the pointer on it for the seconds), star rating, camera settings and file names, and lets you edit tags. The time is your camera's clock as it was when you took the photo, not moved to the time zone you're in now; when the file recorded its time zone, the time shows in yours and the tooltip names the offset. A photo with only a date shows just the date, and one with none says **No date**. Click a file name, or **Show in Finder** beside it, to open the folder that holds it. Click a star to rate, or **Correct the ID** to move the photo to another species.
 
@@ -245,17 +246,17 @@ The first look through a large library can take a few seconds. After that, only 
 
 Select 2 to 4 photos and click **Compare** to see them side by side, with the date to the second, camera settings and rating under each. Zooming or moving one zooms and moves them all to the same spot, so you can check which frame is sharpest. Pinch, hold <kbd>Ctrl</kbd> and scroll, or double-click to zoom; drag or scroll to move around; click **Fit** to zoom back out.
 
-| Key                          | What it does                                                              |
-| ---------------------------- | ------------------------------------------------------------------------- |
-| <kbd>←</kbd> <kbd>→</kbd>    | Move the outline to the previous or next photo                            |
-| <kbd>1</kbd> to <kbd>5</kbd> | Rate the outlined photo; the same number again clears it                  |
-| <kbd>0</kbd>                 | Clear the outlined photo's rating                                         |
-| <kbd>Shift</kbd>+<kbd>1</kbd> to <kbd>5</kbd> | Rate the outlined photo and move to the next                |
-| <kbd>K</kbd>                 | Set the outlined photo as the featured photo                              |
-| <kbd>F</kbd>                 | Full screen                                                               |
-| <kbd>+</kbd> <kbd>-</kbd>    | Zoom in or out                                                            |
-| <kbd>Cmd</kbd>+<kbd>0</kbd>  | Fit every photo again (<kbd>Ctrl</kbd>+<kbd>0</kbd> on Windows and Linux) |
-| <kbd>Esc</kbd>               | Close                                                                     |
+| Key                                           | What it does                                                              |
+| --------------------------------------------- | ------------------------------------------------------------------------- |
+| <kbd>←</kbd> <kbd>→</kbd>                     | Move the outline to the previous or next photo                            |
+| <kbd>1</kbd> to <kbd>5</kbd>                  | Rate the outlined photo; the same number again clears it                  |
+| <kbd>0</kbd>                                  | Clear the outlined photo's rating                                         |
+| <kbd>Shift</kbd>+<kbd>1</kbd> to <kbd>5</kbd> | Rate the outlined photo and move to the next                              |
+| <kbd>K</kbd>                                  | Set the outlined photo as the featured photo                              |
+| <kbd>F</kbd>                                  | Full screen                                                               |
+| <kbd>+</kbd> <kbd>-</kbd>                     | Zoom in or out                                                            |
+| <kbd>Cmd</kbd>+<kbd>0</kbd>                   | Fit every photo again (<kbd>Ctrl</kbd>+<kbd>0</kbd> on Windows and Linux) |
+| <kbd>Esc</kbd>                                | Close                                                                     |
 
 On a phone, Compare shows two photos at a time: tap the better one and it meets the next, until one is left. Then you can use it as the featured photo or album cover, rate it, or start over.
 

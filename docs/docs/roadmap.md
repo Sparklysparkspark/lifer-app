@@ -11,7 +11,6 @@ Lifer is in beta. The goal is a stable **1.0** release: dependable updates, a se
 
 These are already planned and mentioned elsewhere in the docs:
 
-- **Sending observations to iNaturalist.** Link your iNaturalist account and send your photos there as draft observations, with the species, date, location and photos filled in. See [iNaturalist](./guides/inaturalist.md#observations).
 - **A signed Windows installer**, through [SignPath Foundation](https://signpath.org)'s free code signing for open source projects, so Windows stops warning that Lifer is from an unknown publisher.
 - **A TrueNAS catalog app**, after 1.0. Until then, TrueNAS users can run Lifer as a Custom App from `docker-compose.yml`. See [Install with Docker](./install/docker.md).
 

@@ -18,12 +18,13 @@ Some tabs only show up in certain setups:
 | [Account](#account)                       | No                        | Yes                                 | Yes                 |
 | [Species and import](#species-and-import) | Yes                       | Yes                                 | Yes                 |
 | [Library](#library)                       | Yes                       | Yes                                 | Yes                 |
+| [Metadata](#metadata)                     | Yes                       | Yes                                 | Yes                 |
 | [Storage](#storage)                       | Yes                       | Yes                                 | Yes                 |
-| [Server](#server)                         | Yes                       | Yes                                 | No                  |
+| [Server](#server)                         | Yes                       | Yes                                 | Yes                 |
 | [Integrations](#integrations)             | Yes                       | Yes                                 | Yes                 |
 | [Offline data](#offline-data)             | Yes                       | Yes                                 | Yes                 |
 
-The desktop app's own library has no login, so it has no Account tab. The Server tab is part of the desktop app, so it doesn't appear in a web browser.
+The desktop app's own library has no login, so it has no Account tab. In a web browser, the Server tab only lists [linked devices](#linked-devices).
 
 Each tab groups its settings into panels of rows. Most on/off options are switches. Some rows also depend on the setup; each one below says when.
 
@@ -32,6 +33,12 @@ Each tab groups its settings into panels of rows. Most on/off options are switch
 ### Theme {#appearance}
 
 In the **Appearance** panel, choose **Follow system**, **Light** or **Dark**. **Light** is the default. **Follow system** matches whatever your computer or phone is set to.
+
+**Show HDR photos in the viewer** shows HDR photos with their bright highlights on a screen that can. Grids and thumbnails don't change. See [the photo viewer](./guides/gallery-and-search.md#the-photo-viewer).
+
+### Photo editing {#photo-editing}
+
+**Edit photos with** picks the app that **Open in** uses, from the viewer and photo menus. See [Opening photos in your editor](./guides/gallery-and-search.md#editor).
 
 ### Map and places {#map}
 
@@ -67,11 +74,15 @@ Desktop app only, in the **About** panel. Shows the version you're running and c
 
   See [Updating the desktop app](./install/desktop.md#updating).
 
-If your downloaded regions have updates, a **Species downloads** row also shows how many are ready, with a **View regions** link.
+If your downloaded regions have updates, a **Species downloads** row also shows how many are ready.
 
 ### Getting started {#getting-started}
 
 In the **About** panel. **Open the guide** opens the longer written guide to how imports, trips and downloaded regions fit together.
+
+### Tips {#tips}
+
+**Show tips** shows a short tip the first time a screen can do something that isn't obvious. **Show tips again** brings back the ones you've closed, and **Guided tour** takes you round the main parts of Lifer.
 
 ## Account {#account}
 
@@ -87,7 +98,7 @@ In the **Sign-in** panel. Enter your **Current password**, a **New password** (a
 
 ### API keys {#api-keys}
 
-In the **Scripts and integrations** panel, click **Manage API keys** to create keys for your own scripts and integrations. Keys are only available on a server.
+In the **Scripts and integrations** panel (also under **Settings > Integrations**), click **API keys** to create keys for your own scripts and integrations.
 
 1. Click **New key**.
 2. Give it a **Name**, like "Home Assistant dashboard".
@@ -136,7 +147,7 @@ In the **Species names** panel. Controls how species are named in folder names a
 
 The first part a species actually has comes first, and the rest follow in brackets. eBird and ABA codes are skipped for anything that isn't a bird. The default is **Common name** alone.
 
-Changing this only affects new photos. In **Rename existing photos**, click **Update photos** to rename existing folders and refresh the tags in files you already have.
+Changing this only affects new photos. In **Reorganize existing photos**, click **Reorganize** to rename existing folders and refresh the tags in files you already have.
 
 ### Import from eBird {#ebird}
 
@@ -150,11 +161,19 @@ In the **Checklists** panel (on by default). Hides deep-water fish beyond diving
 
 In the **Checklists** panel (off by default). **Hide species almost nobody photographs** treats fish deeper than about 60 m as out of reach. Turn this on if you're technical-dive certified and want fish down to 120 m on your checklists.
 
+### Target lists and species lists {#lists}
+
+**Target lists**, in the **Checklists** panel, renames and removes your [target lists](./guides/collection-and-checklists.md#target-a-group). With **Search iNaturalist for other species** on, the **Species lists** panel manages lists you added with **Add a list from iNaturalist** (see [Adding lists of plants, insects and spiders](./guides/collection-and-checklists.md#species-lists)).
+
+### Photo versions {#photo-versions}
+
+The **Photo versions** panel sets how Lifer finds a photo's RAW and edited files and which folders hold versions. See [Photo versions](./guides/photo-versions.md).
+
 ## Library {#library}
 
 ### Location and Manage {#library-links}
 
-The **Library** panel starts with your library folder (**Location**) and a **Manage** row with links to **Archived species**, **Hidden species**, **Trash**, **Tags** and **Places**.
+The **Library** panel starts with your library folder (**Location**). The **Manage** panel links to **Archived species**, **Hidden species**, **Trash**, **Tags**, **Places** and **Portfolio**.
 
 **Tags** lists every custom tag on your photos with how many photos carry it (hidden photos aren't counted). Search from the field at the top right. Each tag's **⋯** menu (or a right-click) has **Rename** and **Delete**. **Rename** fixes a typo or merges one tag into another. **Delete** removes a tag from every photo, after saying how many it affects (the photos themselves stay). Both include hidden photos, but not photos in the Trash.
 
@@ -175,6 +194,10 @@ Or pick **Custom** and build your own: tick the levels you want (year, month, da
 
 The layout applies to new imports. With country, province or place folders in the layout, changing a photo's region or place name, or renaming a place in **Places**, moves that photo's files too. To move everything else you already have, click **Reorganize** in **Reorganize existing photos**. Moving files affects other apps that catalogue the same files, like Lightroom: they'll need to find the files again.
 
+### Watched folders {#watched-folders}
+
+Desktop app with its own library only. **Add folder** picks a folder for Lifer to check for new photos. It imports them where they are once they finish copying, and moves nothing. A folder on a drive that isn't plugged in is picked up again when it's back. **Stop watching** removes one, with **Undo**.
+
 ### Import a library {#reimport}
 
 The **Import a library** panel brings in photos already on disk. Use it for a library organized some other way, another Lifer library, or after a fresh install or a server move.
@@ -191,11 +214,15 @@ Imports read the picks and rejects a culling app left in your photos. **Rejected
 
 On a server you can only pick folders inside the library folder or an extra [library folder](#library-folders). A running import can be stopped with **Cancel**; files already in progress still finish. If recovered species are missing reference photos, the results link to the regions that would restore them.
 
+## Metadata {#metadata}
+
+What Lifer writes into your photo files: **Copyright and credits**, **Titles, captions and keywords**, **Name new photos**, **Where keywords go** and **Sensitive species**. See [Metadata and file names](./guides/metadata-and-file-names.md) and [Other apps and keywords](./guides/other-apps-and-keywords.md#options).
+
 ## Storage {#storage}
 
 ### Library folder {#storage-location}
 
-In the **Where photos live** panel. Shows where your photo library lives.
+In the **Where photos live** panel, below **Free space** (how much room is left on the drive). Shows where your photo library lives.
 
 - **Desktop app:** click **Move**, pick the new folder and confirm **Move and restart**. Lifer moves every file, updates its records and restarts itself on the new folder.
 - **Server:** read only. It shows the folder inside the container. To move the library, change `LIFER_STORAGE_DIR` and redeploy. See [Install with Docker](./install/docker.md#volumes).
@@ -209,6 +236,14 @@ Desktop app with its own library only, in the **Where photos live** panel. Regis
 3. Click **Add drive**. If the drive already has photos Lifer knew about, it says how many it recognized.
 
 Each drive has its own row showing **Connected** or **Not connected** (with when it was last seen). You can **Rename**, **Make default** or **Remove** a drive. Removing only stops tracking it; imported photos stay in your library.
+
+### Library locations {#library-locations}
+
+Lists the drives and network shares that hold your photos, and whether each is connected. A network share that isn't open has **Connect**. See [Network drives](./guides/library-folders.md#network-drives).
+
+### Moved photos {#moved-photos}
+
+**Look for moved photos automatically** finds photos you moved or renamed outside Lifer. See [Moved photos](./guides/library-folders.md#moved-photos).
 
 ### Extra library folders {#library-folders}
 
@@ -236,7 +271,7 @@ Desktop app with its own library only, in the **Uninstall** panel. Deletes every
 
 ## Server {#server}
 
-Desktop app only. What you see depends on whether the app is using its own library or a server. See [Connect the desktop app to a server](./install/connect-desktop-to-server.md) for step by step instructions.
+In the desktop app, what you see depends on whether the app is using its own library or a server. In a web browser on a server, it only lists [linked devices](#linked-devices). See [Connect the desktop app to a server](./install/connect-desktop-to-server.md) for step by step instructions.
 
 ### Sign in to a server {#sign-in-to-a-server}
 
@@ -281,22 +316,27 @@ The app stays set to your server: next time it opens, it connects to the server 
 ## Integrations {#integrations}
 
 - **iNaturalist account:** click **Connect** to link your iNaturalist account, so you can [send photos as observations](./guides/inaturalist.md#observations). The row then shows the account it's linked to and a **Disconnect** button.
+- **Immich server** (server only): **Link** with your Immich address and an Immich API key, choose **Albums to bring in**, and Lifer brings in their photos. The originals stay in Immich. **Add species tags in Immich** tags each photo you confirm, like `Lifer/Bald Eagle`.
+- **Assistants:** **Connect an assistant** sets up Claude Desktop (see [MCP](./api/mcp.md)). **API keys** makes keys for your own scripts (see [API keys](#api-keys)).
+- **Connected apps:** apps that work with your library, and **Suggested apps**. See [Connected apps](./guides/connected-apps.md).
 
 ## Species downloads {#regions}
 
 Opened from the top of **Species and import**, with **Download more countries and animal groups**. This is where you download, update and remove regions: pick countries on the map or by name, choose animal groups, and click **Download selected**. Your downloaded regions are listed below the picker. See [Downloaded regions and the map](./guides/offline-packs-and-map.md).
 
+**Detailed maps**, in the **Other downloads** panel, downloads streets, trails and towns for one country at a time, for zooming in offline.
+
+## Offline data {#offline-data}
+
 ### Offline map {#offline-map}
 
-In the **Other downloads** panel. The offline basemap (about 640 MB) draws the maps showing roughly where a species is found within a region. Maps don't show without it, even online. Everything else works the same either way. It downloads by itself on a new install, in the background. **Remove** frees the space and keeps it off; **Download** brings it back.
+In the **Species data** panel. The offline basemap (about 640 MB) draws the maps showing roughly where a species is found within a region. Maps don't show without it, even online. Everything else works the same either way. It downloads by itself on a new install, in the background. **Remove** frees the space and keeps it off; **Download** brings it back.
 
 ### Download missing reference photos {#withheld-photos}
 
-In the **Other downloads** panel. Some photos can't be included in region downloads for licensing reasons: their photographer kept all rights, or chose a license Lifer can't share. With this switch on (the default), Lifer downloads the main photo of those species from iNaturalist for your own viewing, so the species in your downloaded regions have a photo offline too. It's the same as opening the species online, with the photographer's credit and license kept with the photo.
+In the **Species data** panel. Some photos can't be included in region downloads for licensing reasons: their photographer kept all rights, or chose a license Lifer can't share. With this switch on (the default), Lifer downloads the main photo of those species from iNaturalist for your own viewing, so the species in your downloaded regions have a photo offline too. It's the same as opening the species online, with the photographer's credit and license kept with the photo.
 
 It runs quietly after a region download and each time Lifer starts, one species every few seconds and at most 2,000 a day, so it goes easy on iNaturalist. If iNaturalist asks it to slow down, it waits an hour. A species it couldn't get a photo for is tried again after 30 days. Only the main photo is fetched, not the extra gallery photos. The setting covers the whole install, every account on it, and turning it off stops a fetch that's running.
-
-## Offline data {#offline-data}
 
 ### Species catalog {#species-catalog}
 

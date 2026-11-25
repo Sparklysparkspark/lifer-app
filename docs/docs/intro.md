@@ -29,7 +29,7 @@ Downloaded regions come with full regional checklists for:
 - **Reptiles & Amphibians**: reptiles, turtles and amphibians
 - **Marine invertebrates**: corals, jellies and anemones, echinoderms, nudibranchs, shells and marine mollusks, cephalopods, and crustaceans
 
-Anything else on iNaturalist, like insects, spiders, plants and fungi, can be added too. Add species one at a time, or paste in a whole list at once. See [Add insects, plants, fungi and more](./guides/inaturalist.md#any-taxa).
+Anything else on iNaturalist, like insects, spiders, plants and fungi, can be added too. Add species one at a time, paste in a list of names, or add a whole group in a place, like the spiders of Canada. See [Insects, plants and other groups](./guides/collection-and-checklists.md#other-taxa).
 
 ### Photos
 
@@ -53,9 +53,9 @@ A species' rarity is **how hard it is to find and photograph** in the place you'
 - **Rare:** needs travel and patience.
 - **Legendary:** once in a lifetime.
 
-A card's plain badge ("Rare") is the worldwide rarity, where the species is easiest to find. On a region's checklist, a second badge ("Occasional here") is its rarity in that region.
+A card shows its rarity as a quiet pill. On a region's checklist it's the rarity there ("Rare here" when that's rarer than worldwide); elsewhere it's the worldwide rarity, where the species is easiest to find.
 
-It isn't conservation status: an endangered but easy-to-see bird can be Common, and a widespread but secretive one can be Rare. The IUCN status is shown beside it. Where there's too little data to tell, a species shows **Unrated** (or **Not enough data here** on a region's checklist). Marine invertebrates and species added from iNaturalist aren't rated yet.
+It isn't conservation status: an endangered but easy-to-see bird can be Common, and a widespread but secretive one can be Rare. The IUCN status is shown beside it. Where there's too little data to tell, a species shows **Unrated**. Marine invertebrates and species added from iNaturalist aren't rated yet.
 
 See [Collection and checklists](./guides/collection-and-checklists.md#rarity-tiers).
 

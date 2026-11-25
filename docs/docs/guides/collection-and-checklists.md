@@ -110,7 +110,7 @@ To make every raptor, owl or warbler of a place a target at once, click **+ Add 
 
 Groups Lifer's own checklists cover (birds, mammals, reptiles, amphibians, fish and marine life) come from the checklists you've downloaded, so they work offline. Other groups, like plants, insects, spiders and fungi, need [Search iNaturalist for other species](../settings.md#any-taxa-search) on: Lifer adds them as a [list from iNaturalist](#species-lists) in the background, and each species becomes a target as it arrives. To take those targets back later, choose **Remove these targets** from the list's menu in **Settings > Species and import > Species lists**.
 
-The **Import a list** tab of the same dialog imports a CSV of species names into a target list instead.
+The **Import a list** tab of the same dialog takes a CSV with a **Scientific Name** or **Common Name** column (or one name per line) into a new or existing target list, for anywhere or for one region. It lets you pick the species for ambiguous names and lists the ones it couldn't find.
 
 You can't hide or archive species you've already photographed.
 
@@ -159,6 +159,7 @@ To take one off again, open its card's **⋯** menu and click **Remove from this
 - **Size** changes the card size.
 - **Photographed first** (on by default), **Seen first** and **Targets first** pin those species to the top.
 - **Hide names** for photo-only cards, or to quiz yourself.
+- **Show progress by group** (on by default) shows how many species you've photographed in each animal group, as a row of cards above the list and a count heading each group.
 - **Show rarity tags** (on by default) shows or hides the rarity pill on each species card. Other badges stay.
 - **Show uncollected species in colour** turns off the gray on species you haven't photographed yet. It's off by default, and Lifer remembers your choice.
 
@@ -167,11 +168,12 @@ On a country, state or province, **Counting** holds **Include photos from** (see
 **Filters** chooses which species show:
 
 - **Animals:** show only some groups, like Birds, Reptiles or Nudibranchs. Tick as many as you like. Only groups you've downloaded for this region are listed, plus a group for each kind of species you've added from iNaturalist (like Insects or Plants).
-- **Show:** **All**, **Photographed** (it's in your library), **Seen only** (you saw it but don't have a photo yet), **Targets** (ones you want to find), or **Not yet photographed** (species you haven't seen or photographed).
+- **Show:** **All**, **Photographed** (it's in your library), **Seen only** (you saw it but don't have a photo yet), **Targets** (ones you want to find), or **Not yet photographed** (species you haven't seen or photographed). With **Targets**, a second menu picks one [target list](#target-a-group) or **All targets**.
 - **Photos taken** (on a country, state or province): **Anywhere**, **In** the region, or **Only outside** it. It narrows the photographed species to the ones with a photo taken in the region, or with their photos all taken outside it; species you haven't photographed stay. The photographed count at the top follows it. A photo without a location counts only under **Anywhere**.
-- **Likely this month:** only species that are regularly recorded in this region in the current month.
-- **Photographed in year:** species you photographed in a particular year.
-- **Rarely recorded only** and **Not seen in 25 years only** appear when the list has such species (see [badges](#badges)).
+- **Needs a better photo** and **Only RAW photos so far** appear when some species qualify: ones you or a connected app marked as needing a better photo, and ones whose photos are all RAW files with no edited version yet.
+- **Rarity** (**Rarity here** in a region): tick one or more levels. **Endemic**, and in a region **Introduced** and **Vagrants**, each pick **Any**, **Only** or **Hide**.
+- **When:** **Likely this month** keeps species regularly recorded in this region in the current month; **Photographed in year** keeps species you photographed in that year.
+- **Records:** **Rarely recorded only** and **Not seen in 25 years only** appear when the list has such species (see [badges](#badges)).
 
 A trip's Species view has this same **View** and **Filters**, for the species in that trip (see [Trips](./trips.md#the-trip-page)).
 
@@ -199,13 +201,9 @@ Rarity is **how hard a species is to find and photograph** in a place. There are
 
 ### Rarity here and worldwide {#tiers-here-and-worldwide}
 
-Every species card with a rarity shows it as a quiet grey pill under its names. In a region it's the rarity **there**; a species with only a worldwide rarity reads "Rare worldwide", and one that is rarer there than worldwide reads "Rare here". It is the same swatch and wording everywhere Lifer shows a rarity. Species without enough data show nothing, and the smallest card size drops the "worldwide".
+Every species card with a rarity shows it as a quiet grey pill under its names, the same pill the [Tree of life](./stats.md#tree-of-life) uses. In a region it's the rarity **there**, and reads "Rare here" when that's rarer than worldwide: a bird that's Common worldwide can be Rare here at the edge of its range. A species with no rating for the region reads "Rare worldwide". Species without enough data show no pill. **Rarity here** in Group and Sort uses the local rarity.
 
-A card can also carry one more pill for what's unusual (the smallest card size shows only that one):
-
-- **Rarity here** ("Rare here" in the pill) appears on a region's checklist when the species is rarer there than worldwide. **Rarity here** in Group and Sort uses the local rarity.
-
-A bird that's Common worldwide can be Rare here at the edge of its range.
+Next to the pill a card can show one [badge](#badges). The smallest card size has room for only one, so the badge wins there.
 
 ### How rarity is worked out {#how-a-tier-is-worked-out}
 
@@ -218,7 +216,7 @@ A bird that's Common worldwide can be Rare here at the edge of its range.
 ### What rarity isn't {#what-a-tier-isnt}
 
 - **Not conservation status.** An endangered wader can be on every mudflat, and a species of no concern can be Legendary if it lives in one hard-to-reach spot. The IUCN status is shown beside the rarity.
-- **Not a guess.** Where there are too few records or photos to tell, the species shows **Unrated**, or **Not enough data here** on a region's checklist.
+- **Not a guess.** Where there are too few records or photos to tell, the species is **Unrated** and its card shows no rarity pill.
 - **Marine invertebrates** and species added from iNaturalist aren't rated yet. Their pages show IUCN status instead, where known.
 
 Rarity is refreshed with [catalog updates](../settings.md#species-catalog).
@@ -235,6 +233,8 @@ On species cards:
 | **Not seen in 25 years**      | Not recorded anywhere in over 25 years                                                            |
 | **Seen again after 25 years** | Was rarely recorded or not seen in 25 years when you photographed it, but isn't any more          |
 | **Added by you**              | You added it to this checklist yourself. See [Adding a species to a checklist](#add-to-checklist) |
+| **Heard**                     | You have a sound recording of it but no photo yet                                                 |
+| **Name changed**              | The species was split. Click it to pick which one is in your photos                               |
 
 Species pages can also show **Invasive here**: an established population in this region that's non-native and considered invasive.
 

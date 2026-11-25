@@ -98,11 +98,11 @@ This only affects species recognition. Your photos are still uploaded to and sto
 
 If the server's photo folders are also shared to your Mac (for example a NAS share mounted at `/Volumes/NAS`), photo menus offer **Show in Finder** for the server's files too. There's nothing to set up: when you connect, the app looks for one of your photos under each mounted volume in `/Volumes`, up to four folders deep, and checks that it's the same size as on the server. Once found, it remembers where the share is, and looks again if the share moves.
 
-When the share isn't mounted on this Mac, or the app can't find it, photo menus offer **Copy file path** instead, which copies the file's path on the server. Mount the share in Finder (**Go > Connect to Server**) and reload the window to switch back to Show in Finder.
+When the share isn't mounted on this Mac, or the app can't find it, photo menus offer **Copy file path** instead, which copies the file's path on the server. Mount the share in Finder (**Go > Connect to Server**) and come back to Lifer's window; Show in Finder returns without a reload.
 
 ## What's different when connected
 
 - You sign in with your server account, and the Settings **Account** tab appears.
 - Photos are stored on the server, not on this computer.
-- [Share links](../guides/albums-and-sharing.md#share-links) and [API keys](../settings.md#api-keys) are available, because they're server features.
+- [Share links](../guides/albums-and-sharing.md#share-links) are available, because they're a server feature.
 - **Settings > Storage** shows the server's folders. They're set by the server's administrator.

@@ -14,13 +14,13 @@ imports, mirror your library into another tool, or back up your originals.
   into Swagger UI, Postman, or a client generator.
 - **This guide:** authentication, conventions and the integration endpoints.
 
-The desktop app doesn't offer API keys; this is for server (Docker) installs. See [Install with Docker](../install/docker.md) if you don't have a server yet.
+On the desktop app, keys reach only the routes for connected apps and assistants ([Plugins](./plugins.md), [MCP](./mcp.md)); the full API is for server (Docker) installs. See [Install with Docker](../install/docker.md) if you don't have a server yet.
 
 Building a separate app that shows its own page inside the Lifer desktop app? See [Build a companion app](./plugins.md).
 
 ## Authentication
 
-Create a key under **Settings > Account > API keys** (the **Manage API keys** button), choosing only the permissions (scopes) it needs. The key
+Create a key under **Settings > Account** or **Settings > Integrations** (the **API keys** row), choosing only the permissions (scopes) it needs. The key
 is shown once. Send it on every request as the `x-api-key` header:
 
 ```sh
@@ -37,21 +37,21 @@ the header `x-lifer-client: 1` and come from Lifer's own site. Anything else get
 login. Requests with `x-api-key` skip this check entirely, so scripts using a key don't need the
 extra header.
 
-| Scope                        | Allows                                                                                                                                                                                   |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `photos.read`                | The photo feed (`GET /captures`) and image files: thumbnails, display images, originals, RAWs, videos                                                                                    |
-| `photos.write`               | Importing photos (`POST /uploads`, [resumable uploads](#large-files)) and editing them: species, extra species, rating, tags, capture time, location, life stage, sex, plumage and morph |
-| `collection.read`            | The life list and its summary counts, and the species you added to checklists yourself                                                                                                   |
-| `collection.write`           | Adding species to region checklists yourself, and removing them again                                                                                                                    |
-| `gallery.read`               | The gallery listing, content search, similar-photo groups and the map                                                                                                                    |
-| `species.read`               | Species search and details, reference photos                                                                                                                                             |
-| `stats.read`                 | Statistics, including the life list as CSV                                                                                                                                               |
-| `trips.read`                 | Trips and their photos                                                                                                                                                                   |
-| `album.read` / `album.write` | Reading and managing albums, smart albums and their rules, smart album suggestions and pinned Gallery filters                                                                            |
-| `share.read` / `share.write` | Reading, creating and revoking album share links                                                                                                                                         |
-| `userdata.read`              | Your own data for companion apps: the species you photographed, marked seen or made targets (`GET /userdata/v1/species`), and display images of your own photos. Never catalog data      |
-| `imports.write`              | Importing new photos from a companion app, and adding species to the photos that key imported                                                                                            |
-| `opendata.read`              | The species lists of the regions you installed (`/opendata/v1/regions`), and reference vectors whose photos are CC0 or CC BY, with attribution                                           |
+| Scope                        | Allows                                                                                                                                                                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `photos.read`                | The photo feed (`GET /captures`) and image files: thumbnails, display images, originals, RAWs, videos                                                                                                                          |
+| `photos.write`               | Importing photos (`POST /uploads`, [resumable uploads](#large-files)) and editing them: species, extra species, rating, tags, capture time, location, life stage, sex, plumage and morph                                       |
+| `collection.read`            | The life list and its summary counts, and the species you added to checklists yourself                                                                                                                                         |
+| `collection.write`           | Adding species to region checklists yourself, and removing them again                                                                                                                                                          |
+| `gallery.read`               | The gallery listing, content search, similar-photo groups and the map                                                                                                                                                          |
+| `species.read`               | Species search and details, reference photos                                                                                                                                                                                   |
+| `stats.read`                 | Statistics, including the life list as CSV                                                                                                                                                                                     |
+| `trips.read`                 | Trips and their photos                                                                                                                                                                                                         |
+| `album.read` / `album.write` | Reading and managing albums, smart albums and their rules, smart album suggestions and pinned Gallery filters                                                                                                                  |
+| `share.read` / `share.write` | Reading, creating and revoking album share links                                                                                                                                                                               |
+| `userdata.read`              | Your own data for companion apps: the species you photographed, marked seen or made targets (`GET /userdata/v1/species`), and display images of your own photos. Never catalog data                                            |
+| `imports.write`              | Importing new photos from a companion app, and adding species to the photos that key imported                                                                                                                                  |
+| `opendata.read`              | The species lists of the regions you installed (`/opendata/v1/regions`), your lists from iNaturalist as definitions only (`/opendata/v1/species-lists`), and reference vectors whose photos are CC0 or CC BY, with attribution |
 
 ## Conventions
 
@@ -264,7 +264,7 @@ original on a drive that isn't connected returns `409`.
 
 | Field                                            |                                                                                                                                                                                                                                                                            |
 | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `file`                                           | The photo: JPEG, PNG, WebP, TIFF or HEIC (or a RAW on its own). Or send `uploadId` instead (see [Uploading large files](#large-files))                                                                                                                                     |
+| `file`                                           | The photo: JPEG, PNG, WebP, TIFF, HEIC, AVIF, JPEG 2000 or JPEG XL (or a RAW on its own). Or send `uploadId` instead (see [Uploading large files](#large-files))                                                                                                           |
 | `rawFile`                                        | Optional RAW belonging to `file`. Or `rawUploadId` for a RAW sent as a resumable upload                                                                                                                                                                                    |
 | `speciesId`                                      | Required. Look it up with `GET /api/species?q=mallard` (species.read)                                                                                                                                                                                                      |
 | `regionId`, `locationLabel`, `albumId`, `tripId` | Optional                                                                                                                                                                                                                                                                   |
@@ -324,16 +324,16 @@ Uploads belong to the key's user. A finished upload waits 2 hours for its import
 
 ### Editing photos (photos.write)
 
-| Request                                         | Body                                                                                                                                                           |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PATCH /api/captures/{id}/reassign`             | `{ "speciesId": "…" }` changes the species                                                                                                                     |
-| `POST /api/captures/{id}/species`               | `{ "speciesId": "…" }` adds another species in the same photo; safe to repeat. An `imports.write` key may use it too, only on photos it imported               |
-| `DELETE /api/captures/{id}/species/{speciesId}` | removes an additional species                                                                                                                                  |
-| `PATCH /api/captures/{id}/rating`               | `{ "rating": 1-5 }`, or `null` to clear                                                                                                                        |
-| `PATCH /api/captures/{id}/tags`                 | `{ "tags": ["…"] }` replaces the tags                                                                                                                          |
-| `PATCH /api/captures/{id}/taken-at`             | `{ "takenAt": "ISO time" }`                                                                                                                                    |
-| `PATCH /api/captures/{id}/region`               | `{ "regionId": "…", "locationLabel": "…" }` (either or both)                                                                                                   |
-| `POST /api/captures/appearance`                 | `{ "captureIds": ["…"], "lifeStage": "juvenile", "sex": "female", "plumage": "…", "morph": "…" }` for one photo or many; a field left out stays, `null` clears |
+| Request                                         | Body                                                                                                                                                                                                                                                   |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PATCH /api/captures/{id}/reassign`             | `{ "speciesId": "…" }` changes the species                                                                                                                                                                                                             |
+| `POST /api/captures/{id}/species`               | `{ "speciesId": "…" }` adds another species in the same photo; safe to repeat. `400` with `"code": "primary_species"` when it's already the photo's species, or `"unknown_species"`. An `imports.write` key may use it too, only on photos it imported |
+| `DELETE /api/captures/{id}/species/{speciesId}` | removes an additional species                                                                                                                                                                                                                          |
+| `PATCH /api/captures/{id}/rating`               | `{ "rating": 1-5 }`, or `null` to clear                                                                                                                                                                                                                |
+| `PATCH /api/captures/{id}/tags`                 | `{ "tags": ["…"] }` replaces the tags                                                                                                                                                                                                                  |
+| `PATCH /api/captures/{id}/taken-at`             | `{ "takenAt": "ISO time" }`                                                                                                                                                                                                                            |
+| `PATCH /api/captures/{id}/region`               | `{ "regionId": "…", "locationLabel": "…" }` (either or both)                                                                                                                                                                                           |
+| `POST /api/captures/appearance`                 | `{ "captureIds": ["…"], "lifeStage": "juvenile", "sex": "female", "plumage": "…", "morph": "…" }` for one photo or many; a field left out stays, `null` clears                                                                                         |
 
 Changes are also written into the photo's own metadata (or its RAW sidecar) where Lifer manages the
 file, so Lightroom and digiKam see them too.

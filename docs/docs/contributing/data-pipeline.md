@@ -33,18 +33,18 @@ Other useful flags: `--countries="Costa Rica,Peru"` for some countries only, `--
 
 The stages always run in this order, whatever order `--stages` lists them in:
 
-| Stage | What it does |
-|---|---|
-| `occurrences` | The list of every species name in the GBIF country files, for the catalog stage; with `--refresh-occurrences`, downloads files again first. The regions stage downloads any that are missing. |
-| `catalog` | Links species to the names GBIF (Catalogue of Life), iNaturalist and eBird use now, adds species their lists have that the catalog lacks, merges duplicates, records splits, and sets each species' IUCN Red List status (`backfill-iucn-status.ts`). |
-| `enrich` | Photos and descriptions for species that have none yet. |
-| `regions` | iNaturalist places, province checklists, then country checklists, with escaped pets removed and introduced species flagged, then every sea zone's fish and marine mammals from the same GBIF downloads. |
-| `endemic` | Which country each endemic species lives in, from the same GBIF downloads. Only countries whose download changed are read again. |
-| `tiers` | Rarity tiers for every checklist row, then each species' worldwide tier. |
-| `vectors` | CLIP and BioCLIP 2 vectors for species photos and names that have none, and occurrence stats. |
-| `packs` | The reference photo store, then every region's pack, keeping only those whose content changed. |
-| `gate` | Checks the result before anything is published (below). |
-| `publish` | With `--publish`: the photo store, then the packs and their index, then the catalog seed. Needs the gate to have passed in the same run. |
+| Stage         | What it does                                                                                                                                                                                                                                          |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `occurrences` | The list of every species name in the GBIF country files, for the catalog stage; with `--refresh-occurrences`, downloads files again first. The regions stage downloads any that are missing.                                                         |
+| `catalog`     | Links species to the names GBIF (Catalogue of Life), iNaturalist and eBird use now, adds species their lists have that the catalog lacks, merges duplicates, records splits, and sets each species' IUCN Red List status (`backfill-iucn-status.ts`). |
+| `enrich`      | Photos and descriptions for species that have none yet.                                                                                                                                                                                               |
+| `regions`     | iNaturalist places, province checklists, then country checklists, with escaped pets removed and introduced species flagged, then every sea zone's fish and marine mammals from the same GBIF downloads.                                               |
+| `endemic`     | Which country each endemic species lives in, from the same GBIF downloads. Only countries whose download changed are read again.                                                                                                                      |
+| `tiers`       | Rarity tiers for every checklist row, then each species' worldwide tier.                                                                                                                                                                              |
+| `vectors`     | CLIP and BioCLIP 2 vectors for species photos and names that have none, and occurrence stats.                                                                                                                                                         |
+| `packs`       | The reference photo store, then every region's pack, keeping only those whose content changed.                                                                                                                                                        |
+| `gate`        | Checks the result before anything is published (below).                                                                                                                                                                                               |
+| `publish`     | With `--publish`: the photo store, then the packs and their index, then the catalog seed. Needs the gate to have passed in the same run.                                                                                                              |
 
 Each stage's start and end is recorded in the `pipeline_runs` table, which is how `--resume` knows where to continue. [Rebuilding the data](./rebuilding-data.md#the-refresh-stage-by-stage) has what each stage writes and how long it takes.
 
@@ -66,7 +66,7 @@ The gate only catches what it knows about. After publishing, download one pack a
 Packs are split by group (birds, mammals, fish, and so on). To add one:
 
 1. Add the group to `TaxonClass` in `packages/shared/src/species.ts`.
-2. Write `packages/data-pipeline/src/build/build-seed-<group>.ts`. Most groups wrap `build-seed-generic.ts`, which builds from GBIF, common names and Wikidata. Add an npm script for it in `packages/data-pipeline/package.json`, like the existing `build-seed-*` ones.
+2. Add the group to `SEED_GROUPS` in `packages/data-pipeline/src/build/seed-groups.ts`, which the shared builder (`build-seed-generic.ts`: GBIF, common names, Wikidata) runs. Only a group with a trait source of its own gets its own `build-seed-<group>.ts`. Add an npm script in `packages/data-pipeline/package.json` like the existing ones (`tsx src/build/build-seed.ts --group=<group>`).
 3. Run it and load the result:
 
    ```bash

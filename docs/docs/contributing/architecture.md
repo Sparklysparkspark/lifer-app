@@ -75,11 +75,13 @@ In development, Vite proxies `/api` and `/maps` to the API on port 4000.
 
 ### apps/desktop
 
-The Rust side (`apps/desktop/src-tauri/src/`) does four things:
+The Rust side (`apps/desktop/src-tauri/src/`) has these main jobs, besides the menu, tray, editors and crash reports:
 
-- **Embedded Postgres** (`embedded_db.rs`): plain Postgres through the `postgresql_embedded` crate. The engine is downloaded on first launch, the data lives in the app data folder, and each install gets its own password. It restores the species catalog seed bundled with the app before the API first starts.
+- **Embedded Postgres** (`embedded_db.rs`): plain Postgres through the `postgresql_embedded` crate. The engine is bundled with the app (`scripts/stage-postgres.js`), the data lives in the app data folder, and each install gets its own password. It restores the species catalog seed bundled with the app before the API first starts.
 - **The API sidecar** (`api.rs`): runs migrations, then starts the API with a bundled Node runtime on `127.0.0.1:4310`, with `SINGLE_USER_MODE=1` (no login form), a random secret `LIFER_LAUNCH_TOKEN` that signs in the app's own window and nothing else (see [Security model](../security-model.md#desktop-app)), and a non-secret `LIFER_LAUNCH_ID` that `/health` echoes so the shell knows it's talking to its own API. A crashed API is restarted a couple of times before the app gives up and shows the error.
 - **Server mode** (`store.rs`, `commands.rs`, `server_watch.rs`): instead of the local API, the window can point at a Lifer server. The saved choice lives in `desktop-config.json`.
+- **Sync** (`sync.rs`, `server_link.rs`): keeps a linked server and this computer in step. See [State and sync](./state-and-sync.md).
+- **Companion apps** (`plugins.rs`, `plugin_install.rs`): finds, approves, starts and stops them, and installs a suggested app from its publisher's signed installer. See [Plugins](./plugins.md).
 - **Matching on this computer** (`local_inference.rs`): when connected to a server, it can run an inference-only API locally so species matching uses this computer's hardware. See [Connect the desktop app to a server](../install/connect-desktop-to-server.md#desktop-assisted-matching).
 
 How the app is built and packaged is on the [Desktop app](./desktop-app.md) page.

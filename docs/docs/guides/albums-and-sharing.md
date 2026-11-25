@@ -7,7 +7,7 @@ description: Group photos into albums and share them with anyone through a link.
 
 An album is a named group of photos you pick, like "Raptors in flight" or "Portfolio". A [smart album](#smart-albums) picks its own photos from rules you set. A photo can be in any number of albums. Removing it from an album, or deleting the album, never deletes the photo.
 
-Open **Albums** in the sidebar (the top bar in a browser). It shows a row of your albums under **My albums** and a row of your [trips](./trips.md) below, each with how many there are. Scroll a row sideways, or click **See all** for the whole list in a grid, with a search by name and the card size under **View**.
+Open **Albums** in the sidebar (the top bar in a browser). Switch between **Albums** and **Trips** at the top. Each is a grid you can search by name, with the sort and card size under **View**. Lifer remembers which one you had open.
 
 ## Create an album
 

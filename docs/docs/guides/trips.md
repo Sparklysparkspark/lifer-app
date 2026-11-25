@@ -7,7 +7,7 @@ description: Point Lifer at a trip's folder, pick out the wildlife, and keep it 
 
 A trip points at a folder of photos, like everything from a week in Costa Rica. Lifer only reads that folder: it finds the photos, and you pick out the wildlife. The trip page shows what you photographed and how many lifers you got.
 
-Trips are on the **Albums** page, in a row under your own albums: open **Albums** in the sidebar (the top bar in a browser). Scroll the row sideways, or click **See all** for every trip in a grid you can search by name.
+Trips are on the **Albums** page: open **Albums** in the sidebar (the top bar in a browser) and switch to **Trips** at the top. You can search them by name.
 
 ## Start a trip
 
@@ -19,7 +19,7 @@ Going on a trip? Start it before you take any photos, and Lifer files your impor
 4. Optionally pick a **Region**. It's suggested first when you import the trip's photos.
 5. Under **Folder**, keep `Trips/<name>` in your library, or click **Change** to pick another folder Lifer can use, like a trips folder on your NAS. On a server, it must be inside the library folder or an [extra library folder](../install/docker.md#extra-library-folders).
 6. Click **Start trip**.
-7. The trip opens ready for photos. Drop them into the upload area and assign species as in [batch import](./importing.md#choosing-species). To add the RAWs, use **Upload RAW files** below it. Each RAW is matched to a trip photo you've imported.
+7. The trip opens ready for photos. Drop them into the upload area and assign species as in [batch import](./importing.md#choosing-species). To add the RAWs, use **Import RAW files** below it. Each RAW is matched to a trip photo you've imported.
 
 ### Active trips
 

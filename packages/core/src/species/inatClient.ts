@@ -43,11 +43,14 @@ function inatCache(): ResponseCacheOptions {
 
 // Every enrichment request, image downloads included, is paced and gets the same 429 backoff.
 const ENRICHMENT_FETCH: HttpOptions = { paceMs: INAT_MIN_HOST_INTERVAL_MS, timeoutMs: 15_000, maxRetries: 4 };
+// Multi-day bulk passes widen the gap between API calls (cache misses only) to stay under
+// iNaturalist's daily request guidance; photo downloads keep the usual gap.
+const INAT_API_INTERVAL_MS = Number(process.env.INAT_API_INTERVAL_MS) || INAT_MIN_HOST_INTERVAL_MS;
 
 /** A GET for enrichment: paced, retried, and cached for iNaturalist's API hosts. */
 export async function inatFetch(url: string): Promise<Response> {
   const cache = CACHEABLE_HOSTS.has(new URL(url).host) ? inatCache() : undefined;
-  const res = await httpFetch(url, { ...ENRICHMENT_FETCH, cache });
+  const res = await httpFetch(url, { ...ENRICHMENT_FETCH, cache, ...(cache && { paceMs: INAT_API_INTERVAL_MS }) });
   // Still 429 means "try again later", not "nothing there", so it is thrown.
   if (res.status === 429) {
     await res.body?.cancel().catch(() => {});

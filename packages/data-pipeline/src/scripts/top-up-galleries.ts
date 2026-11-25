@@ -11,8 +11,10 @@
 // Rerun the same command to resume: only species still under --min-photos are read again, and
 // iNaturalist's answers come from inat_response_cache. --per-class and --limit cap each run, so a
 // capped rerun moves on to the next thin species. Prints a per-class summary as JSON.
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, statfs } from "node:fs/promises";
 import { parseArgs } from "node:util";
+import { APP_DATA_DIR } from "@lifer/core/config.js";
+import { withTransaction } from "@lifer/core/db.js";
 import { MAX_GALLERY_PHOTOS } from "@lifer/core/species/enrich.js";
 import { computeEmbedding } from "@lifer/core/species/embeddings.js";
 import { idModel } from "@lifer/core/species/idModel.js";
@@ -39,6 +41,8 @@ const { values: args } = parseArgs({
     target: { type: "string", default: String(MAX_GALLERY_PHOTOS) },
     "per-class": { type: "string" },
     limit: { type: "string" },
+    // Stops cleanly (exit code 3) before a species when the reference image disk has less free.
+    "min-free-gb": { type: "string", default: "0" },
   },
 });
 const MIN = Number(args["min-photos"]);
@@ -46,6 +50,10 @@ const TARGET = Number(args.target);
 // Twice the target leaves room for photos already in the gallery and ones that aren't portraits.
 const FETCH = TARGET * 2;
 const classes = args.class === "all" ? null : args.class!.split(",");
+const MIN_FREE_BYTES = Number(args["min-free-gb"]) * 1024 ** 3;
+// This many unanswered species in a row means iNaturalist is down or refusing us: stop and let the
+// caller back off, rather than skip through every remaining species.
+const MAX_UNANSWERED_IN_A_ROW = 25;
 
 interface Row {
   id: string;
@@ -155,7 +163,10 @@ async function topUp(r: Row, t: ClassTally): Promise<void> {
     t.licenses[c.license] = (t.licenses[c.license] ?? 0) + 1;
   }
   if (added.length === 0) return;
-  await persistGalleryPromotingMainIfMissing(r.id, added, r.reference_photo !== null);
+  // Under the catalog lock, so a concurrent catalog clean-up never sees half a gallery.
+  await withTransaction(() => persistGalleryPromotingMainIfMissing(r.id, added, r.reference_photo !== null), {
+    lockReferenceData: true,
+  });
   t.toppedUp++;
   t.photosAdded += added.length;
   // A promoted main photo leaves the gallery, so it doesn't count toward the gallery's total.
@@ -169,9 +180,17 @@ async function main() {
   const { rows, tally } = await thinSpecies();
   console.log(`${rows.length} thin species to top up (under ${MIN} publishable gallery photos, target ${TARGET})`);
   let done = 0;
+  let unansweredInARow = 0;
   for (const r of rows) {
+    const { bavail, bsize } = await statfs(APP_DATA_DIR);
+    if (bavail * bsize < MIN_FREE_BYTES) {
+      console.error(`\nStopping: under ${args["min-free-gb"]} GB free for reference images`);
+      process.exitCode = 3;
+      break;
+    }
     const t = tallyFor(tally, r.taxon_class);
     t.run++;
+    const unansweredBefore = t.unanswered;
     try {
       await topUp(r, t);
     } catch (err) {
@@ -180,6 +199,9 @@ async function main() {
       t.unanswered++;
       console.warn(`\n  ${r.id}: ${err instanceof Error ? err.message : String(err)}`);
     }
+    unansweredInARow = t.unanswered > unansweredBefore ? unansweredInARow + 1 : 0;
+    if (unansweredInARow >= MAX_UNANSWERED_IN_A_ROW)
+      throw new Error(`iNaturalist didn't answer ${MAX_UNANSWERED_IN_A_ROW} species in a row`);
     if (++done % 10 === 0) process.stdout.write(`\r  ${done}/${rows.length} species`);
   }
   console.log();

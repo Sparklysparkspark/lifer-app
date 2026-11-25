@@ -22,7 +22,7 @@ Click **Photos** at the top to choose what counts: **All keepers**, **Featured o
   - The chart always spans at least a year (five years in **Years**), so a few months of photos sit on a real calendar with the empty months marked.
   - Drag the handles of the strip under the chart to pick a range of dates, drag the green window to move it, or drag across the strip to draw a new one. From the keyboard, focus a handle and press the arrow keys, or Home and End to jump to the ends. The chart zooms in on the range, with the months around it faded for context, and everything below it counts only photos from those dates: the counts, gear, settings, time of day and countries. **Your collection** still covers your whole library. Photos without a date are left out while a range is picked.
   - **Show on map** opens the [photo map](./photo-map.md) with just those dates. **All dates** goes back to everything. The range is part of the page address, so Back and reload keep it.
-- **At a glance:** **Top camera**, **Favorite focal length**, **Peak shooting time** and **Best month**, plus short insights like your best month for new lifers.
+- Highlights: **Top camera**, **Favorite focal length**, **Peak shooting time** and **Best month**, plus short insights like your best month for new lifers.
 - **Seen again after 25 years**, **Rarely recorded species** and **Species not seen in 25 years** you've photographed, if any. See [badges](./collection-and-checklists.md#badges).
 - **By month:** new lifers over time.
 - **Your photo distribution:** a scatter chart of any two of focal length, aperture, ISO and shutter speed. Photos taken at the same settings share one dot, which grows with the count. Hover a dot to see its species and thumbnails, then click a thumbnail to open that photo, with arrows through every photo in the dot. **View all** shows them all as a grid. Click **Filters** to narrow the chart by body, lens, year or date range.
@@ -34,7 +34,7 @@ Click **Photos** at the top to choose what counts: **All keepers**, **Featured o
   - **Most photographed** species.
   - **One-and-done species**, with just one photo.
   - **Could use a better photo**: species whose only photo you rated 1 star.
-  - **Library health**: photos missing a date or a region, linked to the Gallery so you can fix them. For a region, select the photos taken in one place and choose **Set region…**.
+  - **Library health**: photos missing a date or a region, linked to the Gallery so you can fix them. For a region, select the photos taken in one place and choose **Set region**.
   - **What you shoot**: your top animal groups, your shot types on two scales, and your median focal length, shutter speed and ISO. **By action** splits your photos into **Flying**, **Behaviour** and **At rest**; **By framing** into **Close** and **Environmental**. Each scale adds up to 100% of the photos Lifer could read. Click a group or shot type to open those photos in the Gallery. Shot types need the species-matching model from **Settings > Offline data**.
   - **Year over year**: pick two years to compare species, photos, average focal length and average ISO.
 
@@ -65,6 +65,8 @@ The **Tree of life** groups the species in your downloaded regions by class, ord
 - In **Circle**, a segment labelled **N more groups** stands in for groups too thin to draw. Click it (or press Enter) to see just those groups across the whole circle; the trail above the circle ends in **N more groups**, and the middle, Back and the trail step out one layer. A very large set pages: the biggest groups first, then another **N more groups**.
 - If you pick a region that has none of the group you were looking at, the tree shows the nearest larger group and says so; the species you had selected is dropped when it isn't in that region.
 - **Show genera** under **View** adds the genus level. Point at it for what a genus is.
+- **Show uncollected species in colour** under **View** shows the species you haven't photographed in full colour instead of faded. It's the same setting as on the Collection.
+- A species listed in a region only as a vagrant isn't in that region's tree unless you photographed it or added it there.
 
 ### Rarity in the tree
 

@@ -14,7 +14,7 @@ Many filters take more than one value. Photos matching **any** of them show:
 - **Region**: search for a region and pick it, then pick another. Each one shows as a chip; click its **×** to remove it. Tick **No region set yet** to include photos without one.
 - **Place name** and **Tag**: pick one, then pick another the same way.
 - **Rarity**: click each tier you want.
-- **Shot type**: pick any number in each group.
+- **Shot type** and **Appearance**: pick any number in each group.
 - **Rating**: a range, like at least 3 stars **Up to** 5.
 
 Different filters narrow each other. **Region** British Columbia and Alberta, with **Rating** 3 to 5 stars, shows 3 to 5 star photos from either province.

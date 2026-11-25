@@ -16,6 +16,7 @@ Lifer is in beta, and new releases come often. This page covers updating a Docke
    ```
 
    See [Backup and restore](./backup-restore.md) for the whole routine.
+
 2. **Read the release notes** for every version between yours and the new one. They say if you need to do anything by hand.
 
 Your version is shown at `/version` on your server's address, like `http://192.168.1.50:4000/version`.
@@ -39,11 +40,11 @@ The database container keeps its Postgres version through ordinary updates.
 
 The compose file runs the image `ghcr.io/sparklysparkspark/lifer-app:${LIFER_VERSION:-release}`. Set `LIFER_VERSION` in `.env` to choose what `docker compose pull` gets:
 
-| `LIFER_VERSION` | What you get |
-|---|---|
-| unset, or `release` | The newest stable release. Recommended. |
-| `0.9` | The newest release in the 0.9 line, so fixes but no bigger changes. |
-| `0.9.1` | Exactly that version. It never changes until you change the setting. |
+| `LIFER_VERSION`     | What you get                                                         |
+| ------------------- | -------------------------------------------------------------------- |
+| unset, or `release` | The newest stable release. Recommended.                              |
+| `0.9`               | The newest release in the 0.9 line, so fixes but no bigger changes.  |
+| `0.9.1`             | Exactly that version. It never changes until you change the setting. |
 
 `latest` is another name for `release`. Tags with a `v` in front, like `v0.9.1`, are also published. Test versions (release candidates such as `1.0.0-rc.1`) are only ever published under their exact version, never as `release` or `latest`.
 
@@ -55,7 +56,7 @@ Lifer doesn't ship an auto-updater for servers. You can add your own, such as Wa
 
 ## Going back to an older version {#downgrade}
 
-Lifer only changes the database forward. An older Lifer can't run on a database a newer one has updated, so you can't downgrade by changing the image tag.
+Lifer only changes the database forward. An older Lifer refuses to open a database a newer one has updated ("This database was updated by a newer version of Lifer"), so you can't downgrade by changing the image tag.
 
 If an update goes wrong:
 
@@ -68,7 +69,7 @@ Then [tell us what happened](../support.md), so it can be fixed.
 
 ## The desktop app
 
-The desktop app checks for updates by itself and offers to install them. See [Updating the desktop app](./desktop.md#updating). It only offers stable releases, and it keeps your library and database as they are. Like the server, an updated app can't go back to an older version with the same database, so keep a [backup](./backup-restore.md#desktop-app) if your library matters to you.
+The desktop app checks for updates by itself and offers to install them. See [Updating the desktop app](./desktop.md#updating). It only offers stable releases, and it keeps your library and database as they are. Like the server, an updated app can't go back to an older version with the same database. Before an update changes the database, the app saves a copy in `app-data/database-backups/` and keeps the last three; keep your own [backup](./backup-restore.md#desktop-app) too.
 
 If you use the desktop app [connected to a server](./connect-desktop-to-server.md), keep the app and the server on the same version where you can.
 

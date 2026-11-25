@@ -70,7 +70,7 @@ change.
 ## From photographs to a life list
 
 Your archive and your life list are connected. Browse checklists by region (country,
-province/state, or a nearby marine zone for fish), see exactly which species you still need, and
+province/state, or nearby seas for marine life), see exactly which species you still need, and
 watch photographed species join your life list automatically. Each species carries a rarity tier
 (how hard it is to actually go find and photograph, not conservation status), a reference photo,
 and a short field-guide description, so you know roughly what you're looking for.
@@ -89,8 +89,8 @@ marine invertebrates**.
 
 ![Offline species packs in Lifer](./docs/static/img/offline-packs.jpg)
 
-For anything outside Lifer's curated data, species can be imported from iNaturalist instead:
-insects, plants, fungi, and the rest of the iNaturalist taxonomy.
+For anything outside Lifer's curated data, species can be imported from iNaturalist instead, one at
+a time or a whole group in a place: insects, plants, fungi, and the rest of the iNaturalist taxonomy.
 
 ## Everything you've shot, and what it adds up to
 
@@ -125,12 +125,12 @@ Lifer runs as a desktop app (macOS, Windows, Linux) or as a self-hosted Docker s
 hardware, useful for a collection on a NAS or for reaching the same archive from several devices.
 There's no Lifer-hosted service involved either way.
 
-|                  | **Desktop app**                      | **Server**                              |
-| ---------------- | ------------------------------------ | --------------------------------------- |
-| Where it runs    | Your own computer                    | A NAS or always-on machine, via Docker  |
-| Who can reach it | Just you, on that machine            | Anyone with the URL and login           |
-| Login            | None                                 | One account and password                |
-| Share links, API | No                                   | Yes                                     |
+|                  | **Desktop app**           | **Server**                             |
+| ---------------- | ------------------------- | -------------------------------------- |
+| Where it runs    | Your own computer         | A NAS or always-on machine, via Docker |
+| Who can reach it | Just you, on that machine | Anyone with the URL and login          |
+| Login            | None                      | One account and password               |
+| Share links, API | No                        | Yes                                    |
 
 The desktop app can also be a client for a server you already run, and can move a local library up
 to a server whenever you're ready.

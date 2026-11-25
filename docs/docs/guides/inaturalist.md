@@ -88,7 +88,7 @@ The page opens on **To finish** when something is waiting there, and on **To sen
 Each tab has the same toolbar as the Collection page:
 
 - **Search** finds species by name, and places.
-- **Select** turns on select mode, like the Gallery's: each card shows a tick and a click selects it. Then **Select** has **Select every sighting** (or observation, or species) and **Select none**, and **Done** leaves select mode. Cmd-click or Shift-click a card also starts selecting.
+- **Select** turns on select mode, like the Gallery's: each card shows a tick and a click selects it. The selection bar has **Select all** and **Deselect all**, and **Cancel** leaves select mode. Cmd-click or Shift-click a card also starts selecting.
 - **View** sets **Group** (**No grouping**, the default, lists every sighting or observation; **Species** shows one card per species), **Sort** (newest, oldest, common name, and **Most first** when grouped) and the card size. Lifer remembers your choices.
 - **Filters** narrows the list, and shows how many filters are on. **Clear all** turns them off.
   - **To send:** **Location** and **Date** (has one, or needs one), **Species on iNaturalist** (matched, or not matched yet, which can't be sent), **Show** (waiting, ignored, or both), and **Group of life**.
@@ -97,24 +97,24 @@ Each tab has the same toolbar as the Collection page:
 
 Grouped by species, each species card shows a few of its photos, how many sightings or observations it has and their photos, their date range, and what still needs doing (such as **3 need a location**). Filters apply to the sightings or observations, so each species card counts only the ones that match.
 
-- **Select species** like any card in select mode: click, Shift-click for a range, or Cmd-click (Ctrl-click on Windows and Linux). A selected species stands for all its sightings or observations, and the bar counts both, for example **2 species, 41 observations selected**. **Send**, **Ignore**, **Restore** and **Check now** then act on all of them.
+- **Select species** like any card in select mode: click, Shift-click for a range, or Cmd-click (Ctrl-click on Windows and Linux). A selected species stands for all its sightings or observations, and the bar counts those, for example **41 selected**. **Send**, **Ignore**, **Restore** and **Check now** then act on all of them.
 - **Open a species:** click it (outside select mode), press <kbd>Enter</kbd>, or choose **Open** from its menu. Its **Preview** button (the magnifying glass) and <kbd>Space</kbd> show its pictures instead, one from each sighting or observation first. Its sightings or observations show, with the same cards, actions and window. Go back with **All species** at the top, <kbd>Esc</kbd>, or your browser's or mouse's Back.
 
 ### Send photos {#send}
 
 - **One photo:** open its **⋯** menu and choose **Send to iNaturalist**. A photo already there shows **View on iNaturalist** instead.
-- **Several photos:** select them, then choose **Send to iNaturalist** from **More** in the selection bar. Lifer groups them into one observation per species and session (photos of one species within an hour of each other), skips photos already sent, and sends in the background. A toast shows progress, with **Cancel**. Ignored photos you pick here are sent too, and leave **Ignored**.
-- **From the iNaturalist page:** the **To send** tab shows every unsent sighting as a card, grouped the same way, with a few of its photos, the species, the photo count and the date.
+- **Several photos:** select them, then choose **Send to iNaturalist** from **More** in the selection bar. Lifer groups them into one observation per sighting (see below), skips photos already sent, and sends in the background. A toast shows progress, with **Cancel**. Ignored photos you pick here are sent too, and leave **Ignored**.
+- **From the iNaturalist page:** the **To send** tab shows every unsent sighting as a card, with a few of its photos, the species, the photo count and the date. A sighting is one species' photos taken within an hour of each other; photos over 200 m apart, or taken on another camera or lens, start a new one.
 
 On the **To send** tab:
 
-- **Select:** click **Select**, then click cards to select them and click again to deselect. Shift-click selects a range, and Cmd-click (Ctrl-click on Windows and Linux) adds or removes one card. **Select every sighting** in the **Select** menu or <kbd>Cmd</kbd>+<kbd>A</kbd> (<kbd>Ctrl</kbd>+<kbd>A</kbd>) selects every card the search and filters leave.
-- **Deselect:** while anything is selected, the bar at the top says how many and has **Clear selection**. You can also choose **Select none**, press <kbd>Esc</kbd> (a second <kbd>Esc</kbd> leaves select mode) or <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>), or click the empty space between or around the cards. A search or filter that hides a selected card deselects it, switching tabs clears the selection, and so does sending or ignoring.
+- **Select:** click **Select**, then click cards to select them and click again to deselect. Shift-click selects a range, and Cmd-click (Ctrl-click on Windows and Linux) adds or removes one card. **Select all** in the selection bar or <kbd>Cmd</kbd>+<kbd>A</kbd> (<kbd>Ctrl</kbd>+<kbd>A</kbd>) selects every card the search and filters leave.
+- **Deselect:** while anything is selected, the bar at the top says how many and has **Deselect all**. You can also press <kbd>Esc</kbd> (a second <kbd>Esc</kbd> leaves select mode) or <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>), or click the empty space between or around the cards. A search or filter that hides a selected card deselects it, switching tabs clears the selection, and so does sending or ignoring.
 - **Preview the pictures:** click a card's **Preview** button (the magnifying glass), or press <kbd>Space</kbd> on it, as in the Gallery. The photos open full size; the arrow keys step through them and <kbd>Esc</kbd> closes the view.
 - **Choose photos:** click a card (outside select mode), press <kbd>Enter</kbd> on it, double-click it in select mode, or choose **Choose photos** from its menu. The sighting opens in a side panel on the right, with all its photos and its **Send** and **Ignore** buttons, while the cards stay usable beside it: click another card to show that one instead. After **Send** or **Ignore** the panel moves on to the next card. <kbd>Esc</kbd>, **Done** or **×** closes it. In a narrow window the panel fills the window.
 - **Card menu:** right-click a card, or click its **⋯** button, for **Choose photos**, **Preview**, **Select**, **Set place**, **Send to iNaturalist** and **Ignore sighting** (**Restore** for an ignored one).
 - **Send:** **Send N sightings** sends each selected sighting as one observation. With nothing selected, **Send all** sends every listed sighting after asking once. Sending runs in the background.
-- **Pick photos:** in the sighting's panel, click a photo's tick to leave it out, and click it again to put it back. Click the photo itself to see it full size. Photos that will be sent have a tick and an outline; photos left out are greyed and marked **Left out**. **Send N photos** sends exactly the photos that are in, as one observation.
+- **Pick photos:** in the sighting's panel, click a photo's tick to leave it out, and click it again to put it back. Click the photo itself to see it full size. Photos that will be sent have a tick and an outline; photos left out are greyed and marked **Left out**. **Include all** and **Leave all out** change every photo at once. **Send N photos** sends exactly the photos that are in, as one observation.
 
 Each card says what its photos don't record: **No date yet** means you'll add it on iNaturalist afterwards. **Can't be sent yet** means the species has no iNaturalist match. **Already on iNaturalist** means one of its photos looks the same as an observation you made there yourself: check it under **Maybe on iNaturalist** (see [Photos already on iNaturalist](#existing)).
 
@@ -173,7 +173,7 @@ If you added some photos to iNaturalist yourself, outside Lifer, Lifer can find 
 2. **The pictures**, using the same species-matching model Lifer uses for suggestions. The observation's preview is compared with your whole photo, its subject crop, and overlapping tiles of it at two sizes. The tiles matter because an upload is often a crop: compared only as whole pictures, a crop can look more like a neighbouring frame of the same bird than like the photo it came from.
 3. **Linked by itself** only when one photo clearly stands out: it looks the same, and no other photo comes close. Two frames of the same bird taken seconds apart look almost identical, so a burst is never linked by itself. Those go to **Maybe on iNaturalist** side by side, for you to pick.
 
-Without the species-matching model (**Settings > Offline Data**), Lifer can't compare pictures. It then links nothing by itself and only offers photos taken within a couple of minutes of an observation.
+Without the species-matching model (**Settings > Offline data**), Lifer can't compare pictures. It then links nothing by itself and only offers photos taken within a couple of minutes of an observation.
 
 #### Maybe on iNaturalist {#maybe}
 

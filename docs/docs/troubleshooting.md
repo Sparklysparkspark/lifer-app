@@ -24,12 +24,13 @@ If Lifer isn't in the list, try the action again so macOS asks. Or move your lib
 
 The models (about 680 MB together) come from Hugging Face and the Lifer GitHub releases.
 
+A dropped connection is retried by itself, and a download carries on from where it stopped, so a failure means the retries ran out.
+
 1. Check your internet connection, then click the download button again.
 2. Make sure there's at least 1 GB of free space on the disk that holds Lifer's app data. On a server, that's the `lifer-app-data` Docker volume.
 3. On a server, make sure the container can reach `huggingface.co` and `github.com`. Firewalls, DNS filters and some proxies block them.
-4. If it says "Waiting for another download to finish", another download (a region, the map, or a catalog update) is running. It starts when that one finishes.
 
-If "Species reference vectors couldn't be fully downloaded" appears, the model is installed but the species examples it compares against aren't complete. Lifer tries again each time it starts.
+If "Some species recognition data couldn't be downloaded" appears, the model is installed but the species examples it compares against aren't complete. Lifer tries again each time it starts.
 
 ## Species suggestions unavailable {#suggestions-unavailable}
 
@@ -38,12 +39,12 @@ If "Species reference vectors couldn't be fully downloaded" appears, the model i
 - **The model isn't downloaded.** Download it from **Settings > Offline data > Species recognition**. Then turn on **Suggest species while importing photos** in **Settings > Species and import**.
 - **No region is chosen.** On the **Import photos** page, pick a **Region for species suggestions**. Suggestions come from the species in that region.
 - **The region isn't downloaded.** Download it from [Settings > Species and import > Species downloads](./guides/offline-packs-and-map.md).
-- **"Species recognition took too long on this photo"** means one photo timed out. Lifer restarts species recognition on its own, so carry on.
-- **"Stopped: species recognition is stuck on an earlier photo"** means several photos in a row timed out. Quit and reopen the desktop app, or run `docker compose restart api` on a server.
+- **"Species matching took too long on this photo"** means one photo timed out. Lifer restarts species recognition on its own, so carry on.
+- **"Stopped: species recognition is stuck on an earlier photo"** (or the animal detector, or the scene model) means several photos in a row timed out. Quit and reopen the desktop app, or run `docker compose restart api` on a server.
 
 On a species page's **Import**, each photo keeps that species, and a row only mentions a suggestion when it disagrees, like "Looks like Black-collared Hawk".
 
-The status line in **Species recognition** tells you which model suggestions use. "The general model, which is less accurate" means only part of the download finished. Click **Download the identification model (~370 MB)** to finish it.
+The status line in **Species recognition** tells you which model suggestions use. "Suggestions use the general, less accurate model." means only part of the download finished. Click **Download** on that row to get the identification model (about 370 MB).
 
 If species recognition is slow on a server with a graphics card, see [GPU acceleration](./install/hardware-acceleration.md#troubleshooting).
 
@@ -100,7 +101,7 @@ Every device that was signed in is signed out. To see which email your account u
 ## The desktop app won't start
 
 - **"Another program (possibly an earlier copy of Lifer) is still using port 4310."** Quit any other copy of Lifer (check the menu bar or Task Manager), then open it again. Restarting the computer also clears it.
-- **"Lifer's backend didn't respond in time."** Quit and reopen Lifer. The first launch can be slow while it sets up its database.
+- **"Lifer's backend didn't start in time."** Quit and reopen Lifer. The first launch can be slow while it sets up its database.
 - **"Lifer stopped unexpectedly."** The dialog includes the last error messages. Copy them into a [bug report](./support.md).
 - **macOS says Lifer can't be opened.** See [Install on macOS](./install/desktop.md#install-on-macos) for **Open Anyway**.
 

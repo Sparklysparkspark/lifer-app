@@ -53,7 +53,9 @@ Tiles and place results are loaded only as needed, and kept in the normal browse
 
 ## Only when you choose to
 
-- **Sending observations to iNaturalist:** if you link your iNaturalist account and send photos as observations, the photos, dates, locations and species you choose are sent to iNaturalist under your account. Nothing is sent until you do.
+- **Sending observations to iNaturalist:** if you link your iNaturalist account and send photos as observations, the photos, dates, locations and species you choose are sent to iNaturalist under your account. Nothing is sent until you do. While linked, Lifer also downloads your own observations and small previews of their photos, to find photos already there; nothing from your library is uploaded for that.
+- **Species from iNaturalist:** with [Search iNaturalist for other species](./settings.md#any-taxa-search) on, the names you search, the group and place of a list you add, and the tags and folder names of imported photos Lifer can't match are sent to iNaturalist. Off, Lifer doesn't contact it for any of these.
+- **Immich** (servers only): a linked Immich server is read for the albums you choose and, if you turn it on, given species tags. Nothing else in Immich changes.
 - **eBird import:** Lifer never connects to eBird. You export your data from eBird yourself and import the file.
 - **Share links** (servers only): a share link shows exactly the album or trip you shared, to whoever has the link, until you delete it.
 
@@ -63,9 +65,9 @@ If Lifer crashes, it offers to send a report the next time it opens. It goes to 
 
 ## Companion apps
 
-Lifer itself never contacts any companion app's maker. Apps you add to Lifer run on your computer, can only use the parts of your library you approved, and may make their own network calls, which their makers describe.
+Lifer contacts a companion app's maker only to download its installer when you press **Install**. Apps you add to Lifer run on your computer, can only use the parts of your library you approved, and may make their own network calls, which their makers describe.
 
-A suggested app downloads only when you press **Install** on its page, from the address that page names, with nothing that identifies you in the link. Turn off **Show suggested apps** in Settings > Integrations > Connected apps to hide every suggestion.
+That download comes from the address the app's page names, with nothing that identifies you in the link. Turn off **Show suggested apps** in Settings > Integrations > Connected apps to hide every suggestion.
 
 ## On a server
 

@@ -65,8 +65,9 @@ npm run format            # Prettier, rewrites files (format:check only checks)
 npm run typecheck         # every workspace
 npm test                  # unit tests in every workspace
 npm run build             # every workspace with a build step
-npm run check:em-dashes   # no em dashes anywhere, a house rule
+npm run check:all         # em dashes, copy, i18n, UI controls, design tokens, remembered state, phone app
 npm run check:migrations  # migration file names and numbers
+npm run check:licences    # dependency licences against the allowlist
 npm run check:api-types   # the web app's generated API types match the routes (gen:api-types rewrites them)
 ```
 

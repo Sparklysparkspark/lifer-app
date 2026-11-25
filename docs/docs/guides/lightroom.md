@@ -25,7 +25,7 @@ Keep that folder where it is. Lightroom loads the plugin from it each time it st
 2. Leave the address as it is for the Lifer app on this computer, and click **Connect**.
 3. Lifer shows a window asking if you want to allow the plugin. Check that the code matches the one in Lightroom, then choose **Allow**.
 
-For your own Lifer server, type its address and, in the server's **Settings > Integrations > Connected apps**, choose **Pair an app** and type the code it shows.
+For your own Lifer server, type its address and, in the server's **Settings > Integrations > Connected apps**, under **Connect an app** click **Show code** and type that code into the plugin.
 
 Lightroom keeps the connection in your computer's password store. To disconnect, remove the plugin in Settings > Integrations > Connected apps in Lifer.
 
@@ -37,10 +37,10 @@ Lightroom keeps the connection in your computer's password store. To disconnect,
 
 You can choose how the keywords are filed in **File > Plug-in Manager > Lifer**: in a **Species** list (Species > Ardea herodias), or flat (Ardea herodias). Keywords use the scientific name, which is also what Lifer writes into its own files, so Lifer matches the species again when the photos come back.
 
-| Keyword | Added when |
-|---|---|
-| **lifer** | You haven't photographed the species yet |
-| **target** | The species is one of your targets |
+| Keyword                  | Added when                                                                       |
+| ------------------------ | -------------------------------------------------------------------------------- |
+| **lifer**                | You haven't photographed the species yet                                         |
+| **target**               | The species is one of your targets                                               |
 | **needs a better photo** | You've photographed the species, but your best photo is under 3 stars or unrated |
 
 Tick **Give unrated photos Lifer's best star rating for this species** to also copy that rating onto selected photos that have none.

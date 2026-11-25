@@ -72,7 +72,8 @@ npm test               # unit tests, every workspace
 npm run test:integration   # needs TEST_DATABASE_URL, see the testing guide
 ```
 
-`npm run check:em-dashes` and `npm run check:migrations` run in CI too. The
+`npm run check:all` (em dashes, copy, i18n, UI and docs checks), `npm run check:migrations` and
+`npm run check:licences` run in CI too. The
 [testing guide](https://sparklysparkspark.github.io/lifer-app/contributing/testing) explains
 integration tests and the scratch database they need.
 
@@ -83,7 +84,7 @@ has the details. The essentials:
 
 - TypeScript in strict mode. ESLint and Prettier decide style, so there's nothing to argue about.
 - Server code logs through `packages/core/src/lib/log.ts`, not `console`.
-- Comments explain *why*, not what the next line does.
+- Comments explain _why_, not what the next line does.
 - New behavior comes with tests, next to the code as `*.test.ts` or `*.integration.test.ts`.
 - Database changes are new migrations, never edits to old ones. See
   [database migrations](https://sparklysparkspark.github.io/lifer-app/contributing/database-migrations).
