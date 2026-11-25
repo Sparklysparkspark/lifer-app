@@ -1,6 +1,6 @@
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { seedSchemaToPublic } from "./catalogSeedExport.js";
+import { CATALOG_TABLES, OTHER_TAXA_COLUMN, seedSchemaToPublic } from "./catalogSeedExport.js";
 
 async function rewrite(chunks: string[]): Promise<string> {
   let out = "";
@@ -47,5 +47,17 @@ describe("seedSchemaToPublic", () => {
     expect(await rewrite(["ALTER TABLE seed_export.x ENABLE TRIGGER ALL;"])).toBe(
       "ALTER TABLE public.x ENABLE TRIGGER ALL;",
     );
+  });
+});
+
+describe("what the seed ships", () => {
+  it("never ships per-user tables, such as lists from iNaturalist and checklist additions", () => {
+    for (const table of ["species_lists", "species_list_members", "region_species_user_added", "user_species"])
+      expect(CATALOG_TABLES).not.toContain(table);
+  });
+
+  it("leaves Other Taxa species (hand-added or from a list) out of every species table it ships", () => {
+    for (const table of ["species", "species_reference_photos", "species_traits", "region_species"])
+      expect(OTHER_TAXA_COLUMN[table]).toBeDefined();
   });
 });
