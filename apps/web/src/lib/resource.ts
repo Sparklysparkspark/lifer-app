@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { answerSize, forgetTaggedAnswers } from "../api/answers";
 import { api, type ApiPath, type ApiResponse, type ApiRoute } from "../api/client";
 import { useLatest } from "../hooks/useLatest";
 import { ignore } from "./ignore";
@@ -10,6 +11,8 @@ const accountResetters = new Set<() => void>();
 export function onAccountReset(reset: () => void): void {
   accountResetters.add(reset);
 }
+
+onAccountReset(forgetTaggedAnswers);
 
 // Caches that would otherwise keep offering a photo after it's deleted.
 const photoDeleteListeners = new Set<() => void>();
@@ -163,29 +166,69 @@ export interface ApiResource<T> {
   setData: (update: (prev: T | null) => T | null) => void;
 }
 
-const getJson = <T>(path: string, signal: AbortSignal) => api.get<T>(path, { signal });
-
 // The last answer per plain GET path, so a page opened again draws at once while it refetches.
-// Bounded, oldest out first; a custom fetcher's answers aren't kept (its path is only a key).
+// Bounded by count and by JSON size (a region's Tree of life can be 15 MB), oldest out first; the
+// newest always stays. A custom fetcher's answers aren't kept (its path is only a key).
 const RECENT_MAX = 50;
+const RECENT_MAX_BYTES = 80_000_000;
 const recent = new Map<string, unknown>();
 onAccountReset(() => recent.clear());
 
 function remember(path: string, data: unknown): void {
   recent.delete(path);
   recent.set(path, data);
-  if (recent.size > RECENT_MAX) recent.delete(recent.keys().next().value!);
+  let bytes = 0;
+  for (const kept of recent.values()) bytes += answerSize(kept);
+  for (const [key, kept] of recent) {
+    if (recent.size === 1 || (recent.size <= RECENT_MAX && bytes <= RECENT_MAX_BYTES)) break;
+    recent.delete(key);
+    bytes -= answerSize(kept);
+  }
 }
 
-const warming = new Set<string>();
+// Prefetches in flight, so a page opened mid-prefetch waits for it instead of asking twice.
+const warming = new Map<string, Promise<unknown>>();
 /** Fetches a plain GET path into the kept answers (a card hovered), so opening it draws at once. */
-export function prefetchApiResource(path: string): void {
-  if (recent.has(path) || warming.has(path)) return;
-  warming.add(path);
-  api
-    .get(path)
+export function prefetchApiResource(path: string): Promise<void> {
+  if (recent.has(path) || warming.has(path)) return Promise.resolve();
+  const request = api.get(path);
+  warming.set(path, request);
+  return request
     .then((data) => remember(path, data), ignore(`Couldn't prefetch ${path}`))
     .finally(() => warming.delete(path));
+}
+
+const getJson = <T>(path: string, signal: AbortSignal) =>
+  (warming.get(path) as Promise<T> | undefined) ?? api.get<T>(path, { signal });
+
+const idle = (run: () => void): (() => void) => {
+  if (typeof requestIdleCallback === "function") {
+    const handle = requestIdleCallback(run, { timeout: 2000 });
+    return () => cancelIdleCallback(handle);
+  }
+  const timer = setTimeout(run, 200);
+  return () => clearTimeout(timer);
+};
+
+/** Prefetches paths one at a time while the page is idle, so likely next views open at once
+ *  without competing with what is on screen. Kept answers count toward the cache's size bound,
+ *  so pass only a few. Stops on unmount or when the paths change. */
+export function usePrefetchWhenIdle(paths: readonly string[]): void {
+  const key = paths.join("\n");
+  useEffect(() => {
+    let cancel = () => {};
+    let stopped = false;
+    const next = (i: number) => {
+      if (stopped || i >= paths.length) return;
+      cancel = idle(() => void prefetchApiResource(paths[i]).then(() => next(i + 1)));
+    };
+    next(0);
+    return () => {
+      stopped = true;
+      cancel();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
 }
 
 /** useApiResource for one route, typed by its response schema: `useApiRoute(apiPath(...))`. */

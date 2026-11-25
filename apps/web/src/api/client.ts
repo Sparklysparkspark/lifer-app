@@ -1,6 +1,7 @@
 import { apiErrorMessage } from "../lib/apiErrors";
 import { MAX_RATE_LIMIT_WAITS, waitForRateLimit } from "../lib/rateLimitWait";
 import { userMessage } from "../lib/userMessage";
+import { noteAnswer, taggedAnswer } from "./answers";
 import type { paths } from "./schema.gen";
 
 const BASE = "/api";
@@ -42,6 +43,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("x-lifer-client", CLIENT_HEADER["x-lifer-client"]);
   if (isJsonBody && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const isGet = (options.method ?? "GET") === "GET";
+  const kept = isGet && !headers.has("If-None-Match") ? taggedAnswer(path) : null;
+  if (kept) headers.set("If-None-Match", kept.etag);
   const send = () =>
     fetch(`${BASE}${path}`, {
       // BASE is relative, so requests are always same-origin. "include" adds heavy per-request overhead
@@ -58,6 +62,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     if (options.signal?.aborted) break;
     res = await send();
   }
+  if (res.status === 304 && kept) return kept.data as T;
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith("/auth/") && !path.startsWith("/share/")) unauthorizedHandler?.();
     const body = await res.json().catch(() => ({}));
@@ -75,7 +80,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // 204 and other empty bodies resolve to undefined instead of a JSON parse error.
   if (res.status === 204) return undefined as T;
   const text = await res.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+  const data: unknown = text ? JSON.parse(text) : undefined;
+  if (data && typeof data === "object") noteAnswer(path, data, text.length, isGet ? res.headers.get("ETag") : null);
+  return data as T;
 }
 
 function encodeBody(body: unknown): BodyInit | undefined {

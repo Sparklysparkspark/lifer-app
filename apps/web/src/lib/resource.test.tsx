@@ -5,8 +5,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const get = vi.fn();
 vi.mock("../api/client", () => ({ api: { get: (...args: unknown[]) => get(...args) } }));
 
-const { createCachedResource, createStore, onAccountReset, prefetchApiResource, resetAccountCaches, useApiResource } =
-  await import("./resource");
+const {
+  createCachedResource,
+  createStore,
+  onAccountReset,
+  prefetchApiResource,
+  resetAccountCaches,
+  useApiResource,
+  usePrefetchWhenIdle,
+} = await import("./resource");
+const { noteAnswer } = await import("../api/answers");
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -204,5 +212,46 @@ describe("prefetchApiResource", () => {
     expect(renderHook(() => useApiResource("/albums/a?limit=200")).result.current.data).toEqual({ name: "Birds" });
     prefetchApiResource("/albums/a?limit=200");
     expect(get).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("kept answers' size bound", () => {
+  it("lets the oldest big answers go once together they pass the bound, keeping the newest", async () => {
+    // Four 30 MB trees: the 80 MB bound keeps the last two.
+    get.mockImplementation(async (path: string) => {
+      const data = { path };
+      noteAnswer(path, data, 30_000_000, null);
+      return data;
+    });
+    for (const id of [1, 2, 3, 4]) await prefetchApiResource(`/tree?r=${id}`);
+    get.mockReturnValue(new Promise(() => {}));
+    const shown = (id: number) => renderHook(() => useApiResource(`/tree?r=${id}`)).result.current.data;
+    expect([shown(1), shown(2)]).toEqual([null, null]);
+    expect([shown(3), shown(4)]).toEqual([{ path: "/tree?r=3" }, { path: "/tree?r=4" }]);
+  });
+});
+
+describe("usePrefetchWhenIdle", () => {
+  it("fetches one path at a time in idle time, and a page opened meanwhile waits for it instead", async () => {
+    vi.useFakeTimers();
+    try {
+      const first = deferred<string>();
+      const second = deferred<string>();
+      get.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+      renderHook(() => usePrefetchWhenIdle(["/tree?r=a", "/tree?r=b"]));
+      expect(get).not.toHaveBeenCalled();
+      await act(async () => vi.advanceTimersByTime(500));
+      expect(get.mock.calls.map((c) => c[0])).toEqual(["/tree?r=a"]);
+      await act(async () => first.resolve("A"));
+      await act(async () => vi.advanceTimersByTime(500));
+      expect(get.mock.calls.map((c) => c[0])).toEqual(["/tree?r=a", "/tree?r=b"]);
+
+      const page = renderHook(() => useApiResource<string>("/tree?r=b"));
+      await act(async () => second.resolve("B"));
+      expect(page.result.current.data).toBe("B");
+      expect(get).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

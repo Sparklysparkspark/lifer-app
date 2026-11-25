@@ -10,7 +10,8 @@ import { ALREADY_OWNED_SQL } from "../species/obscurity.js";
 import { capturedInTreeSql, regionTreeCte } from "../regions/checklist.js";
 import { userAddedInTreeSql } from "../regions/checklistAdditions.js";
 import { ensureRegionRollup, regionRollupFresh } from "../regions/rollup.js";
-import { COLLECTION_WHERE, UNLOCKED_SPECIES_CTE } from "./routes.js";
+import { COLLECTION_WHERE, UNLOCKED_SPECIES_CTE, collectionVersion } from "./routes.js";
+import { NotModified } from "./responses.js";
 
 const OTHER = "Other";
 const RANKS = ["class", "order", "family", "genus", "species"] as const;
@@ -292,28 +293,73 @@ function pickGroupPictures(roots: TreeNode[], rows: Row[]): void {
   for (const root of roots) assign(root, new Set());
 }
 
+// The last few trees as sent, by ETag, for a client without its own copy (another window, or one
+// it let go of). A tree can be 15 MB, so few and bounded by size; the ETag changes with any write.
+const KEPT_TREES_MAX_BYTES = 64_000_000;
+const builtTrees = new Map<string, string>();
+
+function keepTree(etag: string, body: string): void {
+  builtTrees.delete(etag);
+  builtTrees.set(etag, body);
+  let size = 0;
+  for (const kept of builtTrees.values()) size += kept.length;
+  for (const [key, kept] of builtTrees) {
+    if (size <= KEPT_TREES_MAX_BYTES || builtTrees.size === 1) break;
+    builtTrees.delete(key);
+    size -= kept.length;
+  }
+}
+
+/** Test hook: forget the kept trees. */
+export function clearBuiltTrees(): void {
+  builtTrees.clear();
+}
+
 export async function collectionTreeRoutes(fastify: FastifyInstance): Promise<void> {
   const app = withSchemas(fastify);
   // The user's collected species as a taxonomy tree, or ?format=csv for a spreadsheet.
   app.get(
     "/collection/tree",
-    { preValidation: requireAuth, schema: { querystring: TreeQuery, response: replies(TreeResponse) } },
+    {
+      preValidation: requireAuth,
+      schema: { querystring: TreeQuery, response: { ...replies(TreeResponse), 304: NotModified } },
+    },
     async (request, reply) => {
       const userId = request.user!.id;
       const { hideObscure, maxDepthM } = await getObscurityPreferences(userId);
       const { regionId } = request.query;
+      const csv = request.query.format === "csv";
       let source: RegionSource = null;
       if (regionId) {
         source = (await regionRollupFresh()) ? "rollup" : "subtree";
         if (source === "subtree") void ensureRegionRollup();
       }
-      const { rows } = await pool.query<Row>(
-        treeSql(maxDepthM, source),
-        regionId ? [userId, null, hideObscure, regionId] : [userId, null, hideObscure],
-      );
+      // The JSON tree shares GET /collection's ETag, so switching back to a region costs a 304.
+      const version = csv
+        ? null
+        : await collectionVersion(reply, request.headers["if-none-match"], [
+            "tree",
+            userId,
+            regionId ?? null,
+            request.query.include ?? null,
+            hideObscure,
+            maxDepthM,
+          ]);
+      if (version?.notModified) return reply.code(304).send();
+      const etag = reply.getHeader("etag") as string | undefined;
+      const kept = etag ? builtTrees.get(etag) : undefined;
+      if (version && kept) {
+        version.release();
+        keepTree(etag!, kept);
+        return reply.type("application/json").send(kept as never);
+      }
+      const params = regionId ? [userId, null, hideObscure, regionId] : [userId, null, hideObscure];
+      const { rows } = await (version
+        ? version.client.query<Row>(treeSql(maxDepthM, source), params).finally(() => version.release())
+        : pool.query<Row>(treeSql(maxDepthM, source), params));
       const collectedRows = rows.filter((r) => r.is_collected);
 
-      if (request.query.format === "csv") {
+      if (csv) {
         const lines = [
           "class,order,family,genus,scientific name,common name,photos,first photographed",
           ...collectedRows.map((r) =>
@@ -336,7 +382,12 @@ export async function collectionTreeRoutes(fastify: FastifyInstance): Promise<vo
         // The route's JSON response schema doesn't apply to a string body sent raw.
         return reply.send(lines.join("\n") as never);
       }
-      return { collected: collectedRows.length, tree: buildTree(rows, request.query.include === "uncollected") };
+      const body = JSON.stringify({
+        collected: collectedRows.length,
+        tree: buildTree(rows, request.query.include === "uncollected"),
+      });
+      if (etag) keepTree(etag, body);
+      return reply.type("application/json").send(body as never);
     },
   );
 }

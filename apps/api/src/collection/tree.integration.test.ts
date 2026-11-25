@@ -374,4 +374,46 @@ describe.skipIf(!url)("collection tree", () => {
     expect(lines.length - 1).toBe(count.collected);
     expect(lines).toContain('aves,Passeriformes,Treeidae,Treeus,Treeus alphus,"Alpha, Tree Bird",1,2024-05-06');
   });
+
+  it("answers 304 to its ETag per region until a target or a hide there changes it", async () => {
+    const path = `/api/collection/tree?include=uncollected&regionId=${COUNTRY}`;
+    const conditional = (etag: string) =>
+      app.inject({ method: "GET", url: path, cookies: { [cookieName]: TOKEN }, headers: { "if-none-match": etag } });
+    // The version is database-wide, so a parallel test file can bump it between two requests.
+    const settledEtag = async () => {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const first = await get(path);
+        expect(first.statusCode).toBe(200);
+        const etag = first.headers.etag as string;
+        if ((await conditional(etag)).statusCode === 304) return etag;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      throw new Error("the version never settled");
+    };
+    const etag = await settledEtag();
+    expect(etag).toMatch(/^W\//);
+    // Another region has its own tag.
+    expect((await get(`/api/collection/tree?include=uncollected&regionId=${PROVINCE}`)).headers.etag).not.toBe(etag);
+
+    await db.query(`UPDATE user_species SET is_target = true WHERE user_id = $1 AND species_id = $2`, [USER, SP_A]);
+    try {
+      const targeted = await conditional(etag);
+      expect(targeted.statusCode).toBe(200);
+      expect(targeted.json().tree[0].targetCount).toBe(1);
+
+      // A hide changes the tag too (migration 201), whether or not it hides anything shown.
+      const before = await settledEtag();
+      await db.query(`INSERT INTO region_species_hidden (user_id, region_id, species_id) VALUES ($1, $2, $3)`, [
+        USER,
+        COUNTRY,
+        SP_C,
+      ]);
+      const hidden = await conditional(before);
+      expect(hidden.statusCode).toBe(200);
+      expect(hidden.headers.etag).not.toBe(before);
+    } finally {
+      await db.query(`DELETE FROM region_species_hidden WHERE user_id = $1`, [USER]);
+      await db.query(`UPDATE user_species SET is_target = false WHERE user_id = $1`, [USER]);
+    }
+  }, 60000);
 });

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { answerSize, forgetTaggedAnswers } from "./answers";
 import { api, setUnauthorizedHandler } from "./client";
 
 function answer(status: number) {
@@ -76,5 +77,31 @@ describe("error text", () => {
     await expect(api.get("/x")).rejects.toMatchObject({ message: "Couldn't move this library" });
     reply(409, { error: "Wait for the scan to finish" });
     await expect(api.get("/x")).rejects.toMatchObject({ message: "Wait for the scan to finish" });
+  });
+});
+
+describe("ETag reuse", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("asks again with If-None-Match and hands back the same object on a 304, without parsing", async () => {
+    const fetchMock = vi.fn(
+      async (..._args: [string, RequestInit]) =>
+        new Response(JSON.stringify({ tree: [1] }), { status: 200, headers: { ETag: 'W/"c-1"' } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const first = await api.get<{ tree: number[] }>("/collection/tree?regionId=r1");
+    expect(answerSize(first)).toBe(JSON.stringify({ tree: [1] }).length);
+
+    fetchMock.mockImplementationOnce(async () => new Response(null, { status: 304 }));
+    const again = await api.get("/collection/tree?regionId=r1");
+    expect(again).toBe(first);
+    expect(new Headers(fetchMock.mock.calls[1][1].headers).get("If-None-Match")).toBe('W/"c-1"');
+
+    // Another path never sends the tag; after an account change nothing does.
+    await api.get("/collection/tree?regionId=r2");
+    expect(new Headers(fetchMock.mock.calls[2][1].headers).get("If-None-Match")).toBeNull();
+    forgetTaggedAnswers();
+    await api.get("/collection/tree?regionId=r1");
+    expect(new Headers(fetchMock.mock.calls[3][1].headers).get("If-None-Match")).toBeNull();
   });
 });

@@ -234,7 +234,7 @@ interface CollectionVersion {
 // and the snapshot's in-progress transactions go into the tag too, so a write that bumped the
 // version but hadn't committed yet can't leave an old body cached under the final tag. The
 // returned client holds that REPEATABLE READ snapshot for the data query that follows.
-async function collectionVersion(
+export async function collectionVersion(
   reply: FastifyReply,
   ifNoneMatch: string | undefined,
   params: unknown[],
