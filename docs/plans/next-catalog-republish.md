@@ -20,20 +20,69 @@ Decided by the maintainer 2026-11-24 and applied the same day:
    lost on 2026-10-10 (below).
 5. **Zoo records and tiers, investigated** (see the status entry).
 
-Still to decide:
+Decided 2026-11-24 (second round):
 
-6. **Restore the lost freshwater fish?** The 2026-10-10 province rebuild deleted thinly recorded
+6. **Restore the lost freshwater fish? Decided 2026-11-24: yes, where they belong; done (see
+   Status).** Original question: The 2026-10-10 province rebuild deleted thinly recorded
    species iNaturalist lacks (now flagged instead, in `compute-provinces-bulk.ts` and
    `occurrences.ts`). That took 744 freshwater fish off Colombia (238 now on no list anywhere),
    about 2,840 across 42 packs, plus other thin species. The GBIF downloads are gone, so the only
    copy is the published 2026-10-08 packs (1.4 GB from Lifer's own release). A restore would
    re-add, flagged vagrant, the published province rows whose species still exist and that no
    clean-up since removed on purpose.
-7. **Wolverine worldwide.** Now uncommon (was common): Finland's Kainuu photo hides find them
+7. **Wolverine worldwide. Decided 2026-11-24: no exception, keep the model.** Now uncommon (was common): Finland's Kainuu photo hides find them
    reliably, which the tier philosophy calls not legendary. Legendary in Canada, the US, Sweden,
    Russia and Mongolia. Keep, or make an exception.
-8. **Accept the pack drift** (309 packs) at publish time with `--accept-all-drift` once 6 is
+8. **Accept the pack drift. Decided 2026-11-24: accept drift explained by flagging and
+   better sources** (309 packs, 265 after the restore) at publish time with `--accept-all-drift` once 6 is
    settled.
+
+## Status (2026-11-25, 09:30): built and verified, not published
+
+Everything up to publishing is done on the Docker `lifer` database and built locally.
+
+- **6c reapplied** offline (07:54) with the yearly counts that arrived: +8,248 listings, 9,673
+  newly vagrant, 94 unflagged; then escapes (7,963 province listings off, mostly farm animals and
+  pets iNaturalist lists), eBird exotics from cache (2,584 province and 816 group or country
+  listings off; 81 naturalized and 21 provisional marked introduced), introduced flags. Backup:
+  `data/backups/lifer-catalog-before-6c-morning-2026-11-25-tables.dump`.
+- **6b** (08:42): 1,873 decisions, 34 range removals, 0 merges, 1,839 bat and rodent listings
+  un-flagged by the resident rule; `data/review/catalog-audit-fixes-applied-2026-11-25T154243.tsv`.
+  Backup: `data/backups/lifer-catalog-before-6b-morning-2026-11-25-tables.dump`.
+- **Tiers** (09:01, `refresh --stages=tiers`): worldwide 6,258 common, 13,266 occasional, 2,717
+  uncommon, 1,927 rare, 956 legendary. Every anchor passes.
+- **Freshwater fish restore** (2026-11-24, decision 6): 81,972 rows plus 1,809 derived group and
+  country rows, flagged vagrant; see the entry below.
+- **Photo-withheld flags** (`backfill-photo-withheld --no-network`): 52 species marked; 23,098
+  still unknown until iNaturalist can be asked.
+- **Vectors** (offline steps): done. **Packs** (`refresh --stages=packs,gate`): built in
+  `data/build/packs-out` (6,001 packs, about 1.45 GB; `pack-index.json` and `pack-index-lite.json`).
+- **Gate:** 265 failures, all pack drift, which the maintainer accepts when explained (decision
+  8). Explanation per pack: `data/review/pack-drift-explained.tsv`: 190 sea zone packs grew
+  with 6a's marine life, 63 packs grew (iNaturalist additions, marine mammals moved out of
+  fish, restored rows), 12 shrank from clean-ups (escapes, 6b ranges and splits, extinct, tiers
+  removals). No anchor or shared-taxon failure.
+- **Catalog seed, verified:** `packages/data-pipeline/data/build/catalog-seed/` (manifest
+  `catalog-manifest.json`, version 1795623808084), against the schema through migration 202.
+  Sizes and sha256 match the manifest (`verifyCatalogSeed`), and it loads into a freshly migrated
+  database (`catalogSeedLoad`, the CI job's check). Files:
+  - `lifer-catalog-seed.sql.gz` 221,703,635 bytes, sha256 e9f5cad18569774ffeff27038185cff6fb6773d5aa6365c0602513ea11fe9b0a
+  - `lifer-gallery-embeddings-clip-vit-l14-v2.bin.gz` 192,278,065
+  - `lifer-species-image-embeddings-clip-vit-l14-v2.bin.gz` 85,215,098
+  - `lifer-species-text-embeddings-clip-vit-l14-text-v2.bin.gz` 192,069,102
+  - `lifer-id-gallery-embeddings-bioclip-2-v1.bin.gz` 191,471,726
+  - `lifer-id-species-image-embeddings-bioclip-2-v1.bin.gz` 84,860,705
+  - `lifer-id-species-text-embeddings-bioclip-2-v1.bin.gz` 191,508,215
+
+Not done (iNaturalist refused this machine all night):
+
+- The gallery top-up (`/tmp/run-topup.sh`). If it runs later: then `backfill-photo-withheld`,
+  vectors, packs and the seed again, with the top-up paused while the seed builds.
+- The vagrant yearly counts for about 290 well-birded regions: their flags stay GBIF's.
+
+Before the maintainer can say go: look over `pack-drift-explained.tsv`, decide whether to ship
+without the gallery top-up, then `refresh --stages=packs,gate,publish --publish
+--accept-all-drift` (it rebuilds and checks the seed itself).
 
 ## Status (checked 2026-11-24 against the Docker `lifer` database)
 

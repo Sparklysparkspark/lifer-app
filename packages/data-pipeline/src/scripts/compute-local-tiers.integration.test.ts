@@ -260,3 +260,75 @@ describe.skipIf(!url)("compute-local-tiers: groups as candidates for the country
 
 const TIER_RANK = (tier: string | null) =>
   ["common", "occasional", "uncommon", "rare", "legendary"].indexOf(tier ?? "");
+
+// A third country: a mammal recorded heavily by monitoring where few photos are taken, and barely
+// photographed where photos are plenty. Photos decide its country tier.
+const M = (n: number) => id(200 + n);
+const [W3, C3, COUNTRY3, MONITORED, PHOTOGRAPHED] = [0, 1, 2, 3, 4].map(M);
+const ELUSIVE = M(10);
+const EVERYDAY = [11, 12, 13, 14, 15].map(M);
+const COUNTRY3_NAME = "Tieria Three";
+
+describe.skipIf(!url)("compute-local-tiers: photos over records for mammals", () => {
+  const db = new pg.Pool({ connectionString: url });
+  const cleanup = async () => {
+    await db.query(`DELETE FROM regions WHERE id = ANY($1)`, [[PHOTOGRAPHED, MONITORED, COUNTRY3, C3, W3]]);
+    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[ELUSIVE, ...EVERYDAY]]);
+  };
+  const list = (region: string, species: string, records: number | null, photos: number | null) =>
+    db.query(
+      `INSERT INTO region_species (region_id, species_id, local_frequency, live_recent_records, recent_distinct_years, inat_rg_count)
+       VALUES ($1, $2, $3::int, $3::int, 10, $4::int)`,
+      [region, species, records, photos],
+    );
+
+  beforeAll(async () => {
+    await cleanup();
+    await db.query(
+      `INSERT INTO regions (id, name, parent_id, has_children) VALUES
+         ($1, 'Tier World 3', NULL, true), ($2, 'Tier Continent 3', $1, true), ($3, $6, $2, true),
+         ($4, 'Tier Monitored', $3, false), ($5, 'Tier Photographed', $3, false)`,
+      [W3, C3, COUNTRY3, MONITORED, PHOTOGRAPHED, COUNTRY3_NAME],
+    );
+    for (const [i, s] of [ELUSIVE, ...EVERYDAY].entries())
+      await db.query(
+        `INSERT INTO species (id, gbif_key, scientific_name, taxon_class) VALUES ($1, $2, $3, 'mammalia')`,
+        [s, 143000 + i, `Tieria tres mammalis${i}`],
+      );
+    await db.query(
+      `INSERT INTO species_traits (species_id, wiki_pageviews_12mo, source_attribution) VALUES ($1, 500000, 'test')`,
+      [ELUSIVE],
+    );
+    // Monitored: thousands of survey records of the elusive one, and too few photos to rate on.
+    await list(MONITORED, ELUSIVE, 3000, null);
+    await db.query(
+      `INSERT INTO region_group_effort (region_id, species_group, live_recent_records, all_records, inat_rg_records)
+       VALUES ($1, 'mammals', 10000, 10000, 200), ($2, 'mammals', 0, 0, 10000)`,
+      [MONITORED, PHOTOGRAPHED],
+    );
+    for (const m of EVERYDAY) await list(PHOTOGRAPHED, m, null, 2000);
+    await list(PHOTOGRAPHED, ELUSIVE, null, 3);
+    await db.query(
+      `INSERT INTO region_species (region_id, species_id, local_frequency, live_recent_records, inat_rg_count)
+       SELECT $1, species_id, sum(local_frequency), sum(live_recent_records), sum(inat_rg_count)
+       FROM region_species WHERE region_id = ANY($2) GROUP BY species_id`,
+      [COUNTRY3, [MONITORED, PHOTOGRAPHED]],
+    );
+  });
+
+  afterAll(async () => {
+    await cleanup();
+    await db.end();
+  });
+
+  it("rates the country from the photographed province, not the monitored one", async () => {
+    const { loadCountries, computeCountryTiers } = await import("./compute-local-tiers.js");
+    const [country] = await loadCountries([COUNTRY3_NAME]);
+    const tiers = await computeCountryTiers(country);
+    const tier = (region: string) => tiers.find((t) => t.regionId === region && t.speciesId === ELUSIVE)!;
+    expect(tier(MONITORED)).toMatchObject({ tier: "common", reason: "rated" });
+    expect(TIER_RANK(tier(PHOTOGRAPHED).tier)).toBeGreaterThanOrEqual(TIER_RANK("rare"));
+    expect(tier(COUNTRY3)).toMatchObject({ tier: tier(PHOTOGRAPHED).tier, reason: "rated" });
+    expect(tier(COUNTRY3).explain?.easiestIn).toBe("Tier Photographed");
+  });
+});

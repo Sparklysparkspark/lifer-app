@@ -122,7 +122,8 @@ describe.skipIf(!url)("apply-inat-membership", () => {
       [PROVINCE],
     );
     const byId = new Map(rows.rows.map((r) => [r.species_id, r]));
-    expect(byId.has(ABSENT)).toBe(false);
+    // Missing from iNaturalist where it covers birds: kept, flagged as a stray.
+    expect(byId.get(ABSENT)?.is_vagrant).toBe(true);
     expect(byId.get(NO_ID)?.is_vagrant).toBe(false);
     expect(byId.get(OVERRIDDEN)?.is_vagrant).toBe(false);
     expect(byId.get(CHASED)?.is_vagrant).toBe(true);

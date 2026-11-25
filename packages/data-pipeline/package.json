@@ -43,6 +43,7 @@
     "enrich-all-species": "tsx src/scripts/enrich-all-species.ts",
     "open-vectors": "tsx src/scripts/open-vectors.ts",
     "top-up-galleries": "tsx src/scripts/top-up-galleries.ts",
+    "restore-published-rows": "tsx src/scripts/restore-published-rows.ts",
     "benchmark-matching": "tsx src/scripts/benchmark-matching.ts"
   },
   "dependencies": {

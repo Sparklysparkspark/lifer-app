@@ -1197,8 +1197,8 @@ async function computeCountryProvinces(
 
 // Lets iNaturalist Research Grade data decide final membership for one province:
 //   1. Species iNat confirms but GBIF never recorded here are added, unrated.
-//   2. Thinly-evidenced species iNat has no record of are dropped, unless resolveRemovalRescues
-//      shows it's only a stale taxon-id mismatch.
+//   2. Thinly-evidenced species iNat has no record of are flagged vagrant, unless
+//      resolveRemovalRescues shows it's only a stale taxon-id mismatch.
 // Does nothing when no iNat place resolves for the province.
 async function reconcileProvinceMembershipWithInat(
   provinceId: string,
@@ -1214,7 +1214,7 @@ async function reconcileProvinceMembershipWithInat(
     [provinceId],
   );
   const existingIds = new Set(existingRes.rows.map((r) => r.species_id));
-  // Only species with thin GBIF evidence (below MIN_RECORDS) can be dropped for lacking iNat
+  // Only species with thin GBIF evidence (below MIN_RECORDS) can be flagged for lacking iNat
   // confirmation; otherwise places few iNat users visit would lose most of their list.
   const wellEvidencedIds = new Set(
     existingRes.rows
@@ -1245,16 +1245,13 @@ async function reconcileProvinceMembershipWithInat(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    if (toDrop.length > 0) {
-      await client.query(`DELETE FROM region_species WHERE region_id = $1 AND species_id = ANY($2::uuid[])`, [
-        provinceId,
-        toDrop,
-      ]);
-      await client.query(`DELETE FROM region_species_hotspots WHERE region_id = $1 AND species_id = ANY($2::uuid[])`, [
-        provinceId,
-        toDrop,
-      ]);
-    }
+    // Flagged, not removed: iNaturalist barely covers some groups (freshwater fish), and GBIF's
+    // records of a species it lacks are still real (maintainer decision, 2026-11-24).
+    if (toDrop.length > 0)
+      await client.query(
+        `UPDATE region_species SET is_vagrant = true WHERE region_id = $1 AND species_id = ANY($2::uuid[]) AND NOT is_invasive`,
+        [provinceId, toDrop],
+      );
     for (const speciesId of toAdd) {
       await client.query(
         `INSERT INTO region_species (region_id, species_id, is_vagrant, is_invasive)
@@ -1272,7 +1269,7 @@ async function reconcileProvinceMembershipWithInat(
   }
   if (toDrop.length > 0 || toAdd.length > 0) {
     console.log(
-      `[compute-provinces-bulk]   ${provinceName}: iNat membership reconcile - dropped ${toDrop.length} (no iNat confirmation), added ${toAdd.length} (iNat-only, unrated)`,
+      `[compute-provinces-bulk]   ${provinceName}: iNat membership reconcile: flagged ${toDrop.length} (no iNat confirmation), added ${toAdd.length} (iNat-only, unrated)`,
     );
   }
 }

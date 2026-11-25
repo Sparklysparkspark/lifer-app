@@ -31,6 +31,7 @@ import { cachedEbirdCodes } from "./add-new-species-to-checklists.js";
 import { inatConfirmedListings, loadCatalogIndex, type CatalogIndex } from "./apply-inat-membership.js";
 import { bboxDiagonalDegrees, exteriorRingsFromGeometry, ringBoundingBox } from "@lifer/core/lib/geometry.js";
 import {
+  RECORDS_FIRST_GROUPS,
   coreRangeDiagonalKm,
   tierFromInputs,
   tierGroupForGbifClass,
@@ -644,12 +645,17 @@ export async function computeCountryTiers(country: Country): Promise<ComputedTie
       if (!t.tier || row.is_vagrant || t.reason !== "rated") continue;
       const group = tierGroupForTaxonClass(row.taxon_class);
       // Only photo-rated tiers need it: eBird's full checklists record common species too, so their
-      // rates hold however few birders visit.
+      // rates hold however few birders visit. For a group rated on photos, a province rated on
+      // GBIF records (too few photos there) counts only when no province is rated on photos:
+      // records such as carnivore monitoring (Wolverine DNA and tracks in Norway) say nothing
+      // about how often one is photographed.
       const surveyed =
         !group ||
-        t.explain?.source !== "inat" ||
-        groupEffort(row.region_id, group) >= EASIEST_MIN_EFFORT_SHARE * (bestEffort.get(group) ?? 0) ||
-        (t.explain?.records ?? 0) >= EASIEST_PROVEN_RECORDS;
+        (t.explain?.source === "gbif"
+          ? RECORDS_FIRST_GROUPS.has(group)
+          : t.explain?.source !== "inat" ||
+            groupEffort(row.region_id, group) >= EASIEST_MIN_EFFORT_SHARE * (bestEffort.get(group) ?? 0) ||
+            (t.explain?.records ?? 0) >= EASIEST_PROVEN_RECORDS);
       const best = easiest.get(row.species_id);
       const better =
         !best ||

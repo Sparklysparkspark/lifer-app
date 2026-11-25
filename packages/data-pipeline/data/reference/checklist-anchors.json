@@ -120,7 +120,7 @@
   {"region": "Canada", "name": "Lynx canadensis", "tier": "rare"},
   {"region": "Canada", "name": "Puma concolor", "tier": "rare/legendary"},
   {"region": "United States of America", "name": "Ursus arctos", "tier": "common"},
-  {"region": "United States of America", "name": "Canis latrans", "tier": "common"},
+  {"region": "United States of America", "name": "Canis latrans", "tier": "occasional", "note": "Maintainer 2026-11-24: occasional is fine; even its easiest state (Wyoming) has it occasional."},
   {"region": "Costa Rica", "name": "Panthera onca", "tier": "rare/legendary"},
   {"region": "Costa Rica", "name": "Leopardus pardalis", "tier": "rare/legendary"}
 ]

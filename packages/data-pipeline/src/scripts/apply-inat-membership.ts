@@ -4,9 +4,10 @@
 //
 // Per province, then per country (its calls planned first, for the provinces), from the region's own iNaturalist place:
 //   - a catalog species with research-grade observations there is listed (added if missing);
-//   - a listed species iNaturalist has none of is removed where iNaturalist covers its group,
-//     unless a hand-checked override lists it or its iNaturalist taxon is unknown (no id, and no
-//     answer cached): unknown is not absent;
+//   - a listed species iNaturalist has none of, where it covers the species' group, is flagged
+//     vagrant rather than removed (GBIF and eBird know real strays iNaturalist lacks; the flag
+//     hides it by default), unless a hand-checked override lists it, it's introduced or a farm
+//     animal, or its iNaturalist taxon is unknown (no id, no cached answer): unknown is not absent;
 //   - the vagrant flag follows inatVagrancy/decideIsVagrant; a province iNaturalist can't judge
 //     takes its country's vagrant call.
 // Vernacular groups are rebuilt from their provinces afterwards, as build-country-checklists.ts
@@ -132,8 +133,8 @@ export function matchPlace(
 }
 
 /** "region_id|species_id" of every listing iNaturalist confirms (a research-grade observation in
- *  the region's place, from the cached place lists, never fetched). A region with no place of its
- *  own (a vernacular group) is confirmed through its child regions. eBird's absence never
+ *  the region's place, from the cached place lists, never fetched). A region is also confirmed
+ *  through its child regions (a vernacular group, or a place whose list isn't cached). eBird's absence never
  *  removes these: iNaturalist decides membership. */
 export async function inatConfirmedListings(
   db: Pool | PoolClient = pool,
@@ -145,14 +146,13 @@ export async function inatConfirmedListings(
     `SELECT id, parent_id, inat_place_id FROM regions WHERE $1::uuid[] IS NULL OR id = ANY($1) OR parent_id = ANY($1)`,
     [regionIds ?? null],
   );
-  const placeless = new Set(regions.rows.filter((r) => r.inat_place_id == null).map((r) => r.id));
   const out = new Set<string>();
   for (const r of regions.rows) {
     const taxa = r.inat_place_id != null ? cachedPlaceCounts(r.inat_place_id) : null;
     if (!taxa) continue;
     for (const id of matchPlace(taxa, index).keys()) {
       out.add(`${r.id}|${id}`);
-      if (r.parent_id && placeless.has(r.parent_id)) out.add(`${r.parent_id}|${id}`);
+      if (r.parent_id) out.add(`${r.parent_id}|${id}`);
     }
   }
   return out;
@@ -177,7 +177,7 @@ export function yearsPresent(
 export interface Change {
   region: string;
   speciesId: string;
-  kind: "added" | "removed" | "flagged" | "unflagged";
+  kind: "added" | "flagged" | "unflagged";
   observations: number;
   years: number | null;
   inat: InatVagrancy | null;
@@ -188,7 +188,6 @@ export interface RegionPlan {
   region: string;
   before: number;
   added: Array<{ speciesId: string; isVagrant: boolean }>;
-  removed: string[];
   flags: Array<{ speciesId: string; isVagrant: boolean }>;
   keptUnknown: number;
   keptOverride: number;
@@ -251,7 +250,6 @@ export async function planRegion(
     region: region.name,
     before: 0,
     added: [],
-    removed: [],
     flags: [],
     keptUnknown: 0,
     keptOverride: 0,
@@ -269,12 +267,12 @@ export async function planRegion(
     else if (!index.known.has(r.species_id)) plan.keptUnknown++;
     else if ((groupObs.get(iconicOfClass(index.taxonClass.get(r.species_id) ?? null)) ?? 0) < WELL_OBSERVED_GROUP_OBS)
       plan.keptThin++;
-    else {
-      plan.removed.push(r.species_id);
+    else if (!r.is_vagrant && !r.is_invasive && !index.domestic.has(r.species_id)) {
+      plan.flags.push({ speciesId: r.species_id, isVagrant: true });
       plan.changes.push({
         region: region.name,
         speciesId: r.species_id,
-        kind: "removed",
+        kind: "flagged",
         observations: 0,
         years: null,
         inat: null,
@@ -317,16 +315,6 @@ export async function applyPlan(plan: RegionPlan): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    if (plan.removed.length > 0) {
-      await client.query(`DELETE FROM region_species WHERE region_id = $1 AND species_id = ANY($2::uuid[])`, [
-        plan.regionId,
-        plan.removed,
-      ]);
-      await client.query(`DELETE FROM region_species_hotspots WHERE region_id = $1 AND species_id = ANY($2::uuid[])`, [
-        plan.regionId,
-        plan.removed,
-      ]);
-    }
     if (plan.added.length > 0)
       await client.query(
         `INSERT INTO region_species (region_id, species_id, is_vagrant, is_invasive, evidence_source)
@@ -350,11 +338,11 @@ export async function applyPlan(plan: RegionPlan): Promise<void> {
 }
 
 function describe(plan: RegionPlan): string {
-  const flagged = plan.changes.filter((c) => c.kind === "flagged").length;
-  const after = plan.before + plan.added.length - plan.removed.length;
+  const flagged = plan.changes.filter((c) => c.kind === "flagged");
+  const absent = flagged.filter((c) => c.inat == null).length;
   return (
-    `${plan.region}: ${plan.before} -> ${after} (+${plan.added.length} added, -${plan.removed.length} removed, ` +
-    `${flagged} newly vagrant, ${plan.flags.length - flagged} no longer vagrant)` +
+    `${plan.region}: ${plan.before} -> ${plan.before + plan.added.length} (+${plan.added.length} added, ` +
+    `${flagged.length} newly vagrant of which ${absent} not on iNaturalist, ${plan.flags.length - flagged.length} no longer vagrant)` +
     (plan.keptUnknown + plan.keptOverride + plan.keptThin > 0
       ? `; kept without iNaturalist: ${plan.keptOverride} by override, ${plan.keptUnknown} with no iNaturalist id, ${plan.keptThin} in groups it barely covers here`
       : "") +
@@ -365,7 +353,7 @@ function describe(plan: RegionPlan): string {
 // Spread over the kinds of change and picked by a fixed hash, so reruns show the same rows.
 function spotChecks(changes: Change[], n: number): Change[] {
   const hash = (c: Change) => [...(c.region + c.speciesId)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
-  const kinds = ["added", "removed", "flagged", "unflagged"] as const;
+  const kinds = ["added", "flagged", "unflagged"] as const;
   const byKind = kinds.map((k) => changes.filter((c) => c.kind === k).sort((a, b) => hash(a) - hash(b)));
   const picked: Change[] = [];
   for (let i = 0; picked.length < n && byKind.some((list) => i < list.length); i++)
@@ -398,7 +386,6 @@ async function main() {
   const totals = {
     regions: 0,
     added: 0,
-    removed: 0,
     flagged: 0,
     unflagged: 0,
     keptUnknown: 0,
@@ -423,7 +410,6 @@ async function main() {
       );
     totals.regions++;
     totals.added += plan.added.length;
-    totals.removed += plan.removed.length;
     for (const c of plan.changes) if (c.kind === "flagged" || c.kind === "unflagged") totals[c.kind]++;
     totals.keptUnknown += plan.keptUnknown;
     totals.keptOverride += plan.keptOverride;
@@ -449,7 +435,7 @@ async function main() {
     await run(country.name, countryPlan);
   }
   console.log(
-    `[inat-membership] ${totals.regions} regions: +${totals.added} added, -${totals.removed} removed, ` +
+    `[inat-membership] ${totals.regions} regions: +${totals.added} added, ` +
       `${totals.flagged} newly vagrant, ${totals.unflagged} no longer vagrant; kept without iNaturalist: ` +
       `${totals.keptOverride} by override, ${totals.keptUnknown} with no iNaturalist id, ${totals.keptThin} in groups it barely covers there`,
   );
@@ -457,7 +443,7 @@ async function main() {
   for (const c of spotChecks(all, Number(values["spot-checks"])))
     console.log(
       `  ${c.kind.padEnd(9)} ${c.region}: ${index.label.get(c.speciesId)}` +
-        (c.kind === "removed" ? "" : ` (${c.observations} obs, ${c.years ?? "?"} yrs, ${c.inat})`),
+        ` (${c.observations} obs, ${c.years ?? "?"} yrs, ${c.inat ?? "not on iNaturalist here"})`,
     );
   await pool.end();
   writeFileSync(REVIEW_TSV, rows.join("\n") + "\n");

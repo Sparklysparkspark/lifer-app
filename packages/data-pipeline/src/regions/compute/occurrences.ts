@@ -276,7 +276,7 @@ export async function computeRegionOccurrences(region: {
         const existingIds = new Set(existingRes.rows.map((r) => r.species_id));
         const alreadyTieredIds = new Set(existingRes.rows.filter((r) => r.local_tier != null).map((r) => r.species_id));
 
-        // Before dropping species iNat didn't match, rescue any that are only a name change (a
+        // Before flagging species iNat didn't match, rescue any that are only a name change (a
         // genus move) away from a match.
         const removalCandidateIds = [...existingIds].filter((id) => !matchedSpeciesIds.has(id));
         let rescuedIds = new Set<string>();
@@ -289,10 +289,11 @@ export async function computeRegionOccurrences(region: {
         }
 
         const idList = [...matchedSpeciesIds, ...rescuedIds];
-        await client.query(`DELETE FROM region_species WHERE region_id = $1 AND NOT (species_id = ANY($2::uuid[]))`, [
-          regionId,
-          idList,
-        ]);
+        // Species iNat lacks are flagged, not removed: GBIF's records of them are still real.
+        await client.query(
+          `UPDATE region_species SET is_vagrant = true WHERE region_id = $1 AND NOT (species_id = ANY($2::uuid[])) AND NOT is_invasive`,
+          [regionId, idList],
+        );
         // Listed species the tiers stage has already rated are left alone; new or untiered ones are
         // written. Local tiers come only from compute-local-tiers.ts, never from this path.
         const needsTierIds = idList.filter((id) => !alreadyTieredIds.has(id));

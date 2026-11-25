@@ -25,7 +25,6 @@ Anguilla	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Anguilla	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Anguilla	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Anguilla	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Anguilla	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Anguilla	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Anguilla	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Anguilla	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -47,7 +46,6 @@ Antigua and Barb.	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Antigua and Barb.	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Antigua and Barb.	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Antigua and Barb.	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Antigua and Barb.	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Antigua and Barb.	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Antigua and Barb.	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Antigua and Barb.	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -62,6 +60,8 @@ Antigua and Barb.	Yellow Pencil Coral	Madracis auretenra, Madracis myriaster
 Argentina	Argentinian Silverside	Odontesthes argentinensis, Odontesthes bonariensis	
 Argentina	Dwarf Otocinclus	Otocinclus vestitus, Otocinclus vittatus	
 Argentina	King Weakfish	Macrodon ancylodon, Macrodon atricauda	
+Argentina	Pencil Catfish	Ituglanis eichorniarum, Trichomycterus boylei, Trichomycterus catamarcensis, Trichomycterus roigi, Trichomycterus spegazzinii	
+Argentina	Silverside	Odontesthes incisa, Odontesthes retropinnis	
 Argentina	South American Marked Gecko	Homonota fasciata, Homonota horrida	
 Aruba	Ascidian	Corella minuta, Polyclinum constellatum, Symplegma brakenhielmi	
 Aruba	Atlantic Midshipman	Porichthys plectrodon, Porichthys porosissimus	
@@ -70,7 +70,6 @@ Aruba	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Aruba	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Aruba	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Aruba	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Aruba	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Aruba	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Aruba	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Aruba	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -206,7 +205,6 @@ Australia	White-Breasted Woodswallow	Artamus leucoryn, Artamus leucorynchus
 Australia	Wrinkle Coral	Coscinaraea marshae, Cycloseris wellsi, Psammocora columna, Psammocora exesa	
 Austria	Asp	Leuciscus aspius, Vipera aspis	
 Bahamas	Atlantic Midshipman	Porichthys plectrodon, Porichthys porosissimus	
-Bahamas	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Bahamas	Pricklefish	Acanthochaenus luetkenii, Stephanoberyx monae	
 Bahamas	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Bahamas	Ridgehead	Melamphaes simus, Melamphaes typhlops, Poromitra capito, Scopeloberyx opisthopterus	
@@ -222,7 +220,6 @@ Bajo Nuevo Bank	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Bajo Nuevo Bank	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Bajo Nuevo Bank	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Bajo Nuevo Bank	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Bajo Nuevo Bank	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Bajo Nuevo Bank	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Bajo Nuevo Bank	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Bajo Nuevo Bank	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -244,7 +241,6 @@ Barbados	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Barbados	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Barbados	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Barbados	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Barbados	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Barbados	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Barbados	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Barbados	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -272,7 +268,6 @@ Belize	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Belize	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Belize	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Belize	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Belize	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Belize	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Belize	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Belize	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -305,18 +300,19 @@ Br. Indian Ocean Ter.	Larger Star Coral	Favites abdita, Favites halicora
 Br. Indian Ocean Ter.	Mushroom Coral	Danafungia horrida, Danafungia scruposa, Lithophyllon scabra	
 Br. Indian Ocean Ter.	Staghorn Coral	Acropora aculeus, Acropora austera, Acropora latistella, Acropora tenuis	
 Brazil	Angular Angelshark	Squatina guggenheim, Squatina punctata	
-Brazil	Annual Tropical Killifish	Leptolebias opalescens, Notholebias minimus, Simpsonichthys constanciae	
+Brazil	Annual Tropical Killifish	Leptolebias marmoratus, Leptolebias opalescens, Leptolebias splendens, Notholebias minimus, Simpsonichthys constanciae	
 Brazil	Argentinian Silverside	Odontesthes argentinensis, Odontesthes bonariensis	
 Brazil	Ascidian	Didemnum psammatodes, Polyclinum constellatum, Symplegma brakenhielmi	
 Brazil	Atlantic Midshipman	Porichthys plectrodon, Porichthys porosissimus	
 Brazil	Banded Acara	Bujurquina peregrinabunda, Bujurquina vittata	
+Brazil	Banjo Catfish	Bunocephalus coracoideus, Xyliphius anachoretes, Xyliphius barbatus	
 Brazil	Basin White-Lipped Frog	Leptodactylus mystaceus, Leptodactylus syphax	
 Brazil	Black Swallower	Chiasmodon microcephalus, Chiasmodon niger	
 Brazil	Bluntnose Knifefish	Brachyhypopomus brevirostris, Hypopygus lepturus	
 Brazil	Brazil's Lancehead	Bothrops brazili, Bothrops oligobalius	
 Brazil	Brazilian Fathead Anole	Enyalius boulengeri, Enyalius brasiliensis	
 Brazil	Bumble Bee Catfish	Microglanis oliveirai, Microglanis xylographicus	
-Brazil	Bumblebee Catfish	Batrochoglanis villosus, Microglanis garavelloi, Microglanis leptostriatus, Microglanis pataxo, Microglanis poecilus, Pseudopimelodus bufonius	
+Brazil	Bumblebee Catfish	Batrochoglanis villosus, Microglanis garavelloi, Microglanis leniceae, Microglanis leptostriatus, Microglanis minutus, Microglanis nigripinnis, Microglanis pataxo, Microglanis poecilus, Pseudopimelodus bufonius	
 Brazil	Catfish	Rineloricaria lima, Rineloricaria thrissoceps, Spatuloricaria evansii	
 Brazil	Central Humming Frog	Chiasmocleis centralis, Chiasmocleis lacrimae	
 Brazil	Cerrado Lancehead	Bothrops lutzi, Bothrops pauloensis	
@@ -328,6 +324,7 @@ Brazil	Golden Rivulus	Anablepsoides urophthalmus, Atlantirivulus haraldsiolii
 Brazil	Herringbone Rivulus	Laimosemion geayi, Laimosemion strigatus	
 Brazil	Hydroid	Bimeria vestita, Clytia hemisphaerica	
 Brazil	King Weakfish	Macrodon ancylodon, Macrodon atricauda	
+Brazil	Knifefish	Archolaemus blax, Rhamphichthys pantherinus	
 Brazil	Knob Coral	Favia gravida, Mussismilia leptophylla	
 Brazil	Linhares Dwarf Frog	Physalaemus aguirrei, Physalaemus obtectus	
 Brazil	Manaus Tree Toad	Amazophrynella manaos, Amazophrynella vote	
@@ -337,18 +334,21 @@ Brazil	Mato Grosso Burrowing Snake	Apostolepis intermedia, Phalotris matogrossen
 Brazil	Neotropical Snail-Eater	Dipsas bucephala, Dipsas indica	
 Brazil	Pencilfish	Lebiasina minuta, Pyrrhulina filamentosa, Pyrrhulina marilynae	
 Brazil	Red Neusticurus	Neusticurus rudis, Neusticurus surinamensis	
+Brazil	River Goby	Awaous banana, Awaous tajasica	
 Brazil	Scattered Pore Rope Sponge	Amphimedon nodosa, Aplysina fulva	
 Brazil	Silver Dollar	Metynnis argenteus, Metynnis cuiaba, Metynnis guaporensis, Metynnis longipinnis	
 Brazil	Small-Scale Glass Tetra	Charax michaeli, Charax niger, Charax pauciradiatus	
 Brazil	Spiny Dwarf Catfish	Scoloplax baileyi, Scoloplax baskini, Scoloplax dolicholophia	
+Brazil	Spottail Curimata	Curimatopsis evelynae, Curimatopsis guaporensis, Curimatopsis maculosa	
+Brazil	Spotted Hatchetfish	Gasteropelecus levis, Gasteropelecus maculatus	
 Brazil	Stick Catfish	Acestridium dichromum, Farlowella nattereri, Farlowella paraguayensis, Farlowella smithi	
 Brazil	Striped Headstander	Anostomus brevior, Hypomasticus despaxi	
 Brazil	Suckermouth Catfish	Guyanancistrus brevispinis, Pseudancistrus niger	
 Brazil	Talking Catfish	Acanthodoras spinosissimus, Anadoras weddellii	
-Brazil	Tetra	Diapoma terofali, Hemigrammus boesemani, Hemigrammus iota, Hyphessobrycon rheophilus, Knodus breviceps, Phenacogaster microstictus	
-Brazil	Torroto Grunt	Genyatremus cavifrons, Genyatremus luteus	
+Brazil	Tetra	Diapoma terofali, Hemigrammus boesemani, Hemigrammus iota, Hyphessobrycon arianae, Hyphessobrycon rheophilus, Knodus breviceps, Phenacogaster microstictus	
 Brazil	Twospot Astyanax	Astyanax argyrimarginatus, Astyanax bimaculatus	
-Brazil	Whale Catfish	Cetopsis oliveirai, Cetopsis sandrae, Denticetopsis epa, Denticetopsis seducta	
+Brazil	Whale Catfish	Cetopsis arcana, Cetopsis caiapo, Cetopsis oliveirai, Cetopsis sandrae, Cetopsis sarcodes, Denticetopsis epa, Denticetopsis seducta	
+Brazil	Zigzag Pyrrhulina	Pimelodus luciae, Pyrrhulina zigzag	
 British Virgin Is.	Ascidian	Corella minuta, Polyclinum constellatum, Symplegma brakenhielmi	
 British Virgin Is.	Atlantic Midshipman	Porichthys plectrodon, Porichthys porosissimus	
 British Virgin Is.	Carrot Cone	Conus boui, Conus daucus	
@@ -357,7 +357,6 @@ British Virgin Is.	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 British Virgin Is.	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 British Virgin Is.	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 British Virgin Is.	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-British Virgin Is.	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 British Virgin Is.	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 British Virgin Is.	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 British Virgin Is.	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -410,6 +409,8 @@ Brunei	Starry Cup Coral	Acanthastrea rotundoflora, Dipsastraea faviaformis, Micr
 Brunei	Striped Bum Coral	Heterocyathus aequicostatus, Heterocyathus sulcatus	
 Brunei	Thorn Coral	Stylocoeniella armata, Stylocoeniella guentheri	
 Brunei	White-Breasted Woodswallow	Artamus leucoryn, Artamus leucorynchus	
+Burkina Faso	African Carp	Labeo coubie, Labeo parvus	
+Burkina Faso	Elephant Fish	Mormyrus hasselquistii, Pollimyrus isidori	
 Burkina Faso	Squeaker Catfish	Synodontis arnoulti, Synodontis macrophthalmus	
 Cabo Verde	Pygmy Moray	Anarchias longicauda, Anarchias similis	
 Cabo Verde	Ridgehead	Melamphaes simus, Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -420,6 +421,7 @@ Cambodia	Crispy Crust Coral	Merulina ampliata, Merulina scabricula
 Cambodia	Crust Coral	Leptastrea purpurea, Leptastrea transversa	
 Cambodia	Cutribbon Wrasse	Stethojulis interrupta, Stethojulis terina	
 Cambodia	Disc Coral	Turbinaria frondens, Turbinaria stellulata	
+Cambodia	Dwarf Horseface Loach	Acanthopsoides delphax, Acanthopsoides gracilentus	
 Cambodia	False Knob Coral	Astrea curta, Favites magnistellata, Favites valenciennesii	
 Cambodia	Finger Coral	Acropora humilis, Palauastrea ramosa	
 Cambodia	Flat Lettuce Coral	Echinophyllia aspera, Echinophyllia echinoporoides, Echinophyllia orpheensis	
@@ -442,6 +444,7 @@ Cambodia	Ponyfish	Nuchequula blochii, Secutor indicius
 Cambodia	Porcelain Coral	Leptoseris explanata, Leptoseris gardineri, Leptoseris scabra, Leptoseris tubulifera, Leptoseris yabei	
 Cambodia	Pore Coral	Montipora aequituberculata, Montipora altasepta, Montipora angulata, Montipora confusa, Montipora crassituberculata, Montipora danae, Montipora digitata, Montipora efflorescens, Montipora foveolata, Montipora grisea, Montipora hispida, Montipora incrassata, Montipora informis, Montipora millepora, Montipora mollis, Montipora monasteriata, Montipora peltiformis, Montipora spongodes, Montipora stellata, Montipora turgescens, Montipora undata, Montipora venosa, Montipora verrucosa, Montipora vietnamensis	
 Cambodia	Porous Lettuce Coral	Echinophyllia glabra, Oxypora lacera	
+Cambodia	Pygmy Pipefish	Doryichthys contiguus, Micrognathus brevirostris	
 Cambodia	Pygmy Scorpionfish	Scorpaenodes scaber, Sebastapistes fowleri	
 Cambodia	Rounded Bubblegum Coral	Plerogyra cauliformis, Plerogyra diabolotus	
 Cambodia	Seagrass Wrasse	Halichoeres papilionaceus, Novaculoides macrolepidotus	
@@ -473,7 +476,6 @@ Cayman Is.	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Cayman Is.	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Cayman Is.	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Cayman Is.	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Cayman Is.	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Cayman Is.	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Cayman Is.	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Cayman Is.	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -487,6 +489,8 @@ Cayman Is.	Slim Flounder	Monolene antillarum, Monolene megalepis
 Cayman Is.	Yellow Pencil Coral	Madracis auretenra, Madracis myriaster	
 Central African Rep.	African Carp	Labeo chariensis, Labeo coubie, Labeo parvus	
 Central African Rep.	Elephant Fish	Mormyrus hasselquistii, Pollimyrus isidori	
+Chad	African Carp	Labeo coubie, Labeo parvus	
+Chad	Elephant Fish	Mormyrus hasselquistii, Pollimyrus isidori	
 China	American Pipit	Aglaura hemistoma, Anthus rubescens	
 China	Anemone Coral	Goniopora columna, Goniopora djiboutiensis, Goniopora pandoraensis, Goniopora pedunculata, Goniopora somaliensis, Goniopora stokesi, Goniopora tenuidens	
 China	Bush Coral	Seriatopora caliendrum, Seriatopora hystrix	
@@ -544,19 +548,25 @@ China	Striped Bum Coral	Heterocyathus aequicostatus, Heterocyathus sulcatus
 China	Thorn Coral	Stylocoeniella armata, Stylocoeniella cocosensis, Stylocoeniella guentheri	
 China	Tiger Shrimp	Caridina mariae, Caridina serrata	
 China	Wrinkle Coral	Coscinaraea monile, Psammocora columna	
+Colombia	Armored Catfish	Fonchiiichthys uracanthus, Hypostomus watwata	
 Colombia	Ascidian	Corella minuta, Didemnum psammatodes, Polyclinum constellatum, Symplegma brakenhielmi	
 Colombia	Atlantic Midshipman	Porichthys plectrodon, Porichthys porosissimus	
+Colombia	Banded Acara	Bujurquina peregrinabunda, Bujurquina vittata	
+Colombia	Banjo	Dupouyichthys sapito, Xyliphius kryptos	
+Colombia	Banjo Catfish	Bunocephalus coracoideus, Hoplomyzon atrizona, Pseudobunocephalus lundbergi, Xyliphius lepturus	
 Colombia	Black Blind Snake	Epictia goudotii, Epictia magnamaculata	
 Colombia	Bluntnose Knifefish	Brachyhypopomus brevirostris, Hypopygus lepturus	
 Colombia	Buck-Toothed Tetra	Creagrutus bolivari, Creagrutus taphorni	
 Colombia	Bumblebee Catfish	Batrochoglanis villosus, Microglanis poecilus, Pseudopimelodus bufonius	
 Colombia	Carrot Cone	Conus boui, Conus daucus	
 Colombia	Cauliflower Coral	Pocillopora capitata, Pocillopora elegans, Pocillopora meandrina	
+Colombia	Driftwood Catfish	Trachelyichthys decaradiatus, Trachelyopterichthys anduzei	
+Colombia	Dwarf Otocinclus	Otocinclus vestitus, Otocinclus vittatus	
 Colombia	Flat Andes Anole	Anolis heterodermus, Anolis richteri	
 Colombia	Gamboa Worm Salamander	Oedipina complex, Oedipina komplex	
 Colombia	Gilded Catfish	Brachyplatystoma rousseauxii, Zungaro zungaro	
 Colombia	Glass Headstander	Charax apurensis, Charax gibbosus, Charax notulatus	
-Colombia	Great Stripe-Faced Bat	Vampyrodes caraccioli, Vampyrodes major	
+Colombia	Great Stripe-Faced Bat	Vampyrodes caraccioli, Vampyrodes major	yes
 Colombia	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis	
 Colombia	Hump Coral	Porites lichen, Porites lobata, Porites panamensis	
 Colombia	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
@@ -566,7 +576,6 @@ Colombia	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus
 Colombia	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
 Colombia	Orangespotted Goby	Bollmannia chlamydes, Nes longus	
 Colombia	Pacific Barracudina	Lestidiops jayakari, Lestidiops pacificus	
-Colombia	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Colombia	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Colombia	Rainbow Whiptail	Cnemidophorus arenivagus, Cnemidophorus lemniscatus	
 Colombia	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
@@ -580,16 +589,20 @@ Colombia	Shortchin Stargazer	Dactyloscopus boehlkei, Dactyloscopus poeyi
 Colombia	Silver Tetra	Ctenobrycon oliverai, Ctenobrycon spilurus, Gymnocorymbus bondi	
 Colombia	Slate Pencil Urchin	Eucidaris thouarsii, Eucidaris tribuloides	
 Colombia	Slim Flounder	Monolene antillarum, Monolene megalepis	
+Colombia	Small-Scale Glass Tetra	Charax michaeli, Charax niger, Charax pauciradiatus	
+Colombia	South American Blind Snake	Epictia amazonica, Epictia signata	
 Colombia	Sponge	Halichondria melanadocia, Mycale cecilia	
 Colombia	Spotcheek Blenny	Brockius nigricinctus, Labrisomus pomaspilus	
 Colombia	Spotted Snake Eel	Myrichthys maculosus, Ophichthus ophis	
-Colombia	Stick Catfish	Acestridium colombiense, Acestridium dichromum, Farlowella nattereri, Farlowella rugosa	
-Colombia	Tetra	Bryconamericus cismontanus, Bryconamericus cristiani, Hemigrammus orthus, Hyphessobrycon acaciae, Hyphessobrycon mavro, Hyphessobrycon otrynus, Hyphessobrycon saizi, Knodus breviceps, Moenkhausia eigenmanni	
+Colombia	Stick Catfish	Acestridium colombiense, Acestridium dichromum, Farlowella nattereri, Farlowella rugosa, Farlowella smithi	
+Colombia	Tetra	Aulixidens eugeniae, Bryconamericus cismontanus, Bryconamericus cristiani, Creagrutus machadoi, Hemigrammus cylindricus, Hemigrammus iota, Hemigrammus orthus, Hyphessobrycon acaciae, Hyphessobrycon klausanni, Hyphessobrycon mavro, Hyphessobrycon otrynus, Hyphessobrycon saizi, Knodus breviceps, Moenkhausia eigenmanni, Moenkhausia inrai	
 Colombia	Thorny Catfish	Agamyxis albomaculatus, Amblydoras gonzalezi, Leptodoras nelsoni, Orinocodoras eigenmanni, Oxydoras sifontesi, Pterodoras rivasi	
-Colombia	Tiger Snake Eel	Myrichthys tigrinus, Myrichthys xysturus	
 Colombia	Twig Catfish	Farlowella mariaelenae, Farlowella vittata	
 Colombia	Urrao Anole	Anolis danieli, Anolis urraoi	
-Colombia	Whiptail Catfish	Dasyloricaria filamentosa, Farlowella acus, Rineloricaria magdalenae, Sturisomatichthys festivum	
+Colombia	Urrao Rocket Frog	Hyloxalus breviquartus, Silverstoneia erasmios	
+Colombia	Whale Catfish	Cetopsidium pemon, Denticetopsis praecox, Denticetopsis seducta	
+Colombia	Whiptail Catfish	Dasyloricaria filamentosa, Farlowella acus, Loricariichthys microdon, Rineloricaria magdalenae, Sturisomatichthys festivum	
+Colombia	X-Ray Tetra	Pristella ariporo, Pristella maxillaris	
 Colombia	Yellow Pencil Coral	Madracis auretenra, Madracis myriaster	
 Comoros	Anemone Coral	Goniopora ciliatus, Goniopora columna, Goniopora djiboutiensis, Goniopora pedunculata, Goniopora planulata, Goniopora somaliensis, Goniopora stokesi, Goniopora tenuidens	
 Comoros	Atlantic Barracudina	Lestidiops pseudosphyraenoides, Lestidium atlanticum	
@@ -693,18 +706,16 @@ Costa Rica	Ascidian	Corella minuta, Lissoclinum fragile, Polyclinum constellatum
 Costa Rica	Atlantic Midshipman	Porichthys plectrodon, Porichthys porosissimus	
 Costa Rica	Carrot Cone	Conus boui, Conus daucus	
 Costa Rica	Creek Tetra	Bryconamericus scleroparius, Bryconamericus terrabensis	
-Costa Rica	Goldman's Nectar Bat	Lonchophylla concava, Lonchophylla mordax	
-Costa Rica	Great Stripe-Faced Bat	Vampyrodes caraccioli, Vampyrodes major	
+Costa Rica	Goldman's Nectar Bat	Lonchophylla concava, Lonchophylla mordax	yes
+Costa Rica	Great Stripe-Faced Bat	Vampyrodes caraccioli, Vampyrodes major	yes
 Costa Rica	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis	
 Costa Rica	Hump Coral	Porites lobata, Porites panamensis	
 Costa Rica	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Costa Rica	Leaf Coral	Pavona chiriquiensis, Pavona gigantea, Pavona maldivensis	
 Costa Rica	Longtail Goby	Ctenogobius sagittula, Parrella macropteryx	
 Costa Rica	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
-Costa Rica	Multispotted Goby	Sicydium multipunctatum, Sicydium salvini	
 Costa Rica	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
 Costa Rica	Orangespotted Goby	Bollmannia chlamydes, Nes longus	
-Costa Rica	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Costa Rica	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Costa Rica	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Costa Rica	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -718,7 +729,6 @@ Costa Rica	Slate Pencil Urchin	Eucidaris thouarsii, Eucidaris tribuloides
 Costa Rica	Slim Flounder	Monolene antillarum, Monolene megalepis	
 Costa Rica	Sponge	Halichondria coerulea, Halichondria melanadocia, Mycale cecilia	
 Costa Rica	Spotted Snake Eel	Myrichthys maculosus, Ophichthus ophis	
-Costa Rica	Tiger Snake Eel	Myrichthys tigrinus, Myrichthys xysturus	
 Costa Rica	Worm Pipefish	Nerophis lumbriciformis, Penetopteryx nanus	
 Costa Rica	Yellow Pencil Coral	Madracis auretenra, Madracis myriaster	
 Croatia	Star Coral	Astroides calycularis, Madracis pharensis	
@@ -737,7 +747,6 @@ Cuba	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus
 Cuba	Nodose Box Crab	Calappula tortugae, Cyclozodion angustum	
 Cuba	Nodose Rubble Crab	Paractaea nodosa, Paractaea rufopunctata	
 Cuba	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Cuba	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Cuba	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Cuba	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Cuba	Ridgehead	Melamphaes simus, Melamphaes typhlops, Poromitra capito, Scopeloberyx opisthopterus	
@@ -757,7 +766,6 @@ Curaçao	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Curaçao	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Curaçao	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Curaçao	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Curaçao	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Curaçao	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Curaçao	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Curaçao	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -780,9 +788,10 @@ Côte d'Ivoire	Electric Catfish	Malapterurus punctatus, Malapterurus tanoensis
 Côte d'Ivoire	Guinean Tilapia	Coptodon discolor, Coptodon guineensis	
 Côte d'Ivoire	Spiny Eel	Mastacembelus nigromarginatus, Mastacembelus praensis	
 Côte d'Ivoire	Squeaker Catfish	Chiloglanis normani, Synodontis bastiani	
-Dem. Rep. Congo	African Carp	Labeo chariensis, Labeo parvus	
+Dem. Rep. Congo	African Carp	Labeo chariensis, Labeo coubie, Labeo parvus	
 Dem. Rep. Congo	Blotched Catfish	Clarias stappersii, Clarias submarginatus	
 Dem. Rep. Congo	Cichlid	Haplochromis ishmaeli, Haplochromis katunzii, Haplochromis labiatus	
+Dem. Rep. Congo	Elephant Fish	Mormyrus hasselquistii, Pollimyrus isidori	
 Dem. Rep. Congo	Ruwenzori River Frog	Amietia ruwenzorica, Phrynobatrachus petropedetoides	
 Dem. Rep. Congo	Squeaker	Synodontis dhonti, Synodontis granulosus, Synodontis irsacae, Synodontis tanganyicae	
 Denmark	Beluga	Delphinapterus leucas, Huso huso	
@@ -812,7 +821,6 @@ Dominica	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Dominica	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Dominica	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Dominica	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Dominica	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Dominica	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Dominica	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Dominica	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -831,7 +839,6 @@ Dominican Rep.	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Dominican Rep.	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Dominican Rep.	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Dominican Rep.	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Dominican Rep.	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Dominican Rep.	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Dominican Rep.	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Dominican Rep.	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -845,13 +852,18 @@ Dominican Rep.	Slim Flounder	Monolene antillarum, Monolene megalepis
 Dominican Rep.	Staircase Coralsnail	Babelomurex mansfieldi, Babelomurex scalariformis	
 Dominican Rep.	Yellow Pencil Coral	Madracis auretenra, Madracis myriaster	
 Ecuador	Ascidian	Lissoclinum fragile, Polyclinum constellatum	
+Ecuador	Banjo Catfish	Bunocephalus coracoideus, Ernstichthys intonsus, Hoplomyzon papillatus, Xyliphius lepturus	
+Ecuador	Bluntnose Knifefish	Brachyhypopomus brevirostris, Hypopygus lepturus	
 Ecuador	Cauliflower Coral	Pocillopora capitata, Pocillopora effusa, Pocillopora elegans, Pocillopora inflata, Pocillopora meandrina, Pocillopora verrucosa, Pocillopora woodjonesi	
-Ecuador	Great Stripe-Faced Bat	Vampyrodes caraccioli, Vampyrodes major	
+Ecuador	Gilded Catfish	Brachyplatystoma rousseauxii, Zungaro zungaro	
+Ecuador	Great Stripe-Faced Bat	Vampyrodes caraccioli, Vampyrodes major	yes
 Ecuador	Killifish	Anablepsoides erberi, Anablepsoides jucundus, Anablepsoides limoncochae	
 Ecuador	Leaf Coral	Pavona chiriquiensis, Pavona gigantea, Pavona maldivensis	
 Ecuador	Little Fruit-Eating Bat	Artibeus ravus, Dermanura rava	
-Ecuador	Tiger Snake Eel	Myrichthys tigrinus, Myrichthys xysturus	
+Ecuador	Tetra	Hemigrammus cylindricus, Knodus breviceps	
+Ecuador	Whale Catfish	Cetopsis oliveirai, Cetopsis parma	
 Egypt	Anemone Coral	Goniopora pedunculata, Goniopora planulata	
+Egypt	Barbel	Enteromius anema, Enteromius neglectus	
 Egypt	Crust Coral	Leptastrea bottae, Leptastrea purpurea	
 Egypt	Hedgehog Coral	Echinopora forskaliana, Echinopora fruticulosa, Echinopora gemmacea, Echinopora hirsutissima, Echinopora lamellosa	
 Egypt	Hood Coral	Stylophora pistillata, Stylophora wellsi	
@@ -922,7 +934,7 @@ Fiji	Sponge	Batzella aurantiaca, Halichondria coerulea, Mycale cecilia
 Fiji	Staghorn Coral	Acropora aculeus, Acropora austera, Acropora hoeksemai, Acropora horrida, Acropora latistella, Acropora millepora, Acropora tenuis	
 Fiji	Thorn Coral	Stylocoeniella armata, Stylocoeniella guentheri	
 Fiji	Wrinkle Coral	Cycloseris wellsi, Psammocora columna	
-Fr. Polynesia	Ascidian	Ascidia archaia, Corella minuta, Didemnum psammatodes, Lissoclinum fragile, Symplegma brakenhielmi	
+Fr. Polynesia	Ascidian	Ascidia archaia, Corella minuta, Didemnum psammatodes, Lissoclinum fragile, Polyclinum constellatum, Symplegma brakenhielmi	
 Fr. Polynesia	Black Blenny	Atrosalarias fuscus, Enchelyurus ater	
 Fr. Polynesia	Cauliflower Coral	Pocillopora meandrina, Pocillopora verrucosa, Pocillopora woodjonesi	
 Fr. Polynesia	Coral Hermit Crab	Clibanarius corallinus, Paguritta corallicola	
@@ -1024,7 +1036,6 @@ France	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus
 France	Mushroom Coral	Cycloseris costulata, Cycloseris curvata, Cycloseris cyclolites, Cycloseris distorta, Cycloseris fragilis, Cycloseris somervillei, Danafungia horrida, Danafungia scruposa, Lithophyllon concinna, Lithophyllon repanda, Lithophyllon scabra, Pleuractis moluccensis, Pleuractis seychellensis	
 France	Net Coral	Alveopora fenestrata, Alveopora spongiosa, Alveopora tizardi, Alveopora viridis	
 France	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-France	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 France	Porcelain Coral	Leptoseris explanata, Leptoseris foliosa, Leptoseris hawaiiensis, Leptoseris incrustans, Leptoseris scabra, Leptoseris solida, Leptoseris yabei	
 France	Pore Coral	Montipora aequituberculata, Montipora calcarea, Montipora caliculata, Montipora danae, Montipora digitata, Montipora efflorescens, Montipora effusa, Montipora floweri, Montipora foveolata, Montipora friabilis, Montipora grisea, Montipora informis, Montipora millepora, Montipora mollis, Montipora monasteriata, Montipora nodosa, Montipora peltiformis, Montipora spumosa, Montipora turgescens, Montipora undata, Montipora venosa, Montipora verrucosa	
 France	Porous Lettuce Coral	Oxypora crassispinosa, Oxypora lacera	
@@ -1068,7 +1079,9 @@ France	Tunicate	Ciona robusta, Microcosmus claudicans, Microcosmus exasperatus
 France	Worm Pipefish	Nerophis lumbriciformis, Penetopteryx nanus	
 France	Wrinkle Coral	Coscinaraea monile, Cycloseris wellsi, Psammocora columna	
 France	Yellow Pencil Coral	Madracis auretenra, Madracis myriaster	
+Gambia	African Carp	Labeo coubie, Labeo parvus	
 Gambia	Bagrid Catfish	Chrysichthys maurus, Chrysichthys nigrodigitatus	
+Gambia	Elephant Fish	Mormyrus hasselquistii, Pollimyrus isidori	
 Germany	Asp	Leuciscus aspius, Vipera aspis	
 Germany	Flat Periwinkle	Littorina fabalis, Littorina obtusata	
 Germany	Hydroid	Clytia hemisphaerica, Nemertesia ramosa, Opercularella lacerata	
@@ -1094,7 +1107,6 @@ Grenada	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Grenada	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Grenada	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Grenada	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Grenada	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Grenada	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Grenada	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Grenada	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -1167,7 +1179,6 @@ Guatemala	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi
 Guatemala	Longtail Goby	Ctenogobius sagittula, Parrella macropteryx	
 Guatemala	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Guatemala	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Guatemala	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Guatemala	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Guatemala	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Guatemala	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -1184,9 +1195,11 @@ Guernsey	Colonial Sea Squirt	Perophora japonica, Polysyncraton lacazei
 Guernsey	Flat Periwinkle	Littorina fabalis, Littorina obtusata	
 Guernsey	Hydroid	Clytia hemisphaerica, Nemertesia ramosa	
 Guernsey	Tunicate	Ciona robusta, Microcosmus claudicans	
+Guinea	African Carp	Labeo coubie, Labeo parvus	
 Guinea	Bagrid Catfish	Chrysichthys maurus, Chrysichthys nigrodigitatus	
 Guinea	Carp	Enteromius bigornei, Enteromius eburneensis, Enteromius liberiensis	
 Guinea	Elephant Fish	Mormyrus hasselquistii, Pollimyrus isidori	
+Guinea	Squeaker Catfish	Synodontis ansorgii, Synodontis waterloti	
 Guyana	Atlantic Midshipman	Porichthys plectrodon, Porichthys porosissimus	
 Guyana	Bluntnose Knifefish	Brachyhypopomus brevirostris, Hypopygus lepturus	
 Guyana	Bumblebee Catfish	Batrochoglanis villosus, Microglanis poecilus	
@@ -1203,7 +1216,6 @@ Haiti	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Haiti	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Haiti	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Haiti	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Haiti	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Haiti	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Haiti	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Haiti	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -1225,7 +1237,6 @@ Honduras	Longtail Goby	Ctenogobius sagittula, Parrella macropteryx
 Honduras	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Honduras	Nombre De Dios Streamside Frog	Craugastor aurilegulus, Craugastor fecundus	
 Honduras	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Honduras	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Honduras	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Honduras	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Honduras	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -1461,7 +1472,6 @@ Jamaica	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Jamaica	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Jamaica	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Jamaica	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Jamaica	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Jamaica	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Jamaica	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Jamaica	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -1513,6 +1523,7 @@ Japan	Longnose Conger	Bathycongrus wallacei, Rhynchoconger ectenurus
 Japan	Longwing Searobin	Lepidotrigla abyssalis, Lepidotrigla japonica	
 Japan	Mushroom Coral	Ctenactis albitentaculata, Cycloseris costulata, Cycloseris cyclolites, Cycloseris distorta, Cycloseris fragilis, Cycloseris sinensis, Cycloseris somervillei, Cycloseris vaughani, Danafungia horrida, Danafungia scruposa, Heliofungia fralinae, Lithophyllon concinna, Lithophyllon repanda, Lithophyllon scabra, Lithophyllon spinifer, Pleuractis moluccensis	
 Japan	Net Coral	Alveopora allingi, Alveopora catalai, Alveopora excelsa, Alveopora japonica, Alveopora spongiosa, Alveopora verrilliana	
+Japan	Notched Flathead	Onigocia macrocephala, Onigocia macrolepis	
 Japan	Octopus Coral	Galaxea astreata, Galaxea longisepta, Galaxea paucisepta	
 Japan	Okhotsk Snailfish	Careproctus bathycoetus, Liparis ochotensis	
 Japan	Ponyfish	Nuchequula blochii, Secutor indicius	
@@ -1533,6 +1544,7 @@ Japan	Starflower Coral	Astreopora gracilis, Astreopora incrustans, Astreopora li
 Japan	Starry Cup Coral	Acanthastrea hemprichii, Acanthastrea rotundoflora, Micromussa amakusensis	
 Japan	Striped Bum Coral	Heterocyathus aequicostatus, Heterocyathus alternatus, Heterocyathus sulcatus	
 Japan	Thorn Coral	Stylocoeniella armata, Stylocoeniella cocosensis, Stylocoeniella guentheri	
+Japan	Wavyband Sole	Pseudaesopia japonica, Zebrias callizona	
 Japan	Wrinkle Coral	Coscinaraea hahazimaensis, Coscinaraea monile, Psammocora columna, Psammocora exesa	
 Jersey	Burrowing Anemone	Andresia partenopea, Halcampoides abyssorum	
 Jersey	Colonial Sea Squirt	Perophora japonica, Polysyncraton lacazei	
@@ -1655,6 +1667,7 @@ Madagascar	Thorny Flathead	Rogadius pristiger, Sorsogona portuguesa
 Madagascar	Vaona	Ancharius fuscus, Gogo brevibarbis	
 Madagascar	Wrinkle Coral	Coscinaraea monile, Cycloseris wellsi, Psammocora columna	
 Madagascar	Zona	Bedotia longianalis, Rheocles lateralis, Rheocles sikorae, Rheocles wrightae	
+Malawi	Blackspot Climbing Perch	Ctenopharynx intermedius, Microctenopoma intermedium	
 Malawi	Cichlid	Astatotilapia tweddlei, Labidochromis chisumulae, Labidochromis heterodon, Labidochromis mylodon, Labidochromis pallidus, Lethrinops macrophthalmus	
 Malawi	Softy Hap	Mylochromis mola, Mylochromis mollis	
 Malawi	Zebra Mbuna	Maylandia xanstomachus, Maylandia zebra	
@@ -1803,7 +1816,7 @@ Mexico	Crested Bigscale	Poromitra crassiceps, Poromitra cristiceps, Poromitra fr
 Mexico	Estuarine Ghost Shrimp	Lepidophthalmus jamaicense, Lepidophthalmus louisianensis	
 Mexico	Fringed Stargazer	Dactyloscopus elongatus, Dactyloscopus fimbriatus	
 Mexico	Gibbous Shiner	Cyprinella garmani, Cyprinella rubripinna	
-Mexico	Great Stripe-Faced Bat	Vampyrodes caraccioli, Vampyrodes major	
+Mexico	Great Stripe-Faced Bat	Vampyrodes caraccioli, Vampyrodes major	yes
 Mexico	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis	
 Mexico	Hump Coral	Porites australiensis, Porites lobata, Porites panamensis, Porites sverdrupi	
 Mexico	Hydroid	Bimeria vestita, Clytia hemisphaerica, Corydendrium parasiticum	
@@ -1812,14 +1825,12 @@ Mexico	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi
 Mexico	Longtail Goby	Ctenogobius sagittula, Parrella macropteryx	
 Mexico	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Mexico	Michoacan Stream Salamander	Ambystoma ordinarium, Ambystoma rivulare	
-Mexico	Multispotted Goby	Sicydium multipunctatum, Sicydium salvini	
 Mexico	Mushroom Coral	Cycloseris curvata, Cycloseris distorta	
 Mexico	Nodose Box Crab	Calappula tortugae, Cyclozodion angustum	
 Mexico	Nodose Rubble Crab	Paractaea nodosa, Paractaea rufopunctata	
 Mexico	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
 Mexico	Orangespotted Goby	Bollmannia chlamydes, Nes longus	
 Mexico	Pacific Barracudina	Lestidiops jayakari, Lestidiops pacificus	
-Mexico	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Mexico	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Mexico	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Mexico	Ridgehead	Melamphaes simus, Melamphaes typhlops, Poromitra capito, Scopeloberyx opisthopterus	
@@ -1835,7 +1846,6 @@ Mexico	Slim Flounder	Monolene antillarum, Monolene megalepis
 Mexico	Sponge	Halichondria melanadocia, Mycale cecilia	
 Mexico	Spotted Snake Eel	Myrichthys maculosus, Ophichthus ophis	
 Mexico	Staircase Coralsnail	Babelomurex mansfieldi, Babelomurex scalariformis	
-Mexico	Tiger Snake Eel	Myrichthys tigrinus, Myrichthys xysturus	
 Mexico	Yellow Pencil Coral	Madracis auretenra, Madracis myriaster	
 Mexico	Yuman Desert Fringe-Toed Lizard	Uma cowlesi, Uma rufopunctata	
 Micronesia	Fire Coral	Millepora exaesa, Millepora tenera	
@@ -1860,7 +1870,6 @@ Montserrat	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Montserrat	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Montserrat	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Montserrat	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Montserrat	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Montserrat	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Montserrat	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Montserrat	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -2001,6 +2010,7 @@ N. Mariana Is.	Striped Bum Coral	Heterocyathus aequicostatus, Heterocyathus alte
 N. Mariana Is.	Thorn Coral	Stylocoeniella armata, Stylocoeniella guentheri	
 N. Mariana Is.	Wrinkle Coral	Coscinaraea hahazimaensis, Coscinaraea monile, Psammocora columna, Psammocora exesa	
 Namibia	Black Swallower	Chiasmodon microcephalus, Chiasmodon niger	
+Namibia	Blotched Catfish	Clarias stappersii, Clarias submarginatus	
 Netherlands	American Pipit	Aglaura hemistoma, Anthus rubescens	
 Netherlands	Ascidian	Corella minuta, Polyclinum constellatum, Symplegma brakenhielmi	
 Netherlands	Atlantic Midshipman	Porichthys plectrodon, Porichthys porosissimus	
@@ -2014,7 +2024,6 @@ Netherlands	Hydroid	Clytia hemisphaerica, Nemertesia ramosa, Opercularella lacer
 Netherlands	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Netherlands	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Netherlands	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Netherlands	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Netherlands	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Netherlands	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Netherlands	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -2115,10 +2124,8 @@ Nicaragua	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Nicaragua	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Nicaragua	Longtail Goby	Ctenogobius sagittula, Parrella macropteryx	
 Nicaragua	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
-Nicaragua	Multispotted Goby	Sicydium multipunctatum, Sicydium salvini	
 Nicaragua	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
 Nicaragua	Orangespotted Goby	Bollmannia chlamydes, Nes longus	
-Nicaragua	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Nicaragua	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Nicaragua	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Nicaragua	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -2131,7 +2138,6 @@ Nicaragua	Shortchin Stargazer	Dactyloscopus boehlkei, Dactyloscopus poeyi
 Nicaragua	Slate Pencil Urchin	Eucidaris thouarsii, Eucidaris tribuloides	
 Nicaragua	Slim Flounder	Monolene antillarum, Monolene megalepis	
 Nicaragua	Spotted Snake Eel	Myrichthys maculosus, Ophichthus ophis	
-Nicaragua	Tiger Snake Eel	Myrichthys tigrinus, Myrichthys xysturus	
 Nicaragua	Yellow Pencil Coral	Madracis auretenra, Madracis myriaster	
 Niue	Knob Coral	Dipsastraea helianthoides, Goniastrea stelligera	
 Niue	Staghorn Coral	Acropora austera, Acropora latistella	
@@ -2252,7 +2258,8 @@ Panama	Ascidian	Corella minuta, Polyclinum constellatum, Symplegma brakenhielmi
 Panama	Atlantic Midshipman	Porichthys plectrodon, Porichthys porosissimus	
 Panama	Carrot Cone	Conus boui, Conus daucus	
 Panama	Gamboa Worm Salamander	Oedipina complex, Oedipina komplex	
-Panama	Goldman's Nectar Bat	Lonchophylla concava, Lonchophylla mordax	
+Panama	Goldman's Nectar Bat	Lonchophylla concava, Lonchophylla mordax	yes
+Panama	Great Stripe-Faced Bat	Vampyrodes caraccioli, Vampyrodes major	yes
 Panama	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis	
 Panama	Hump Coral	Porites lobata, Porites panamensis	
 Panama	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
@@ -2260,16 +2267,14 @@ Panama	Leaf Coral	Pavona chiriquiensis, Pavona gigantea
 Panama	Little Fruit-Eating Bat	Artibeus ravus, Dermanura rava	
 Panama	Longtail Goby	Ctenogobius sagittula, Parrella macropteryx	
 Panama	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
-Panama	Multispotted Goby	Sicydium multipunctatum, Sicydium salvini	
 Panama	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
 Panama	Orangespotted Goby	Bollmannia chlamydes, Nes longus	
 Panama	Panamic Cusk-Eel	Lepophidium hubbsi, Otophidium indefatigabile	
-Panama	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Panama	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Panama	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Panama	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
 Panama	River Goby	Awaous banana, Awaous tajasica	
-Panama	Rivulus	Cynodonichthys birkhahni, Cynodonichthys weberi	
+Panama	Rivulus	Cynodonichthys birkhahni, Cynodonichthys wassmanni, Cynodonichthys weberi	
 Panama	Robust Cusk-Eel	Benthocometes robustus, Lepophidium robustum	
 Panama	Row Pore Rope Sponge	Aplysina cauliformis, Callyspongia tenerrima	
 Panama	Scattered Pore Rope Sponge	Amphimedon nodosa, Aplysina fulva	
@@ -2281,7 +2286,6 @@ Panama	Slim Flounder	Monolene antillarum, Monolene megalepis
 Panama	Smooth Dreamer	Chaenophryne draco, Chaenophryne melanorhabdus	
 Panama	Sponge	Halichondria coerulea, Halichondria melanadocia, Mycale cecilia	
 Panama	Spotted Snake Eel	Myrichthys maculosus, Ophichthus ophis	
-Panama	Tiger Snake Eel	Myrichthys tigrinus, Myrichthys xysturus	
 Panama	Worm Pipefish	Nerophis lumbriciformis, Penetopteryx nanus	
 Panama	Yellow Pencil Coral	Madracis auretenra, Madracis myriaster	
 Papua New Guinea	Anemone Coral	Goniopora columna, Goniopora djiboutiensis, Goniopora eclipsensis, Goniopora fruticosa, Goniopora norfolkensis, Goniopora palmensis, Goniopora pandoraensis, Goniopora pedunculata, Goniopora pendulus, Goniopora somaliensis, Goniopora stokesi, Goniopora tenella, Goniopora tenuidens	
@@ -2334,6 +2338,7 @@ Papua New Guinea	Porous Lettuce Coral	Echinophyllia glabra, Oxypora crassispinos
 Papua New Guinea	Pristine Viviparous Brotula	Eusurculus pistillum, Eusurculus pristinus	
 Papua New Guinea	Pygmy Scorpionfish	Scorpaenodes scaber, Sebastapistes fowleri	
 Papua New Guinea	Red Pipefish	Festucalex erythraeus, Festucalex rufus, Microphis mento	
+Papua New Guinea	Seagrass Wrasse	Halichoeres papilionaceus, Novaculoides macrolepidotus	
 Papua New Guinea	Serpent Coral	Pachyseris foliosa, Pachyseris gemmae, Pachyseris rugosa, Pachyseris speciosa	
 Papua New Guinea	Sinuous Cup Coral	Lobophyllia agaricia, Lobophyllia radians, Lobophyllia recta	
 Papua New Guinea	Smooth Bum Coral	Heteropsammia cochlea, Heteropsammia eupsammides	
@@ -2354,18 +2359,25 @@ Papua New Guinea	Wrinkle Coral	Cycloseris wellsi, Psammocora columna, Psammocora
 Paraguay	Cichlid	Australoheros guarani, Cichlasoma pusillum	
 Paraguay	Dwarf Otocinclus	Otocinclus vestitus, Otocinclus vittatus	
 Paraguay	Miranda Green Racer	Philodryas erlandi, Philodryas mattogrossensis	
+Paraguay	Pencil Catfish	Ituglanis eichorniarum, Trichomycterus boylei	
 Paraguay	South American Marked Gecko	Homonota fasciata, Homonota horrida	
 Paraguay	Stick Catfish	Farlowella hahni, Farlowella paraguayensis	
-Peru	Amazonian Marsh Rat	Holochilus nanus, Holochilus sciureus	
+Paraguay	Suckermouth Armoured Catfish	Hypostomus dlouhyi, Hypostomus piratatu	
+Peru	Amazonian Marsh Rat	Holochilus nanus, Holochilus sciureus	yes
 Peru	Andean Killfish	Orestias mundus, Orestias polonorum	
-Peru	Andean Killifish	Orestias agassizii, Orestias empyraeus, Orestias jussiei, Orestias luteus, Orestias mulleri, Orestias multiporis	
+Peru	Andean Killifish	Orestias agassizii, Orestias crawfordi, Orestias empyraeus, Orestias frontosus, Orestias incae, Orestias jussiei, Orestias luteus, Orestias mulleri, Orestias multiporis, Orestias puni, Orestias tschudii	
+Peru	Banded Acara	Bujurquina peregrinabunda, Bujurquina vittata	
 Peru	Banjo Catfish	Bunocephalus coracoideus, Xyliphius lepturus	
 Peru	Bluntnose Knifefish	Brachyhypopomus brevirostris, Hypopygus lepturus	
+Peru	Bumblebee Catfish	Microglanis poecilus, Pseudopimelodus bufonius	
 Peru	Chio Chio	Cyphocharax derhami, Cyphocharax pantostictos	
+Peru	Dwarf Otocinclus	Otocinclus vestitus, Otocinclus vittatus	
 Peru	Gilded Catfish	Brachyplatystoma rousseauxii, Zungaro zungaro	
 Peru	Serranía De Contamana Poison Frog	Ameerega ignipedis, Ameerega yoshina	
+Peru	Small-Scale Glass Tetra	Charax michaeli, Charax niger	
 Peru	Stick Catfish	Farlowella nattereri, Farlowella smithi	
 Peru	Tetra	Copeina osgoodi, Knodus breviceps	
+Peru	Whale Catfish	Cetopsis oliveirai, Denticetopsis seducta	
 Peru	Zapatero Rocket Frog	Hyloxalus craspedoceps, Hyloxalus sordidatus	
 Philippines	Anemone Coral	Goniopora djiboutiensis, Goniopora pendulus, Goniopora stokesi, Goniopora tenuidens	
 Philippines	Ascidian	Botrylloides perspicuus, Corella minuta, Didemnum psammatodes, Phallusia philippinensis, Polycarpa cryptocarpa	
@@ -2447,7 +2459,6 @@ Puerto Rico	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Puerto Rico	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Puerto Rico	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Puerto Rico	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Puerto Rico	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Puerto Rico	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Puerto Rico	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Puerto Rico	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -2487,7 +2498,6 @@ Saint Lucia	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Saint Lucia	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Saint Lucia	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Saint Lucia	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Saint Lucia	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Saint Lucia	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Saint Lucia	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Saint Lucia	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -2528,7 +2538,6 @@ Serranilla Bank	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Serranilla Bank	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Serranilla Bank	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Serranilla Bank	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Serranilla Bank	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Serranilla Bank	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Serranilla Bank	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Serranilla Bank	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -2591,7 +2600,6 @@ Sint Maarten	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Sint Maarten	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Sint Maarten	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Sint Maarten	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Sint Maarten	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Sint Maarten	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Sint Maarten	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Sint Maarten	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -2794,7 +2802,6 @@ St-Barthélemy	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 St-Barthélemy	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 St-Barthélemy	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 St-Barthélemy	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-St-Barthélemy	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 St-Barthélemy	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 St-Barthélemy	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 St-Barthélemy	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -2813,7 +2820,6 @@ St-Martin	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 St-Martin	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 St-Martin	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 St-Martin	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-St-Martin	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 St-Martin	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 St-Martin	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 St-Martin	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -2832,7 +2838,6 @@ St. Kitts and Nevis	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 St. Kitts and Nevis	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 St. Kitts and Nevis	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 St. Kitts and Nevis	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-St. Kitts and Nevis	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 St. Kitts and Nevis	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 St. Kitts and Nevis	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 St. Kitts and Nevis	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -2854,7 +2859,6 @@ St. Vin. and Gren.	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 St. Vin. and Gren.	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 St. Vin. and Gren.	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 St. Vin. and Gren.	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-St. Vin. and Gren.	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 St. Vin. and Gren.	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 St. Vin. and Gren.	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 St. Vin. and Gren.	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -2881,11 +2885,13 @@ Sudan	Pore Coral	Montipora crypta, Montipora danae, Montipora efflorescens, Mont
 Sudan	Staghorn Coral	Acropora austera, Acropora hemprichii	
 Suriname	Atlantic Midshipman	Porichthys plectrodon, Porichthys porosissimus	
 Suriname	Bluntnose Knifefish	Brachyhypopomus brevirostris, Hypopygus lepturus	
-Suriname	Cory	Corydoras sanchesi, Corydoras saramaccensis, Corydoras surinamensis	
+Suriname	Bumblebee Catfish	Microglanis poecilus, Pseudopimelodus bufonius	
+Suriname	Cory	Corydoras oxyrhynchus, Corydoras sanchesi, Corydoras saramaccensis, Corydoras surinamensis	
+Suriname	Pacu	Myleus pacu, Myloplus planquettei	
 Suriname	Pike Cichlid	Crenicichla coppenamensis, Crenicichla multispinosa, Crenicichla nickeriensis	
 Suriname	Striped Headstander	Anostomus anostomus, Anostomus brevior, Hypomasticus despaxi	
 Suriname	Suckermouth Catfish	Guyanancistrus brevispinis, Lithoxus planquettei	
-Suriname	Tetra	Bryconamericus hyphesson, Hemigrammus boesemani, Jupiaba pinnata	
+Suriname	Tetra	Bryconamericus hyphesson, Hemigrammus boesemani, Jupiaba pinnata, Moenkhausia inrai	
 Sweden	American Pipit	Aglaura hemistoma, Anthus rubescens	
 Sweden	Flat Periwinkle	Littorina fabalis, Littorina obtusata	
 Sweden	Hydroid	Clytia hemisphaerica, Opercularella lacerata	
@@ -2985,6 +2991,7 @@ Thailand	Chinese Lettuce Coral	Mycedium elephantotus, Mycedium robokaki
 Thailand	Crispy Crust Coral	Merulina ampliata, Merulina scabricula	
 Thailand	Crust Coral	Leptastrea purpurea, Leptastrea transversa	
 Thailand	Disc Coral	Turbinaria crater, Turbinaria stellulata	
+Thailand	False Black Lancer	Bagrichthys macropterus, Bagrichthys obscurus	
 Thailand	False Knob Coral	Astrea curta, Favites magnistellata, Favites valenciennesii	
 Thailand	Finger Coral	Acropora humilis, Palauastrea ramosa	
 Thailand	Flat Lettuce Coral	Echinophyllia aspera, Echinophyllia echinoporoides, Echinophyllia patula	
@@ -3064,7 +3071,6 @@ Trinidad and Tobago	Knob Coral	Favia gravida, Goniastrea stelligera
 Trinidad and Tobago	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Trinidad and Tobago	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Trinidad and Tobago	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Trinidad and Tobago	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 Trinidad and Tobago	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Trinidad and Tobago	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 Trinidad and Tobago	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -3075,7 +3081,6 @@ Trinidad and Tobago	Scattered Pore Rope Sponge	Amphimedon nodosa, Aplysina fulva
 Trinidad and Tobago	Shameface Heart Crab	Cryptosoma bairdii, Cryptosoma balguerii	
 Trinidad and Tobago	Shortchin Stargazer	Dactyloscopus boehlkei, Dactyloscopus poeyi	
 Trinidad and Tobago	Slim Flounder	Monolene antillarum, Monolene megalepis	
-Trinidad and Tobago	Torroto Grunt	Genyatremus cavifrons, Genyatremus luteus	
 Trinidad and Tobago	Yellow Pencil Coral	Madracis auretenra, Madracis myriaster	
 Tunisia	Burrowing Anemone	Andresia partenopea, Halcampoides abyssorum	
 Tunisia	Colonial Sea Squirt	Perophora japonica, Polysyncraton lacazei	
@@ -3125,7 +3130,6 @@ U.S. Minor Outlying Is.	Masked Swimming Crab	Callinectes larvatus, Callinectes m
 U.S. Minor Outlying Is.	Mushroom Coral	Cycloseris cyclolites, Cycloseris distorta, Cycloseris sinensis, Cycloseris vaughani, Danafungia horrida, Lithophyllon concinna, Lithophyllon repanda, Sinuorota hexagonalis	
 U.S. Minor Outlying Is.	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
 U.S. Minor Outlying Is.	Pacific Barracudina	Lestidiops jayakari, Lestidiops pacificus	
-U.S. Minor Outlying Is.	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 U.S. Minor Outlying Is.	Porcelain Coral	Leptoseris hawaiiensis, Leptoseris incrustans, Leptoseris scabra, Leptoseris tubulifera	
 U.S. Minor Outlying Is.	Pore Coral	Montipora aequituberculata, Montipora caliculata, Montipora efflorescens, Montipora foveolata, Montipora grisea, Montipora hoffmeisteri, Montipora incrassata, Montipora informis, Montipora lobulata, Montipora monasteriata, Montipora peltiformis, Montipora turgescens, Montipora verrilli, Montipora verrucosa	
 U.S. Minor Outlying Is.	Pricklefish	Malacosarcus macrostoma, Stephanoberyx monae	
@@ -3152,7 +3156,6 @@ U.S. Virgin Is.	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 U.S. Virgin Is.	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 U.S. Virgin Is.	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 U.S. Virgin Is.	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-U.S. Virgin Is.	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 U.S. Virgin Is.	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 U.S. Virgin Is.	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 U.S. Virgin Is.	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -3171,7 +3174,6 @@ USNB Guantanamo Bay	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 USNB Guantanamo Bay	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 USNB Guantanamo Bay	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 USNB Guantanamo Bay	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-USNB Guantanamo Bay	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 USNB Guantanamo Bay	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 USNB Guantanamo Bay	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
 USNB Guantanamo Bay	Ridgehead	Melamphaes typhlops, Scopeloberyx opisthopterus	
@@ -3235,7 +3237,6 @@ United States of America	Nodose Rubble Crab	Paractaea nodosa, Paractaea rufopunc
 United States of America	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
 United States of America	Pacific Barracudina	Lestidiops jayakari, Lestidiops pacificus	
 United States of America	Pacific Lamprey	Entosphenus tridentatus, Moenkhausia tridentata	
-United States of America	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
 United States of America	Porcelain Coral	Leptoseris hawaiiensis, Leptoseris incrustans, Leptoseris scabra, Leptoseris tubulifera	
 United States of America	Pore Coral	Montipora incrassata, Montipora turgescens, Montipora verrilli, Montipora verrucosa	
 United States of America	Pricklefish	Acanthochaenus luetkenii, Malacosarcus macrostoma, Stephanoberyx monae	
@@ -3260,6 +3261,8 @@ United States of America	Tunicate	Ascidia zara, Ciona robusta, Microcosmus exasp
 United States of America	Yellow Pencil Coral	Madracis auretenra, Madracis myriaster	
 Uruguay	Argentinian Silverside	Odontesthes argentinensis, Odontesthes bonariensis	
 Uruguay	King Weakfish	Macrodon ancylodon, Macrodon atricauda	
+Uruguay	Latin Astyanax	Astyanax abramis, Hypobrycon poi	
+Uruguay	Silverside	Odontesthes humensis, Odontesthes incisa, Odontesthes retropinnis	
 Uzbekistan	Turkestan Rock Agama	Paralaudakia bochariensis, Paralaudakia lehmanni	
 Vanuatu	Anemone Coral	Goniopora columna, Goniopora djiboutiensis, Goniopora eclipsensis, Goniopora fruticosa, Goniopora norfolkensis, Goniopora palmensis, Goniopora pandoraensis, Goniopora pedunculata, Goniopora pendulus, Goniopora somaliensis, Goniopora stokesi, Goniopora tenella, Goniopora tenuidens	
 Vanuatu	Ascidian	Ascidia archaia, Botrylloides perspicuus, Didemnum psammatodes, Molgula ficus, Phallusia philippinensis, Polycarpa cryptocarpa, Polyclinum constellatum, Symplegma brakenhielmi	
@@ -3321,11 +3324,12 @@ Vanuatu	Wrinkle Coral	Cycloseris wellsi, Psammocora columna, Psammocora exesa
 Venezuela	Armored Catfish	Fonchiiichthys uracanthus, Hypostomus watwata	
 Venezuela	Ascidian	Corella minuta, Polyclinum constellatum, Symplegma brakenhielmi	
 Venezuela	Atlantic Midshipman	Porichthys plectrodon, Porichthys porosissimus	
-Venezuela	Banjo Catfish	Hoplomyzon atrizona, Pseudobunocephalus lundbergi	
+Venezuela	Banjo Catfish	Acanthobunocephalus nicoi, Bunocephalus coracoideus, Hoplomyzon atrizona, Pseudobunocephalus lundbergi	
 Venezuela	Bluntnose Knifefish	Brachyhypopomus brevirostris, Hypopygus lepturus	
 Venezuela	Buck-Toothed Tetra	Creagrutus bolivari, Creagrutus taphorni	
 Venezuela	Bumblebee Catfish	Batrochoglanis villosus, Microglanis poecilus, Pseudopimelodus bufonius	
 Venezuela	Carrot Cone	Conus boui, Conus daucus	
+Venezuela	Driftwood Catfish	Trachelyichthys decaradiatus, Trachelyopterichthys anduzei	
 Venezuela	Dwarf Otocinclus	Otocinclus vestitus, Otocinclus vittatus	
 Venezuela	Freshwater Pipefish	Pseudophallus brasiliensis, Pseudophallus mindii	
 Venezuela	Gilded Catfish	Brachyplatystoma rousseauxii, Zungaro zungaro	
@@ -3334,7 +3338,8 @@ Venezuela	Green Tube Tunicate	Ascidia sydneiensis, Phallusia fragilis
 Venezuela	Large-Tooth Flounder	Citharichthys minutus, Citharichthys valdezi	
 Venezuela	Masked Swimming Crab	Callinectes larvatus, Callinectes marginatus	
 Venezuela	Obscure Dwarf Triton	Colubraria obscura, Colubraria testacea	
-Venezuela	Polka-Dot Batfish	Ogcocephalus cubifrons, Ogcocephalus radiatus	
+Venezuela	Pencilfish	Nannostomus nigrotaeniatus, Pyrrhulina filamentosa	
+Venezuela	Potaro Tetra	Astyanax mutator, Jupiaba potaroensis	
 Venezuela	Prolific Coral	Anomocora fecunda, Anomocora prolifera	
 Venezuela	Rainbow Whiptail	Cnemidophorus arenivagus, Cnemidophorus lemniscatus	
 Venezuela	Red Boring Sponge	Cliothosa delitrix, Pione lampa	
@@ -3345,12 +3350,15 @@ Venezuela	Row Pore Rope Sponge	Aplysina cauliformis, Callyspongia tenerrima
 Venezuela	Scattered Pore Rope Sponge	Amphimedon nodosa, Aplysina fulva	
 Venezuela	Shameface Heart Crab	Cryptosoma bairdii, Cryptosoma balguerii	
 Venezuela	Shortchin Stargazer	Dactyloscopus boehlkei, Dactyloscopus poeyi	
+Venezuela	Silver Dollar	Metynnis argenteus, Metynnis longipinnis	
 Venezuela	Silver Tetra	Ctenobrycon oliverai, Ctenobrycon spilurus, Gymnocorymbus bondi	
 Venezuela	Slim Flounder	Monolene antillarum, Monolene megalepis	
-Venezuela	Tetra	Aulixidens eugeniae, Bryconamericus cismontanus, Bryconamericus hyphesson, Creagrutus magoi, Hemigrammus cylindricus, Hyphessobrycon otrynus, Jupiaba pinnata, Knodus breviceps, Odontostilbe littoris, Phenacogaster microstictus	
+Venezuela	Spotted Hatchetfish	Gasteropelecus levis, Gasteropelecus maculatus	
+Venezuela	Tetra	Aulixidens eugeniae, Bryconamericus cismontanus, Bryconamericus hyphesson, Creagrutus machadoi, Creagrutus magoi, Hemigrammus boesemani, Hemigrammus cylindricus, Hemigrammus orthus, Hyphessobrycon otrynus, Jupiaba pinnata, Knodus breviceps, Moenkhausia robertsi, Odontostilbe littoris, Phenacogaster microstictus	
 Venezuela	Thorny Catfish	Agamyxis albomaculatus, Amblydoras gonzalezi, Leptodoras rogersae, Orinocodoras eigenmanni, Oxydoras sifontesi, Pterodoras rivasi	
 Venezuela	Twig Catfish	Farlowella mariaelenae, Farlowella vittata	
-Venezuela	Whiptail Catfish	Dasyloricaria filamentosa, Farlowella acus, Rineloricaria magdalenae, Sturisomatichthys festivum	
+Venezuela	Whale Catfish	Cetopsidium pemon, Denticetopsis praecox	
+Venezuela	Whiptail Catfish	Dasyloricaria filamentosa, Farlowella acus, Rineloricaria magdalenae, Rineloricaria stewarti, Sturisomatichthys festivum	
 Venezuela	Yellow Pencil Coral	Madracis auretenra, Madracis myriaster	
 Vietnam	Bush Coral	Seriatopora caliendrum, Seriatopora hystrix	
 Vietnam	Cauliflower Coral	Pocillopora meandrina, Pocillopora verrucosa, Pocillopora woodjonesi	
@@ -3359,6 +3367,7 @@ Vietnam	Crispy Crust Coral	Merulina ampliata, Merulina scabricula
 Vietnam	Crust Coral	Leptastrea purpurea, Leptastrea transversa	
 Vietnam	Cutribbon Wrasse	Stethojulis interrupta, Stethojulis terina	
 Vietnam	Disc Coral	Turbinaria frondens, Turbinaria stellulata	
+Vietnam	False Black Lancer	Bagrichthys macropterus, Bagrichthys obscurus	
 Vietnam	False Knob Coral	Astrea curta, Favites magnistellata, Favites valenciennesii	
 Vietnam	Finger Coral	Acropora humilis, Palauastrea ramosa	
 Vietnam	Flat Lettuce Coral	Echinophyllia aspera, Echinophyllia echinoporoides, Echinophyllia orpheensis	

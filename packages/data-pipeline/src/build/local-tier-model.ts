@@ -13,7 +13,15 @@
 // 4. a guard: a species recorded far more often than the common threshold stays common.
 // The bands are tuned against named anchor species (packages/data-pipeline/data/reference/checklist-anchors.json),
 // never against a target share of each tier.
-import { NO_RARITY_TIER_TAXON_CLASSES, TIER_ORDER, type TierExplain, type TierGroup, type TierReason, type TierStep, type TierValue } from "@lifer/shared";
+import {
+  NO_RARITY_TIER_TAXON_CLASSES,
+  TIER_ORDER,
+  type TierExplain,
+  type TierGroup,
+  type TierReason,
+  type TierStep,
+  type TierValue,
+} from "@lifer/shared";
 
 /** Group a catalog taxon_class belongs to for tiers, or null for groups that aren't tiered. */
 export function tierGroupForTaxonClass(taxonClass: string | null): TierGroup | null {
@@ -94,7 +102,7 @@ export const THIN_EFFORT_RECORDS = 2000;
 /** Research-grade photos of a group in a place needed to rate on photos instead of records. */
 export const INAT_THIN_EFFORT = 1000;
 /** Groups rated on GBIF records first (eBird checklists for birds), the rest on photos first. */
-const RECORDS_FIRST_GROUPS = new Set<TierGroup>(["birds"]);
+export const RECORDS_FIRST_GROUPS = new Set<TierGroup>(["birds"]);
 /** English Wikipedia views a year below which a species is too little sought after for its photo
  *  count to show how often it's found. Few photos of one says nothing, so it isn't rated from
  *  them; plenty of photos still does. */
@@ -136,7 +144,9 @@ export function coreRangeDiagonalKm(clusters: readonly HotspotCluster[]): number
   const distanceKm = (cl: HotspotCluster) =>
     Math.sqrt((cl.centroidLat - centroidLat) ** 2 + ((cl.centroidLon - centroidLon) * lonScale) ** 2) * KM_PER_DEGREE;
   const meanDistanceKm = clusters.reduce((sum, cl) => sum + distanceKm(cl) * cl.pointCount, 0) / total;
-  const stdDevKm = Math.sqrt(clusters.reduce((sum, cl) => sum + (distanceKm(cl) - meanDistanceKm) ** 2 * cl.pointCount, 0) / total);
+  const stdDevKm = Math.sqrt(
+    clusters.reduce((sum, cl) => sum + (distanceKm(cl) - meanDistanceKm) ** 2 * cl.pointCount, 0) / total,
+  );
   const core = clusters.filter((cl) => {
     const isSmall = cl.pointCount / total <= 0.1;
     const isFar = stdDevKm > 0 && distanceKm(cl) > meanDistanceKm + 2.5 * stdDevKm;
@@ -147,7 +157,9 @@ export function coreRangeDiagonalKm(clusters: readonly HotspotCluster[]): number
   const lats = effective.map((cl) => cl.centroidLat);
   const lons = effective.map((cl) => cl.centroidLon);
   const centroidSpanKm =
-    Math.sqrt((Math.max(...lats) - Math.min(...lats)) ** 2 + ((Math.max(...lons) - Math.min(...lons)) * lonScale) ** 2) * KM_PER_DEGREE;
+    Math.sqrt(
+      (Math.max(...lats) - Math.min(...lats)) ** 2 + ((Math.max(...lons) - Math.min(...lons)) * lonScale) ** 2,
+    ) * KM_PER_DEGREE;
   const maxClusterRadiusKm = Math.max(...effective.map((cl) => cl.bboxDiagonalKm / 2));
   return centroidSpanKm + maxClusterRadiusKm * 2;
 }
@@ -210,7 +222,10 @@ function tierIndex(t: TierValue): number {
 function photoRelative(photos: number, referencePhotos: number, referenceInterest: number, interest: number): number {
   const raw = photos / referencePhotos;
   if (raw >= 1) return raw;
-  const discount = Math.min(1, Math.pow(referenceInterest / Math.max(INTEREST_FLOOR_FOR_CORRECTION, interest), PHOTO_INTEREST_POWER));
+  const discount = Math.min(
+    1,
+    Math.pow(referenceInterest / Math.max(INTEREST_FLOOR_FOR_CORRECTION, interest), PHOTO_INTEREST_POWER),
+  );
   return raw * discount;
 }
 
@@ -234,7 +249,9 @@ function baseTier(group: TierGroup, rate: number): TierValue {
 
 /** The weeks holding most of a species' records, when it's clearly seasonal: the shortest run of
  *  consecutive weeks (wrapping at the year's end) holding 80% of them, if under 40 weeks. */
-export function seasonWindow(weekly: readonly number[] | null | undefined): { startWeek: number; endWeek: number; weeks: number } | null {
+export function seasonWindow(
+  weekly: readonly number[] | null | undefined,
+): { startWeek: number; endWeek: number; weeks: number } | null {
   if (!weekly || weekly.length !== 52) return null;
   const total = weekly.reduce((a, b) => a + b, 0);
   if (total < 20) return null;
@@ -262,8 +279,10 @@ function traitSteps(group: TierGroup, traits: TierTraits): TierStep[] {
   if (group === "mammals" && traits.densityPerKm2 != null && traits.densityPerKm2 < 0.05) {
     steps.push({ kind: "low_density", perKm2: traits.densityPerKm2 });
   }
-  if (traits.homeRangeKm2 != null && traits.homeRangeKm2 > 500) steps.push({ kind: "wide_ranging", homeRangeKm2: traits.homeRangeKm2 });
-  if (group === "fish" && traits.depthMinM != null && traits.depthMinM > 30) steps.push({ kind: "deep_water", depthM: traits.depthMinM });
+  if (traits.homeRangeKm2 != null && traits.homeRangeKm2 > 500)
+    steps.push({ kind: "wide_ranging", homeRangeKm2: traits.homeRangeKm2 });
+  if (group === "fish" && traits.depthMinM != null && traits.depthMinM > 30)
+    steps.push({ kind: "deep_water", depthM: traits.depthMinM });
   return steps;
 }
 
@@ -289,7 +308,9 @@ export function tierFromInputs(input: TierInput): TierResult {
   let source: TierExplain["source"] = null;
   const photosUsable = input.inatRecords != null && input.inatEffort != null && input.inatEffort >= INAT_THIN_EFFORT;
   const recordsUsable = input.records != null && input.records > 0 && input.effort != null && input.effort > 0;
-  const useRecords = recordsUsable && (RECORDS_FIRST_GROUPS.has(group) ? input.effort! >= THIN_EFFORT_RECORDS || !photosUsable : !photosUsable);
+  const useRecords =
+    recordsUsable &&
+    (RECORDS_FIRST_GROUPS.has(group) ? input.effort! >= THIN_EFFORT_RECORDS || !photosUsable : !photosUsable);
   if (useRecords) {
     records = input.records!;
     effort = input.effort!;
@@ -303,7 +324,10 @@ export function tierFromInputs(input: TierInput): TierResult {
   const relative =
     source === "gbif" && group === "birds" && input.referenceRecords != null && input.referenceRecords > 0
       ? records! / input.referenceRecords
-      : source === "inat" && input.referencePhotos != null && input.referencePhotos > 0 && input.referenceInterest != null
+      : source === "inat" &&
+          input.referencePhotos != null &&
+          input.referencePhotos > 0 &&
+          input.referenceInterest != null
         ? photoRelative(records!, input.referencePhotos, input.referenceInterest, input.interest ?? 0)
         : null;
 
@@ -321,12 +345,14 @@ export function tierFromInputs(input: TierInput): TierResult {
 
   // A one-off visitor is about as hard a photo as there is. The vagrant flag also marks introduced
   // species, so one with a steady record over years counts as established and is rated normally.
-  const established = (input.records ?? 0) >= ESTABLISHED_RECORDS && (input.recentDistinctYears ?? 0) >= ESTABLISHED_YEARS;
+  const established =
+    (input.records ?? 0) >= ESTABLISHED_RECORDS && (input.recentDistinctYears ?? 0) >= ESTABLISHED_YEARS;
   if (input.isVagrant && !established) {
     return { tier: "legendary", reason: "vagrant", explain: { ...explainBase, base: null, steps: [], guard: false } };
   }
   if (rate == null) return { tier: null, reason: "no_data", explain: null };
-  if (source === "gbif" && effort! < THIN_EFFORT_RECORDS) return { tier: null, reason: "thin_data", explain: { ...explainBase, base: null, steps: [], guard: false } };
+  if (source === "gbif" && effort! < THIN_EFFORT_RECORDS)
+    return { tier: null, reason: "thin_data", explain: { ...explainBase, base: null, steps: [], guard: false } };
 
   const base = relative != null ? relativeTier(relative) : baseTier(group, rate);
   const [commonEdge] = TIER_RATE_BANDS[group];
@@ -368,7 +394,11 @@ export function tierFromInputs(input: TierInput): TierResult {
   const explain = { ...explainBase, base, steps, guard: false };
   // Rated hard on photos with little public interest, a species is as likely overlooked as hard
   // to find, so it shows as not enough data rather than an unearned tier.
-  if (source === "inat" && tierIndex(tier) >= tierIndex("uncommon") && (input.interest ?? 0) < INTEREST_FLOOR_PAGEVIEWS) {
+  if (
+    source === "inat" &&
+    tierIndex(tier) >= tierIndex("uncommon") &&
+    (input.interest ?? 0) < INTEREST_FLOOR_PAGEVIEWS
+  ) {
     return { tier: null, reason: "few_photos", explain };
   }
   return { tier, reason: "rated", explain };
