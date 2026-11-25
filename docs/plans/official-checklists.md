@@ -80,24 +80,24 @@ holds 6b's merges, and FishBase's synonyms), then a unique near spelling within 
 near spelling that FishBase accepts as its own species is never taken. No near-spelling match was
 needed: synonyms caught everything matchable.
 
-| | Japan | Colombia |
-|---|---|---|
-| FishBase species (any status) | 4,384 | 2,211 |
-| Confirmed (native / endemic / introduced) | 4,229 (4,138 / 48 / 43) | 2,168 (2,047 / 84 / 37) |
-| Possible (questionable / stray) | 97 | 22 |
-| Says not there (misidentification, error, not established, extirpated) | 58 | 21 |
-| Confirmed by habitat: freshwater / marine (incl. brackish) / both | 199 / 3,812 / 218 | 916 / 1,180 / 72 |
-| Confirmed matched: exact / synonym / not in catalog | 4,039 / 165 / 25 | 2,073 / 82 / 13 |
-| Confirmed already listed: country / country but vagrant / sea zone only | 1,604 / 624 / 1,318 | 953 / 415 / 558 |
-| Confirmed in catalog, would be added | 658 (49 fresh, 29 both, 580 marine) | 229 (115 fresh, 3 both, 111 marine) |
-| of which unseen deep-sea | 171 | 20 |
-| of which with a catalog reference photo | 344 | 117 |
-| Possible in catalog, would be added | 43 | 3 |
-| Not in catalog (confirmed or possible) | 25, none with an open iNaturalist photo, 10 deep-sea | 13, none with an open photo |
-| Our country rows | 2,515 | 2,428 |
-| Our country rows FishBase lacks (listed + vagrant) | 270 (131 + 139) | 1,048 (572 + 476) |
-| Our country rows FishBase says are not there | 12 | 7 |
-| Published 2026-10-08 pack species / not on FishBase's list | 2,800 / 365 | 2,814 / 1,304 |
+|                                                                         | Japan                                                | Colombia                            |
+| ----------------------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------- |
+| FishBase species (any status)                                           | 4,384                                                | 2,211                               |
+| Confirmed (native / endemic / introduced)                               | 4,229 (4,138 / 48 / 43)                              | 2,168 (2,047 / 84 / 37)             |
+| Possible (questionable / stray)                                         | 97                                                   | 22                                  |
+| Says not there (misidentification, error, not established, extirpated)  | 58                                                   | 21                                  |
+| Confirmed by habitat: freshwater / marine (incl. brackish) / both       | 199 / 3,812 / 218                                    | 916 / 1,180 / 72                    |
+| Confirmed matched: exact / synonym / not in catalog                     | 4,039 / 165 / 25                                     | 2,073 / 82 / 13                     |
+| Confirmed already listed: country / country but vagrant / sea zone only | 1,604 / 624 / 1,318                                  | 953 / 415 / 558                     |
+| Confirmed in catalog, would be added                                    | 658 (49 fresh, 29 both, 580 marine)                  | 229 (115 fresh, 3 both, 111 marine) |
+| of which unseen deep-sea                                                | 171                                                  | 20                                  |
+| of which with a catalog reference photo                                 | 344                                                  | 117                                 |
+| Possible in catalog, would be added                                     | 43                                                   | 3                                   |
+| Not in catalog (confirmed or possible)                                  | 25, none with an open iNaturalist photo, 10 deep-sea | 13, none with an open photo         |
+| Our country rows                                                        | 2,515                                                | 2,428                               |
+| Our country rows FishBase lacks (listed + vagrant)                      | 270 (131 + 139)                                      | 1,048 (572 + 476)                   |
+| Our country rows FishBase says are not there                            | 12                                                   | 7                                   |
+| Published 2026-10-08 pack species / not on FishBase's list              | 2,800 / 365                                          | 2,814 / 1,304                       |
 
 "Unseen deep-sea": marine only, FishBase habitat bathydemersal or bathypelagic, and no open (CC0, CC
 BY) research-grade iNaturalist photo anywhere (from `data/open-vectors/candidates.parquet`). It is a
@@ -131,10 +131,10 @@ Colombia 1.98 MB for 2,428 (about 0.82 KB). Photos are not in packs: the photo s
 (about 52 KB per species with a photo), and every catalog species is already in it, so adding rows
 for catalog species costs no photo bytes.
 
-| | Rows added | Pack growth | Without the unseen deep-sea tail |
-|---|---|---|---|
-| Japan (confirmed + possible) | 701 | about +0.82 MB (+28%) | 522 rows, about +0.61 MB (+21%) |
-| Colombia (confirmed + possible) | 232 | about +0.19 MB (+10%) | 211 rows, about +0.17 MB (+9%) |
+|                                 | Rows added | Pack growth           | Without the unseen deep-sea tail |
+| ------------------------------- | ---------- | --------------------- | -------------------------------- |
+| Japan (confirmed + possible)    | 701        | about +0.82 MB (+28%) | 522 rows, about +0.61 MB (+21%)  |
+| Colombia (confirmed + possible) | 232        | about +0.19 MB (+10%) | 211 rows, about +0.17 MB (+9%)   |
 
 The hidden tail still ships (hidden is a view filter), so leaving it out of the default view does
 not shrink packs; leaving it out of the data does. The 38 species the catalog lacks have no open
@@ -200,16 +200,16 @@ A separate column would be cleaner if the filter ever needs to tell them apart; 
 
 ## Other groups
 
-| Group | Source | Licence | Country status | Fit |
-|---|---|---|---|---|
-| Birds | eBird | already used | yes | done |
-| Mammals | Mammal Diversity Database v2.5 (Zenodo, 2026-07-28) | CC BY 4.0 | country distribution per species, no native/introduced detail | good; 1 to 2 days |
-| Mammals | IUCN Red List | non-commercial, no redistribution without permission | yes | not usable for packs |
-| Reptiles | The Reptile Database | 2014 dump CC BY 4.0 (stale); current data no open licence | country text field | ask the maintainers (Uetz) for a current dump; stale otherwise |
-| Amphibians | AmphibiaWeb | CC BY-NC; bulk download needs permission | ISO country codes per species | ask permission first |
-| Amphibians | Amphibian Species of the World | no open licence | yes | no |
-| Marine invertebrates | SeaLifeBase (same snapshot) | CC BY-NC 4.0 | same table shape as FishBase | cheap follow-on, sparse |
-| Fish, national | Colombia freshwater checklist (GBIF dataset) | CC BY 4.0 | yes | 1 day; look for others like it (Brazil, Peru, Mexico) on GBIF |
+| Group                | Source                                              | Licence                                                   | Country status                                                | Fit                                                            |
+| -------------------- | --------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------- |
+| Birds                | eBird                                               | already used                                              | yes                                                           | done                                                           |
+| Mammals              | Mammal Diversity Database v2.5 (Zenodo, 2026-07-28) | CC BY 4.0                                                 | country distribution per species, no native/introduced detail | good; 1 to 2 days                                              |
+| Mammals              | IUCN Red List                                       | non-commercial, no redistribution without permission      | yes                                                           | not usable for packs                                           |
+| Reptiles             | The Reptile Database                                | 2014 dump CC BY 4.0 (stale); current data no open licence | country text field                                            | ask the maintainers (Uetz) for a current dump; stale otherwise |
+| Amphibians           | AmphibiaWeb                                         | CC BY-NC; bulk download needs permission                  | ISO country codes per species                                 | ask permission first                                           |
+| Amphibians           | Amphibian Species of the World                      | no open licence                                           | yes                                                           | no                                                             |
+| Marine invertebrates | SeaLifeBase (same snapshot)                         | CC BY-NC 4.0                                              | same table shape as FishBase                                  | cheap follow-on, sparse                                        |
+| Fish, national       | Colombia freshwater checklist (GBIF dataset)        | CC BY 4.0                                                 | yes                                                           | 1 day; look for others like it (Brazil, Peru, Mexico) on GBIF  |
 
 Mammals, reptiles and amphibians are well covered by iNaturalist already, so they gain less than
 fish; the tiers' removal rules for them would also need to respect official-list rows.
