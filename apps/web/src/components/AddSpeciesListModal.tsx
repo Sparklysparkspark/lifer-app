@@ -22,7 +22,7 @@ import { useSpeciesName } from "../lib/speciesName";
 import Button from "./Button";
 import FormMessage from "./FormMessage";
 import Menu, { MenuItem, MenuPanel } from "./Menu";
-import Modal from "./Modal";
+import SlotModal, { ModalFooter, useModalSubmit } from "./SlotModal";
 import Pill from "./Pill";
 import ProgressiveImg from "./ProgressiveImg";
 import SearchInput from "./SearchInput";
@@ -128,7 +128,21 @@ function PickChip<T>({
 
 // "Spiders of Canada": one box, two chips (group and place), a live count, and one button that
 // starts the background job and closes at once (rule F2).
-export default function AddSpeciesListModal({
+export default function AddSpeciesListModal(props: {
+  regionId?: string | null;
+  regionName?: string | null;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <SlotModal onClose={props.onClose} title={t("speciesLists.add.title")}>
+      <AddSpeciesListBody {...props} />
+    </SlotModal>
+  );
+}
+
+/** The dialog's content, also the "A group from iNaturalist" tab of Add other species. */
+export function AddSpeciesListBody({
   regionId = null,
   regionName = null,
   onClose,
@@ -271,29 +285,24 @@ export default function AddSpeciesListModal({
               ? listCallError(current.error)
               : null);
 
+  useModalSubmit((e) => void create(e));
+
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t("speciesLists.add.title")}
-      description={t("speciesLists.add.description")}
-      onSubmit={(e) => void create(e)}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            {t("common.cancel")}
-          </Button>
-          <Button type="submit" disabled={!canAdd} loading={creating} className="min-w-0 max-w-full">
-            <span className="truncate">
-              {result && place?.regionId
-                ? t("speciesLists.add.button", { count: result.count, region: targetRegionName })
-                : t("speciesLists.add.buttonIdle")}
-            </span>
-          </Button>
-        </>
-      }
-    >
+    <>
+      <ModalFooter>
+        <Button variant="secondary" onClick={onClose}>
+          {t("common.cancel")}
+        </Button>
+        <Button type="submit" disabled={!canAdd} loading={creating} className="min-w-0 max-w-full">
+          <span className="truncate">
+            {result && place?.regionId
+              ? t("speciesLists.add.button", { count: result.count, region: targetRegionName })
+              : t("speciesLists.add.buttonIdle")}
+          </span>
+        </Button>
+      </ModalFooter>
       <div className="space-y-3">
+        <p className="text-callout text-muted">{t("speciesLists.add.description")}</p>
         <SearchInput
           value={text}
           onChange={setText}
@@ -410,6 +419,6 @@ export default function AddSpeciesListModal({
         )}
         <FormMessage error={problem} />
       </div>
-    </Modal>
+    </>
   );
 }

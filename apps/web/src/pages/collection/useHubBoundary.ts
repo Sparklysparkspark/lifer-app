@@ -35,7 +35,7 @@ export function countriesInHub(
   );
 }
 
-/** The countries a Collection view covers, for "Download animal groups": every downloaded country
+/** The countries a Collection view covers, for "Download species lists": every downloaded country
  *  on All species, the downloaded ones on a hub, else the view's own country (a province's too). */
 export function countriesInView(
   regionId: string | null,

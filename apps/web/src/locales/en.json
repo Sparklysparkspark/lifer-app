@@ -473,26 +473,24 @@
       "markSeen": "Mark as seen",
       "markSeenFailed": "Couldn't mark {name} as seen.",
       "placeholder": "Search species to add…",
-      "seaZone": "{name} (sea)",
-      "title": "Add species to {region}"
+      "seaZone": "{name} (sea)"
     },
     "addGroups": {
       "allDownloaded": "Every animal group here is downloaded",
-      "byHand": "Add one species by hand",
       "loadingList": "Getting the list of animal groups…",
       "loadingListPercent": "Getting the list of animal groups… {percent}%",
       "chooseOne": "Choose at least one animal group",
       "download": "Download",
       "downloaded": "Downloaded",
-      "menuItem": "Download animal groups",
-      "moreCountries": "Download more countries",
+      "menuItem": "Download species lists",
       "noCountries": "No downloaded country here yet",
       "onlyDownloaded": "Only the countries you've downloaded here. <more>Download more countries</more>",
-      "otherCountries": "Other countries are in <more>Species downloads</more>.",
+      "otherCountries": "Another country? <more>Download more countries</more>",
       "summary": "{count, plural, one {# animal group} other {# animal groups}}, {size}.",
       "summaryNoSize": "{count, plural, one {# animal group} other {# animal groups}}. Working out the size…",
       "title": "Add animal groups for {countries}",
-      "titleCount": "Add animal groups for {count, plural, one {# country} other {# countries}}"
+      "titleCount": "Add animal groups for {count, plural, one {# country} other {# countries}}",
+      "addOther": "Add other species"
     },
     "breadcrumb": {
       "addSpecies": "+ Add species",
@@ -554,14 +552,14 @@
       "otherTaxaTitle": "No other species added for {region} yet",
       "regionFailed": "Couldn't download this region",
       "seaZones": "Or get sea life from a nearby ocean area instead. It's a separate, optional download, not part of {region}'s own download above:",
-      "searchInaturalist": "Search iNaturalist",
       "size": "{count, plural, one {# species} other {# species}}, {size}.",
       "starting": "Starting…",
       "taxonBanner": "You've photographed {count, plural, one {# {taxon} species} other {# {taxon} species}} in {region}",
       "taxonBannerSize": "Download {region}'s {taxon} list to see the rest: {count, plural, one {# species} other {# species}}, {size}.",
       "taxonNotDownloaded": "{region}'s {taxon} list isn't downloaded yet",
       "zoneCount": "({count, plural, one {# species} other {# species}})",
-      "zoneFailed": "Couldn't download this ocean area"
+      "zoneFailed": "Couldn't download this ocean area",
+      "searchSpecies": "Search for a species"
     },
     "tiers": {
       "common": "Common",
@@ -750,6 +748,9 @@
   "errors": {
     "api": {
       "desktop_only": "Only available in the desktop app",
+      "no_region": "That place has no species list in Lifer",
+      "not_found": "That wasn't found",
+      "wrong_state": "That can't be done in its current state",
       "missing_scope": "This key doesn't have permission to do that",
       "not_imported_by_key": "This key can only tag photos it imported",
       "primary_species": "That's already this photo's primary species",
@@ -2238,10 +2239,6 @@
     "stepOf": "Step {step} of {total}"
   },
   "speciesLists": {
-    "menu": {
-      "add": "Add a list from iNaturalist",
-      "importNames": "Import a list of names (advanced)"
-    },
     "add": {
       "title": "Add a list from iNaturalist",
       "description": "Every species of a group seen in a place, added to your checklist in the background.",
@@ -2488,7 +2485,17 @@
     "removeMessage": "It loses access to your library. You can connect it again later.",
     "removed": "{name} was removed",
     "removeFailed": "Couldn't remove the app",
-    "showInSidebarRow": "Show in the sidebar"
+    "showInSidebarRow": "Show in the sidebar",
+    "versionRow": "Version {version}",
+    "open": "Open",
+    "openLabel": "Open {name}",
+    "stop": "Quit",
+    "stopLabel": "Quit {name}",
+    "stopFailed": "Couldn't quit the app",
+    "uninstallRow": "How to uninstall",
+    "uninstallHint": "Lifer doesn't remove apps. Quit it, then use its own uninstaller; its data stays with it until then.",
+    "uninstallHelp": "Instructions",
+    "uninstallHelpLabel": "Uninstall instructions for {name}"
   },
   "lightroom": {
     "title": "Lightroom Classic catalogue",
@@ -2602,10 +2609,9 @@
     "madeBy": "Made by {publisher}.",
     "connects": "The button below also lets {name} connect to Lifer when you first open it. It will be able to:",
     "website": "Visit their website",
-    "disclosure": "The button below downloads the installer through {host} in the background, checks that it was signed by its maker, then opens it. Nothing is downloaded until you press it.",
+    "disclosure": "The button below downloads the publisher's own installer through {host} in the background, checks the publisher's signatures, then opens it in your system's installer. Lifer never runs the app itself. Nothing is downloaded until you press it.",
     "install": "Install",
     "cancel": "Cancel",
-    "downloading": "Downloading {name}",
     "opened": "The installer for {name} is open",
     "failed": "Couldn't install {name}",
     "noInstaller": "{name} isn't available for this computer yet.",
@@ -2629,6 +2635,30 @@
       "counted": "Preen counts each download as a plain number, with nothing that identifies you.",
       "start": "Start free trial",
       "learnMore": "Learn more"
+    },
+    "steps": "Install steps",
+    "stepDownload": "Download {name}",
+    "stepVerify": "Check the publisher's signatures",
+    "stepOpen": "Open the installer",
+    "afterInstall": "Finish in the installer, then come back here to open {name}.",
+    "installed": "{name} is installed.",
+    "alreadyInstalled": "{name} is already installed on this computer.",
+    "open": "Open {name}",
+    "licence": "Licence terms",
+    "websiteInstead": "Download from the publisher's website instead",
+    "noteMac": "Your Mac checks the installer again when it opens. Drag the app to Applications if it asks.",
+    "noteWindows": "If Windows says it protected your PC, choose More info, check that the publisher is the one named above, then choose Run anyway.",
+    "noteLinux": "Your system's software installer opens the package and may ask for your password.",
+    "error": {
+      "notSetUp": "This app's publisher details are not set up yet.",
+      "noInstaller": "Lifer can't install {name} on this computer. Get it from the publisher's website instead.",
+      "busy": "{name} is already downloading.",
+      "offline": "Couldn't reach the download. Check your connection and try again.",
+      "unavailable": "The download isn't available right now. Try again later.",
+      "verification": "The download didn't match what the publisher signed. Nothing was installed.",
+      "tooLarge": "The download is larger than Lifer accepts. Nothing was installed.",
+      "space": "There isn't enough free space for the download. Free some space and try again.",
+      "blocked": "Your system wouldn't open the installer. Get {name} from the publisher's website instead."
     }
   },
   "plugins": {
@@ -3297,6 +3327,7 @@
         "listDatabase": "Lifer's database: your collection, seen and target species, albums, trips, tags, ratings and notes",
         "listDownloads": "Thumbnails, downloaded models, downloaded regions and the offline map",
         "listSettings": "Lifer's settings, logs and caches",
+        "listApps": "Other apps you installed stay installed. Each has its own uninstaller.",
         "photosKept": "Your photos are not deleted.",
         "photosFolder": "They stay in <code>{folder}</code>.",
         "reimportHint": "Reimporting that folder on a fresh install brings back your species, albums, trips, tags and ratings. Only Lifer's settings are lost.",
@@ -5429,5 +5460,12 @@
     "unavailable": "Photos couldn't be opened. Open Photos, then try again.",
     "error": "Couldn't reach Apple Photos. Try again.",
     "tryAgain": "Try again"
+  },
+  "addOther": {
+    "title": "Add other species",
+    "tabsLabel": "What to add",
+    "tabSearch": "Search for a species",
+    "tabGroup": "A group from iNaturalist",
+    "tabPaste": "Paste a list of names"
   }
 }

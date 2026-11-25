@@ -8,8 +8,7 @@ import { formatBytes } from "../../lib/format";
 import { useConnection, usePackIndex } from "../../lib/packIndex";
 import ConnectionNote from "../../components/ConnectionNote";
 import FreeSpaceNote from "../../components/FreeSpaceNote";
-import AddOtherTaxaModal from "../../components/AddOtherTaxaModal";
-import AddSpeciesListModal from "../../components/AddSpeciesListModal";
+import AddOtherSpeciesModal, { type AddOtherSpeciesTab } from "./AddOtherSpeciesModal";
 import { useSettings } from "../../hooks/useSettings";
 import JobProgress from "../../components/JobProgress";
 import Button from "../../components/Button";
@@ -151,6 +150,9 @@ interface SeaZonePack {
   pack: PackStatusEntry;
 }
 
+const GROUP_TAB: AddOtherSpeciesTab = "group";
+const SEARCH_TAB: AddOtherSpeciesTab = "search";
+
 // Shown instead of an empty grid when the region has some pack, just not the filtered taxon's.
 // With `photographed`, it renders as a compact banner above the grid instead.
 export function TaxonPackPrompt({
@@ -180,8 +182,7 @@ export function TaxonPackPrompt({
   // Zone packs downloaded from here drop out at once, before the index refresh lands.
   const [downloadedZonePackIds, setDownloadedZonePackIds] = useState<string[]>([]);
   const [downloadingZoneId, setDownloadingZoneId] = useState<string | null>(null);
-  const [otherTaxaModalOpen, setOtherTaxaModalOpen] = useState(false);
-  const [addingList, setAddingList] = useState(false);
+  const [addingOther, setAddingOther] = useState<AddOtherSpeciesTab | null>(null);
   const anyTaxa = !!useSettings().settings?.anyTaxaSearchEnabled;
   const { job, download, running, startedHere } = usePackDownloadAndWait((ids) => {
     setDownloadedZonePackIds((prev) => [...prev, ...ids]);
@@ -239,16 +240,19 @@ export function TaxonPackPrompt({
         </h2>
         <p className="mx-auto mt-2 max-w-sm text-callout text-muted">{t("collection.packPrompt.otherTaxaBody")}</p>
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          {anyTaxa && <Button onClick={() => setAddingList(true)}>{t("speciesLists.menu.add")}</Button>}
-          <Button variant={anyTaxa ? "secondary" : "primary"} onClick={() => setOtherTaxaModalOpen(true)}>
-            {t("collection.packPrompt.searchInaturalist")}
+          {anyTaxa && <Button onClick={() => setAddingOther(GROUP_TAB)}>{t("addOther.tabGroup")}</Button>}
+          <Button variant={anyTaxa ? "secondary" : "primary"} onClick={() => setAddingOther(SEARCH_TAB)}>
+            {t("collection.packPrompt.searchSpecies")}
           </Button>
         </div>
-        {otherTaxaModalOpen && (
-          <AddOtherTaxaModal initialQuery="" initialRegionId={regionId} onClose={() => setOtherTaxaModalOpen(false)} />
-        )}
-        {addingList && (
-          <AddSpeciesListModal regionId={regionId} regionName={regionName} onClose={() => setAddingList(false)} />
+        {addingOther && (
+          <AddOtherSpeciesModal
+            targets={[{ kind: "region", id: regionId, name: regionName }]}
+            region={{ id: regionId, name: regionName }}
+            initialTab={addingOther}
+            onClose={() => setAddingOther(null)}
+            onAdded={onDownloaded}
+          />
         )}
       </Panel>
     );

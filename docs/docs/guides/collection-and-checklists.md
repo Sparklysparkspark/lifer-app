@@ -29,10 +29,10 @@ For anything else, like insects, spiders, plants or fungi, add species from iNat
 
 ### Add more groups from the Collection {#add-groups}
 
-Click **+ Add species** at the top of the Collection, then **Download animal groups**. It lists every group for the countries you're looking at:
+Click **+ Add species** at the top of the Collection, then **Download species lists**. It lists every group for the countries you're looking at:
 
 - On a country or one of its provinces, that country.
-- On a continent, World or **All species**, the countries you've downloaded there. To add a country, click **Download more countries** in the same menu, which opens [Species downloads](../settings.md#regions).
+- On a continent, World or **All species**, the countries you've downloaded there. To add a country, click **Download more countries** at the bottom of the same dialog, which opens [Species downloads](../settings.md#regions).
 
 Groups you already have for all of those countries are ticked and greyed out. Tick the ones you want, check the size, then click **Download**. For example, on North America with Canada and the United States downloaded, ticking **Reptiles** downloads reptiles for both. The dialog closes at once and the download runs in the background, with its progress at the bottom left. When every group is already downloaded, the menu says so.
 
@@ -112,7 +112,7 @@ After you hide or archive a species, mark it as seen or add it to your targets, 
 
 A checklist can miss a species you know is there, like an insect you imported by hand for one province that you also find in the next, or a sea turtle off a coast whose [ocean area](#sea-zones) lists only fish. You can add any species Lifer has to any country's, province's or ocean area's checklist.
 
-**From the checklist:** open the region and click **+ Add species**, then **Add one species by hand**. Search by name, then pick the species (or use the arrow keys and <kbd>Enter</kbd>). If you've ticked ocean areas under **Include nearby water:**, choose under **Add it to** whether it goes on the region's checklist or one of the ocean areas'. **Mark as seen** is on to start with, so the species also counts as seen; untick it to only add it to the list. If no species matches, the search says so, and points you to turning on iNaturalist search in Settings when it's off.
+**From the checklist:** open the region and click **+ Add species**, then **Add other species**, on the **Search for a species** tab. Search by name, then pick the species (or use the arrow keys and <kbd>Enter</kbd>). If you've ticked ocean areas under **Include nearby water:**, choose under **Add it to** whether it goes on the region's checklist or one of the ocean areas'. **Mark as seen** is on to start with, so the species also counts as seen; untick it to only add it to the list. If no species matches, the search says so, and points you to turning on iNaturalist search in Settings when it's off.
 
 **From the species page:** click **Add to another checklist**, then either:
 
@@ -276,7 +276,7 @@ See [iNaturalist](./inaturalist.md#any-taxa) for the details.
 
 Add every species of a group seen in a place in one go, like all the spiders of Canada. Needs [Search iNaturalist for other species](../settings.md#any-taxa-search) on, and a connection.
 
-1. Open a region in the Collection and click **+ Add species > Add a list from iNaturalist**. It's also offered when you filter to a group like **Insects** that has no species there yet.
+1. Open a region in the Collection and click **+ Add species > Add other species**, on the **A group from iNaturalist** tab. It's also offered when you filter to a group like **Insects** that has no species there yet.
 2. Type what you want, like `spiders of Canada`, `pine trees of BC` or `butterflies in Ontario`, or tap a starter such as **Spiders** or **Ferns**. With no place in the words, Lifer uses the region you're viewing.
 3. Lifer reads the words as two chips: a **Group** and a **Place**. If it guessed wrong (`bees` can match cattle), click the chip and pick another match. Places with a Lifer checklist are marked.
 4. Check the count and the example species, and turn on **Native species only** to leave out introduced species.
@@ -289,6 +289,6 @@ While a list is being added, its progress shows above the region's species, with
 - **Your lists** are in **Settings > Species and import > Species lists**, finished and hidden ones included. Each has **Update list** (to pick up newly recorded species), **Rename**, **Hide from Collection** and **Remove list**.
 - **Remove list** takes off the species the list added. Species you photographed or marked stay. Removing can't be undone; add the list again to get it back.
 
-To add your own list of names instead, use **+ Add species > Import a list of names (advanced)** and paste one name per line.
+To add your own list of names instead, use the **Paste a list of names** tab of the same dialog and paste one name per line. The dialog opens on the tab you used last.
 
 These species appear on that region's checklist marked **Added by you** (and on the checklists of the regions that contain it, like the country for a province). They're yours: other people on the same server don't see them unless they add them too. To put one on another region's checklist too, open its species page and click **Add to another checklist** (see [Adding a species to a checklist](#add-to-checklist)). Filter to them with their group in **Animals**, like **Insects**. They have a photo and description from iNaturalist, but no rarity or occurrence data.

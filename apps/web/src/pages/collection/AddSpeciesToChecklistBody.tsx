@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
 import { api, apiPath } from "../../api/client";
-import Modal from "../../components/Modal";
+import { ModalFooter } from "../../components/SlotModal";
 import Button from "../../components/Button";
 import FormMessage from "../../components/FormMessage";
 import SegmentedControl from "../../components/SegmentedControl";
@@ -14,11 +14,11 @@ import { useSpeciesName } from "../../lib/speciesName";
 import { useServerSetting } from "../settings/useServerSetting";
 import Checkbox from "../../components/Checkbox";
 
-// Puts a species the checklist is missing on it: picked by search from every species Lifer has,
-// including ones you imported by hand. `targets` is what the view shows: the region, plus any sea
-// zone ticked on it, so with several the dialog asks which checklist it's for. The first is picked
-// to start with.
-export default function AddSpeciesToChecklistModal({
+// The "Search for a species" tab of Add other species: puts a species the checklist is missing on
+// it, picked by search from every species Lifer has, including ones you imported by hand. `targets`
+// is what the view shows: the region, plus any sea zone ticked on it, so with several the dialog
+// asks which checklist it's for. The first is picked to start with.
+export default function AddSpeciesToChecklistBody({
   targets,
   onClose,
   onAdded,
@@ -37,7 +37,6 @@ export default function AddSpeciesToChecklistModal({
   // Lifer's own lists are vertebrates, so without this a moth or orchid looks unaddable.
   const inatSearch = useServerSetting("anyTaxaSearchEnabled", "/settings/any-taxa-search");
   const target = targets.find((c) => c.id === targetId) ?? targets[0];
-  const regionName = targets.find((c) => c.kind === "region")?.name ?? target?.name ?? "";
 
   async function add(species: SpeciesResult) {
     if (!target) return;
@@ -62,26 +61,12 @@ export default function AddSpeciesToChecklistModal({
   }
 
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t("collection.addSpecies.title", { region: regionName })}
-      footerStart={
-        <p className="text-footnote text-muted">
-          <Trans
-            i18nKey="collection.addSpecies.ebirdHint"
-            components={{
-              a: <Link to="/settings/species#ebird-import" className="underline hover:text-ink" />,
-            }}
-          />
-        </p>
-      }
-      footer={
+    <>
+      <ModalFooter>
         <Button variant="secondary" onClick={onClose}>
           {t("common.cancel")}
         </Button>
-      }
-    >
+      </ModalFooter>
       <p className="mb-3 text-callout text-muted">{t("collection.addSpecies.intro")}</p>
       {targets.length > 1 && (
         <div className="mb-3 space-y-1.5">
@@ -116,6 +101,14 @@ export default function AddSpeciesToChecklistModal({
         )}
         <FormMessage error={error} className="mt-2" />
       </div>
-    </Modal>
+      <p className="mt-3 text-footnote text-muted">
+        <Trans
+          i18nKey="collection.addSpecies.ebirdHint"
+          components={{
+            a: <Link to="/settings/species#ebird-import" className="underline hover:text-ink" />,
+          }}
+        />
+      </p>
+    </>
   );
 }

@@ -19,7 +19,7 @@ A country only offers the groups it actually has, so a landlocked country has no
 
 ![Species downloads in Settings](/img/offline-packs.jpg)
 
-Open **Settings > Species and import** and click **Download more countries and animal groups** at the top, click a **Download** button on the Collection page, or search for "Species downloads" in [quick search](./gallery-and-search.md#quick-search). To add animal groups for the countries you're already looking at, use **+ Add species > Download animal groups** on the Collection. See [Add more groups from the Collection](./collection-and-checklists.md#add-groups).
+Open **Settings > Species and import** and click **Download more countries and animal groups** at the top, click a **Download** button on the Collection page, or search for "Species downloads" in [quick search](./gallery-and-search.md#quick-search). To add animal groups for the countries you're already looking at, use **+ Add species > Download species lists** on the Collection. See [Add more groups from the Collection](./collection-and-checklists.md#add-groups).
 
 ## Download regions {#download-packs}
 

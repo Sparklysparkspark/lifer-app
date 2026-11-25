@@ -8,18 +8,15 @@ import ProgressBar from "../../components/ProgressBar";
 import { useToast } from "../../hooks/useToast";
 import { errorMessage } from "../../lib/errorMessage";
 import type { ChecklistTarget } from "../../lib/checklistAdditions";
-import AddSpeciesToChecklistModal from "./AddSpeciesToChecklistModal";
 import AreaPills from "../../components/AreaPills";
 import { useRegionsWithPhotos } from "../../hooks/useRegionsWithPhotos";
 import Button from "../../components/Button";
-import Menu, { MenuItem, MenuLink, MenuNote, MenuPanel, MenuSeparator } from "../../components/Menu";
+import Menu, { MenuItem, MenuLink, MenuNote, MenuPanel } from "../../components/Menu";
 import { useDropdownMenu } from "../../hooks/useDropdownMenu";
 import { groupsForCountries, useConnection, usePackIndex } from "../../lib/packIndex";
 import AddGroupsModal from "./AddGroupsModal";
 import TargetListImportModal from "../../components/TargetListImportModal";
-import AddOtherTaxaModal from "../../components/AddOtherTaxaModal";
-import AddSpeciesListModal from "../../components/AddSpeciesListModal";
-import { useSettings } from "../../hooks/useSettings";
+import AddOtherSpeciesModal, { useAddOtherSpeciesTabs } from "./AddOtherSpeciesModal";
 import { SPECIES_DOWNLOADS_PATH } from "../../lib/speciesDownloads";
 
 function addTargets(
@@ -77,23 +74,22 @@ export default function RegionBreadcrumb({
   selectedSeaZones: Array<{ id: string; name: string }>;
   /** False when the view shows only the ticked sea zones, so they come first in the dialog. */
   includeLand: boolean;
-  /** The countries "Download animal groups" offers groups for (countriesInView). */
+  /** The countries "Download species lists" offers groups for (countriesInView). */
   groupCountries: Array<{ id: string; name: string }>;
   namingStyles: string[];
 }) {
   const { t } = useTranslation();
   const [drillingDown, setDrillingDown] = useState(false);
   const regionsWithPhotos = useRegionsWithPhotos();
-  const [addingSpecies, setAddingSpecies] = useState(false);
   const addMenu = (
     <AddSpeciesMenu
       countries={groupCountries}
       onlyDownloaded={!regionId || regionKnownHub}
       namingStyles={namingStyles}
-      onAddByHand={regionMeta && !regionKnownHub ? () => setAddingSpecies(true) : null}
+      targets={regionMeta && !regionKnownHub ? addTargets(regionMeta, selectedSeaZones, includeLand) : null}
       regionId={regionId}
       listRegion={regionMeta && !regionKnownHub ? { id: regionMeta.id, name: regionMeta.name } : null}
-      onTargetsImported={onChecklistChanged}
+      onChecklistChanged={onChecklistChanged}
     />
   );
   const toast = useToast();
@@ -241,42 +237,36 @@ export default function RegionBreadcrumb({
           </p>
         )}
       </div>
-      {addingSpecies && regionMeta && (
-        <AddSpeciesToChecklistModal
-          targets={addTargets(regionMeta, selectedSeaZones, includeLand)}
-          onClose={() => setAddingSpecies(false)}
-          onAdded={onChecklistChanged}
-        />
-      )}
     </div>
   );
 }
 
-/** Add species: download more animal groups for the countries in view, add one species by hand
- *  (a single region only), or go and download more countries. */
+/** Add species: download species lists (animal groups for the countries in view, with a way on to
+ *  more countries), add other species (search, a group from iNaturalist, a pasted list), or import
+ *  a target list. */
 function AddSpeciesMenu({
   countries,
   onlyDownloaded,
   namingStyles,
-  onAddByHand,
+  targets,
   regionId,
   listRegion,
-  onTargetsImported,
+  onChecklistChanged,
 }: {
   countries: Array<{ id: string; name: string }>;
   onlyDownloaded: boolean;
   namingStyles: string[];
-  onAddByHand: (() => void) | null;
+  /** Where a searched species can go: a single region (and its sea zones) with a checklist. */
+  targets: ChecklistTarget[] | null;
   regionId: string | null;
-  /** The region with a checklist in view: where Add a list and the name import go by default. */
+  /** The region with a checklist in view: where a group and a pasted list go by default. */
   listRegion: { id: string; name: string } | null;
-  onTargetsImported: () => void;
+  onChecklistChanged: () => void;
 }) {
   const { t } = useTranslation();
   const menu = useDropdownMenu();
-  const anyTaxa = !!useSettings().settings?.anyTaxaSearchEnabled;
-  const [addingList, setAddingList] = useState(false);
-  const [importingNames, setImportingNames] = useState(false);
+  const canAddOther = useAddOtherSpeciesTabs(!!targets).length > 0;
+  const [addingOther, setAddingOther] = useState(false);
   const [choosingGroups, setChoosingGroups] = useState(false);
   const [importingTargets, setImportingTargets] = useState(false);
   const { packs, freeBytes, indexUnavailable, listProgress, sizesPending } = usePackIndex();
@@ -315,16 +305,10 @@ function AddSpeciesMenu({
             <MenuItem onSelect={() => setChoosingGroups(true)}>{t("collection.addGroups.menuItem")}</MenuItem>
           )}
           {note && <MenuNote>{note}</MenuNote>}
-          {onAddByHand && <MenuItem onSelect={onAddByHand}>{t("collection.addGroups.byHand")}</MenuItem>}
-          {anyTaxa && <MenuItem onSelect={() => setAddingList(true)}>{t("speciesLists.menu.add")}</MenuItem>}
-          <MenuItem onSelect={() => setImportingTargets(true)}>{t("targetLists.importAction")}</MenuItem>
-          {anyTaxa && (
-            <MenuItem onSelect={() => setImportingNames(true)}>{t("speciesLists.menu.importNames")}</MenuItem>
+          {canAddOther && (
+            <MenuItem onSelect={() => setAddingOther(true)}>{t("collection.addGroups.addOther")}</MenuItem>
           )}
-          <MenuSeparator />
-          <MenuLink to={SPECIES_DOWNLOADS_PATH} state={{ backLabel: t("nav.collection") }}>
-            {t("collection.addGroups.moreCountries")}
-          </MenuLink>
+          <MenuItem onSelect={() => setImportingTargets(true)}>{t("targetLists.importAction")}</MenuItem>
         </MenuPanel>
       </Menu>
       {choosingGroups && (
@@ -341,26 +325,19 @@ function AddSpeciesMenu({
           onClose={() => setChoosingGroups(false)}
         />
       )}
-      {addingList && (
-        <AddSpeciesListModal
-          regionId={listRegion?.id}
-          regionName={listRegion?.name}
-          onClose={() => setAddingList(false)}
-        />
-      )}
-      {importingNames && (
-        <AddOtherTaxaModal
-          initialQuery=""
-          startWithList
-          initialRegionId={listRegion?.id}
-          onClose={() => setImportingNames(false)}
+      {addingOther && (
+        <AddOtherSpeciesModal
+          targets={targets}
+          region={listRegion}
+          onClose={() => setAddingOther(false)}
+          onAdded={onChecklistChanged}
         />
       )}
       {importingTargets && (
         <TargetListImportModal
           regionId={regionId}
           onClose={() => setImportingTargets(false)}
-          onImported={onTargetsImported}
+          onImported={onChecklistChanged}
         />
       )}
     </>

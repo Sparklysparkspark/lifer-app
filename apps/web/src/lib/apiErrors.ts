@@ -21,8 +21,10 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<string, string>> = {
   model_mismatch: "errors.api.model_mismatch",
   models_not_ready: "errors.api.models_not_ready",
   no_checklist: "errors.api.no_checklist",
+  no_region: "errors.api.no_region",
   no_video_frames: "errors.api.no_video_frames",
   not_added: "errors.api.not_added",
+  not_found: "errors.api.not_found",
   not_imported_by_key: "errors.api.not_imported_by_key",
   pack_index_unavailable: "errors.api.pack_index_unavailable",
   primary_species: "errors.api.primary_species",
@@ -31,6 +33,7 @@ export const API_ERROR_MESSAGE_KEYS: Readonly<Record<string, string>> = {
   storage_move_failed: "errors.api.storage_move_failed",
   suggestion_failed: "errors.api.suggestion_failed",
   unknown_species: "errors.api.unknown_species",
+  wrong_state: "errors.api.wrong_state",
   version_link_refused: "errors.api.version_link_refused",
 };
 

@@ -145,24 +145,22 @@
     "addSpecies": {
       "intro": "\"Added by you\" must match the label shown on species cards added by hand.",
       "seaZone": "Option for a sea zone checklist (a stretch of ocean) next to the region's own. {name} is the zone's name.",
-      "title": "Dialog title. {region} is the region whose species checklist gets the new species.",
       "ebirdHint": "<a> wraps a link to the eBird import in Settings."
     },
     "addGroups": {
       "loadingListPercent": "The same, once the size is known. {percent} is a whole number from 0 to 100; keep the % sign.",
       "loadingList": "In the Add animal groups dialog, beside a small spinner, while the list of downloadable groups is still on its way (a slow connection). Downloaded groups already show above it.",
-      "byHand": "Item in the Collection's Add species menu: opens the dialog for putting one species on this region's checklist.",
-      "menuItem": "Item in the Collection's Add species menu: opens a dialog to download more animal groups (Reptiles, Fish...) for the countries in view.",
-      "moreCountries": "Last item in that menu: opens Settings > Species and import > Species downloads.",
-      "allDownloaded": "Muted note under the disabled Download animal groups item when nothing is left to download.",
-      "noCountries": "Muted note under the disabled Download animal groups item on a continent with no downloaded country.",
+      "menuItem": "Item in the Collection's Add species menu: opens a dialog to download more animal groups (Reptiles, Fish...) for the countries in view. It ends with a link to Species downloads for more countries.",
+      "allDownloaded": "Muted note under the disabled Download species lists item when nothing is left to download.",
+      "noCountries": "Muted note under the disabled Download species lists item on a continent with no downloaded country.",
       "downloaded": "Under an animal group's checkbox: it's already on this computer for these countries.",
-      "otherCountries": "Footnote in the Add animal groups dialog on one country. <more> wraps a link to the Species downloads page in Settings.",
+      "otherCountries": "Footnote in the Download species lists dialog on one country. <more> wraps a link to the Species downloads page in Settings, where other countries can be downloaded.",
       "onlyDownloaded": "On a continent or World: groups are offered only for downloaded countries. <more> wraps a link to Settings > Species and import > Species downloads.",
       "summary": "What the user picked: {count} groups, {size} a formatted file size like 45 MB.",
       "summaryNoSize": "The same while the size (photos included) isn't known yet, briefly on a first start; ends with an ellipsis like other in-progress notes.",
       "title": "Dialog title. {countries} is a list of up to three country names, like \"Canada and United States\".",
-      "titleCount": "Dialog title for more than three countries; the names are listed under it."
+      "titleCount": "Dialog title for more than three countries; the names are listed under it.",
+      "addOther": "Item in the Collection's Add species menu: opens one dialog with tabs to search for a species, add a group from iNaturalist, or paste a list of names."
     },
     "breadcrumb": {
       "moreAreas": "Last pill in the row of a country's areas (states, provinces) when they don't fit on two rows; opens a list of the rest. {count} is how many more.",
@@ -187,7 +185,8 @@
       "noPack": "<a> wraps a link to the Species downloads page. {region} is a region name.",
       "otherTaxaGroupTitle": "Empty list heading. {group} is an iNaturalist group name in lowercase, e.g. \"insects\" or \"fungi\"; {region} is a place name.",
       "otherTaxaBody": "Other species: the catch-all category for species Lifer has no dataset for, added by hand from iNaturalist.",
-      "seaZones": "Ocean areas are separate downloads of sea life (fish, marine mammals, invertebrates, sea turtles) near a region. {region} is the land region's name."
+      "seaZones": "Ocean areas are separate downloads of sea life (fish, marine mammals, invertebrates, sea turtles) near a region. {region} is the land region's name.",
+      "searchSpecies": "Button on the empty Other species view: opens Add other species on its search tab."
     },
     "toolbar": {
       "recordsSection": "Section title in the collection Filters menu, over filters for species that are rarely recorded or not recorded in decades.",
@@ -258,6 +257,9 @@
   "errors": {
     "api": {
       "desktop_only": "API error code desktop_only: the server refused an action that only the desktop app (with its local library) can do.",
+      "no_region": "API error code no_region: the chosen place has no matching Lifer region to put species on.",
+      "not_found": "API error code not_found: the thing asked for does not exist (any more).",
+      "wrong_state": "API error code wrong_state: the action does not apply to the item's current status, for example resuming a list that is not paused.",
       "missing_scope": "API error code missing_scope: an app key lacks a permission the action needs.",
       "not_imported_by_key": "API error code not_imported_by_key: an app key may only add species to photos it imported itself.",
       "primary_species": "API error code primary_species: the species to add is already the photo's main species.",
@@ -920,10 +922,6 @@
     }
   },
   "speciesLists": {
-    "menu": {
-      "add": "Item in the Collection's Add species menu: opens a dialog that adds every species of a group (spiders, butterflies) seen in a place, from iNaturalist.",
-      "importNames": "Item in the Add species menu: opens the older import where the user pastes species names one per line. Advanced because most people use Add a list instead."
-    },
     "add": {
       "phrase": "Fills the search box when a starter group is tapped and a place was already typed, like Spiders of Canada. {group} is the group's name, {place} what the user typed.",
       "taxonValue": "The Group chip: the group's common name, then its rank and scientific name, like Spiders, order Araneae.",
@@ -1013,7 +1011,9 @@
     "revokeTitle": "{name} is the app's name.",
     "pairCode": "{code} is a 6-digit code.",
     "hide": "Sidebar context menu item. {name} is the app's name.",
-    "hidden": "Toast after hiding an app from the sidebar. {name} is the app's name."
+    "hidden": "Toast after hiding an app from the sidebar. {name} is the app's name.",
+    "stop": "Button that quits a companion app Lifer started, like quitting it from its own menu.",
+    "uninstallHint": "Lifer opens apps but never deletes them; each app has its own uninstaller."
   },
   "lightroom": {
     "found": "{total} and {matched} are counts of photos, formatted with digit grouping.",
@@ -1066,11 +1066,19 @@
     "suggested": "Before a row of quick picks: the region of the photo or page, and the regions picked most recently."
   },
   "suggestedApps": {
-    "disclosure": "Shown just above the download button, whose label varies (Install, Start free trial). {host} is a web address like licence.preenwildlife.com.",
+    "disclosure": "Shown just above the download button, whose label varies (Install, Start free trial). {host} is a web address like updates.preenwildlife.com.",
     "cull": {
       "modes": "Preen, a separate culling app, can show inside Lifer's window or run in its own window.",
       "priceUsd": "Follows the trial line, so it starts with Then.",
       "counted": "Appended to the disclosure sentence. Preen counts trial downloads as a bare total."
+    },
+    "stepVerify": "Second of three install steps. Lifer checks the download's signatures before opening it.",
+    "noteWindows": "Windows SmartScreen wording: More info and Run anyway are the button names Windows shows.",
+    "licence": "A link to the app's licence terms on the publisher's website.",
+    "websiteInstead": "A link shown when Lifer can't install the app here or the install failed.",
+    "error": {
+      "notSetUp": "Shown when the app's addresses, keys or signer in Lifer are still placeholders.",
+      "verification": "Size, checksum or signature didn't match. Lifer deleted the download."
     }
   },
   "settings": {
@@ -2077,5 +2085,12 @@
     "unavailable": "Error when the Photos app couldn't be opened.",
     "error": "Error for any other failure talking to Apple Photos.",
     "tryAgain": "Button that runs the search again."
+  },
+  "addOther": {
+    "title": "Dialog title: add species that Lifer has no downloaded list for.",
+    "tabsLabel": "Spoken name of the row of tabs at the top of that dialog.",
+    "tabSearch": "Tab: find one species by name and put it on the region's checklist.",
+    "tabGroup": "Tab: add every species of a group (spiders, butterflies) seen in a place, from iNaturalist. Hidden when the iNaturalist search setting is off.",
+    "tabPaste": "Tab: paste species names, one per line, to import them. Hidden when the iNaturalist search setting is off."
   }
 }

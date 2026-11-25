@@ -21,6 +21,15 @@ vi.mock("../../lib/packIndex", async (importOriginal) => ({
   }),
   useConnection: () => remote,
 }));
+let anyTaxa = false;
+vi.mock("../../hooks/useSettings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../hooks/useSettings")>()),
+  useSettings: () => ({ settings: { anyTaxaSearchEnabled: anyTaxa }, error: null }),
+}));
+vi.mock("./AddOtherSpeciesModal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./AddOtherSpeciesModal")>()),
+  default: () => <div role="dialog" aria-label="Add other species stub" />,
+}));
 vi.mock("../../hooks/useRegionsWithPhotos", () => ({ useRegionsWithPhotos: () => new Set<string>() }));
 // The menu measures its panel; jsdom has no ResizeObserver.
 vi.stubGlobal(
@@ -82,7 +91,7 @@ function renderHub(groupCountries = countries) {
   return { rerender: () => view.rerender(breadcrumb(groupCountries)) };
 }
 
-const item = () => screen.getByRole("menuitem", { name: "Download animal groups" });
+const item = () => screen.getByRole("menuitem", { name: "Download species lists" });
 const downloadButton = () => screen.getByRole("button", { name: "Download" }) as HTMLButtonElement;
 const both = () => [entry("Canada", "aves", true), entry("United States", "aves", true)];
 
@@ -90,19 +99,26 @@ beforeEach(() => {
   packs = [];
   indexUnavailable = false;
   remote = "online";
+  anyTaxa = false;
 });
 
 describe("RegionBreadcrumb Add species menu", () => {
   it("on a continent, offers its downloaded countries' missing groups, and no by-hand add", () => {
     packs = [...both(), entry("Canada", "squamata", false)];
     renderHub();
-    expect(screen.queryByRole("menuitem", { name: /by hand/ })).toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Download more countries" }).getAttribute("href")).toBe(
-      "/settings/species/downloads",
-    );
+    expect(screen.queryByRole("menuitem", { name: /other species/ })).toBeNull();
     fireEvent.click(item());
     expect(screen.getByRole("dialog", { name: "Add animal groups for Canada and United States" })).toBeTruthy();
     expect(screen.getByRole("checkbox", { name: "Reptiles" })).toBeTruthy();
+  });
+
+  it("the download dialog ends with a way on to more countries", () => {
+    packs = [...both(), entry("Canada", "squamata", false)];
+    renderHub();
+    fireEvent.click(item());
+    expect(
+      within(screen.getByRole("dialog")).getByRole("link", { name: "Download more countries" }).getAttribute("href"),
+    ).toBe("/settings/species/downloads");
   });
 
   it("everything downloaded: still opens, and says so in the menu and the dialog", () => {
@@ -165,6 +181,42 @@ describe("RegionBreadcrumb Add species menu", () => {
     renderHub([]);
     expect(item().getAttribute("href")).toBe("/settings/species/downloads");
     expect(screen.getByText("No downloaded country here yet")).toBeTruthy();
+  });
+});
+
+describe("RegionBreadcrumb Add species menu items", () => {
+  const regionMeta = { id: "ca", name: "Canada" } as NonNullable<Parameters<typeof RegionBreadcrumb>[0]["regionMeta"]>;
+  const itemNames = () => screen.getAllByRole("menuitem").map((el) => el.textContent);
+
+  function renderRegion() {
+    render(breadcrumb(countries, { regionId: "ca", regionMeta, regionKnownHub: false }));
+    fireEvent.click(screen.getByRole("button", { name: "+ Add species" }));
+  }
+
+  it("on a region: exactly download, add other, and import target list", () => {
+    anyTaxa = true;
+    packs = both();
+    renderRegion();
+    expect(itemNames()).toEqual(["Download species lists", "Add other species", "Import target list"]);
+  });
+
+  it("with the iNaturalist search off, a region still offers Add other species (the search tab)", () => {
+    packs = both();
+    renderRegion();
+    expect(itemNames()).toContain("Add other species");
+  });
+
+  it("with the iNaturalist search off and no region checklist, there is nothing to add", () => {
+    packs = both();
+    renderHub();
+    expect(itemNames()).toEqual(["Download species lists", "Import target list"]);
+  });
+
+  it("Add other species opens the one dialog", () => {
+    packs = both();
+    renderRegion();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add other species" }));
+    expect(screen.getByRole("dialog", { name: "Add other species stub" })).toBeTruthy();
   });
 });
 

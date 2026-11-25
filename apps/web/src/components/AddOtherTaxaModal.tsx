@@ -14,7 +14,7 @@ import { backStateFor } from "../lib/backLabel";
 import Button from "./Button";
 import FormMessage from "./FormMessage";
 import JobProgress from "./JobProgress";
-import Modal from "./Modal";
+import SlotModal, { ModalFooter } from "./SlotModal";
 import RegionBrowser from "./RegionBrowser";
 import SearchInput from "./SearchInput";
 import { formatList } from "../lib/format";
@@ -42,20 +42,110 @@ const NO_RESULTS: InatSearchResult[] = [];
 // Scientific names read the same in every language.
 const BULK_PLACEHOLDER = "Apis mellifera\nBombus impatiens\n...";
 
+/** The region a species goes under, and the hint when it has no checklist of its own. */
+function useRegionPick(initialRegionId?: string | null) {
+  const { t } = useTranslation();
+  const [regionId, setRegionId] = useState<string | null>(initialRegionId ?? null);
+  const { regions } = useRegions();
+  const regionsById = useMemo(() => new Map((regions ?? []).map((r) => [r.id, r])), [regions]);
+  const pickedRegion = regionId ? regionsById.get(regionId) : undefined;
+  const regionOk = regionHasChecklist(pickedRegion, regionsById);
+  const regionHint = pickedRegion && !regionOk && (
+    <p className="mt-2 text-footnote text-muted">{t("otherTaxa.noChecklist", { region: pickedRegion.name })}</p>
+  );
+  return { regionId, setRegionId, regionOk, regionHint };
+}
+
+/** The pasted list of names: its own region, job and summary. Also the "Paste a list of names" tab
+ *  of Add other species. */
+export function BulkNamesBody({ initialRegionId, onClose }: { initialRegionId?: string | null; onClose: () => void }) {
+  const { t } = useTranslation();
+  const { regionId, setRegionId, regionOk, regionHint } = useRegionPick(initialRegionId);
+  const [bulkText, setBulkText] = useState("");
+  const bulkJob = useJobPoll<BulkJobStatus>("/species/other-taxa/bulk/status");
+  // Only a run started from this modal is shown, not a finished one from earlier.
+  const [bulkStarted, setBulkStarted] = useState(false);
+  const bulkStatus = bulkStarted || bulkJob.status?.running ? bulkJob.status : null;
+
+  useEnterToConfirm(startBulkImport, regionOk && bulkText.trim().length > 0 && !bulkStatus?.running);
+
+  async function startBulkImport() {
+    const entries = bulkText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    if (entries.length === 0 || !regionId || !regionOk) return;
+    if (await bulkJob.start("/species/other-taxa/bulk", { regionId, entries })) setBulkStarted(true);
+  }
+
+  return (
+    <>
+      <ModalFooter>
+        <Button variant="secondary" onClick={onClose}>
+          {t("otherTaxa.close")}
+        </Button>
+        <Button onClick={startBulkImport} disabled={!regionOk || bulkText.trim().length === 0 || bulkStatus?.running}>
+          {bulkStatus?.running ? t("otherTaxa.importingEllipsis") : t("otherTaxa.startImport")}
+        </Button>
+      </ModalFooter>
+      <p className="mb-2 text-footnote text-muted">{t("otherTaxa.bulkHint")}</p>
+      <TextArea
+        value={bulkText}
+        onChange={(e) => setBulkText(e.target.value)}
+        placeholder={BULK_PLACEHOLDER}
+        rows={6}
+        disabled={bulkStatus?.running}
+        className="mb-3 font-mono"
+      />
+      <p className="mb-2 text-footnote text-muted">{t("otherTaxa.whichRegionMany")}</p>
+      <RegionBrowser regionId={regionId} onChange={setRegionId} allowAnyRegion suggestedRegionIds={[initialRegionId]} />
+      {regionHint}
+      <FormMessage error={bulkJob.actionError} className="mt-2" />
+      {bulkStatus && (
+        <div className="mt-3 space-y-2 border-t border-line pt-3 text-footnote text-muted">
+          {bulkStatus.running && (
+            <JobProgress
+              status={bulkStatus}
+              phases={{ importing: { label: t("otherTaxa.importing"), progress: "count" } }}
+              onCancel={() => void bulkJob.cancel("/species/other-taxa/bulk/cancel")}
+              cancelling={bulkJob.cancelling}
+            />
+          )}
+          <p>
+            {bulkStatus.running
+              ? ""
+              : `${bulkStatus.cancelled ? t("otherTaxa.bulkCancelled") : t("otherTaxa.bulkDone")} `}
+            {bulkStatus.notFound.length > 0
+              ? t("otherTaxa.bulkSummaryNotFound", {
+                  added: bulkStatus.added,
+                  alreadyPresent: bulkStatus.alreadyPresent,
+                  notFound: bulkStatus.notFound.length,
+                })
+              : t("otherTaxa.bulkSummary", { added: bulkStatus.added, alreadyPresent: bulkStatus.alreadyPresent })}
+          </p>
+          {!bulkStatus.running && bulkStatus.notFound.length > 0 && (
+            <p className="mt-1">
+              {t("otherTaxa.notFoundList")} <span className="italic">{formatList(bulkStatus.notFound, "unit")}</span>
+            </p>
+          )}
+          <FormMessage error={bulkStatus.error} className="mt-1" />
+        </div>
+      )}
+    </>
+  );
+}
+
 // The "any taxa" search: adds a species from iNaturalist (taxa Lifer has no dataset for) to one
 // region's checklist under Other Taxa, as your own checklist addition. Any country or province
 // works, since no pack is involved; World and the continents have no checklist of their own.
 export default function AddOtherTaxaModal({
   initialQuery,
   initialRegionId,
-  startWithList = false,
   onClose,
   onAdded,
 }: {
   initialQuery: string;
   initialRegionId?: string | null;
-  /** Opens on the list of names, for the Add species menu's import item. */
-  startWithList?: boolean;
   onClose: () => void;
   /** Hands the added species back (the import screen assigns it) instead of opening its page. */
   onAdded?: (species: SpeciesResult) => void;
@@ -63,7 +153,7 @@ export default function AddOtherTaxaModal({
   const { t } = useTranslation();
   const speciesName = useSpeciesName();
   const toast = useToast();
-  const [mode, setMode] = useState<"search" | "bulk">(startWithList ? "bulk" : "search");
+  const [mode, setMode] = useState<"search" | "bulk">("search");
   const [query, setQuery] = useState(initialQuery);
   // Tagged with the query they answer: any other query is still searching, and the last list stays
   // up meanwhile. Under two characters there's no search, and the list is dropped so it doesn't
@@ -74,29 +164,15 @@ export default function AddOtherTaxaModal({
   const results = (searchable && found?.results) || NO_RESULTS;
   const searching = searchable && found?.query !== query;
   const [selected, setSelected] = useState<InatSearchResult | null>(null);
-  const [regionId, setRegionId] = useState<string | null>(initialRegionId ?? null);
-  const { regions } = useRegions();
-  const regionsById = useMemo(() => new Map((regions ?? []).map((r) => [r.id, r])), [regions]);
-  const pickedRegion = regionId ? regionsById.get(regionId) : undefined;
-  const regionOk = regionHasChecklist(pickedRegion, regionsById);
-  const regionHint = pickedRegion && !regionOk && (
-    <p className="mt-2 text-footnote text-muted">{t("otherTaxa.noChecklist", { region: pickedRegion.name })}</p>
-  );
+  const { regionId, setRegionId, regionOk, regionHint } = useRegionPick(initialRegionId);
   const [adding, setAdding] = useState(false);
   const [markSeen, setMarkSeen] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [bulkText, setBulkText] = useState("");
-  const bulkJob = useJobPoll<BulkJobStatus>("/species/other-taxa/bulk/status");
-  // Only a run started from this modal is shown, not a finished one from earlier.
-  const [bulkStarted, setBulkStarted] = useState(false);
-  const bulkStatus = bulkStarted || bulkJob.status?.running ? bulkJob.status : null;
-
   // Enter confirms the step's main action; the search step has none until a result is picked.
   useEnterToConfirm(confirmAdd, mode === "search" && !!selected && regionOk && !adding);
-  useEnterToConfirm(startBulkImport, mode === "bulk" && regionOk && bulkText.trim().length > 0 && !bulkStatus?.running);
 
   // Each query change cancels the pending timer and any in-flight request, so a slow older
   // response can't overwrite newer results or leave `searching` stuck on.
@@ -120,15 +196,6 @@ export default function AddOtherTaxaModal({
       controller.abort();
     };
   }, [query]);
-
-  async function startBulkImport() {
-    const entries = bulkText
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-    if (entries.length === 0 || !regionId || !regionOk) return;
-    if (await bulkJob.start("/species/other-taxa/bulk", { regionId, entries })) setBulkStarted(true);
-  }
 
   async function confirmAdd() {
     if (!selected || !regionId || !regionOk) return;
@@ -156,38 +223,19 @@ export default function AddOtherTaxaModal({
   }
 
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t("otherTaxa.title")}
-      description={t("otherTaxa.intro")}
-      footer={
-        mode === "bulk" ? (
-          <>
-            <Button variant="secondary" onClick={onClose}>
-              {t("otherTaxa.close")}
+    <SlotModal onClose={onClose} title={t("otherTaxa.title")} description={t("otherTaxa.intro")}>
+      {mode === "search" && (
+        <ModalFooter>
+          <Button variant="secondary" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          {selected && (
+            <Button onClick={confirmAdd} disabled={!regionOk} loading={adding}>
+              {adding ? t("otherTaxa.adding") : t("otherTaxa.addSpecies")}
             </Button>
-            <Button
-              onClick={startBulkImport}
-              disabled={!regionOk || bulkText.trim().length === 0 || bulkStatus?.running}
-            >
-              {bulkStatus?.running ? t("otherTaxa.importingEllipsis") : t("otherTaxa.startImport")}
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button variant="secondary" onClick={onClose}>
-              {t("common.cancel")}
-            </Button>
-            {selected && (
-              <Button onClick={confirmAdd} disabled={!regionOk} loading={adding}>
-                {adding ? t("otherTaxa.adding") : t("otherTaxa.addSpecies")}
-              </Button>
-            )}
-          </>
-        )
-      }
-    >
+          )}
+        </ModalFooter>
+      )}
       <div className="mb-3">
         <SegmentedControl
           value={mode}
@@ -200,57 +248,7 @@ export default function AddOtherTaxaModal({
       </div>
 
       {mode === "bulk" ? (
-        <>
-          <p className="mb-2 text-footnote text-muted">{t("otherTaxa.bulkHint")}</p>
-          <TextArea
-            value={bulkText}
-            onChange={(e) => setBulkText(e.target.value)}
-            placeholder={BULK_PLACEHOLDER}
-            rows={6}
-            disabled={bulkStatus?.running}
-            className="mb-3 font-mono"
-          />
-          <p className="mb-2 text-footnote text-muted">{t("otherTaxa.whichRegionMany")}</p>
-          <RegionBrowser
-            regionId={regionId}
-            onChange={setRegionId}
-            allowAnyRegion
-            suggestedRegionIds={[initialRegionId]}
-          />
-          {regionHint}
-          <FormMessage error={bulkJob.actionError} className="mt-2" />
-          {bulkStatus && (
-            <div className="mt-3 space-y-2 border-t border-line pt-3 text-footnote text-muted">
-              {bulkStatus.running && (
-                <JobProgress
-                  status={bulkStatus}
-                  phases={{ importing: { label: t("otherTaxa.importing"), progress: "count" } }}
-                  onCancel={() => void bulkJob.cancel("/species/other-taxa/bulk/cancel")}
-                  cancelling={bulkJob.cancelling}
-                />
-              )}
-              <p>
-                {bulkStatus.running
-                  ? ""
-                  : `${bulkStatus.cancelled ? t("otherTaxa.bulkCancelled") : t("otherTaxa.bulkDone")} `}
-                {bulkStatus.notFound.length > 0
-                  ? t("otherTaxa.bulkSummaryNotFound", {
-                      added: bulkStatus.added,
-                      alreadyPresent: bulkStatus.alreadyPresent,
-                      notFound: bulkStatus.notFound.length,
-                    })
-                  : t("otherTaxa.bulkSummary", { added: bulkStatus.added, alreadyPresent: bulkStatus.alreadyPresent })}
-              </p>
-              {!bulkStatus.running && bulkStatus.notFound.length > 0 && (
-                <p className="mt-1">
-                  {t("otherTaxa.notFoundList")}{" "}
-                  <span className="italic">{formatList(bulkStatus.notFound, "unit")}</span>
-                </p>
-              )}
-              <FormMessage error={bulkStatus.error} className="mt-1" />
-            </div>
-          )}
-        </>
+        <BulkNamesBody initialRegionId={initialRegionId} onClose={onClose} />
       ) : !selected ? (
         <>
           <SearchInput
@@ -320,6 +318,6 @@ export default function AddOtherTaxaModal({
           <FormMessage error={error} className="mt-2" />
         </>
       )}
-    </Modal>
+    </SlotModal>
   );
 }

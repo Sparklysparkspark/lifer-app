@@ -19,7 +19,7 @@ import { SPECIES_DOWNLOADS_PATH } from "../../lib/speciesDownloads";
 // Past this many countries the title gives a count and the names go in the body.
 const NAMED_IN_TITLE = 3;
 
-/** "Download animal groups" from the Collection's Add species menu: the groups the countries in
+/** "Download species lists" from the Collection's Add species menu: the groups the countries in
  *  view are missing, nothing chosen until the user picks. Download starts in the background and
  *  the dialog closes at once; progress shows in the StatusTray. */
 export default function AddGroupsModal({
