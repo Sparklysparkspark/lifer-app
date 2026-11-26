@@ -17,11 +17,15 @@ const countries = `select count(*) from regions c join regions p on p.id = c.par
 const stats = {
   date: new Date().toISOString().slice(0, 10),
   species: q(`select count(*) from species s where ${onChecklist}`),
-  withPhoto: q(`select count(*) from species s where s.reference_photo is not null and (${onChecklist})`),
   countries: q(countries),
   oceanAreas: q(
     `select count(*) from sea_zones z where exists (select 1 from sea_zone_species s where s.sea_zone_id = z.id)`,
   ),
+  // Species anyone has observed on iNaturalist, all addable in Lifer; rounded down so the
+  // page never overstates it between runs.
+  inatSpecies: await fetch("https://api.inaturalist.org/v1/observations/species_counts?per_page=0&verifiable=true")
+    .then((r) => r.json())
+    .then((j) => Math.floor(j.total_results / 10_000) * 10_000),
 };
 writeFileSync(new URL("../src/data/siteStats.json", import.meta.url), JSON.stringify(stats, null, 2) + "\n");
 console.log(stats);

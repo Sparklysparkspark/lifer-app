@@ -2,7 +2,8 @@
 // below the group in the middle, each segment's angle by its species, filled outward by the share
 // photographed, thin groups merged into one "N more groups" segment that reaches the outer edge.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { SAMPLE_TREE, TIERS, type Tier, type TreeNode } from "./sampleTree";
+import useBaseUrl from "@docusaurus/useBaseUrl";
+import { COLLECTION_TREE, TIERS, type Tier, type TreeNode } from "./collectionTree";
 import styles from "./landing.module.css";
 
 const SIZE = 600;
@@ -157,9 +158,10 @@ function project(a: Arc, w: Win): Geo {
 const ease = (t: number) => 1 - (1 - t) ** 3;
 const reduced = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
-const ROOT: Focus = { key: SAMPLE_TREE.id, label: SAMPLE_TREE.name, node: SAMPLE_TREE };
+const ROOT: Focus = { key: COLLECTION_TREE.id, label: COLLECTION_TREE.name, node: COLLECTION_TREE };
 
 export default function TreeDemo() {
+  const photoBase = useBaseUrl("/img/tree/");
   const [trail, setTrail] = useState<Focus[]>([ROOT]);
   const focus = trail[trail.length - 1];
   const arcs = useMemo(() => arcsFor(focus), [focus]);
@@ -299,6 +301,8 @@ export default function TreeDemo() {
 
   const outlined = arcs.find((a) => a.key === hover) ?? (kbd ? arcs[active] : undefined);
   const og = outlined && project(outlined, w);
+  // The panel beside the circle shows the hovered segment's photo, else the group in the middle's.
+  const photo = readout ? readout.node?.photo : focus.ids ? undefined : focus.node.photo;
 
   return (
     <div className={styles.tree}>
@@ -350,7 +354,7 @@ export default function TreeDemo() {
         <svg
           viewBox={`0 0 ${SIZE} ${SIZE}`}
           role="group"
-          aria-label="Tree of life, sample data. Arrow keys move between segments, Enter zooms in, Escape zooms out."
+          aria-label="Tree of life of a real collection. Arrow keys move between segments, Enter zooms in, Escape zooms out."
           onKeyDown={onKey}
         >
           {leaving.map((a) => draw(a, 1 - t, null))}
@@ -381,14 +385,23 @@ export default function TreeDemo() {
             {focus.label.length > 16 ? `${focus.label.slice(0, 15)}...` : focus.label}
           </text>
           <text x={C} y={C + 18} className={styles.centreSub}>
-            {trail.length > 1 ? "Back" : `${SAMPLE_TREE.collected} of ${SAMPLE_TREE.total}`}
+            {trail.length > 1 ? "Back" : `${COLLECTION_TREE.collected} of ${COLLECTION_TREE.total}`}
           </text>
         </svg>
       </div>
-      <div className={styles.readout} aria-live="polite">
-        <strong>{title}</strong>
-        <span>{photographed(summary.collected, summary.total)}</span>
-        {rarity && rarityText(summary) && <span>{rarityText(summary)}</span>}
+      <div className={styles.treePanel}>
+        <div className={styles.panelPhoto}>
+          {photo ? (
+            <img src={`${photoBase}${photo}-wide.jpg`} alt="" />
+          ) : (
+            <span>{summary.collected ? "Hover a segment for its photo" : "Not photographed yet"}</span>
+          )}
+        </div>
+        <div className={styles.readout} aria-live="polite">
+          <strong>{title}</strong>
+          <span>{photographed(summary.collected, summary.total)}</span>
+          {rarity && rarityText(summary) && <span>{rarityText(summary)}</span>}
+        </div>
       </div>
     </div>
   );
