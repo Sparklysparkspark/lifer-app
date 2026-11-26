@@ -51,6 +51,7 @@ const sidebars: SidebarsConfig = {
         "guides/offline-packs-and-map",
         "guides/sync",
         "guides/stats",
+        "guides/keyboard-shortcuts",
         "guides/trash",
       ],
     },

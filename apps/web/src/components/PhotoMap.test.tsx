@@ -173,10 +173,8 @@ vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}));
 vi.mock("../lib/pmtiles", () => ({
   ensurePmtilesProtocol: () => {},
   pmtilesStyle: () => ({}),
-  tiltTerrain: () => () => {},
 }));
-const env = vi.hoisted(() => ({ basemap: false, relief: false }));
-vi.mock("../lib/pmtilesAvailable", () => ({ reliefAvailable: () => env.relief }));
+const env = vi.hoisted(() => ({ basemap: false }));
 vi.mock("../hooks/useMapAvailable", () => ({ useMapAvailable: () => env.basemap }));
 vi.mock("../hooks/useTheme", () => ({ useTheme: () => ({ theme: "light" }) }));
 const CANADA_OUTLINE = { type: "Feature", geometry: { type: "Polygon", coordinates: [] } };
@@ -378,7 +376,7 @@ afterEach(() => {
   vi.clearAllMocks();
   camera.zoom = null;
   camera.overshoot = 0;
-  Object.assign(env, { basemap: false, relief: false });
+  env.basemap = false;
   vi.useRealTimers();
   maps.length = 0;
   sessionStorage.clear();
@@ -870,16 +868,6 @@ describe("PhotoMap", () => {
     expect(maps[1].options).toEqual(expect.objectContaining({ center: [20, 10], zoom: 7 }));
     await screen.findByText("18 of 30 photos placed.");
     expect(maps[1].fitBounds).not.toHaveBeenCalled();
-  });
-
-  it("offers 3D or Flat, 3D (automatic) by default and remembered", async () => {
-    Object.assign(env, { basemap: true, relief: true });
-    serve();
-    renderMap();
-    const angle = await screen.findByRole("group", { name: "Map angle" });
-    expect(angle.querySelector('[aria-pressed="true"]')?.textContent).toBe("3D");
-    fireEvent.click(screen.getByRole("button", { name: "Flat" }));
-    expect(localStorage.getItem("lifer:photo-map-tilt")).toBe('"flat"');
   });
 
   it("asks no online host for tiles until Online detail is turned on", async () => {

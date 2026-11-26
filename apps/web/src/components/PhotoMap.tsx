@@ -24,21 +24,11 @@ import { isTypingTarget } from "../hooks/useKeyboardShortcuts";
 import { useLocationJob, useUndoLocation } from "../hooks/useSavedSpots";
 import { useToast } from "../hooks/useToast";
 import { useAnnounceSuggestionChanges } from "../hooks/useAnnounceSuggestionChanges";
-import { reliefAvailable } from "../lib/pmtilesAvailable";
-import { ensurePmtilesProtocol, pmtilesStyle, tiltTerrain } from "../lib/pmtiles";
+import { ensurePmtilesProtocol, pmtilesStyle } from "../lib/pmtiles";
 import { MAP_FONT, token } from "../lib/mapStyle";
 import { REGION_MASK_LAYER } from "../lib/mapRegionLayers";
 import { useRegionCamera } from "../hooks/useRegionCamera";
-import { useCuratedTilt } from "../hooks/useCuratedTilt";
-import {
-  curatedPitch,
-  FIT_PADDING,
-  markMove,
-  openingBounds,
-  regionFraming,
-  TILT,
-  type TiltMode,
-} from "../lib/mapCamera";
+import { FIT_PADDING, markMove, openingBounds, regionFraming } from "../lib/mapCamera";
 import { zoomOnto } from "../lib/zoomOnto";
 import {
   clusterRadius,
@@ -147,7 +137,7 @@ const GESTURE_GRACE_MS = 250;
 const NEAR_FRAMING_ZOOM = 0.75;
 // Where the map was left, so a remount (grid and back, an empty filter, a theme change, a reload) keeps it.
 const CAMERA_KEY = "lifer:photoMapCamera";
-type SavedCamera = { center: [number, number]; zoom: number; pitch: number; region: string | null };
+type SavedCamera = { center: [number, number]; zoom: number; region: string | null };
 function savedCamera(): SavedCamera | null {
   try {
     const c = JSON.parse(sessionStorage.getItem(CAMERA_KEY) ?? "null") as SavedCamera | null;
@@ -450,7 +440,7 @@ function flyToPlace(map: MapLibreMap, place: FoundPlace): void {
 type Feature = MapGeoJSONFeature;
 
 // The map's box on screen and what sits over it: its own controls (credits, zoom) and the
-// switches laid over it (3D or Flat, layers), for a card to keep clear of.
+// switches laid over it (layers), for a card to keep clear of.
 function mapRoom(container: HTMLElement | null): { within?: Box; obstacles?: Box[] } {
   if (!container) return {};
   const box = (el: Element) => {
@@ -625,9 +615,6 @@ export default function PhotoMap({
   const undo = useUndoLocation(refresh);
   const countries = countryBoundariesResource.use().data;
   const mapAvailable = useMapAvailable();
-  // 3D is the one curated angle once zoomed in (Auto), or never (Flat); remembered per user.
-  const [tiltMode, setTiltMode] = usePersistedState<TiltMode>("photo-map-tilt", "auto");
-  const hasRelief = mapAvailable === true && reliefAvailable();
   const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -635,13 +622,11 @@ export default function PhotoMap({
   const [mapObj, setMapObj] = useState<MapLibreMap | null>(null);
   // The side column sits beside the map, so the map's own size already leaves it out.
   const region = useRegionCamera(mapObj, {
-    tiltAt: (zoom) => curatedPitch(zoom, false, tiltMode, hasRelief) > 0,
     padding: FIT_PADDING,
     onRelease: () => releaseRef.current(),
   });
   // Set when a region is left by zooming out past it, so the next level comes without a flight.
   const stillRef = useRef(false);
-  useCuratedTilt(mapObj, tiltMode, hasRelief);
   const { enter: enterCamera, leave: leaveCamera } = region;
   const { regions: regionList } = useRegions();
   const regionById = useMemo(() => new Map((regionList ?? []).map((r) => [r.id, r])), [regionList]);
@@ -883,17 +868,15 @@ export default function PhotoMap({
       style: mapStyle(mapAvailable, theme),
       maxZoom: MAP_MAX_ZOOM,
       attributionControl: false,
-      // Always north up: the only tilt is the curated one (useCuratedTilt).
+      // Always north up and flat.
       dragRotate: false,
       pitchWithRotate: false,
       touchPitch: false,
-      maxPitch: TILT.pitch,
+      maxPitch: 0,
     });
     addMapCredits(map, { placeSearch: true, satellite: true });
     map.touchZoomRotate.disableRotation();
     map.keyboard.disableRotation();
-    // Terrain shows only while tilted.
-    tiltTerrain(map, () => true);
     mapRef.current = map;
     fitted.current = !!restore;
     // The same region's framing only takes up its limits, from where the camera was left.
@@ -905,7 +888,6 @@ export default function PhotoMap({
       const camera: SavedCamera = {
         center: [lng, lat],
         zoom: map.getZoom(),
-        pitch: map.getPitch(),
         region: regionNavRef.current.path.at(-1) ?? null,
       };
       try {
@@ -927,7 +909,7 @@ export default function PhotoMap({
       };
       const marks = [SPOT_MARKERS, CLUSTERS, HOLLOW_CLUSTERS, POINTS, REGION_RINGS];
       const idleCursor = () => (pinningRef.current ? "crosshair" : "");
-      // The mark the pointer means: the nearest within reach (projected, so tilt doesn't matter),
+      // The mark the pointer means: the nearest within reach (projected),
       // else the province or country under it.
       const pickAt = (point: { x: number; y: number }, pointerType: string): Feature | null => {
         const slop = pickSlop(pointerType, map.getZoom());
@@ -952,8 +934,7 @@ export default function PhotoMap({
       const photos = (n: number) => tRef.current("gallery.map.photoCount", { count: n, formatted: formatNumber(n) });
       // The preview for whatever the pointer means; local data only, so sweeping costs nothing.
       let hoverTimer: ReturnType<typeof setTimeout> | undefined;
-      // The card for whatever the pointer means, beside the mark (projected, so tilt doesn't
-      // matter); local data, plus one cached request for a mark's best photos when it opens.
+      // The card for whatever the pointer means, beside the mark (projected); local data, plus one cached request for a mark's best photos when it opens.
       const preview = async (hit: Feature, pointer: { x: number; y: number }) => {
         const props = hit.properties ?? {};
         const kind = KIND[hit.layer.id];
@@ -1214,8 +1195,6 @@ export default function PhotoMap({
         // it was on screen (no visible change), and the move starts from there.
         const focus = (coords: [number, number], expansionZoom?: number) => {
           const go = () => {
-            // Flat geometry: the curated 3D angle, when the landing zoom gets it, eases in after,
-            // tilting about the centre, so the mark stays centred.
             zoomOnto(map, coords, markMove({ zoom: map.getZoom(), expansionZoom, reducedMotion: reducedMotion() }));
           };
           if (sideOpenRef.current || window.innerWidth < 900) return go();
@@ -1736,20 +1715,6 @@ export default function PhotoMap({
             onDrop={onDrop}
             className="h-[var(--map-h,36rem)] min-h-72 w-full overflow-hidden rounded-panel border border-line bg-surface-muted"
           />
-          {/* 3D only once zoomed in, at one angle; Flat never tilts. Needs the relief download. */}
-          {hasRelief && (
-            <div className="absolute left-3 top-3 rounded-control border border-line bg-surface p-0.5">
-              <SegmentedControl
-                label={t("gallery.map.tilt.label")}
-                value={tiltMode}
-                onChange={setTiltMode}
-                options={[
-                  { value: "auto", label: t("gallery.map.tilt.auto") },
-                  { value: "flat", label: t("gallery.map.tilt.flat") },
-                ]}
-              />
-            </div>
-          )}
           {region.overshoot > 0 && regionPath.length > 0 && (
             <p
               role="status"

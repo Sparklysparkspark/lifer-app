@@ -52,14 +52,11 @@
   --color-map-relief: #4d4a40;
   --color-map-relief-highlight: #fffdf7;
   --color-map-label: #4f5652;
-  /* Relief map: elevation tint from clear lowlands (landcover shows) to tan, brown and snow, and
-     the sky and haze seen when tilted. */
+  /* Relief map: elevation tint from clear lowlands (landcover shows) to tan, brown and snow. */
   --color-map-elevation-low: #e3d3ae00;
   --color-map-elevation-mid: #e3d3ae;
   --color-map-elevation-high: #c4a982;
   --color-map-elevation-peak: #ffffff;
-  --color-map-sky: #c9d9e3;
-  --color-map-horizon: #eef0ea;
 }
 
 .dark {
@@ -105,8 +102,6 @@
   --color-map-elevation-mid: #3b382f;
   --color-map-elevation-high: #4d4537;
   --color-map-elevation-peak: #8a8d89;
-  --color-map-sky: #0f151b;
-  --color-map-horizon: #2b2e2c;
 }
 
 @theme inline {

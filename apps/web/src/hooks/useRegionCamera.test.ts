@@ -64,7 +64,7 @@ describe("useRegionCamera", () => {
 
   it("flies north up and flat, then holds pan and zoom-out near the framing", () => {
     const map = fakeMap();
-    const { result } = renderHook(() => useRegionCamera(map as unknown as MapLibreMap, { tiltAt: () => false }));
+    const { result } = renderHook(() => useRegionCamera(map as unknown as MapLibreMap, {}));
     act(() => result.current.enter(outline));
     expect(map.flyTo).toHaveBeenCalledWith(expect.objectContaining({ bearing: 0, pitch: 0, duration: 900, zoom: 5 }));
     expect(map.setMinZoom).toHaveBeenLastCalledWith(null);
@@ -81,28 +81,26 @@ describe("useRegionCamera", () => {
   it("holds no pan when the landed view already wraps the world", () => {
     const map = fakeMap();
     map.getBounds.mockReturnValue({ getWest: () => -300, getSouth: () => -80, getEast: () => 120, getNorth: () => 85 });
-    const { result } = renderHook(() => useRegionCamera(map as unknown as MapLibreMap, { tiltAt: () => false }));
+    const { result } = renderHook(() => useRegionCamera(map as unknown as MapLibreMap, {}));
     act(() => result.current.enter(outline));
     map.land();
     expect(map.setMinZoom).toHaveBeenLastCalledWith(4.5);
     expect(map.setMaxBounds).toHaveBeenLastCalledWith(null);
   });
 
-  it("jumps with reduced motion and lands at the curated tilt when the landing zoom gets it", () => {
+  it("jumps with reduced motion", () => {
     setReducedMotion(true);
     const map = fakeMap();
-    const { result } = renderHook(() =>
-      useRegionCamera(map as unknown as MapLibreMap, { tiltAt: (z: number) => z >= 5 }),
-    );
+    const { result } = renderHook(() => useRegionCamera(map as unknown as MapLibreMap, {}));
     act(() => result.current.enter(outline));
     expect(map.flyTo).not.toHaveBeenCalled();
-    expect(map.jumpTo).toHaveBeenCalledWith(expect.objectContaining({ pitch: 50, bearing: 0, duration: 0 }));
+    expect(map.jumpTo).toHaveBeenCalledWith(expect.objectContaining({ pitch: 0, bearing: 0, duration: 0 }));
     expect(map.setMinZoom).toHaveBeenLastCalledWith(4.5);
   });
 
   it("Mod+0 returns to the framing, and leave lifts the limits and flattens", () => {
     const map = fakeMap();
-    const { result } = renderHook(() => useRegionCamera(map as unknown as MapLibreMap, { tiltAt: () => false }));
+    const { result } = renderHook(() => useRegionCamera(map as unknown as MapLibreMap, {}));
     act(() => result.current.enter(outline));
     map.flyTo.mockClear();
     act(() => {
@@ -116,7 +114,7 @@ describe("useRegionCamera", () => {
 
   it("frames a far part on its own", () => {
     const map = fakeMap();
-    const { result } = renderHook(() => useRegionCamera(map as unknown as MapLibreMap, { tiltAt: () => false }));
+    const { result } = renderHook(() => useRegionCamera(map as unknown as MapLibreMap, {}));
     act(() => result.current.enter(null, "NO", 0));
     expect(result.current.framing?.bounds).toEqual([10.5, 76.4, 33.6, 80.9]);
     expect(map.cameraForBounds).toHaveBeenCalledWith(
@@ -131,9 +129,7 @@ describe("useRegionCamera", () => {
   it("lets go of the region after zooming out past its framing, building up a hint first", () => {
     const map = fakeMap();
     const onRelease = vi.fn();
-    const { result } = renderHook(() =>
-      useRegionCamera(map as unknown as MapLibreMap, { tiltAt: () => false, onRelease }),
-    );
+    const { result } = renderHook(() => useRegionCamera(map as unknown as MapLibreMap, { onRelease }));
     act(() => result.current.enter(outline));
     const notch = () => act(() => void map.container.dispatchEvent(new WheelEvent("wheel", { deltaY: 100 })));
     notch();
@@ -147,7 +143,7 @@ describe("useRegionCamera", () => {
 
   it("frames a region without a flight when let go into it", () => {
     const map = fakeMap();
-    const { result } = renderHook(() => useRegionCamera(map as unknown as MapLibreMap, { tiltAt: () => false }));
+    const { result } = renderHook(() => useRegionCamera(map as unknown as MapLibreMap, {}));
     act(() => result.current.enter(outline, null, null, { still: true }));
     expect(map.flyTo).not.toHaveBeenCalled();
     expect(map.jumpTo).not.toHaveBeenCalled();

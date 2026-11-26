@@ -18,7 +18,6 @@ These are already planned and mentioned elsewhere in the docs:
 
 Ideas we're looking into, with no promise they'll ship or what shape they'll take:
 
-- **Built-in culling (exploring).** An optional review during import that groups photos into encounters (bursts of the same species close together in time), so you can mark each frame **Keep**, **Maybe** or **Reject**. It would offer quality hints from the detection Lifer already does, like whether the animal is in the frame and in focus. It would complement the dedicated culling apps rather than replace them: Lifer already reads their picks and rejects at import. See [Culling with other apps](./guides/culling-with-other-apps.md).
 - **More languages.** Lifer is English-only for now. Part of the groundwork is in place: interface text is being moved into one translation file, dates and numbers follow your language, and species names and scientific names are kept out of interface translations. Next would be community translation through Weblate, plus downloadable per-language species names and descriptions. See [Translating Lifer](./contributing/translating.md).
 
 What's been done but not yet released is in the `[Unreleased]` section of the [changelog](https://github.com/Sparklysparkspark/lifer-app/blob/main/CHANGELOG.md).

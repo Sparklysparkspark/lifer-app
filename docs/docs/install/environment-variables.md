@@ -98,7 +98,7 @@ Lifer downloads regions, catalog updates and models from the project's GitHub re
 | `SCENE_MODEL_FP32_URL`    | the `models` release on GitHub            | The full-precision copy of the scene model, which Intel Macs run instead.                                                                                                                               |
 | `MAP_DOWNLOAD_URL`        | the `map-latest` release on GitHub        | Where to download the offline basemap from. Only needed to use a different map file.                                                                                                                    |
 | `MAP_DETAIL_INDEX_URL`    | the `map-detail-latest` release on GitHub | The list of per-country [detailed maps](../settings.md#regions). Only needed to use different files.                                                                                                    |
-| `RELIEF_DOWNLOAD_URL`     | the `map-latest` release on GitHub        | Where to download the map's shaded relief and 3D terrain from (about 90 MB). Only needed to use a different file. The map draws flat without it.                                                        |
+| `RELIEF_DOWNLOAD_URL`     | the `map-latest` release on GitHub        | Where to download the map's shaded relief from (about 90 MB). Only needed to use a different file. The map draws without shading without it.                                                        |
 
 These are all unset in the shipped compose file, so add them under `environment:` if you use them.
 

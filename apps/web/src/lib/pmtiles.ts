@@ -69,7 +69,6 @@ function withRelief(style: StyleSpecification, url: string, strong: boolean): St
   return {
     ...style,
     sources: { ...style.sources, ...relief.sources },
-    ...(relief.sky && { sky: relief.sky }),
     // Between land and water, so the sea stays flat.
     layers: [...style.layers.slice(0, water), ...shading, ...style.layers.slice(water)],
   };
@@ -100,32 +99,4 @@ function withDetailMaps(style: StyleSpecification, absolute: (url: string) => st
       ...parts.flatMap((p) => p.labels),
     ],
   };
-}
-
-// Per map, set by the region camera: bigger regions get a little more relief.
-const exaggerations = new WeakMap<MapLibreMap, number>();
-
-/** Terrain only while the map is tilted (the region camera, two-finger drag, Ctrl-drag or
- *  Shift+Up/Down), since a flat map gains nothing from it. Zoom never tilts: the world stays flat and
- *  3D is a choice made in region view (useRegionCamera). No-op without the relief archive.
- *  Returns a function that flattens the map when `tilted()` is false (after the 3D toggle turns off). */
-export function tiltTerrain(map: MapLibreMap, tilted: () => boolean): () => void {
-  map.on("pitch", () => {
-    if (!map.getSource(RELIEF_SOURCE_ID)) return;
-    const on = map.getPitch() > 0;
-    if (on !== (map.getTerrain() !== null)) map.setTerrain(on ? terrainFor(map) : null);
-  });
-  return () => {
-    if (!tilted() && map.getPitch() > 0) map.setPitch(0);
-  };
-}
-
-function terrainFor(map: MapLibreMap) {
-  const terrain = reliefStyleParts("").terrain!;
-  return { ...terrain, exaggeration: exaggerations.get(map) ?? terrain.exaggeration };
-}
-
-export function setTerrainExaggeration(map: MapLibreMap, exaggeration: number): void {
-  exaggerations.set(map, exaggeration);
-  if (map.getTerrain()) map.setTerrain(terrainFor(map));
 }

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  curatedPitch,
   farParts,
   holdableView,
   openingBounds,
@@ -145,7 +144,7 @@ describe("regionFraming", () => {
   it("names the hand-set far parts, which frame on their own", () => {
     const norway = regionFraming(null, "NO");
     expect(norway?.parts.map((p) => p.name)).toEqual(["Svalbard", "Jan Mayen"]);
-    expect(partFraming(norway!.parts[0])).toMatchObject({ bounds: [10.5, 76.4, 33.6, 80.9], pitch: 50, parts: [] });
+    expect(partFraming(norway!.parts[0])).toMatchObject({ bounds: [10.5, 76.4, 33.6, 80.9], parts: [] });
   });
 
   it("derives far parts from the outline, grouping islands close together", () => {
@@ -158,12 +157,6 @@ describe("regionFraming", () => {
     expect(regionFraming(outline)?.parts).toHaveLength(2);
   });
 
-  it("exaggerates terrain more for regions over 1,000 km across", () => {
-    expect(regionFraming(multi(box(-75, -56, -67, -17)))?.exaggeration).toBe(1.5);
-    expect(regionFraming(multi(box(8, 46, 10, 47)))?.exaggeration).toBe(1.3);
-    expect(regionFraming(multi(box(8, 46, 10, 47)))?.pitch).toBe(50);
-  });
-
   it("computes once per outline", () => {
     const outline = multi(box(0, 0, 1, 1));
     expect(regionFraming(outline)).toBe(regionFraming(outline));
@@ -171,15 +164,12 @@ describe("regionFraming", () => {
 });
 
 describe("regionCamera", () => {
-  const framing = { bounds: [0, 0, 1, 1] as [number, number, number, number], parts: [], pitch: 50, exaggeration: 1.3 };
-
-  it("is north up and flat unless 3D is on", () => {
-    expect(regionCamera(framing, false, false)).toEqual({ bearing: 0, pitch: 0, duration: 900 });
-    expect(regionCamera(framing, true, false)).toEqual({ bearing: 0, pitch: 50, duration: 900 });
+  it("is north up and flat", () => {
+    expect(regionCamera(false)).toEqual({ bearing: 0, pitch: 0, duration: 900 });
   });
 
   it("jumps instead of flying with reduced motion", () => {
-    expect(regionCamera(framing, true, true).duration).toBe(0);
+    expect(regionCamera(true).duration).toBe(0);
   });
 });
 
@@ -205,20 +195,6 @@ describe("outsideMask", () => {
     expect(area(rings[0])).toBeGreaterThan(0);
     expect(area(rings[1])).toBeLessThan(0);
     expect(area(rings[2])).toBeLessThan(0);
-  });
-});
-
-describe("curatedPitch", () => {
-  it("tilts to the one angle past zoom 5 in Auto, and holds it down to 4.5", () => {
-    expect(curatedPitch(4.8, false, "auto", true)).toBe(0);
-    expect(curatedPitch(5.2, false, "auto", true)).toBe(50);
-    expect(curatedPitch(4.8, true, "auto", true)).toBe(50);
-    expect(curatedPitch(4.4, true, "auto", true)).toBe(0);
-  });
-
-  it("stays flat when Flat is picked or there's no relief", () => {
-    expect(curatedPitch(8, false, "flat", true)).toBe(0);
-    expect(curatedPitch(8, true, "auto", false)).toBe(0);
   });
 });
 

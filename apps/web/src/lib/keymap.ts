@@ -266,6 +266,29 @@ export function matches(e: KeyLike, action: KeyAction, mac = isMac): boolean {
  *  trigger shortcuts, so they are not registry entries. */
 export const isEditKey = (e: Pick<KeyboardEvent, "key">, key: "Backspace" | "Delete" | "{"): boolean => e.key === key;
 
+/** How a slider handle moves for a key: a step of -1 or 1, a page of -12 or 12, or an end. Native
+ *  slider behaviour, so these are not registry entries. */
+export function sliderMove(e: Pick<KeyboardEvent, "key">): { step: number } | { end: "min" | "max" } | null {
+  switch (e.key) {
+    case "ArrowLeft":
+    case "ArrowDown":
+      return { step: -1 };
+    case "ArrowRight":
+    case "ArrowUp":
+      return { step: 1 };
+    case "PageDown":
+      return { step: -12 };
+    case "PageUp":
+      return { step: 12 };
+    case "Home":
+      return { end: "min" };
+    case "End":
+      return { end: "max" };
+    default:
+      return null;
+  }
+}
+
 /** The first action in `actions` the event triggers, or undefined. */
 export function matchAction<A extends KeyAction>(e: KeyLike, actions: readonly A[]): A | undefined {
   return actions.find((a) => matches(e, a));

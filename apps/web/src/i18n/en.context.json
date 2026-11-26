@@ -392,11 +392,6 @@
         "more": "Last tile in the card's photo grid when there are more photos than shown; {formatted} is how many more, like 1,204.",
         "spotsMore": "Title of the map's hover card for a photo dot or cluster with several saved spots under it. {names} is the first two spot names as a list."
       },
-      "tilt": {
-        "label": "Accessible name of the two-way switch over the Gallery map between 3D and Flat.",
-        "auto": "Switch option: the map tilts to one fixed 3D angle when zoomed in far enough, and is flat otherwise. Keep it short.",
-        "flat": "Switch option: the map never tilts. Keep it short."
-      },
       "showUnlocated": "Link beside the map's status line: opens the Gallery grid filtered to the photos with no coordinates.",
       "searchPlaces": "Placeholder of the offline place search above the Gallery map; it searches saved spots and region names.",
       "placed": "Toast after photos were given a point on the map. {formatted} is {count} formatted.",
@@ -1856,7 +1851,7 @@
     "pathLabel": "Accessible name of the breadcrumb over the map, like World / Canada / British Columbia.",
     "world": "First step of the map breadcrumb: the whole world, zoomed out.",
     "resetView": "Button over the map in a country or province: return to that region's designed framing.",
-    "resetViewHelp": "Tooltip line for Reset view. North up means the map is not rotated or tilted.",
+    "resetViewHelp": "Tooltip line for Reset view. North up means the map is not rotated.",
     "alsoIn": "Menu button beside the map breadcrumb listing far parts of a region left out of its view, like Svalbard for Norway. {region} is the region's name.",
     "keepZooming": "Brief hint over the map while the user zooms out past a framed region's view; zooming out further leaves it for the next level up. {region} is the region's name, like British Columbia."
   },
@@ -1864,6 +1859,7 @@
     "scope": {
       "map": "Heading in the keyboard shortcut sheet: keys that work on the map."
     },
+    "guide": "Link in the keyboard shortcut sheet's footer: opens the online guide's shortcuts page in the browser.",
     "action": {
       "undoLocation": "Keyboard shortcut sheet: Cmd/Ctrl+Z on the map puts back the latest location change."
     }

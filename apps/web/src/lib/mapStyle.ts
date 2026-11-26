@@ -22,8 +22,6 @@ const OPEN = ["grassland", "grass", "scrub", "farmland"];
 
 export const PMTILES_SOURCE_ID = "protomaps";
 export const RELIEF_SOURCE_ID = "relief";
-// MapLibre advises separate sources for the hillshade and the terrain.
-export const TERRAIN_SOURCE_ID = "relief-terrain";
 
 const CREDITS_PAGE = "https://sparklysparkspark.github.io/lifer-app/credits#maps-and-regions";
 /** The bundled map's licence credit (OpenStreetMap under ODbL, Natural Earth at world zoom). */
@@ -138,13 +136,12 @@ const LIGHTS = [315, 270, 0, 225];
 const SHADOW_ALPHA = ["ff", "80", "80", "40"];
 const HIGHLIGHT_ALPHA = ["ff", "00", "00", "00"];
 
-/** Shaded relief from the offline elevation archive (terrarium tiles). The 3D terrain is switched
- *  on only while the map is tilted (tiltTerrain), since flat maps gain nothing from it. `strong` is
- *  the relief look (photo map): lit from several sides, tinted by elevation, with sky when tilted. */
+/** Shaded relief from the offline elevation archive (terrarium tiles). `strong` is the relief look
+ *  (photo map): lit from several sides and tinted by elevation. */
 export function reliefStyleParts(
   url: string,
   strong = false,
-): Pick<StyleSpecification, "sources" | "terrain" | "sky"> & {
+): Pick<StyleSpecification, "sources"> & {
   hillshade: LayerSpecification;
   tint?: LayerSpecification;
 } {
@@ -156,18 +153,14 @@ export function reliefStyleParts(
     maxzoom: 5,
   };
   return {
-    sources: {
-      [RELIEF_SOURCE_ID]: { ...dem, attribution: TERRAIN_ATTRIBUTION },
-      [TERRAIN_SOURCE_ID]: dem,
-    },
-    terrain: { source: TERRAIN_SOURCE_ID, exaggeration: 1.3 },
+    sources: { [RELIEF_SOURCE_ID]: { ...dem, attribution: TERRAIN_ATTRIBUTION } },
     hillshade: {
       id: RELIEF_LAYER_ID,
       type: "hillshade",
       source: RELIEF_SOURCE_ID,
       paint: strong ? strongShade() : quietShade(),
     },
-    ...(strong && { tint: elevationTint(), sky: sky() }),
+    ...(strong && { tint: elevationTint() }),
   };
 }
 
@@ -221,18 +214,6 @@ function elevationTint(): LayerSpecification {
       ],
       "color-relief-opacity": ["interpolate", ["linear"], ["zoom"], 2, 0.3, 5, 0.85],
     },
-  };
-}
-
-/** Only seen when tilted: a soft sky, and haze over far terrain so the horizon isn't a hard edge. */
-function sky(): StyleSpecification["sky"] {
-  return {
-    "sky-color": token("--color-map-sky"),
-    "horizon-color": token("--color-map-horizon"),
-    "fog-color": token("--color-map-land"),
-    "sky-horizon-blend": 0.6,
-    "horizon-fog-blend": 0.7,
-    "fog-ground-blend": 0.6,
   };
 }
 

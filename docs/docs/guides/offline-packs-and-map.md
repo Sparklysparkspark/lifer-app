@@ -71,7 +71,7 @@ Separately from downloaded regions, Lifer's species catalog (rarity, occurrence 
 
 ## The offline map {#offline-map}
 
-Maps in Lifer, like **Where to find it** on species pages and the map on this page, come from an offline world map you download once (about 640 MB). It includes shaded relief and terrain for 3D views. Without it, maps don't show, even when you're online. Everything else works the same.
+Maps in Lifer, like **Where to find it** on species pages and the map on this page, come from an offline world map you download once (about 640 MB). It includes shaded relief. Without it, maps don't show, even when you're online. Everything else works the same.
 
 1. Open **Settings > Species and import > Species downloads**.
 2. In **Offline map**, click **Download** (about 640 MB).

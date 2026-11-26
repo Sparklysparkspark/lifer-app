@@ -1,5 +1,5 @@
 // The curated region view's camera (docs/plans/map-location-ux.md, "Curated region view"): a fixed,
-// north-up framing per country or province, pan held near it, and 3D only as a choice inside it.
+// north-up framing per country or province, pan held near it.
 // Pure: the MapLibre calls live in hooks/useRegionCamera.ts.
 import overrides from "./regionFraming.json";
 
@@ -17,18 +17,12 @@ export interface Framing {
   bounds: Bounds;
   /** The far parts the bounds leave out, largest first. */
   parts: RegionPart[];
-  /** Pitch when 3D is on. */
-  pitch: number;
-  /** Terrain exaggeration when 3D is on. */
-  exaggeration: number;
 }
 
 interface Override {
   /** Without it the rule frames the region and only the parts are hand-set. */
   bounds?: Bounds;
   parts?: RegionPart[];
-  pitch?: number;
-  exaggeration?: number;
 }
 
 /** A continent's or the world's downloaded countries, kept on its joined outline as
@@ -46,13 +40,6 @@ type Geometry = { type: string; coordinates: unknown };
 export const FLY_MS = 900;
 /** Breathing room around a fitted country, the same on the Map page and the packs map. */
 export const FIT_PADDING = 32;
-/** The one 3D look: a fixed pitch once zoomed in far enough for relief to read (the elevation
- *  archive is detailed to zoom 5), flat again below a lower zoom so it doesn't flap at the edge.
- *  No free tilt or rotation anywhere. */
-export const TILT = { pitch: 50, onZoom: 5, offZoom: 4.5 } as const;
-export type TiltMode = "auto" | "flat";
-const PITCH_3D = TILT.pitch;
-const WIDE_KM = 1000;
 const KEEP_AREA_SHARE = 0.95;
 const NEAR_KM = 1500;
 const PAN_SLACK = 0.25;
@@ -240,12 +227,7 @@ export function regionFraming(outline: unknown, code?: string | null): Framing |
 export const partFraming = (part: RegionPart): Framing => withDefaults(part.bounds, {}, []);
 
 function withDefaults(bounds: Bounds, o: Partial<Override>, parts: RegionPart[]): Framing {
-  return {
-    bounds,
-    parts,
-    pitch: o.pitch ?? PITCH_3D,
-    exaggeration: o.exaggeration ?? (spanKm(bounds) > WIDE_KM ? 1.5 : 1.3),
-  };
+  return { bounds, parts };
 }
 
 /** Pan stays within the framing plus a quarter of its size each way, and never less than the view
@@ -272,16 +254,9 @@ export function holdableView([w, s, e, n]: Bounds): Bounds | null {
 /** Zooming out stops just past the framing. */
 export const zoomFloor = (framingZoom: number): number => Math.max(0, framingZoom - 0.5);
 
-/** The pitch for this zoom: the curated tilt in Auto with relief, else flat. `tilted` is whether
- *  the map is tilted now, for the hysteresis. */
-export function curatedPitch(zoom: number, tilted: boolean, mode: TiltMode, relief: boolean): number {
-  if (mode === "flat" || !relief) return 0;
-  return zoom >= (tilted ? TILT.offZoom : TILT.onZoom) ? TILT.pitch : 0;
-}
-
-/** North up always; tilted only at the curated angle; no flight with reduced motion. */
-export function regionCamera(framing: Framing, view3d: boolean, reducedMotion: boolean) {
-  return { bearing: 0, pitch: view3d ? framing.pitch : 0, duration: reducedMotion ? 0 : FLY_MS };
+/** North up and flat always; no flight with reduced motion. */
+export function regionCamera(reducedMotion: boolean) {
+  return { bearing: 0, pitch: 0, duration: reducedMotion ? 0 : FLY_MS };
 }
 
 /** One move onto a clicked mark: a cluster to the zoom where it splits, a dot, ring or spot about

@@ -1038,11 +1038,6 @@
         "more": "+{formatted}",
         "spotsMore": "{names} and {count, plural, one {# more spot} other {# more spots}}"
       },
-      "tilt": {
-        "label": "Map angle",
-        "auto": "3D",
-        "flat": "Flat"
-      },
       "grouped": "Nearby photos are grouped to keep the map fast.",
       "thisArea": "This area",
       "photoCount": "{count, plural, one {{formatted} photo} other {{formatted} photos}}",
@@ -5009,6 +5004,7 @@
     "scope": {
       "global": "Everywhere",
       "dialog": "Dialogs",
+    "guide": "Read in the guide",
       "gallery": "Gallery",
       "photo": "Photo viewer and compare",
       "video": "Video",

@@ -10,15 +10,14 @@ vi.mock("./pmtilesAvailable", async (importOriginal) => ({
 }));
 
 describe("reliefStyleParts", () => {
-  it("keeps small maps quiet: one light, no tint or sky", async () => {
+  it("keeps small maps quiet: one light, no tint", async () => {
     const { reliefStyleParts } = await import("./mapStyle");
     const quiet = reliefStyleParts("/r.pmtiles");
     expect(quiet.tint).toBeUndefined();
-    expect(quiet.sky).toBeUndefined();
     expect(quiet.hillshade.paint).not.toHaveProperty("hillshade-method");
   });
 
-  it("gives the relief look matching light arrays, an elevation tint and a sky", async () => {
+  it("gives the relief look matching light arrays, and an elevation tint", async () => {
     const { reliefStyleParts } = await import("./mapStyle");
     const strong = reliefStyleParts("/r.pmtiles", true);
     const paint = strong.hillshade.paint as Record<string, unknown[]>;
@@ -28,7 +27,6 @@ describe("reliefStyleParts", () => {
     for (const k of ["hillshade-illumination-altitude", "hillshade-shadow-color", "hillshade-highlight-color"])
       expect(paint[k]).toHaveLength(lights);
     expect(strong.tint).toMatchObject({ type: "color-relief", source: "relief" });
-    expect(strong.sky).toHaveProperty("fog-color");
   });
 });
 

@@ -41,9 +41,7 @@ export const designTokens = {
     "map-elevation-low": "#e3d3ae00",
     "map-elevation-mid": "#e3d3ae",
     "map-elevation-high": "#c4a982",
-    "map-elevation-peak": "#ffffff",
-    "map-sky": "#c9d9e3",
-    "map-horizon": "#eef0ea"
+    "map-elevation-peak": "#ffffff"
   },
   "dark": {
     "surround": "#262626",
@@ -85,9 +83,7 @@ export const designTokens = {
     "map-elevation-low": "#3b382f00",
     "map-elevation-mid": "#3b382f",
     "map-elevation-high": "#4d4537",
-    "map-elevation-peak": "#8a8d89",
-    "map-sky": "#0f151b",
-    "map-horizon": "#2b2e2c"
+    "map-elevation-peak": "#8a8d89"
   },
   "spacing": {
     "page": 24,

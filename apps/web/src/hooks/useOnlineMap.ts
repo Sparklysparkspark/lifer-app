@@ -94,7 +94,7 @@ export function resetOnlineMapPrefs(): void {
   for (const l of prefListeners) l();
 }
 
-/** Remembered per browser, like the map's 3D choice, and shared live by every map on the page. */
+/** Remembered per browser, and shared live by every map on the page. */
 export function useOnlineMapPrefs(): OnlineMapPrefs {
   useSyncExternalStore(subscribePrefs, () => prefVersion);
   const detail = readPref<DetailSetting>("photo-map-detail", detailDefault());
@@ -183,8 +183,8 @@ const RELIEF_ERRORS = 4;
 /** Sharper relief from Mapterhorn past the bundled archive's zoom, shaded like the bundled layer. The
  *  bundled shading steps back only once an online tile has arrived, and returns for good (silently)
  *  after a run of errors, so a dead or blocked connection never leaves the map flat. */
-// shortcut: the tilted 3D mesh and the elevation tint stay on the bundled zoom 5 data; move them to
-// this source too if tilted views look soft next to the sharper shading.
+// shortcut: the elevation tint stays on the bundled zoom 5 data; move it to this source too if it
+// looks soft next to the sharper shading.
 export function applyOnlineRelief(map: MapLibreMap): () => void {
   const bundled = map.getStyle().layers.find((l) => l.id === RELIEF_LAYER_ID);
   if (!bundled || bundled.type !== "hillshade") return () => {};

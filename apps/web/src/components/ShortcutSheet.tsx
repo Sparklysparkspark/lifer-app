@@ -5,6 +5,8 @@ import Button from "./Button";
 import { isTypingTarget } from "../hooks/useKeyboardShortcuts";
 import { KEYMAP, matches, shortcutLabels, type KeyAction, type KeyScope, type WidgetAction } from "../lib/keymap";
 import { isTauri } from "../lib/tauri";
+import { docsUrl } from "../lib/docs";
+import { openExternal } from "../lib/openExternal";
 
 // Widget keys are the platform's own (arrows in a list), so the sheet leaves them out.
 const SCOPES: Exclude<KeyScope, "widget">[] = [
@@ -128,7 +130,14 @@ export default function ShortcutSheet() {
       onClose={() => setOpen(false)}
       title={t("shortcuts.title")}
       size="lg"
-      footer={<Button onClick={() => setOpen(false)}>{t("common.done")}</Button>}
+      footer={
+        <>
+          <Button variant="link" onClick={() => openExternal(docsUrl("/guides/keyboard-shortcuts"))}>
+            {t("shortcuts.guide")}
+          </Button>
+          <Button onClick={() => setOpen(false)}>{t("common.done")}</Button>
+        </>
+      }
     >
       <p className="mb-4 text-callout text-muted">{t("shortcuts.intro")}</p>
       {SCOPES.map((scope) => (

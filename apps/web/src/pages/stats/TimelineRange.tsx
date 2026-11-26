@@ -1,5 +1,6 @@
 import { useRef, type KeyboardEvent, type PointerEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { sliderMove } from "../../lib/keymap";
 import { binLabel, type TimelineBin } from "./timeline";
 
 type Drag = { kind: "start" | "end" } | { kind: "move"; offset: number } | { kind: "draw"; anchor: number };
@@ -56,21 +57,9 @@ export default function TimelineRange({
     const value = which === "start" ? start : end;
     const lo = which === "start" ? 0 : start;
     const hi = which === "start" ? end : last;
-    const next =
-      e.key === "ArrowLeft" || e.key === "ArrowDown"
-        ? value - 1
-        : e.key === "ArrowRight" || e.key === "ArrowUp"
-          ? value + 1
-          : e.key === "PageDown"
-            ? value - 12
-            : e.key === "PageUp"
-              ? value + 12
-              : e.key === "Home"
-                ? lo
-                : e.key === "End"
-                  ? hi
-                  : null;
-    if (next === null) return;
+    const move = sliderMove(e);
+    if (!move) return;
+    const next = "step" in move ? value + move.step : move.end === "min" ? lo : hi;
     e.preventDefault();
     const clamped = Math.min(hi, Math.max(lo, next));
     if (which === "start") onChange(clamped, end);

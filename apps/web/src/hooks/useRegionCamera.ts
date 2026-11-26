@@ -21,15 +21,13 @@ import {
   wheelLevels,
   type OvershootInput,
 } from "../lib/zoomOvershoot";
-import { setTerrainExaggeration } from "../lib/pmtiles";
 import { useKeyboardShortcuts } from "./useKeyboardShortcuts";
 import { useLatest } from "./useLatest";
 
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
 /** The curated region view on a big map. `enter` flies to a country's or province's fixed framing
- *  (or one of its far parts), north up and tilted only when `tiltAt(zoom)` says the landing zoom
- *  gets the curated 3D look; it dims the world around the region and holds pan and zoom-out near
+ *  (or one of its far parts), north up and flat; it dims the world around the region and holds pan and zoom-out near
  *  the framing. `reset` (also Mod+0) returns to the framing; `leave` lifts the limits and clears the
  *  dimming, and the caller moves the camera on (to the parent region or the world).
  *  `padding` keeps the framing clear of panels floating over the map.
@@ -37,11 +35,7 @@ const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce
  *  up from 0 to 1 meanwhile) calls `onRelease`, for the caller to go up a level without a flight. */
 export function useRegionCamera(
   map: MapLibreMap | null,
-  {
-    tiltAt,
-    padding = FIT_PADDING,
-    onRelease,
-  }: { tiltAt: (zoom: number) => boolean; padding?: number | PaddingOptions; onRelease?: () => void },
+  { padding = FIT_PADDING, onRelease }: { padding?: number | PaddingOptions; onRelease?: () => void } = {},
 ) {
   // Keyed by map: a new map (theme change) starts in the world view.
   const [shown, setShown] = useState<{ map: MapLibreMap; framing: Framing } | null>(null);
@@ -49,7 +43,7 @@ export function useRegionCamera(
   const framingRef = useRef<Framing | null>(null);
   // The zoom the framing lands at, for telling a zoomed-in view from the framed one.
   const framedZoomRef = useRef<number | null>(null);
-  const opts = useLatest({ tiltAt, padding, onRelease });
+  const opts = useLatest({ padding, onRelease });
   const [overshoot, setOvershoot] = useState(0);
   const overshootRef = useRef(NO_OVERSHOOT);
 
@@ -66,7 +60,7 @@ export function useRegionCamera(
         { padding: opts.current.padding, bearing: 0, maxZoom: 9 },
       );
       if (!camera) return;
-      const move = { ...camera, ...regionCamera(f, opts.current.tiltAt(camera.zoom ?? 0), reducedMotion()) };
+      const move = { ...camera, ...regionCamera(reducedMotion()) };
       framedZoomRef.current = camera.zoom ?? null;
       const hold = () => {
         if (framingRef.current !== f) return;
@@ -108,7 +102,6 @@ export function useRegionCamera(
       if (!map || !f) return;
       framingRef.current = f;
       setShown({ map, framing: f });
-      setTerrainExaggeration(map, f.exaggeration);
       showRegionOutline(map, outline);
       fly(f, still);
     },

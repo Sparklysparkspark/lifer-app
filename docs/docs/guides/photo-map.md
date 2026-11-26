@@ -92,13 +92,9 @@ Zooming out stops at the region's view. Keep zooming out (a further pinch, a few
 
 Far-off islands and overseas parts are left out of a country's view so the mainland fills the map, such as Svalbard for Norway or Hawaii for the United States. **Also in Norway** beside the path lists them; pick one to fly there. **Reset view** or the path takes you back to the whole country.
 
-## Flat or 3D {#three-d}
-
-The map is always north up. With **3D** (the default) it tilts to one fixed angle once you zoom in far enough for mountains to show, about where a province fills the map, and levels out again as you zoom out. **Flat** never tilts. The switch is at the top left of the map, and Lifer remembers your choice. With reduced motion turned on in your system settings, the map changes angle at once instead of easing. The relief comes with the [offline map](./offline-packs-and-map.md#offline-map); without it the map stays flat and the switch is hidden. Tilted, a soft sky and haze sit along the horizon.
-
 ## How the map looks {#look}
 
-The map is drawn to stay quiet under your photos: pale land (charcoal in dark mode), soft blue water, a hint of green for forest, thin borders, and relief shaded from several sides so slopes facing any way stand out. As you zoom into a region, high ground takes on a tint: tan, then brown, then white on the highest peaks. Country names show at world zoom; province names, province borders and towns of about 50,000 people or more appear as you zoom into a region. Names are in English.
+The map is always north up and flat, and is drawn to stay quiet under your photos: pale land (charcoal in dark mode), soft blue water, a hint of green for forest, thin borders, and relief shaded from several sides so slopes facing any way stand out. As you zoom into a region, high ground takes on a tint: tan, then brown, then white on the highest peaks. Country names show at world zoom; province names, province borders and towns of about 50,000 people or more appear as you zoom into a region. Names are in English.
 
 ## Satellite and online detail {#online}
 
