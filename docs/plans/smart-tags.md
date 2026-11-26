@@ -1,6 +1,6 @@
 # Smart tags: general keywords, captions and alt text
 
-Status: scoping only, nothing built. Written 2026-11-25. Section "Measured" holds a small read-only experiment
+Status: decisions made 2026-11-25 (below), build starting. Written 2026-11-25. Section "Measured" holds a small read-only experiment
 run the same day on catalog reference vectors.
 
 **Reviewer model:** Opus 5.5 reviews engine, models and accuracy, data and storage, and anything that writes files;
@@ -9,24 +9,16 @@ Sonnet 5.5 reviews docs, wording, simple UI and tests.
 > **Calibration:** effort figures are conventional engineering time. Lifer's coding pace is far faster. Labelling
 > photos, maintainer reviews and the eyeball checks do not compress.
 
-## Decisions needed first
+## Decisions (made by the maintainer, 2026-11-25)
 
-1. **Scope for 1.0.** Recommended: tags made from signals Lifer already stores, plus a short CLIP list of
-   wildlife-context terms (In hand, Captive, Specimen and the like), each shipped only if it passes the benchmark.
-   Not recommended: a general 300-term vocabulary like Preen's (things, events, activities, people detail).
-2. **How accepted tags are written.** Recommended: they become ordinary photo tags (so search, Filters > Tag and
-   the Tags page work with no new code), but the keyword tree writes them under their facet (`Habitat|Wetland`),
-   not under `Lifer Tags|`. Alternative: everything under one root (`Lifer Smart|Habitat|Wetland`), easier to strip
-   in Lightroom, uglier to browse. Root names need a yes.
-3. **Writing into files.** Recommended: a separate switch, **Write smart tags into photo files**, off by default.
-   Accepted tags stay in Lifer until it is on. Today any tag change is written into managed files at once, so this
-   is a deliberate exception.
-4. **Cloud models.** Recommended: none in Lifer itself. The privacy page promises photos never leave the device to
-   be identified, and an API key is setup. If wanted, add a `tags.suggest` plugin scope after 1.0 so a user's own
-   plugin (n8n style, their key) feeds the same review queue.
-5. **Local captioning model.** Recommended: not in 1.0. Alt text and captions are built from templates and accepted
-   tags (no model, never invents a species). Revisit a Florence-2 or SmolVLM pack only if the template text proves
-   too thin in use.
+1. **Scope for 1.0: the broad vocabulary** (about 300 terms: things, events, activities, people detail, as well
+   as the stored signals and wildlife-context terms). Every term still ships only if it passes the benchmark (the
+   90 percent bar, held-out sessions), so the list that ships may be shorter than the list proposed.
+2. **Keyword tree: under the facet** (`Habitat|Wetland`), not under one root.
+3. **Writing into files: its own switch**, **Write smart tags into photo files**, off by default.
+4. **Cloud models: none in Lifer's core, and no API key field in Settings either.** A `tags.suggest` plugin scope
+   after 1.0 (ST-10) is the only route, and it is not part of 1.0.
+5. **Local captioning model: left out for now** (ST-9 is cut). Alt text and captions are built from templates.
 
 ## Why, and the scope test
 
