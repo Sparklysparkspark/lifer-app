@@ -719,7 +719,7 @@ const thinTree = (orders: string[]) => ({
 });
 
 describe("TaxaExplorer more-groups arcs", () => {
-  const more = () => screen.getByRole("button", { name: "3 more groups, click to see them" });
+  const more = () => screen.getByRole("button", { name: /^3 more groups, \d+ of 3 species/ });
   const openBig = () => {
     treeData = thinTree(["Huge", "T1", "T2", "T3"]);
     renderPage();

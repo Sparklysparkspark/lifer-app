@@ -1,7 +1,8 @@
 // The Tree of life as a circle (sunburst): the focused group in the middle, three rings of the
 // groups inside it, each arc sized by its catalogue species and filled outward by your share.
-// Clicking a group zooms into it; the middle steps back out. An "N more groups" arc, standing in
-// for groups too thin to draw, zooms into just those groups, laid out across the whole circle. Arrow keys move between arcs. A small
+// Clicking a group zooms into it; the middle steps back out. An "N more groups" arc stands in for
+// groups too thin to draw: it carries their share, rarity and targets, fills the rings out to the
+// edge so the circle stays whole, and zooms into just those groups. Arrow keys move between arcs. A small
 // target marks the arcs holding species on your targets; right-click opens the marks menu. With
 // rarity on, a thin band along each arc's outer edge shows its species' average tier, apart from
 // the green of your share. A change of view morphs the arcs (see arcMotion.ts).
@@ -32,6 +33,10 @@ const INNER = 96;
 const OUTER = C - 4;
 const RINGS = 3;
 const RING = (OUTER - INNER) / RINGS;
+// The thinnest arc drawn on its own, as a length along the ring's outer edge, so inner rings
+// merge as readily as outer ones.
+const MIN_ARC = 4;
+const minAngle = (ring: number) => MIN_ARC / (INNER + ring * RING);
 
 const point = (r: number, a: number) => `${(C + r * Math.sin(a)).toFixed(2)} ${(C - r * Math.cos(a)).toFixed(2)}`;
 function arcPath(r0: number, r1: number, start: number, end: number): string {
@@ -96,7 +101,7 @@ const geoOf = (arc: Arc): Geo => {
     start: arc.start,
     end: arc.end,
     r0,
-    r1: r0 + RING,
+    r1: INNER + (arc.outer ?? arc.ring) * RING,
     opacity: 1,
     share: arc.total ? arc.collected / arc.total : 0,
   };
@@ -105,7 +110,7 @@ type Parts = { g: SVGGElement; empty: Element; share: Element | null; band: Elem
 /** Draws one in-between frame of an arc, straight to the DOM: thousands of arcs, 60 times a second. */
 function paint(el: Parts, g: Geo, rarity: boolean) {
   el.g.setAttribute("opacity", g.opacity.toFixed(3));
-  const top = Math.max(g.r0, g.r1 - (rarity ? BAND + GAP : 0));
+  const top = Math.max(g.r0, g.r1 - (rarity && el.band ? BAND + GAP : 0));
   el.empty.setAttribute("d", arcPath(g.r0, top, g.start, g.end));
   el.share?.setAttribute("d", arcPath(g.r0, g.r0 + (top - g.r0) * g.share, g.start, g.end));
   el.band?.setAttribute("d", arcPath(Math.max(g.r0, g.r1 - BAND), g.r1, g.start, g.end));
@@ -149,7 +154,7 @@ export default function TreeCircle({
 }) {
   const { t } = useTranslation();
   const arcs = useMemo(
-    () => circleArcs(index, center, { rings: RINGS, genus, top: top ?? undefined }),
+    () => circleArcs(index, center, { rings: RINGS, minAngle, genus, top: top ?? undefined }),
     [index, center, genus, top],
   );
   // A key, not the arc: a new tree (region, marks, View) can drop the arc the pointer rests on.
@@ -236,8 +241,11 @@ export default function TreeCircle({
   ];
   const outlines = ringed.filter(([a], i) => a && !ringed.slice(i + 1).some(([b]) => b === a)) as [Arc, OutlineKind][];
   const shownNode = shown?.id ? index.byId.get(shown.id)!.node : null;
-  const readout = shown && !shown.id ? null : (shownNode ?? (top ? null : centerNode));
-  const totals = readout ?? {
+  const shownMore = shown && !shown.id ? shown : null;
+  const readout = shownMore ? null : (shownNode ?? (top ? null : centerNode));
+  // What the middle counts: the group, the "more" arc's merged groups, or everything drawn.
+  const summary = readout ?? shownMore;
+  const totals = summary ?? {
     collected: roots.reduce((n, r) => n + r.collected, 0),
     total: roots.reduce((n, r) => n + r.total, 0),
   };
@@ -271,22 +279,20 @@ export default function TreeCircle({
       arcs.map((arc, i) => {
         const node = arc.id ? index.byId.get(arc.id)!.node : null;
         const share = arc.total > 0 ? arc.collected / arc.total : 0;
-        const counts = node && {
-          name: label(node),
-          collected: formatNumber(node.collected),
-          total: formatNumber(node.total),
-          count: node.targetCount,
-          formatted: formatNumber(node.targetCount),
-        };
+        // A "more" arc reads like a group: its merged counts, targets and rarity.
+        const base = t(arc.targetCount > 0 ? "explorer.arcLabelTargets" : "explorer.arcLabel", {
+          name: node ? label(node) : t("explorer.moreGroups", { count: arc.more ?? 0 }),
+          collected: formatNumber(arc.collected),
+          total: formatNumber(arc.total),
+          count: arc.targetCount,
+          formatted: formatNumber(arc.targetCount),
+        });
         const rare = rarity ? rarityOf(arc) : null;
         const more = !node && arc.total > 0;
-        const base = counts
-          ? t(counts.count > 0 ? "explorer.arcLabelTargets" : "explorer.arcLabel", counts)
-          : t(more ? "explorer.moreGroupsAction" : "explorer.moreGroups", { count: arc.more ?? 0 });
-        const name = rare && node ? `${base}. ${rarityText(t, node)}` : base;
-        const r0 = INNER + (arc.ring - 1) * RING;
-        // With rarity on, every arc keeps the band's room, so the rings stay aligned.
-        const top = r0 + RING - (rarity ? BAND + GAP : 0);
+        const name = rare ? `${base}. ${rarityText(t, node ?? arc)}` : base;
+        const { r0, r1 } = geoOf(arc);
+        // A rated arc keeps the band's room; an unrated one fills it, so no ring shows a gap.
+        const top = r1 - (rare ? BAND + GAP : 0);
         const markR = top - MARK_INSET;
         const mid = (arc.start + arc.end) / 2;
         const marked = arc.targetCount > 0 && (arc.end - arc.start) * markR >= MARK_ROOM;
@@ -297,12 +303,12 @@ export default function TreeCircle({
             {share > 0 && (
               <path
                 d={arcPath(r0, r0 + (top - r0) * share, arc.start, arc.end)}
-                className={`pointer-events-none fill-accent ${node ? "" : "opacity-60"}`}
+                className="pointer-events-none fill-accent"
               />
             )}
             {rare && (
               <path
-                d={arcPath(r0 + RING - BAND, r0 + RING, arc.start, arc.end)}
+                d={arcPath(r1 - BAND, r1, arc.start, arc.end)}
                 className={`pointer-events-none ${RARITY_FILL[rare.step]}`}
               />
             )}
@@ -310,7 +316,7 @@ export default function TreeCircle({
               ref={(el) => {
                 refs.current[i] = el;
               }}
-              d={arcPath(r0, r0 + RING, arc.start, arc.end)}
+              d={arcPath(r0, r1, arc.start, arc.end)}
               role={node || more ? "button" : "img"}
               aria-label={name}
               tabIndex={node || more ? (i === active ? 0 : -1) : undefined}
@@ -393,7 +399,7 @@ export default function TreeCircle({
             outlines.map(([arc, kind]) => (
               <Outline
                 key={`${kind}-${arcKey(arc)}`}
-                d={arcPath(INNER + (arc.ring - 1) * RING, INNER + arc.ring * RING, arc.start, arc.end)}
+                d={arcPath(geoOf(arc).r0, geoOf(arc).r1, arc.start, arc.end)}
                 kind={kind}
               />
             ))}
@@ -405,9 +411,7 @@ export default function TreeCircle({
                 return (
                   <g key={key} ref={(el) => void parts.current.set(key, el)}>
                     <path data-part="empty" className={`${EMPTY} stroke-canvas`} strokeWidth={1} />
-                    {(from.share > 0 || to.share > 0) && (
-                      <path data-part="share" className={`fill-accent ${arc.id ? "" : "opacity-60"}`} />
-                    )}
+                    {(from.share > 0 || to.share > 0) && <path data-part="share" className="fill-accent" />}
                     {rare && <path data-part="band" className={RARITY_FILL[rare.step]} />}
                     {arc.targetCount > 0 && (
                       <g data-part="mark">
@@ -460,16 +464,14 @@ export default function TreeCircle({
                     ? t("explorer.moreGroups", { count: top.length })
                     : t("explorer.allGroups")}
             </p>
-            {(readout || !shown) && (
-              <p className="text-caption text-muted tabular-nums sm:text-footnote">
-                {t("explorer.speciesOf", {
-                  collected: formatNumber(totals.collected),
-                  total: formatNumber(totals.total),
-                })}
-              </p>
-            )}
-            {rarity && readout && rarityText(t, readout) && (
-              <p className="line-clamp-2 text-caption text-muted sm:text-footnote">{rarityText(t, readout)}</p>
+            <p className="text-caption text-muted tabular-nums sm:text-footnote">
+              {t("explorer.speciesOf", {
+                collected: formatNumber(totals.collected),
+                total: formatNumber(totals.total),
+              })}
+            </p>
+            {rarity && summary && rarityText(t, summary) && (
+              <p className="line-clamp-2 text-caption text-muted sm:text-footnote">{rarityText(t, summary)}</p>
             )}
           </div>
         </div>

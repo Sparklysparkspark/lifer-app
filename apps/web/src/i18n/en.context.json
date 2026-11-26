@@ -1976,10 +1976,9 @@
     "myBranches": "Opens the groups you have photographed something in.",
     "focus": "Shows only this group and what is inside it, as if it were the top of the tree.",
     "zoomOut": "Screen reader name of the middle of the circle view; it goes up one group.",
-    "arcLabel": "Screen reader name of one ring segment in the circle view, like Owls, 3 of 12 species.",
+    "arcLabel": "Screen reader name of one ring segment in the circle view, like Owls, 3 of 12 species. {name} is a group name, or for a segment standing in for groups too small to draw, the text of moreGroups, like 5 more groups.",
     "arcLabelTargets": "Screen reader name of a ring segment holding species on your targets, like Owls, 3 of 12 species, 2 targets. Targets are species you want to photograph.",
     "moreGroups": "A ring segment standing in for groups too small to draw separately.",
-    "moreGroupsAction": "Screen reader name of the ring segment that stands in for groups too small to draw separately; activating it shows just those groups. Plural forms of: N more groups.",
     "focusGone": "Note above the tree when the group you were looking at is not in the current view (for example after Show only my targets). {group} is the group's name, {shown} the larger group shown instead, or All groups.",
     "focusGoneRegion": "Note above the tree after you pick a region that has none of the group you were looking at. {group} is the group's name, {region} the region, {shown} the larger group shown instead, or All groups.",
     "rank": {

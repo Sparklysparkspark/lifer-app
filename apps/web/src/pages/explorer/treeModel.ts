@@ -244,8 +244,8 @@ export function rarityOf(node: Pick<TreeNode, "tiers">): Rarity | null {
   return rated ? { step: Math.round(sum / rated), rarePlus, rated } : null;
 }
 
-/** A species' tier, or a group's average tier and how many are rare or rarer. */
-export function rarityText(t: TFunction, node: TreeNode): string | null {
+/** A species' tier, or a group's (or a "more" arc's) average tier and how many are rare or rarer. */
+export function rarityText(t: TFunction, node: Pick<TreeNode, "tiers"> & { rank?: TreeNode["rank"] }): string | null {
   const rarity = rarityOf(node);
   if (!rarity) return null;
   const tier = tierLabel(RARITY_STEPS[rarity.step]);
@@ -264,6 +264,8 @@ export interface Arc {
   id: string | null;
   /** 1 is the ring next to the centre. */
   ring: number;
+  /** For a "more" arc: the last ring it fills, so the rings outside it are never left empty. */
+  outer?: number;
   start: number;
   end: number;
   /** Groups merged into a "more" arc. */
@@ -307,7 +309,9 @@ export function restChain(index: TreeIndex, focus: string | null, genus: boolean
 }
 
 /** The Circle view's arcs: `rings` levels below `center` (or the whole tree), each child's angle
- *  in proportion to its catalogue species. Siblings thinner than `minAngle` merge into one arc.
+ *  in proportion to its catalogue species. Siblings thinner than `minAngle` (per ring) merge into one "more"
+ *  arc, itself at least `minAngle` wide where it can be, reaching out to the last ring and carrying
+ *  their summed counts, targets and tiers.
  *  With `top`, the first ring draws just those groups across the whole circle, at most REST_PAGE of
  *  them, so a family of thousands of small genera pages through nested "more" arcs. */
 export function circleArcs(
@@ -318,24 +322,30 @@ export function circleArcs(
     minAngle = 0.008,
     genus = false,
     top,
-  }: { rings?: number; minAngle?: number; genus?: boolean; top?: string[] } = {},
+  }: { rings?: number; minAngle?: number | ((ring: number) => number); genus?: boolean; top?: string[] } = {},
 ): Arc[] {
   const out: Arc[] = [];
   const place = (ids: string[], parent: string | null, ring: number, start: number, end: number, limit: number) => {
     const total = ids.reduce((n, id) => n + index.byId.get(id)!.node.total, 0);
     if (total === 0) return;
     const span = end - start;
+    const min = typeof minAngle === "number" ? minAngle : minAngle(ring);
     const sorted = bySize(index, ids);
     // Angle follows size, so the groups thin enough to merge are always the smallest.
-    let keep = sorted.filter((id) => (span * index.byId.get(id)!.node.total) / total >= minAngle).length;
+    let keep = sorted.filter((id) => (span * index.byId.get(id)!.node.total) / total >= min).length;
     // Never merge everything: that would nest "more" arcs forever.
     if (keep === 0 && limit < Infinity) keep = sorted.filter((id) => index.byId.get(id)!.node.total > 0).length;
     keep = Math.min(keep, limit);
     const kept = new Set(sorted.slice(0, keep));
+    const rest = total - sorted.slice(0, keep).reduce((n, id) => n + index.byId.get(id)!.node.total, 0);
+    // A "more" arc is never a sliver: it gets at least `minAngle`, taken evenly from the drawn groups.
+    const restAngle = rest > 0 && keep > 0 ? Math.max((span * rest) / total, Math.min(min, span / 2)) : 0;
+    const perSpecies = (span - restAngle) / (total - rest);
     let at = start;
     const thin = {
       id: null,
       ring,
+      outer: rings,
       start: 0,
       end,
       more: 0,
@@ -356,7 +366,7 @@ export function circleArcs(
         for (const [tier, n] of Object.entries(tiers)) thin.tiers[tier] = (thin.tiers[tier] ?? 0) + n;
         continue;
       }
-      const angle = (span * species) / total;
+      const angle = species * perSpecies;
       out.push({ id, ring, start: at, end: at + angle, collected, total: species, targetCount, tiers });
       if (ring < rings) place(childrenOf(index, id, genus), id, ring + 1, at, at + angle, Infinity);
       at += angle;

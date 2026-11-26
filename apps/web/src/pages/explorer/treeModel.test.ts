@@ -274,4 +274,51 @@ describe("circleArcs", () => {
     expect(page.filter((a) => a.id).length).toBe(REST_PAGE);
     expect(page.find((a) => !a.id)).toMatchObject({ more: 3000 - REST_PAGE, offset: REST_PAGE });
   });
+
+  // One big family and five one-species ones: at minAngle 0.1 the five merge into one more arc.
+  const thin = (tiny: TreeNode[]) =>
+    indexTree([
+      clade("order", "O", [
+        clade(
+          "family",
+          "Big",
+          Array.from({ length: 200 }, (_, i) => leaf(`b${i}`, 0)),
+        ),
+        ...tiny.map((s, i) => clade("family", `T${i}`, [s])),
+      ]),
+    ]);
+  const moreOf = (index: ReturnType<typeof thin>, rings = 1) =>
+    circleArcs(index, "order:O", { rings, minAngle: 0.1 }).find((a) => a.id === null)!;
+
+  it("sums a more arc's species, photos, targets and tiers, so it reads like a group", () => {
+    const more = moreOf(
+      thin([leaf("a", 1, "common", 1), leaf("b", 0, "rare"), leaf("c", 1, "legendary", 1), leaf("d", 0), leaf("e", 0)]),
+    );
+    expect(more).toMatchObject({ more: 5, total: 5, collected: 2, targetCount: 2 });
+    expect(more.tiers).toEqual({ common: 3, rare: 1, legendary: 1 });
+    // (0 * 3 + 3 + 4) / 5 rounds to occasional, as for any group.
+    expect(rarityOf(more)).toEqual({ step: 1, rarePlus: 2, rated: 5 });
+  });
+
+  it("gives an all-unrated more arc no rarity, and an all-photographed one a full share", () => {
+    const unrated = moreOf(thin(["a", "b", "c", "d", "e"].map((n) => leaf(n, 1, "unrated"))));
+    expect(rarityOf(unrated)).toBeNull();
+    expect(unrated.collected).toBe(unrated.total);
+  });
+
+  it("widens a more arc to the minimum and fills every ring outside it", () => {
+    const index = thin(["a", "b"].map((n) => leaf(n, 0)));
+    // Two of 202 species would be 0.062 rad; the drawn family gives up the difference.
+    const arcs = circleArcs(index, "order:O", { rings: 3, minAngle: 0.1 });
+    const more = arcs.find((a) => a.id === null && a.ring === 1)!;
+    expect(more).toMatchObject({ outer: 3, more: 2 });
+    close(more.end - more.start, 0.1);
+    close(
+      arcs.filter((a) => a.ring === 1).reduce((n, a) => n + a.end - a.start, 0),
+      2 * Math.PI,
+    );
+    // A per-ring minimum: 0.025 on the first ring keeps both 0.031 rad families on their own.
+    const perRing = circleArcs(index, "order:O", { minAngle: (ring) => ring * 0.025 });
+    expect(perRing.some((a) => a.id === null && a.ring === 1)).toBe(false);
+  });
 });

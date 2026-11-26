@@ -121,6 +121,43 @@ describe("TreeCircle motion", () => {
     expect(container.querySelector('[data-outline="hover"]')).toBeNull();
   });
 
+  it("reads a More groups arc like a group, and opens it on click", () => {
+    const big = { ...node("class", "Aves", 1000, [node("order", "P", 1000)]), tiers: { common: 1000 } };
+    const tiny = (name: string, extra: Partial<TreeNode>) => ({
+      ...node("class", name, 1, [node("order", `${name}o`, 1)]),
+      ...extra,
+    });
+    const onMore = vi.fn();
+    const { container } = render(
+      <TreeCircle
+        {...props}
+        center={null}
+        onMore={onMore}
+        index={indexTree([
+          big,
+          tiny("A", { tiers: { common: 1 }, collected: 1 }),
+          tiny("B", { tiers: { rare: 1 }, targetCount: 1 }),
+          tiny("C", { tiers: { unrated: 1 } }),
+        ])}
+      />,
+    );
+    const arc = container.querySelector('[aria-label^="3 more groups"]')!;
+    // (common + rare) / 2 rounds to uncommon; the unrated species does not count.
+    expect(arc.getAttribute("aria-label")).toBe(
+      "3 more groups, 1 of 3 species, 1 target. Mostly Uncommon, 1 of 2 rare or rarer",
+    );
+    expect(arc.getAttribute("role")).toBe("button");
+    expect(arc.parentElement!.querySelector(".fill-rarity-uncommon")).not.toBeNull();
+    expect(arc.parentElement!.querySelector(".fill-accent")).not.toBeNull();
+    fireEvent.mouseEnter(arc);
+    const middle = container.querySelector('[aria-live="polite"]')!.textContent;
+    expect(middle).toContain("3 more groups");
+    expect(middle).toContain("1 of 3 species");
+    expect(middle).toContain("Mostly Uncommon");
+    fireEvent.click(arc);
+    expect(onMore).toHaveBeenCalledWith(expect.objectContaining({ id: null, more: 3, ring: 1, outer: 3 }));
+  });
+
   it("drops a hovered More groups arc the new tree lacks", () => {
     vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce") }));
     const big = node("class", "Aves", 10_000, [node("order", "Passeriformes", 10_000)]);
