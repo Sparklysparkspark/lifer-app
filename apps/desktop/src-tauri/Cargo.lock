@@ -2417,7 +2417,7 @@ dependencies = [
 
 [[package]]
 name = "lifer-desktop"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "block2",
  "getrandom 0.4.3",

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Lifer",
     "slug": "lifer",
-    "version": "0.11.0",
+    "version": "0.12.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "ios": {

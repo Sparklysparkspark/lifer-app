@@ -79,7 +79,7 @@ export function smartRules(f: Filters & { query?: string }) {
 }
 
 export function createServer(client: LiferClient): McpServer {
-  const server = new McpServer({ name: "lifer", version: "0.11.0" });
+  const server = new McpServer({ name: "lifer", version: "0.12.0" });
   const readOnly = { readOnlyHint: true, openWorldHint: false };
 
   server.registerTool(

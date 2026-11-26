@@ -8,6 +8,8 @@ banner.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-26
+
 ### Added
 
 - Crash reports: if Lifer crashes, it offers to send a report the next time it opens. Nothing is
@@ -44,8 +46,40 @@ banner.
 - A short guided tour of the main pages, from Settings > General, the command palette or the end of
   setup. Short hints also appear the first time a feature matters, and can be turned off in
   Settings > General.
+- Tree of life: browse your life list by taxonomy as a tree or a circle, with rarity, targets and
+  seen marks, and your photo beside each species as you hover.
+- Add targets: target a whole group in a place ("raptors of BC"), or import a list, in one dialog.
+- Add a list of species from iNaturalist by group and place, plants, fungi and insects included.
+  Each one gets up to six reference photos in the background, so your photos of it are matched
+  like any other species.
+- HDR: on an HDR screen the viewer shows HDR photos (Ultra HDR JPEG, HDR AVIF, JPEG XL, PQ and HLG
+  PNG and TIFF). It can be turned off in Settings.
+- JPEG XL, AVIF and JPEG 2000 photos import like the other formats, and AVIF and HEIC previews keep
+  their Display P3 colour.
+- Life stage, sex, plumage and morph per photo, with Gallery filters for each.
+- Keyword and caption templates, with rules for what's written into files and sidecars, and Send to
+  Apple Photos.
+- A RAW and its JPG imported together act as one photo, and an edited JPG can be filed with the RAW
+  you already have. The Versions dialog has List and Grid views.
+- Import suggests the trip a batch belongs to, has a Move photos switch, and checks free disk space
+  first.
+- Network shares: one-click Connect for a share that isn't open, and a Library locations list.
+  Checks never hang on a share that has gone away.
+- Rarity shows two pills, how rare here and how rare worldwide. View can hide them.
+- Stats: Photos over time by animal group, with a range you can drag.
+- Bursts: a burst strip in the viewer and View > Group bursts in the Gallery.
+- Sea life: a region includes its nearby sea zones, ticked by default, so a coastal country shows
+  its shells and reef life too.
+- Searching an exact file name finds that photo and its versions.
+- Map: change the region of one photo or a whole trip from the Needs placing list, with Undo.
+- iNaturalist: photos taken over 200 m apart or on another camera become separate observations.
 
 ### Changed
+
+- The map is always flat; the 3D view is gone.
+
+- Before updating its database Lifer makes a backup, and it refuses to open a database from a newer
+  version.
 
 - A simpler sidebar, as in Photos: Collection, Gallery, Map, Albums and Stats, then iNaturalist
   and suggested apps. Trips now sit on the Albums page, under your own albums. Region downloads
@@ -61,6 +95,14 @@ banner.
 
 - Keyboard: S no longer starts selecting in the Gallery; use Select, Shift-click or Ctrl+A (Cmd+A
   on a Mac). Import moves to Ctrl+Shift+I (Cmd+Shift+I), as in Lightroom.
+
+### Fixed
+
+- In some countries, such as Belize, downloading a region filed its provinces under a province of
+  the same name, so photos there were matched only against sea life. Lifer repairs this on start.
+- A place whose checklist lacks a whole group (birds, say) borrows that group from the region
+  above, so suggestions there are never limited to the groups it does list.
+- The Collection map no longer opens cropped when the window restores its saved size.
 
 ## [0.11.0] - 2026-10-14
 
