@@ -158,4 +158,17 @@ describe("runningJobsProgress", () => {
     await Promise.all([a.settled(), b.settled(), c.settled()]);
     expect(runningJobsProgress()).toEqual({ running: 0, progress: null });
   });
+
+  it("leaves silent jobs out", async () => {
+    const gate = deferred();
+    const quiet = createJob("progress-silent", undefined, { silent: true });
+    quiet.start(async (ctx) => {
+      ctx.update({ processed: 1, total: 2 });
+      await gate.promise;
+    });
+    expect(quiet.status.running).toBe(true);
+    expect(runningJobsProgress()).toEqual({ running: 0, progress: null });
+    gate.resolve();
+    await quiet.settled();
+  });
 });

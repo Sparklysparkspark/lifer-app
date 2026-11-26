@@ -37,21 +37,21 @@ the header `x-lifer-client: 1` and come from Lifer's own site. Anything else get
 login. Requests with `x-api-key` skip this check entirely, so scripts using a key don't need the
 extra header.
 
-| Scope                        | Allows                                                                                                                                                                                                                         |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `photos.read`                | The photo feed (`GET /captures`) and image files: thumbnails, display images, originals, RAWs, videos                                                                                                                          |
-| `photos.write`               | Importing photos (`POST /uploads`, [resumable uploads](#large-files)) and editing them: species, extra species, rating, tags, capture time, location, life stage, sex, plumage and morph                                       |
-| `collection.read`            | The life list and its summary counts, and the species you added to checklists yourself                                                                                                                                         |
-| `collection.write`           | Adding species to region checklists yourself, and removing them again                                                                                                                                                          |
-| `gallery.read`               | The gallery listing, content search, similar-photo groups and the map                                                                                                                                                          |
-| `species.read`               | Species search and details, reference photos                                                                                                                                                                                   |
-| `stats.read`                 | Statistics, including the life list as CSV                                                                                                                                                                                     |
-| `trips.read`                 | Trips and their photos                                                                                                                                                                                                         |
-| `album.read` / `album.write` | Reading and managing albums, smart albums and their rules, smart album suggestions and pinned Gallery filters                                                                                                                  |
-| `share.read` / `share.write` | Reading, creating and revoking album share links                                                                                                                                                                               |
-| `userdata.read`              | Your own data for companion apps: the species you photographed, marked seen or made targets (`GET /userdata/v1/species`), and display images of your own photos. Never catalog data                                            |
-| `imports.write`              | Importing new photos from a companion app, and adding species to the photos that key imported                                                                                                                                  |
-| `opendata.read`              | The species lists of the regions you installed (`/opendata/v1/regions`), your lists from iNaturalist as definitions only (`/opendata/v1/species-lists`), and reference vectors whose photos are CC0 or CC BY, with attribution |
+| Scope                        | Allows                                                                                                                                                                                                                           |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `photos.read`                | The photo feed (`GET /captures`), image files (thumbnails, display images, originals, RAWs, videos) and [smart tag suggestions](#smart-tags)                                                                                     |
+| `photos.write`               | Importing photos (`POST /uploads`, [resumable uploads](#large-files)) and editing them: species, extra species, rating, tags, capture time, location, life stage, sex, plumage and morph, and [smart tag](#smart-tags) decisions |
+| `collection.read`            | The life list and its summary counts, and the species you added to checklists yourself                                                                                                                                           |
+| `collection.write`           | Adding species to region checklists yourself, and removing them again                                                                                                                                                            |
+| `gallery.read`               | The gallery listing, content search, similar-photo groups and the map                                                                                                                                                            |
+| `species.read`               | Species search and details, reference photos                                                                                                                                                                                     |
+| `stats.read`                 | Statistics, including the life list as CSV                                                                                                                                                                                       |
+| `trips.read`                 | Trips and their photos                                                                                                                                                                                                           |
+| `album.read` / `album.write` | Reading and managing albums, smart albums and their rules, smart album suggestions and pinned Gallery filters                                                                                                                    |
+| `share.read` / `share.write` | Reading, creating and revoking album share links                                                                                                                                                                                 |
+| `userdata.read`              | Your own data for companion apps: the species you photographed, marked seen or made targets (`GET /userdata/v1/species`), and display images of your own photos. Never catalog data                                              |
+| `imports.write`              | Importing new photos from a companion app, and adding species to the photos that key imported                                                                                                                                    |
+| `opendata.read`              | The species lists of the regions you installed (`/opendata/v1/regions`), your lists from iNaturalist as definitions only (`/opendata/v1/species-lists`), and reference vectors whose photos are CC0 or CC BY, with attribution   |
 
 ## Conventions
 
@@ -337,6 +337,30 @@ Uploads belong to the key's user. A finished upload waits 2 hours for its import
 
 Changes are also written into the photo's own metadata (or its RAW sidecar) where Lifer manages the
 file, so Lightroom and digiKam see them too.
+
+### Smart tags (photos.read, photos.write) {#smart-tags}
+
+Lifer suggests general words for a photo (habitat, light, time of day, season, colour) from what it
+already stores. A term's `id` (`habitat.wetland`) is its identity; `path` (`Habitat|Wetland`) and
+`name` come in the reader's spelling, from `locale` (`en-GB` gives `Colour`) or else the account's
+language. An accepted smart tag becomes an ordinary photo tag at its US path, so `PATCH
+/api/captures/{id}/tags` and the tag routes see it. Accepting or rejecting never writes into a file;
+smart tags reach files only when the user turns on writing them. Removing an accepted tag counts as a
+rejection, and a rejected term is never suggested for that photo again.
+
+| Request                                          | What it does                                                                                                                                                                                                                                                               |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/smart-tags/captures/{id}`              | One photo's pending `suggestions` (strongest first, with `score`), and its `accepted` and `rejected` terms                                                                                                                                                                 |
+| `GET /api/smart-tags/terms`                      | Each term with photos pending and how many (`pending`), most first; the `hidden` terms; and `asOf`, the server's time                                                                                                                                                      |
+| `GET /api/smart-tags/terms/{termId}/photos`      | A term's pending photos, strongest first: `limit` (up to 500), `after` (the previous page's `next`), with `total` and `asOf`                                                                                                                                               |
+| `POST /api/smart-tags/accept`                    | `{ "termId": "…", "captureIds": ["…"] }`, or `{ "termId": "…", "allPending": { "asOf": "…", "except": ["…"] } }` for every photo with the term pending (as of `asOf` when given), less `except`. Answers `{ "updated": n, "undoToken": "…" }`, `null` when nothing changed |
+| `POST /api/smart-tags/reject`                    | The same body and answer                                                                                                                                                                                                                                                   |
+| `POST /api/smart-tags/facets/{group}/accept`     | Accepts every pending suggestion of a facet worked out from stored data (`time`, `season`, `colour`...). `400` with `"code": "not_computed"` for a facet a model suggests                                                                                                  |
+| `POST /api/smart-tags/undo`                      | `{ "token": "…" }` puts every photo and term of that batch back as it was. Works once, for an hour: `{ "restored": 0 }` when already undone, `410` with `"code": "undo_expired"` after that                                                                                |
+| `PUT` / `DELETE /api/smart-tags/hidden/{termId}` | Never suggests the term for any photo, or brings it back                                                                                                                                                                                                                   |
+
+Every change is one transaction and safe to repeat; photos that aren't yours are skipped. Reading
+needs `photos.read`, deciding and hiding `photos.write`.
 
 ### `GET /api/gallery` (gallery.read): browsing with filters
 

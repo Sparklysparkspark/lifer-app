@@ -69,9 +69,11 @@ export function runningJobsProgress(): { running: number; progress: number | nul
   };
 }
 
+/** `silent`: housekeeping the user never started, kept out of the taskbar and dock progress. */
 export function createJob<TResult = unknown, TExtra extends object = object>(
   name: string,
   extraDefaults?: TExtra,
+  { silent = false }: { silent?: boolean } = {},
 ): Job<TResult, TExtra> {
   // Cloned per run so array/object defaults (e.g. a notFound list) never carry over between runs.
   const freshExtras = (): TExtra => structuredClone(extraDefaults ?? ({} as TExtra));
@@ -87,7 +89,7 @@ export function createJob<TResult = unknown, TExtra extends object = object>(
     // Claimed synchronously, before any await, so a concurrent request sees running = true.
     Object.assign(status, idleJobStatus<TResult>(), freshExtras(), initial ?? {}, { running: true });
     runningJobNames.add(name);
-    runningStatuses.set(name, status);
+    if (!silent) runningStatuses.set(name, status);
     const ctl = new AbortController();
     controller = ctl;
     const ctx: JobContext<TResult, TExtra> = {

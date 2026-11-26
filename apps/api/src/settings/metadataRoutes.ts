@@ -152,7 +152,7 @@ export async function runApplyMetadata(
       limit(async () => {
         if (ctx.signal.aborted) return;
         try {
-          const write = await captureWriteData(userId, row.capture_id, {}, saved);
+          const write = await captureWriteData(userId, row.capture_id, { smartTags: fileSettings.smartTags }, saved);
           const files = write?.originals ?? [];
           let differs = false;
           let edited = false;

@@ -13,9 +13,16 @@ export interface FileWriteSettings {
   insideFiles: boolean;
   /** Linked (not managed) files get a sidecar too, never an in-file write. */
   linkedFolders: boolean;
+  /** Accepted smart tags go into files too (smart tags plan, decision 3). Off until ST-6 ships the switch. */
+  smartTags: boolean;
 }
 
-export const DEFAULT_FILE_WRITE: FileWriteSettings = { sidecarNames: "stem", insideFiles: true, linkedFolders: false };
+export const DEFAULT_FILE_WRITE: FileWriteSettings = {
+  sidecarNames: "stem",
+  insideFiles: true,
+  linkedFolders: false,
+  smartTags: false,
+};
 
 export const stemSidecar = (file: string) =>
   path.join(path.dirname(file), `${path.basename(file, path.extname(file))}.xmp`);

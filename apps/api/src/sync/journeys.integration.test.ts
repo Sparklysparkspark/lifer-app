@@ -135,6 +135,7 @@ describe.skipIf(!url)("journeys E and G: two desktops on one server", () => {
         "/sync/album-captures": "albumCaptures",
         "/sync/album-exclusions": "albumExclusions",
         "/sync/species-split-kept": "speciesSplitKept",
+        "/sync/smart-tag-hidden": "smartTagHidden",
       }[u.pathname] as import("./library.js").EntityName;
       const q = u.searchParams;
       const page = await feed.listLibraryChanges(

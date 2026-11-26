@@ -49,12 +49,22 @@ export async function captureTemplated(
   };
 }
 
+/** A photo's tags less the accepted smart tags (their marker, migration 208). */
+const withoutSmartTags = (tags: string[], accepted: Record<string, string>) => {
+  const smart = new Set(Object.values(accepted));
+  return tags.filter((t) => !smart.has(t));
+};
+
 /** `replacePlace`: the capture's region was just changed in Lifer, so the files' location fields
  *  are rewritten to match instead of only filled where empty. `replaceLabel`: the place name was
  *  just changed or removed, so a file's Sublocation is cleared when the capture has none. */
 export async function syncCaptureXmpSidecars(userId: string, captureId: string, opts: SyncOptions = {}): Promise<void> {
   const settings = await getFileWriteSettings(userId);
-  const write = await captureWriteData(userId, captureId, { ...opts, linked: settings.linkedFolders });
+  const write = await captureWriteData(userId, captureId, {
+    ...opts,
+    linked: settings.linkedFolders,
+    smartTags: settings.smartTags,
+  });
   if (!write) return;
   // One file failing (read-only, removed meanwhile) mustn't stop the others being written.
   await Promise.all(
@@ -69,8 +79,15 @@ export async function syncCaptureXmpSidecars(userId: string, captureId: string, 
   );
 }
 
-// `linked`: linked files are listed too (fileWriting.ts gives them sidecars only).
-type SyncOptions = { replacePlace?: boolean; replaceLabel?: boolean; replaceGps?: boolean; linked?: boolean };
+// `linked`: linked files are listed too (fileWriting.ts gives them sidecars only). `smartTags`: the
+// user's "Write smart tags into photo files" switch; off leaves accepted smart tags out of the files.
+type SyncOptions = {
+  replacePlace?: boolean;
+  replaceLabel?: boolean;
+  replaceGps?: boolean;
+  linked?: boolean;
+  smartTags?: boolean;
+};
 
 /** Everything a write puts into a capture's managed files, and those files; null when it has none. */
 export async function captureWriteData(
@@ -100,11 +117,12 @@ export async function captureWriteData(
     species_id: string;
     cover_photo_id: string | null;
     tags: string[];
+    smart_tags_accepted: Record<string, string>;
     region_id: string | null;
     location_label: string | null;
   }>(
     `SELECT c.quality_rating, c.cull_verdict, c.taken_at, c.lat, c.lon, c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso,
-            c.species_id, us.cover_photo_id, c.tags, c.region_id, c.location_label
+            c.species_id, us.cover_photo_id, c.tags, c.smart_tags_accepted, c.region_id, c.location_label
      FROM captures_all c
      LEFT JOIN user_species us ON us.user_id = c.user_id AND us.species_id = c.species_id
      -- Hidden photos included: their files carry Lifer's tags like any other.
@@ -154,7 +172,7 @@ export async function captureWriteData(
     iso: capture.iso,
     // Free-form photo tags, as plain keywords other tools show (exif.ts keeps them apart from
     // the keywords those tools added).
-    tags: capture.tags,
+    tags: opts.smartTags ? capture.tags : withoutSmartTags(capture.tags, capture.smart_tags_accepted),
     place: await photoPlaceForRegion(pool, capture.region_id),
     replacePlace: opts.replacePlace,
     replaceGps: opts.replaceGps,

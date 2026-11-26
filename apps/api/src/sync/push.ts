@@ -214,7 +214,7 @@ const forgetTombstones = (ids: string[]) =>
   pool.query(`DELETE FROM sync_tombstones WHERE id = ANY($1::bigint[])`, [ids]);
 
 /** What's waiting for the server, by what the user sees: photos (with species marks, species
- *  corrections and their deletions), albums and trips. */
+ *  corrections, hidden smart tag terms and their deletions), albums and trips. */
 export async function waitingCounts(
   userId: string,
   db: Db = pool,
@@ -224,7 +224,9 @@ export async function waitingCounts(
           + (SELECT count(*) FROM user_species WHERE user_id = $1 AND (pushed_at IS NULL OR updated_at > pushed_at))
           + (SELECT count(*) FROM species_split_kept k JOIN captures_all c ON c.id = k.capture_id
              WHERE c.user_id = $1 AND (k.pushed_at IS NULL OR k.updated_at > k.pushed_at))
-          + (SELECT count(*) FROM sync_tombstones WHERE user_id = $1 AND kind IN ('capture', 'user_species', 'species_split_kept')))::int AS n`,
+          + (SELECT count(*) FROM smart_tag_hidden_terms WHERE user_id = $1 AND (pushed_at IS NULL OR updated_at > pushed_at))
+          + (SELECT count(*) FROM sync_tombstones WHERE user_id = $1
+             AND kind IN ('capture', 'user_species', 'species_split_kept', 'smart_tag_hidden')))::int AS n`,
     [userId],
   );
   return { photos: res.rows[0]?.n ?? 0, ...(await waitingLibrary(userId, db)) };

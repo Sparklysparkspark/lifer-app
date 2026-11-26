@@ -137,6 +137,9 @@ export const SpotChangeSchema = Type.Object({ ...spotProps, updatedAt: Stamp });
 export const MemberSchema = Type.Object({ albumId: Uuid(), captureId: Uuid(), updatedAt: Stamp });
 /** A photo whose old species the user kept after a split (species_split_kept). */
 export const KeptSchema = Type.Object({ captureId: Uuid(), updatedAt: Stamp });
+/** A smart tag vocabulary term the user hid for every photo (smart_tag_hidden_terms). */
+export const SmartTagTermId = Type.String({ minLength: 1, maxLength: 100, pattern: "^[a-z0-9-]+(\\.[a-z0-9-]+)*$" });
+export const HiddenTermSchema = Type.Object({ termId: SmartTagTermId, updatedAt: Stamp });
 export type AlbumChange = Static<typeof AlbumChangeSchema>;
 export type TripChange = Static<typeof TripChangeSchema>;
 export type SpotChange = Static<typeof SpotChangeSchema>;
@@ -172,11 +175,13 @@ export const TripPageSchema = pageSchema(TripChangeSchema);
 export const MemberPageSchema = pageSchema(MemberSchema);
 export const SpotPageSchema = pageSchema(SpotChangeSchema);
 export const KeptPageSchema = pageSchema(KeptSchema);
+export const HiddenTermPageSchema = pageSchema(HiddenTermSchema);
 
 type Row = Record<string, unknown>;
 
 interface Entity {
-  kind: "album" | "trip" | "album_capture" | "album_exclusion" | "saved_spot" | "species_split_kept";
+  kind:
+    "album" | "trip" | "album_capture" | "album_exclusion" | "saved_spot" | "species_split_kept" | "smart_tag_hidden";
   /** FROM clause with the row as x. */
   from: string;
   user: string;
@@ -238,6 +243,14 @@ export const ENTITIES = {
     key: "COALESCE(c.remote_id, c.id)::text",
     columns: "COALESCE(c.remote_id, c.id) AS capture_id",
     map: (r) => ({ captureId: r.capture_id, updatedAt: r.updated_at }),
+  },
+  smartTagHidden: {
+    kind: "smart_tag_hidden",
+    from: "smart_tag_hidden_terms x",
+    user: "x.user_id",
+    key: "x.term_id",
+    columns: "x.term_id",
+    map: (r) => ({ termId: r.term_id, updatedAt: r.updated_at }),
   },
 } satisfies Record<string, Entity>;
 export type EntityName = keyof typeof ENTITIES;
@@ -430,6 +443,16 @@ export async function applyPushedKept(db: Db, userId: string, captureIds: string
   return res.rowCount ?? 0;
 }
 
+/** Hides the sender's hidden smart tag terms here too; idempotent. */
+export async function applyPushedHidden(db: Db, userId: string, termIds: string[]): Promise<number> {
+  if (termIds.length === 0) return 0;
+  const res = await db.query(
+    `INSERT INTO smart_tag_hidden_terms (user_id, term_id) SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING`,
+    [userId, termIds],
+  );
+  return res.rowCount ?? 0;
+}
+
 /** Deletes what the sender deleted: an album or trip only if unchanged since its base. */
 export async function applyPushedLibraryDeletions(
   db: Db,
@@ -441,9 +464,17 @@ export async function applyPushedLibraryDeletions(
     albumCaptures?: PushedMember[];
     albumExclusions?: PushedMember[];
     speciesSplitKept?: string[];
+    smartTagHidden?: string[];
   },
 ): Promise<number> {
   let n = 0;
+  if (deleted.smartTagHidden?.length) {
+    const res = await db.query(`DELETE FROM smart_tag_hidden_terms WHERE user_id = $1 AND term_id = ANY($2::text[])`, [
+      userId,
+      deleted.smartTagHidden,
+    ]);
+    n += res.rowCount ?? 0;
+  }
   if (deleted.speciesSplitKept?.length) {
     const res = await db.query(
       `DELETE FROM species_split_kept k USING captures_all c
@@ -493,6 +524,7 @@ export async function applyPushedLibrary(
     albumCaptures?: PushedMember[];
     albumExclusions?: PushedMember[];
     speciesSplitKept?: string[];
+    smartTagHidden?: string[];
   },
   deleted: Parameters<typeof applyPushedLibraryDeletions>[2],
 ): Promise<LibraryReply> {
@@ -504,11 +536,17 @@ export async function applyPushedLibrary(
   const b = await applyPushedMembers(db, userId, "album_exclusions", body.albumExclusions ?? []);
   const kept = body.speciesSplitKept ?? [];
   const k = await applyPushedKept(db, userId, kept);
+  // A term already hidden here counts as applied: the set is the same either way.
+  const hidden = body.smartTagHidden ?? [];
+  await applyPushedHidden(db, userId, hidden);
   return {
     albums,
     trips,
     savedSpots,
-    members: { applied: a.applied + b.applied + k, skipped: a.skipped + b.skipped + kept.length - k },
+    members: {
+      applied: a.applied + b.applied + k + hidden.length,
+      skipped: a.skipped + b.skipped + kept.length - k,
+    },
     deleted: removed,
   };
 }

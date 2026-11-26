@@ -33814,6 +33814,491 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/smart-tags/accept": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Accept a smart tag
+     * @description On the photos in `captureIds`, or every photo with the term pending (`allPending`, as of `asOf`, less `except`). The tag becomes an ordinary photo tag at its facet path; nothing is written into files. Safe to repeat. `undoToken` undoes the batch once, for an hour.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            termId: string;
+            /** @description These photos; or send allPending */
+            captureIds?: string[];
+            /** @description Every photo with this term pending, taken on the server */
+            allPending?: {
+              /**
+               * Format: date-time
+               * @description The server's time when the list was read; pass it back to act on exactly what was shown
+               */
+              asOf?: string;
+              /** @description Photos the reviewer deselected */
+              except?: string[];
+            };
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Photo and term pairs that changed */
+              updated: number;
+              undoToken: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/smart-tags/captures/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * A photo's smart tags
+     * @description Its pending suggestions, strongest first, and the terms accepted and rejected for it. Paths and names follow `locale`'s spelling (Colour for en-GB).
+     */
+    get: {
+      parameters: {
+        query?: {
+          /** @description The reader's locale, like en-GB, for spelling; else the account's */
+          locale?: string;
+        };
+        header?: never;
+        path: {
+          id: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              suggestions: {
+                /** @description Vocabulary term id, the tag's identity everywhere */
+                id: string;
+                /** @description Label in the reader's spelling */
+                name: string;
+                /** @description Facet path in the reader's spelling, like Habitat|Wetland */
+                path: string;
+                /** @description Facet root in the reader's spelling */
+                facet: string;
+                /** @description Vocabulary group id */
+                group: string;
+                /** @description How it is suggested: computed, scene, clip or manual */
+                signal: string;
+                score: number;
+                source: string;
+              }[];
+              accepted: {
+                /** @description Vocabulary term id, the tag's identity everywhere */
+                id: string;
+                /** @description Label in the reader's spelling */
+                name: string;
+                /** @description Facet path in the reader's spelling, like Habitat|Wetland */
+                path: string;
+                /** @description Facet root in the reader's spelling */
+                facet: string;
+                /** @description Vocabulary group id */
+                group: string;
+                /** @description How it is suggested: computed, scene, clip or manual */
+                signal: string;
+              }[];
+              rejected: {
+                /** @description Vocabulary term id, the tag's identity everywhere */
+                id: string;
+                /** @description Label in the reader's spelling */
+                name: string;
+                /** @description Facet path in the reader's spelling, like Habitat|Wetland */
+                path: string;
+                /** @description Facet root in the reader's spelling */
+                facet: string;
+                /** @description Vocabulary group id */
+                group: string;
+                /** @description How it is suggested: computed, scene, clip or manual */
+                signal: string;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/smart-tags/facets/{group}/accept": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Accept a whole computed facet
+     * @description Every pending suggestion of a facet worked out from stored data, like `time`, `season` or `colour`. 400 with `not_computed` for a facet a model suggests.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          group: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Photo and term pairs that changed */
+              updated: number;
+              undoToken: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/smart-tags/hidden/{termId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Never suggest a smart tag
+     * @description For every photo. Safe to repeat.
+     */
+    put: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          termId: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    post?: never;
+    /** Suggest a hidden smart tag again */
+    delete: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path: {
+          termId: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              ok: boolean;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/smart-tags/reject": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Reject a smart tag
+     * @description Same body as accept. A rejected term is never suggested for that photo again; an accepted one is taken off. `undoToken` undoes the batch once, for an hour.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            termId: string;
+            /** @description These photos; or send allPending */
+            captureIds?: string[];
+            /** @description Every photo with this term pending, taken on the server */
+            allPending?: {
+              /**
+               * Format: date-time
+               * @description The server's time when the list was read; pass it back to act on exactly what was shown
+               */
+              asOf?: string;
+              /** @description Photos the reviewer deselected */
+              except?: string[];
+            };
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Photo and term pairs that changed */
+              updated: number;
+              undoToken: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/smart-tags/status": {
     parameters: {
       query?: never;
@@ -33883,6 +34368,275 @@ export interface paths {
     };
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/smart-tags/terms": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Smart tag terms with photos pending
+     * @description Each term with how many photos wait for review, most first, and the terms hidden for every photo. `asOf` is the server's time, to pass back with an accept of all pending.
+     */
+    get: {
+      parameters: {
+        query?: {
+          /** @description The reader's locale, like en-GB, for spelling; else the account's */
+          locale?: string;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /**
+               * Format: date-time
+               * @description The server's time when the list was read; pass it back to act on exactly what was shown
+               */
+              asOf: string;
+              terms: {
+                /** @description Vocabulary term id, the tag's identity everywhere */
+                id: string;
+                /** @description Label in the reader's spelling */
+                name: string;
+                /** @description Facet path in the reader's spelling, like Habitat|Wetland */
+                path: string;
+                /** @description Facet root in the reader's spelling */
+                facet: string;
+                /** @description Vocabulary group id */
+                group: string;
+                /** @description How it is suggested: computed, scene, clip or manual */
+                signal: string;
+                pending: number;
+              }[];
+              hidden: {
+                /** @description Vocabulary term id, the tag's identity everywhere */
+                id: string;
+                /** @description Label in the reader's spelling */
+                name: string;
+                /** @description Facet path in the reader's spelling, like Habitat|Wetland */
+                path: string;
+                /** @description Facet root in the reader's spelling */
+                facet: string;
+                /** @description Vocabulary group id */
+                group: string;
+                /** @description How it is suggested: computed, scene, clip or manual */
+                signal: string;
+              }[];
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/smart-tags/terms/{termId}/photos": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * A smart tag term's pending photos
+     * @description Strongest first, a page at a time: pass `next` as `after`. Accepting a page never skips photos on the next.
+     */
+    get: {
+      parameters: {
+        query?: {
+          /** @description Photos per page */
+          limit?: number;
+          /** @description The previous page's next */
+          after?: string;
+        };
+        header?: never;
+        path: {
+          termId: string;
+        };
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /**
+               * Format: date-time
+               * @description The server's time when the list was read; pass it back to act on exactly what was shown
+               */
+              asOf: string;
+              /** @description Photos with this term pending */
+              total: number;
+              items: {
+                /** Format: uuid */
+                captureId: string;
+                photoId: string | null;
+                score: number;
+                source: string;
+              }[];
+              next: string | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/smart-tags/undo": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Undo a smart tag batch
+     * @description Puts every photo and term back as it was before the batch. `restored` is 0 when already undone; 410 with `undo_expired` after an hour.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            /** Format: uuid */
+            token: string;
+          };
+        };
+      };
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description Pairs put back; 0 if already undone */
+              restored: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.write scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
     delete?: never;
     options?: never;
     head?: never;
@@ -39635,6 +40389,12 @@ export interface paths {
                 sex?: ("male" | "female" | "unknown") | null;
                 plumage?: string | null;
                 morph?: string | null;
+                /** @description Accepted smart tags: vocabulary term id to the tag it added */
+                smartTagsAccepted?: {
+                  [key: string]: string;
+                };
+                /** @description Smart tag term ids rejected */
+                smartTagsRejected?: string[];
                 /** Format: date-time */
                 updatedAt: string;
                 photo: {
@@ -40192,6 +40952,12 @@ export interface paths {
               sex?: ("male" | "female" | "unknown") | null;
               plumage?: string | null;
               morph?: string | null;
+              /** @description Accepted smart tags: vocabulary term id to the tag it added */
+              smartTagsAccepted?: {
+                [key: string]: string;
+              };
+              /** @description Smart tag term ids rejected */
+              smartTagsRejected?: string[];
               baseUpdatedAt: string | null;
             }[];
             albums?: {
@@ -40257,6 +41023,7 @@ export interface paths {
               captureId: string;
             }[];
             speciesSplitKept?: string[];
+            smartTagHidden?: string[];
             userSpecies?: {
               scientificName: string;
               state: ("collected" | "seen") | null;
@@ -40307,6 +41074,7 @@ export interface paths {
                 captureId: string;
               }[];
               speciesSplitKept?: string[];
+              smartTagHidden?: string[];
             };
           };
         };
@@ -40378,6 +41146,12 @@ export interface paths {
                       sex?: ("male" | "female" | "unknown") | null;
                       plumage?: string | null;
                       morph?: string | null;
+                      /** @description Accepted smart tags: vocabulary term id to the tag it added */
+                      smartTagsAccepted?: {
+                        [key: string]: string;
+                      };
+                      /** @description Smart tag term ids rejected */
+                      smartTagsRejected?: string[];
                       /** Format: date-time */
                       updatedAt: string;
                       photo: {
@@ -41160,6 +41934,94 @@ export interface paths {
         };
       };
     };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sync/smart-tag-hidden": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /sync/smart-tag-hidden */
+    get: {
+      parameters: {
+        query?: {
+          since?: string;
+          after?: string;
+          limit?: number;
+        };
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              items: {
+                termId: string;
+                /** Format: date-time */
+                updatedAt: string;
+              }[];
+              purged: {
+                ref: string;
+                /** Format: date-time */
+                deletedAt: string;
+              }[];
+              last: {
+                /** Format: date-time */
+                since: string;
+                after: string;
+              } | null;
+              next: {
+                /** Format: date-time */
+                since: string;
+                after: string;
+              } | null;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the sync scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;

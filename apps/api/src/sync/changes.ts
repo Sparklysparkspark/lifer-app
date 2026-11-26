@@ -50,6 +50,15 @@ export const captureFields = {
   sex: Type.Optional(Nullable(Type.Enum([...SEXES]))),
   plumage: Type.Optional(Nullable(Type.String({ minLength: 1, maxLength: APPEARANCE_TEXT_MAX }))),
   morph: Type.Optional(Nullable(Type.String({ minLength: 1, maxLength: APPEARANCE_TEXT_MAX }))),
+  // Smart tag decisions (migration 208). Optional: a sender that leaves them out keeps the receiver's.
+  smartTagsAccepted: Type.Optional(
+    Type.Record(Type.String({ maxLength: 200 }), Type.String({ maxLength: 2000 }), {
+      description: "Accepted smart tags: vocabulary term id to the tag it added",
+    }),
+  ),
+  smartTagsRejected: Type.Optional(
+    Type.Array(Type.String({ maxLength: 200 }), { maxItems: 1000, description: "Smart tag term ids rejected" }),
+  ),
 };
 
 export const CaptureChangeSchema = Type.Object({
@@ -96,7 +105,7 @@ export const isoStamp = (column: string) => `to_char(${column} AT TIME ZONE 'UTC
 export const CAPTURE_COLUMNS = `c.deleted_at, c.hidden_at, s.scientific_name,
   c.fingerprint, c.taken_at, c.lat, c.lon, c.camera_model, c.lens, c.focal_length_mm, c.aperture, c.shutter, c.iso,
   c.quality_rating, c.tags, c.location_label, c.location_source, c.location_accuracy_m, c.region_id, c.cull_verdict, c.cull_label, c.trip_id,
-  c.life_stage, c.sex, c.plumage, c.morph,
+  c.life_stage, c.sex, c.plumage, c.morph, c.smart_tags_accepted, c.smart_tags_rejected,
   p.id AS photo_id, p.width, p.height, p.kind AS photo_kind, p.duration_seconds`;
 
 const iso = (v: Date | string | null) => (v ? new Date(v).toISOString() : null);
@@ -132,6 +141,8 @@ export function captureFromRow(r: QueryResultRow): CaptureChange {
     sex: r.sex ?? null,
     plumage: r.plumage ?? null,
     morph: r.morph ?? null,
+    smartTagsAccepted: r.smart_tags_accepted ?? {},
+    smartTagsRejected: r.smart_tags_rejected ?? [],
     photo: r.photo_id
       ? {
           id: r.photo_id,
@@ -167,6 +178,9 @@ export const CAPTURE_META = [
   ["sex", "sex"],
   ["plumage", "plumage"],
   ["morph", "morph"],
+  // Left out by the sender: sent as NULL, which the trigger in migration 208 reads as "keep".
+  ["smart_tags_accepted", "smartTagsAccepted"],
+  ["smart_tags_rejected", "smartTagsRejected"],
 ] as const satisfies ReadonlyArray<readonly [string, keyof CaptureChange]>;
 
 /** The server's captures by id, as listChanges sends them. */

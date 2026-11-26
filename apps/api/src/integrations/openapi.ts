@@ -335,6 +335,59 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
         "How many of your photos the background smart tag pass has evaluated and how many wait. Suggestions come from data Lifer already stores (time and place, scene and colour shares, the animal count and the photo's CLIP vector) and are kept in the database only.",
     },
   },
+  "/smart-tags/captures/{id}": {
+    get: {
+      summary: "A photo's smart tags",
+      description:
+        "Its pending suggestions, strongest first, and the terms accepted and rejected for it. Paths and names follow `locale`'s spelling (Colour for en-GB).",
+    },
+  },
+  "/smart-tags/terms": {
+    get: {
+      summary: "Smart tag terms with photos pending",
+      description:
+        "Each term with how many photos wait for review, most first, and the terms hidden for every photo. `asOf` is the server's time, to pass back with an accept of all pending.",
+    },
+  },
+  "/smart-tags/terms/{termId}/photos": {
+    get: {
+      summary: "A smart tag term's pending photos",
+      description:
+        "Strongest first, a page at a time: pass `next` as `after`. Accepting a page never skips photos on the next.",
+    },
+  },
+  "/smart-tags/accept": {
+    post: {
+      summary: "Accept a smart tag",
+      description:
+        "On the photos in `captureIds`, or every photo with the term pending (`allPending`, as of `asOf`, less `except`). The tag becomes an ordinary photo tag at its facet path; nothing is written into files. Safe to repeat. `undoToken` undoes the batch once, for an hour.",
+    },
+  },
+  "/smart-tags/reject": {
+    post: {
+      summary: "Reject a smart tag",
+      description:
+        "Same body as accept. A rejected term is never suggested for that photo again; an accepted one is taken off. `undoToken` undoes the batch once, for an hour.",
+    },
+  },
+  "/smart-tags/facets/{group}/accept": {
+    post: {
+      summary: "Accept a whole computed facet",
+      description:
+        "Every pending suggestion of a facet worked out from stored data, like `time`, `season` or `colour`. 400 with `not_computed` for a facet a model suggests.",
+    },
+  },
+  "/smart-tags/undo": {
+    post: {
+      summary: "Undo a smart tag batch",
+      description:
+        "Puts every photo and term back as it was before the batch. `restored` is 0 when already undone; 410 with `undo_expired` after an hour.",
+    },
+  },
+  "/smart-tags/hidden/{termId}": {
+    put: { summary: "Never suggest a smart tag", description: "For every photo. Safe to repeat." },
+    delete: { summary: "Suggest a hidden smart tag again" },
+  },
   "/photos/{id}/card": {
     get: {
       summary: "Species card image (WebP)",

@@ -29459,6 +29459,442 @@
         }
       }
     },
+    "/smart-tags/accept": {
+      "post": {
+        "summary": "Accept a smart tag",
+        "description": "On the photos in `captureIds`, or every photo with the term pending (`allPending`, as of `asOf`, less `except`). The tag becomes an ordinary photo tag at its facet path; nothing is written into files. Safe to repeat. `undoToken` undoes the batch once, for an hour.",
+        "tags": ["photos"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "photos.write",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["termId"],
+                "properties": {
+                  "termId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*$"
+                  },
+                  "captureIds": {
+                    "type": "array",
+                    "items": { "type": "string", "format": "uuid" },
+                    "minItems": 1,
+                    "maxItems": 10000,
+                    "description": "These photos; or send allPending"
+                  },
+                  "allPending": {
+                    "type": "object",
+                    "properties": {
+                      "asOf": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "The server's time when the list was read; pass it back to act on exactly what was shown"
+                      },
+                      "except": {
+                        "type": "array",
+                        "items": { "type": "string", "format": "uuid" },
+                        "maxItems": 20000,
+                        "description": "Photos the reviewer deselected"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "description": "Every photo with this term pending, taken on the server"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["updated", "undoToken"],
+                  "properties": {
+                    "updated": { "type": "integer", "description": "Photo and term pairs that changed" },
+                    "undoToken": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "description": "Undoes this batch once, for an hour; null when nothing changed"
+                        },
+                        { "type": "null" }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the photos.write scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/smart-tags/captures/{id}": {
+      "get": {
+        "summary": "A photo's smart tags",
+        "description": "Its pending suggestions, strongest first, and the terms accepted and rejected for it. Paths and names follow `locale`'s spelling (Colour for en-GB).",
+        "tags": ["photos"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "photos.read",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          {
+            "name": "locale",
+            "in": "query",
+            "required": false,
+            "description": "The reader's locale, like en-GB, for spelling; else the account's",
+            "schema": { "type": "string", "maxLength": 35 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["suggestions", "accepted", "rejected"],
+                  "properties": {
+                    "suggestions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "name", "path", "facet", "group", "signal", "score", "source"],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "description": "Vocabulary term id, the tag's identity everywhere"
+                          },
+                          "name": { "type": "string", "description": "Label in the reader's spelling" },
+                          "path": {
+                            "type": "string",
+                            "description": "Facet path in the reader's spelling, like Habitat|Wetland"
+                          },
+                          "facet": { "type": "string", "description": "Facet root in the reader's spelling" },
+                          "group": { "type": "string", "description": "Vocabulary group id" },
+                          "signal": {
+                            "type": "string",
+                            "description": "How it is suggested: computed, scene, clip or manual"
+                          },
+                          "score": { "type": "number" },
+                          "source": { "type": "string" }
+                        }
+                      }
+                    },
+                    "accepted": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "name", "path", "facet", "group", "signal"],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "description": "Vocabulary term id, the tag's identity everywhere"
+                          },
+                          "name": { "type": "string", "description": "Label in the reader's spelling" },
+                          "path": {
+                            "type": "string",
+                            "description": "Facet path in the reader's spelling, like Habitat|Wetland"
+                          },
+                          "facet": { "type": "string", "description": "Facet root in the reader's spelling" },
+                          "group": { "type": "string", "description": "Vocabulary group id" },
+                          "signal": {
+                            "type": "string",
+                            "description": "How it is suggested: computed, scene, clip or manual"
+                          }
+                        }
+                      }
+                    },
+                    "rejected": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "name", "path", "facet", "group", "signal"],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "description": "Vocabulary term id, the tag's identity everywhere"
+                          },
+                          "name": { "type": "string", "description": "Label in the reader's spelling" },
+                          "path": {
+                            "type": "string",
+                            "description": "Facet path in the reader's spelling, like Habitat|Wetland"
+                          },
+                          "facet": { "type": "string", "description": "Facet root in the reader's spelling" },
+                          "group": { "type": "string", "description": "Vocabulary group id" },
+                          "signal": {
+                            "type": "string",
+                            "description": "How it is suggested: computed, scene, clip or manual"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the photos.read scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/smart-tags/facets/{group}/accept": {
+      "post": {
+        "summary": "Accept a whole computed facet",
+        "description": "Every pending suggestion of a facet worked out from stored data, like `time`, `season` or `colour`. 400 with `not_computed` for a facet a model suggests.",
+        "tags": ["photos"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "photos.write",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*$" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["updated", "undoToken"],
+                  "properties": {
+                    "updated": { "type": "integer", "description": "Photo and term pairs that changed" },
+                    "undoToken": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "description": "Undoes this batch once, for an hour; null when nothing changed"
+                        },
+                        { "type": "null" }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the photos.write scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/smart-tags/hidden/{termId}": {
+      "put": {
+        "summary": "Never suggest a smart tag",
+        "description": "For every photo. Safe to repeat.",
+        "tags": ["photos"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "photos.write",
+        "parameters": [
+          {
+            "name": "termId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*$" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "required": ["ok"], "properties": { "ok": { "type": "boolean" } } }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the photos.write scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Suggest a hidden smart tag again",
+        "tags": ["photos"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "photos.write",
+        "parameters": [
+          {
+            "name": "termId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*$" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "required": ["ok"], "properties": { "ok": { "type": "boolean" } } }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the photos.write scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/smart-tags/reject": {
+      "post": {
+        "summary": "Reject a smart tag",
+        "description": "Same body as accept. A rejected term is never suggested for that photo again; an accepted one is taken off. `undoToken` undoes the batch once, for an hour.",
+        "tags": ["photos"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "photos.write",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["termId"],
+                "properties": {
+                  "termId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*$"
+                  },
+                  "captureIds": {
+                    "type": "array",
+                    "items": { "type": "string", "format": "uuid" },
+                    "minItems": 1,
+                    "maxItems": 10000,
+                    "description": "These photos; or send allPending"
+                  },
+                  "allPending": {
+                    "type": "object",
+                    "properties": {
+                      "asOf": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "The server's time when the list was read; pass it back to act on exactly what was shown"
+                      },
+                      "except": {
+                        "type": "array",
+                        "items": { "type": "string", "format": "uuid" },
+                        "maxItems": 20000,
+                        "description": "Photos the reviewer deselected"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "description": "Every photo with this term pending, taken on the server"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["updated", "undoToken"],
+                  "properties": {
+                    "updated": { "type": "integer", "description": "Photo and term pairs that changed" },
+                    "undoToken": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "description": "Undoes this batch once, for an hour; null when nothing changed"
+                        },
+                        { "type": "null" }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the photos.write scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
     "/smart-tags/status": {
       "get": {
         "summary": "Smart tag suggestion progress",
@@ -29494,6 +29930,239 @@
           },
           "401": {
             "description": "Missing key, or the key lacks the photos.read scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/smart-tags/terms": {
+      "get": {
+        "summary": "Smart tag terms with photos pending",
+        "description": "Each term with how many photos wait for review, most first, and the terms hidden for every photo. `asOf` is the server's time, to pass back with an accept of all pending.",
+        "tags": ["photos"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "photos.read",
+        "parameters": [
+          {
+            "name": "locale",
+            "in": "query",
+            "required": false,
+            "description": "The reader's locale, like en-GB, for spelling; else the account's",
+            "schema": { "type": "string", "maxLength": 35 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["asOf", "terms", "hidden"],
+                  "properties": {
+                    "asOf": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "The server's time when the list was read; pass it back to act on exactly what was shown"
+                    },
+                    "terms": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "name", "path", "facet", "group", "signal", "pending"],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "description": "Vocabulary term id, the tag's identity everywhere"
+                          },
+                          "name": { "type": "string", "description": "Label in the reader's spelling" },
+                          "path": {
+                            "type": "string",
+                            "description": "Facet path in the reader's spelling, like Habitat|Wetland"
+                          },
+                          "facet": { "type": "string", "description": "Facet root in the reader's spelling" },
+                          "group": { "type": "string", "description": "Vocabulary group id" },
+                          "signal": {
+                            "type": "string",
+                            "description": "How it is suggested: computed, scene, clip or manual"
+                          },
+                          "pending": { "type": "integer" }
+                        }
+                      }
+                    },
+                    "hidden": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "name", "path", "facet", "group", "signal"],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "description": "Vocabulary term id, the tag's identity everywhere"
+                          },
+                          "name": { "type": "string", "description": "Label in the reader's spelling" },
+                          "path": {
+                            "type": "string",
+                            "description": "Facet path in the reader's spelling, like Habitat|Wetland"
+                          },
+                          "facet": { "type": "string", "description": "Facet root in the reader's spelling" },
+                          "group": { "type": "string", "description": "Vocabulary group id" },
+                          "signal": {
+                            "type": "string",
+                            "description": "How it is suggested: computed, scene, clip or manual"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the photos.read scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/smart-tags/terms/{termId}/photos": {
+      "get": {
+        "summary": "A smart tag term's pending photos",
+        "description": "Strongest first, a page at a time: pass `next` as `after`. Accepting a page never skips photos on the next.",
+        "tags": ["photos"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "photos.read",
+        "parameters": [
+          {
+            "name": "termId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*$" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Photos per page",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 500, "default": 200 }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "description": "The previous page's next",
+            "schema": { "type": "string", "maxLength": 80, "pattern": "^[-+0-9.eE]+:[0-9a-fA-F-]{36}$" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["asOf", "total", "items", "next"],
+                  "properties": {
+                    "asOf": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "The server's time when the list was read; pass it back to act on exactly what was shown"
+                    },
+                    "total": { "type": "integer", "description": "Photos with this term pending" },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["captureId", "photoId", "score", "source"],
+                        "properties": {
+                          "captureId": { "type": "string", "format": "uuid" },
+                          "photoId": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] },
+                          "score": { "type": "number" },
+                          "source": { "type": "string" }
+                        }
+                      }
+                    },
+                    "next": {
+                      "anyOf": [
+                        { "type": "string", "description": "Pass as after for the next page; null on the last" },
+                        { "type": "null" }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the photos.read scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/smart-tags/undo": {
+      "post": {
+        "summary": "Undo a smart tag batch",
+        "description": "Puts every photo and term back as it was before the batch. `restored` is 0 when already undone; 410 with `undo_expired` after an hour.",
+        "tags": ["photos"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "photos.write",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["token"],
+                "properties": { "token": { "type": "string", "format": "uuid" } },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["restored"],
+                  "properties": {
+                    "restored": { "type": "integer", "description": "Pairs put back; 0 if already undone" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the photos.write scope",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           },
           "default": {
@@ -34616,6 +35285,17 @@
                           "morph": {
                             "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 100 }, { "type": "null" }]
                           },
+                          "smartTagsAccepted": {
+                            "type": "object",
+                            "patternProperties": { "^.*$": { "type": "string", "maxLength": 2000 } },
+                            "description": "Accepted smart tags: vocabulary term id to the tag it added"
+                          },
+                          "smartTagsRejected": {
+                            "type": "array",
+                            "items": { "type": "string", "maxLength": 200 },
+                            "maxItems": 1000,
+                            "description": "Smart tag term ids rejected"
+                          },
                           "updatedAt": { "type": "string", "format": "date-time" },
                           "photo": {
                             "anyOf": [
@@ -35087,6 +35767,17 @@
                         "morph": {
                           "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 100 }, { "type": "null" }]
                         },
+                        "smartTagsAccepted": {
+                          "type": "object",
+                          "patternProperties": { "^.*$": { "type": "string", "maxLength": 2000 } },
+                          "description": "Accepted smart tags: vocabulary term id to the tag it added"
+                        },
+                        "smartTagsRejected": {
+                          "type": "array",
+                          "items": { "type": "string", "maxLength": 200 },
+                          "maxItems": 1000,
+                          "description": "Smart tag term ids rejected"
+                        },
                         "baseUpdatedAt": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] }
                       }
                     },
@@ -35287,6 +35978,16 @@
                     "items": { "type": "string", "format": "uuid" },
                     "maxItems": 5000
                   },
+                  "smartTagHidden": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100,
+                      "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*$"
+                    },
+                    "maxItems": 1000
+                  },
                   "userSpecies": {
                     "type": "array",
                     "items": {
@@ -35423,6 +36124,16 @@
                         "type": "array",
                         "items": { "type": "string", "format": "uuid" },
                         "maxItems": 5000
+                      },
+                      "smartTagHidden": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100,
+                          "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*$"
+                        },
+                        "maxItems": 1000
                       }
                     },
                     "additionalProperties": false
@@ -35600,6 +36311,17 @@
                                           { "type": "string", "minLength": 1, "maxLength": 100 },
                                           { "type": "null" }
                                         ]
+                                      },
+                                      "smartTagsAccepted": {
+                                        "type": "object",
+                                        "patternProperties": { "^.*$": { "type": "string", "maxLength": 2000 } },
+                                        "description": "Accepted smart tags: vocabulary term id to the tag it added"
+                                      },
+                                      "smartTagsRejected": {
+                                        "type": "array",
+                                        "items": { "type": "string", "maxLength": 200 },
+                                        "maxItems": 1000,
+                                        "description": "Smart tag term ids rejected"
                                       },
                                       "updatedAt": { "type": "string", "format": "date-time" },
                                       "photo": {
@@ -36923,6 +37645,104 @@
           },
           "401": {
             "description": "Not signed in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/sync/smart-tag-hidden": {
+      "get": {
+        "summary": "GET /sync/smart-tag-hidden",
+        "tags": ["sync"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "sync",
+        "parameters": [
+          { "name": "since", "in": "query", "required": false, "schema": { "type": "string", "format": "date-time" } },
+          { "name": "after", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 100 } },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 500, "default": 200 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["items", "purged", "last", "next"],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["termId", "updatedAt"],
+                        "properties": {
+                          "termId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100,
+                            "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*$"
+                          },
+                          "updatedAt": { "type": "string", "format": "date-time" }
+                        }
+                      }
+                    },
+                    "purged": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["ref", "deletedAt"],
+                        "properties": {
+                          "ref": { "type": "string", "maxLength": 100 },
+                          "deletedAt": { "type": "string", "format": "date-time" }
+                        }
+                      }
+                    },
+                    "last": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "required": ["since", "after"],
+                          "properties": {
+                            "since": { "type": "string", "format": "date-time" },
+                            "after": { "type": "string", "maxLength": 100 }
+                          }
+                        },
+                        { "type": "null" }
+                      ]
+                    },
+                    "next": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "required": ["since", "after"],
+                          "properties": {
+                            "since": { "type": "string", "format": "date-time" },
+                            "after": { "type": "string", "maxLength": 100 }
+                          }
+                        },
+                        { "type": "null" }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the sync scope",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           },
           "default": {

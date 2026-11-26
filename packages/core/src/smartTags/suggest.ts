@@ -231,9 +231,11 @@ function computedSuggestions(p: PhotoSignals): Suggestion[] {
 
 function gateOpen(group: SmartTagGroup | undefined, p: PhotoSignals): boolean {
   switch (group?.gate) {
+    // Dormant today: every photo has a species. Kept for Set A photos with none (plan section (g)).
     case "noSpecies":
       return !p.hasSpecies;
-    // No animal-crop vector is stored, and computing one means reading the photo again.
+    // Behaviour (Flying, Perched) stays dormant: no animal-crop vector is stored, and computing one
+    // means reading the photo again. Cut from 1.0 unless crop vectors are stored (plan, Risks).
     case "crop":
       return false;
     case "people":

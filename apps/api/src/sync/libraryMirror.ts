@@ -16,6 +16,7 @@ import {
   fieldParams,
   fieldValues,
   FIRST_LIBRARY_CURSOR,
+  HiddenTermPageSchema,
   KeptPageSchema,
   MemberPageSchema,
   SPOT_FIELDS,
@@ -49,7 +50,11 @@ const FEEDS = {
   album_captures: ["/sync/album-captures", MemberPageSchema],
   album_exclusions: ["/sync/album-exclusions", MemberPageSchema],
   species_split_kept: ["/sync/species-split-kept", KeptPageSchema],
-} as const satisfies Record<RowsName | MembersName | "species_split_kept", readonly [string, TSchema]>;
+  smart_tag_hidden_terms: ["/sync/smart-tag-hidden", HiddenTermPageSchema],
+} as const satisfies Record<
+  RowsName | MembersName | "species_split_kept" | "smart_tag_hidden_terms",
+  readonly [string, TSchema]
+>;
 type FeedName = keyof typeof FEEDS;
 
 const fieldsOf = (name: RowsName) => ({ albums: ALBUM_FIELDS, trips: TRIP_FIELDS, saved_spots: SPOT_FIELDS })[name];
@@ -124,9 +129,28 @@ export async function applyKept(db: Db, userId: string, captureIds: string[]): P
   return res.rows.filter((r) => r.inserted).length;
 }
 
+/** Hides the server's hidden smart tag terms here. Returns how many were new. */
+export async function applyHidden(db: Db, userId: string, termIds: string[]): Promise<number> {
+  if (termIds.length === 0) return 0;
+  const res = await db.query(
+    `INSERT INTO smart_tag_hidden_terms (user_id, term_id, pushed_at) SELECT $1, unnest($2::text[]), now()
+     ON CONFLICT (user_id, term_id) DO UPDATE SET pushed_at = now()
+     RETURNING (xmax = 0) AS inserted`,
+    [userId, termIds],
+  );
+  return res.rows.filter((r) => r.inserted).length;
+}
+
 /** Removes what the server deleted, leaving rows with an edit not pushed yet. */
 async function applyRemovals(db: Db, userId: string, name: FeedName, refs: string[]): Promise<number> {
   if (refs.length === 0) return 0;
+  if (name === "smart_tag_hidden_terms") {
+    const res = await db.query(
+      `DELETE FROM smart_tag_hidden_terms h WHERE h.user_id = $1 AND h.term_id = ANY($2::text[]) AND ${SETTLED("h")}`,
+      [userId, refs],
+    );
+    return res.rowCount ?? 0;
+  }
   if (name === "species_split_kept") {
     const res = await db.query(
       `DELETE FROM species_split_kept k USING captures_all c
@@ -186,7 +210,13 @@ async function pullFeed(server: LinkedServer, userId: string, name: FeedName): P
         name,
         page.purged.map((p) => p.ref),
       );
-      if (name === "species_split_kept")
+      if (name === "smart_tag_hidden_terms")
+        totals.applied += await applyHidden(
+          client,
+          userId,
+          (page.items as { termId: string }[]).map((h) => h.termId),
+        );
+      else if (name === "species_split_kept")
         totals.applied += await applyKept(
           client,
           userId,
@@ -219,7 +249,11 @@ export async function pullLibraryMembers(server: LinkedServer, userId: string): 
   const a = await pullFeed(server, userId, "album_captures");
   const b = await pullFeed(server, userId, "album_exclusions");
   const k = await pullFeed(server, userId, "species_split_kept");
-  return { applied: a.applied + b.applied + k.applied, removed: a.removed + b.removed + k.removed };
+  const h = await pullFeed(server, userId, "smart_tag_hidden_terms");
+  return {
+    applied: a.applied + b.applied + k.applied + h.applied,
+    removed: a.removed + b.removed + k.removed + h.removed,
+  };
 }
 
 /** Makes the next pull of every library feed start from the beginning. */
@@ -239,6 +273,7 @@ export async function forgetLibraryPushes(db: Db, userId: string): Promise<void>
     `UPDATE species_split_kept k SET pushed_at = NULL FROM captures_all c WHERE c.id = k.capture_id AND c.user_id = $1`,
     [userId],
   );
+  await db.query(`UPDATE smart_tag_hidden_terms SET pushed_at = NULL WHERE user_id = $1`, [userId]);
   await forgetLibraryCursors(db);
 }
 
@@ -252,6 +287,7 @@ export interface LibraryBody {
   albumCaptures?: PushedMember[];
   albumExclusions?: PushedMember[];
   speciesSplitKept?: string[];
+  smartTagHidden?: string[];
   deleted?: {
     albums?: { id: string; baseUpdatedAt: string | null }[];
     trips?: { id: string; baseUpdatedAt: string | null }[];
@@ -259,6 +295,7 @@ export interface LibraryBody {
     albumCaptures?: PushedMember[];
     albumExclusions?: PushedMember[];
     speciesSplitKept?: string[];
+    smartTagHidden?: string[];
   };
 }
 export type SendLibrary = (body: LibraryBody) => Promise<LibraryReply | undefined>;
@@ -396,10 +433,32 @@ export async function pushLibraryMembers(userId: string, send: SendLibrary): Pro
     );
     sent += batch.length;
   }
+  const hidden = await pool.query<{ term_id: string; stamp: string }>(
+    `SELECT h.term_id, h.updated_at::text AS stamp FROM smart_tag_hidden_terms h WHERE h.user_id = $1 AND ${DUE("h")}`,
+    [userId],
+  );
+  for (let i = 0; i < hidden.rows.length; i += BATCH) {
+    const batch = hidden.rows.slice(i, i + BATCH);
+    await send({ smartTagHidden: batch.map((b) => b.term_id) });
+    await pool.query(
+      `UPDATE smart_tag_hidden_terms h SET pushed_at = v.stamp
+       FROM unnest($2::text[], $3::timestamptz[]) AS v(term_id, stamp) WHERE h.user_id = $1 AND h.term_id = v.term_id`,
+      [userId, batch.map((b) => b.term_id), batch.map((b) => b.stamp)],
+    );
+    sent += batch.length;
+  }
   return sent;
 }
 
-const KINDS = ["album", "trip", "saved_spot", "album_capture", "album_exclusion", "species_split_kept"] as const;
+const KINDS = [
+  "album",
+  "trip",
+  "saved_spot",
+  "album_capture",
+  "album_exclusion",
+  "species_split_kept",
+  "smart_tag_hidden",
+] as const;
 
 /** Sends what was deleted here (sync_tombstones, migration 163) and forgets it once the server answers. */
 export async function pushLibraryDeletions(userId: string, send: SendLibrary): Promise<number> {
@@ -425,6 +484,7 @@ export async function pushLibraryDeletions(userId: string, send: SendLibrary): P
         albumCaptures: batch.filter((t) => t.kind === "album_capture").map((t) => pair(t.ref)),
         albumExclusions: batch.filter((t) => t.kind === "album_exclusion").map((t) => pair(t.ref)),
         speciesSplitKept: batch.filter((t) => t.kind === "species_split_kept").map((t) => t.ref),
+        smartTagHidden: batch.filter((t) => t.kind === "smart_tag_hidden").map((t) => t.ref),
       },
     });
     await pool.query(`DELETE FROM sync_tombstones WHERE id = ANY($1::bigint[])`, [batch.map((t) => t.id)]);

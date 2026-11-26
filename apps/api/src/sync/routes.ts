@@ -47,6 +47,8 @@ import {
   DeletedRowSchema,
   FIRST_LIBRARY_CURSOR,
   KeptPageSchema,
+  HiddenTermPageSchema,
+  SmartTagTermId,
   listLibraryChanges,
   MemberPageSchema,
   PushedAlbumSchema,
@@ -99,6 +101,8 @@ const PushBody = Type.Object(
     albumExclusions: Type.Optional(Type.Array(PushedMemberSchema, { maxItems: 5000 })),
     /** Photos whose old species the user kept after a split, by the server's capture id. */
     speciesSplitKept: Type.Optional(Type.Array(Uuid(), { maxItems: 5000 })),
+    /** Smart tag terms hidden for every photo, by term id. */
+    smartTagHidden: Type.Optional(Type.Array(SmartTagTermId, { maxItems: 1000 })),
     userSpecies: Type.Optional(
       Type.Array(
         Type.Object({
@@ -123,6 +127,7 @@ const PushBody = Type.Object(
           albumCaptures: Type.Optional(Type.Array(PushedMemberSchema, { maxItems: 5000 })),
           albumExclusions: Type.Optional(Type.Array(PushedMemberSchema, { maxItems: 5000 })),
           speciesSplitKept: Type.Optional(Type.Array(Uuid(), { maxItems: 5000 })),
+          smartTagHidden: Type.Optional(Type.Array(SmartTagTermId, { maxItems: 1000 })),
         },
         { additionalProperties: false },
       ),
@@ -180,6 +185,7 @@ export async function syncRoutes(fastify: FastifyInstance): Promise<void> {
       | typeof MemberPageSchema
       | typeof SpotPageSchema
       | typeof KeptPageSchema
+      | typeof HiddenTermPageSchema
     ),
   ][] = [
     ["/sync/albums", "albums", AlbumPageSchema],
@@ -188,13 +194,17 @@ export async function syncRoutes(fastify: FastifyInstance): Promise<void> {
     ["/sync/album-captures", "albumCaptures", MemberPageSchema],
     ["/sync/album-exclusions", "albumExclusions", MemberPageSchema],
     ["/sync/species-split-kept", "speciesSplitKept", KeptPageSchema],
+    ["/sync/smart-tag-hidden", "smartTagHidden", HiddenTermPageSchema],
   ];
   for (const [url, name, page] of libraryFeeds) {
     app.get(
       url,
       {
-        // Phones don't keep split choices, so that feed is for linked desktops only.
-        preValidation: name === "speciesSplitKept" ? requireScope("sync") : requireScope("sync", ["companion"]),
+        // Phones don't keep split choices or smart tag settings, so those feeds are for linked desktops only.
+        preValidation:
+          name === "speciesSplitKept" || name === "smartTagHidden"
+            ? requireScope("sync")
+            : requireScope("sync", ["companion"]),
         schema: {
           querystring: Type.Object(
             {

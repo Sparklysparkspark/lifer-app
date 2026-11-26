@@ -15,6 +15,7 @@ export async function getFileWriteSettings(userId: string): Promise<FileWriteSet
       : DEFAULT_FILE_WRITE.sidecarNames,
     insideFiles: saved?.insideFiles !== false,
     linkedFolders: saved?.linkedFolders === true,
+    smartTags: saved?.smartTags === true,
   };
 }
 

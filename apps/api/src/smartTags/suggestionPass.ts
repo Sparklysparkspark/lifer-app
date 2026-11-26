@@ -170,7 +170,8 @@ export async function evaluateSmartTags(ids: string[], ctx: PassContext): Promis
   }
 }
 
-export const smartTagJob = createJob("smart-tag-suggestions");
+// Silent: a quiet pass over stored data, never shown in the dock or taskbar progress.
+export const smartTagJob = createJob("smart-tag-suggestions", undefined, { silent: true });
 const BATCH = 1000;
 
 /** One pass over every photo waiting. Each batch is saved as it goes, so a stopped pass resumes
