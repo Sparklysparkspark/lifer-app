@@ -6,6 +6,8 @@ Status: audit and plan only, 2026-11-25. No app code changed. Mockups are in the
 Read first: `refined-feel.md`, `ux-rules.md` (sections 1 to 16), `mobile-ux-plan.md` (the signed-off phone design this
 plan builds on), `mobile-implementation-plan.md` (scope, sync, pairing).
 
+Foldables, tablets and large windows: `mobile-foldables.md`.
+
 ## Summary
 
 - **The shell already follows the standing rule.** Four native tabs with icons (Collection, Gallery, Albums, Identify),
@@ -229,6 +231,9 @@ The maintainer reviews the mockups and answers the decisions below.
 | MA-4 | Albums feed carries the auto cover (M204); phone uses chosen, else auto                                                                                                                                                                                    | Opus                   | none    | S      |
 
 ### Wave 2: cards and Collection
+
+Wave 2 components are built size-class aware (`useSizeClass`, cards from a minimum width, View and Filters with
+their large-screen presentation): `mobile-foldables.md` FD-1 and FD-2.
 
 | ID   | Scope                                                                                                                                                                                                             | Model                                               | Depends    | Effort |
 | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ---------- | ------ |
