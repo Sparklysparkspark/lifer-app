@@ -160,7 +160,7 @@ const COVER_OK = `m.cover_photo_id IS NOT NULL AND EXISTS (SELECT 1 FROM capture
     AND v.scientific_name = sp.scientific_name AND v.hidden = 0 AND v.kind = 'image')`;
 
 export const SPECIES_SQL = `SELECT sp.scientific_name, sp.common_name, sp.taxon_class, sp.tier, sp.tier_reason, sp.sensitive,
-    sp.taxon_order, sp.family, m.needs_better_photo,
+    sp.taxon_order, sp.family, sp.sort_order, m.needs_better_photo,
     ${STATUS} AS status, COALESCE(m.is_target, 0) AS is_target, COALESCE(c.n, 0) AS photos, c.last_at,
     CASE WHEN ${COVER_OK} THEN m.cover_photo_id ELSE c.best_photo END AS cover,
     CASE WHEN ${COVER_OK} THEN m.card_crop_x END AS crop_x, CASE WHEN ${COVER_OK} THEN m.card_crop_y END AS crop_y,

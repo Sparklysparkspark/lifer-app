@@ -5,7 +5,7 @@ import type { SyncApi } from "./engine";
 import { inBatches } from "./yield";
 
 interface Vocab {
-  regions?: { id: string; name: string; parentId: string | null }[];
+  regions?: { id: string; name: string; parentId: string | null; homeCountryId?: string | null }[];
   species?: {
     scientificName: string;
     taxonOrder: string | null;
@@ -26,11 +26,10 @@ export async function pullSearchVocab(d: { db: Db; api: SyncApi }): Promise<void
   await inBatches(regions, 200, (batch) =>
     d.db.tx(async () => {
       for (const r of batch)
-        await d.db.run("INSERT OR REPLACE INTO search_regions (id, name, parent_id) VALUES (?, ?, ?)", [
-          r.id,
-          r.name,
-          r.parentId,
-        ]);
+        await d.db.run(
+          "INSERT OR REPLACE INTO search_regions (id, name, parent_id, home_country_id) VALUES (?, ?, ?, ?)",
+          [r.id, r.name, r.parentId, r.homeCountryId ?? null],
+        );
     }),
   );
   await inBatches(species, 200, (batch) =>

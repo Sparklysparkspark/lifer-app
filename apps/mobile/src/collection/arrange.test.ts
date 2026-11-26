@@ -32,6 +32,7 @@ const sp = (
   needsBetterPhoto: false,
   taxonOrder: null,
   family: null,
+  sortOrder: null,
   ...o,
 });
 const rows = [
@@ -110,6 +111,25 @@ describe("sortSpecies", () => {
       "Turdus merula",
       "Ursus americanus",
     ]);
+  });
+});
+
+describe("Field guide order within a family", () => {
+  it("follows the hub's sort order, and falls back to scientific name without one", () => {
+    const fam = { taxonOrder: "Anseriformes", family: "Anatidae" };
+    const duck = [
+      sp("Aix sponsa", "Wood Duck", { ...fam, sortOrder: 2 }),
+      sp("Anas acuta", "Pintail", { ...fam, sortOrder: 1 }),
+    ];
+    expect(names(sortSpecies(duck, "fieldGuide"))).toEqual(["Anas acuta", "Aix sponsa"]);
+    expect(
+      names(
+        sortSpecies(
+          duck.map((d) => ({ ...d, sortOrder: null })),
+          "fieldGuide",
+        ),
+      ),
+    ).toEqual(["Aix sponsa", "Anas acuta"]);
   });
 });
 

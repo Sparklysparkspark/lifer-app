@@ -15,6 +15,7 @@ export interface CollectionSpecies extends SpeciesRow {
   needsBetterPhoto: boolean;
   taxonOrder: string | null;
   family: string | null;
+  sortOrder: number | null;
 }
 
 /** Every species of a kept region (or every species the phone knows, for Everywhere), with its status. */
@@ -25,6 +26,7 @@ export async function listCollection(db: Db, regionKey: string | null): Promise<
     local_tier_reason: string | null;
     taxon_order: string | null;
     family: string | null;
+    sort_order: number | null;
     needs_better_photo: number | null;
   };
   const rows = await db.all<Raw>(
@@ -46,6 +48,7 @@ export async function listCollection(db: Db, regionKey: string | null): Promise<
     needsBetterPhoto: !!r.needs_better_photo,
     taxonOrder: r.taxon_order,
     family: r.family,
+    sortOrder: r.sort_order,
   }));
 }
 
@@ -55,7 +58,7 @@ export async function listCollection(db: Db, regionKey: string | null): Promise<
  */
 export async function photographedWhere(db: Db, hubRegionId: string): Promise<Map<string, "here" | "elsewhere">> {
   const rows = await db.all<{ scientific_name: string; here: number }>(
-    `WITH RECURSIVE tree(id) AS (SELECT ? UNION SELECT r.id FROM search_regions r JOIN tree t ON r.parent_id = t.id)
+    `WITH RECURSIVE tree(id) AS (SELECT ? UNION SELECT r.id FROM search_regions r JOIN tree t ON r.parent_id = t.id OR r.home_country_id = t.id)
      SELECT scientific_name, max(region_id IN (SELECT id FROM tree)) AS here FROM captures
      WHERE hidden = 0 AND photo_id IS NOT NULL AND region_id IS NOT NULL GROUP BY scientific_name`,
     [hubRegionId],

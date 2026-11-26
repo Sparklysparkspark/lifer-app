@@ -6,6 +6,7 @@ import {
   listAlbums,
   listCollection,
   monthPlaces,
+  photographedWhere,
   photoInfo,
   stats,
   speciesFacts,
@@ -61,7 +62,46 @@ async function life() {
   return db;
 }
 
+describe("photographedWhere", () => {
+  it("counts a photo with a region set in that region and its ancestors, through parent or home country", async () => {
+    const db = await migratedDb();
+    await saveRegion(
+      db,
+      { key: "r1", name: "One", source: "pack", hubRegionId: null },
+      [item("A a", "Alpha")],
+      new Date(),
+    );
+    for (const [id, parent, home] of [
+      ["continent", null, null],
+      ["country", null, null],
+      ["province", "continent", "country"],
+    ])
+      await db.run("INSERT INTO search_regions (id, name, parent_id, home_country_id) VALUES (?, ?, ?, ?)", [
+        id,
+        id,
+        parent,
+        home,
+      ]);
+    await applyCaptureChanges(db, [cap("1", "A a", "2026-05-02T10:00:00Z", { regionId: "province" })], []);
+    for (const here of ["province", "continent", "country"])
+      expect((await photographedWhere(db, here)).get("A a")).toBe("here");
+    expect((await photographedWhere(db, "other")).get("A a")).toBe("elsewhere");
+  });
+});
+
 describe("listCollection", () => {
+  it("carries the hub's species sort order, kept when a later checklist has none", async () => {
+    const db = await migratedDb();
+    const row = { ...item("A a", "Alpha"), sortOrder: 7 };
+    await saveRegion(db, { key: "r1", name: "One", source: "hub", hubRegionId: "r1" }, [row], new Date());
+    await saveRegion(
+      db,
+      { key: "r2", name: "Two", source: "pack", hubRegionId: null },
+      [item("A a", "Alpha")],
+      new Date(),
+    );
+    expect((await listCollection(db, null))[0].sortOrder).toBe(7);
+  });
   it("lists a region's species with status and the vagrant flag, or everything for Everywhere", async () => {
     const db = await life();
     const one = await listCollection(db, "r1");

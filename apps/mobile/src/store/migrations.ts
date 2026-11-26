@@ -180,6 +180,13 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE albums ADD COLUMN hub_cover_photo_id TEXT;
   DELETE FROM meta WHERE key LIKE 'regionSig.%';
   `,
+  // Field guide order within a family (the hub's species sort order, null from an older hub), and a
+  // province's home country so a photo in it also counts in that country. Kept checklists are fetched again.
+  `
+  ALTER TABLE species ADD COLUMN sort_order INTEGER;
+  ALTER TABLE search_regions ADD COLUMN home_country_id TEXT;
+  DELETE FROM meta WHERE key LIKE 'regionSig.%';
+  `,
 ];
 
 export async function migrate(db: Db): Promise<void> {

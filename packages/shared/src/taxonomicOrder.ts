@@ -75,6 +75,7 @@ interface Classified {
   taxonClass?: string | null;
   taxonOrder?: string | null;
   family?: string | null;
+  sortOrder?: number | null;
 }
 
 const position = (list: string[], value: string | null | undefined) => {
@@ -83,12 +84,13 @@ const position = (list: string[], value: string | null | undefined) => {
 };
 
 /** Compares two species by field-guide order: group, then (birds) Clements order sequence, then
- *  order and family by name, unknowns last. The species' own published sequence isn't here. */
+ *  order and family by name, then the species' own published sequence (sortOrder); unknowns last. */
 export function compareFieldGuideOrder(a: Classified, b: Classified): number {
   return (
     position(TAXON_CLASS_SEQUENCE, a.taxonClass) - position(TAXON_CLASS_SEQUENCE, b.taxonClass) ||
     position(BIRD_ORDER_SEQUENCE, a.taxonOrder) - position(BIRD_ORDER_SEQUENCE, b.taxonOrder) ||
     (a.taxonOrder ?? "\uffff").localeCompare(b.taxonOrder ?? "\uffff") ||
-    (a.family ?? "\uffff").localeCompare(b.family ?? "\uffff")
+    (a.family ?? "\uffff").localeCompare(b.family ?? "\uffff") ||
+    (a.sortOrder ?? Number.MAX_SAFE_INTEGER) - (b.sortOrder ?? Number.MAX_SAFE_INTEGER)
   );
 }

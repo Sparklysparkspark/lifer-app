@@ -41631,6 +41631,7 @@ export interface paths {
                 taxonClass: string;
                 taxonOrder: string | null;
                 family: string | null;
+                sortOrder?: number | null;
                 ebirdCode: string | null;
                 tier: string | null;
                 localTier: string | null;
@@ -41813,6 +41814,7 @@ export interface paths {
                 id: string;
                 name: string;
                 parentId: string | null;
+                homeCountryId?: string | null;
               } & {
                 [key: string]: unknown;
               })[];

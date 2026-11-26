@@ -64,6 +64,9 @@ const Checklist = Open({
       taxonClass: Type.String(),
       taxonOrder: Nullable(Type.String()),
       family: Nullable(Type.String()),
+      sortOrder: Type.Optional(
+        Nullable(Type.Integer({ description: "The species' place in field guide order within its family" })),
+      ),
       ebirdCode: Nullable(Type.String()),
       tier: Nullable(
         Type.String({ description: "The user's tier, else this region's, else worldwide: kept for older phones" }),
@@ -81,7 +84,16 @@ const Checklist = Open({
 // What the phone's offline search needs beyond names: the region tree over its photos, and the
 // order, family, aliases and codes of the species it has photos of (as the desktop search reads them).
 const SearchVocab = Open({
-  regions: Type.Array(Open({ id: Uuid(), name: Type.String(), parentId: Nullable(Uuid()) })),
+  regions: Type.Array(
+    Open({
+      id: Uuid(),
+      name: Type.String(),
+      parentId: Nullable(Uuid()),
+      homeCountryId: Type.Optional(
+        Nullable(Uuid({ description: "A province listed under a continent still belongs to this country" })),
+      ),
+    }),
+  ),
   species: Type.Array(
     Open({
       scientificName: Type.String(),
@@ -158,14 +170,16 @@ export async function phoneSyncRoutes(fastify: FastifyInstance): Promise<void> {
       const userId = request.user!.id;
       const [regions, species] = await Promise.all([
         // The regions photos sit in and every ancestor, so a named region reaches its sub-regions.
-        pool.query<{ id: string; name: string; parent_id: string | null }>(
+        pool.query<{ id: string; name: string; parent_id: string | null; home_country_id: string | null }>(
           `WITH RECURSIVE up AS (
-             SELECT r.id, r.name, r.parent_id FROM regions r
+             SELECT r.id, r.name, r.parent_id, r.home_country_id FROM regions r
               WHERE r.id IN (SELECT DISTINCT region_id FROM captures WHERE user_id = $1 AND region_id IS NOT NULL)
              UNION
-             SELECT p.id, p.name, p.parent_id FROM regions p JOIN up ON up.parent_id = p.id
+             SELECT p.id, p.name, p.parent_id, p.home_country_id FROM regions p
+               JOIN up ON p.id = up.parent_id OR p.id = up.home_country_id
            )
-           SELECT id::text AS id, name, parent_id::text AS parent_id FROM up ORDER BY name, id`,
+           SELECT id::text AS id, name, parent_id::text AS parent_id, home_country_id::text AS home_country_id
+             FROM up ORDER BY name, id`,
           [userId],
         ),
         pool.query(
@@ -177,7 +191,12 @@ export async function phoneSyncRoutes(fastify: FastifyInstance): Promise<void> {
         ),
       ]);
       return {
-        regions: regions.rows.map((r) => ({ id: r.id, name: r.name, parentId: r.parent_id })),
+        regions: regions.rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          parentId: r.parent_id,
+          homeCountryId: r.home_country_id,
+        })),
         species: species.rows.map((r) => ({
           scientificName: r.scientific_name,
           taxonOrder: r.taxon_order,
@@ -229,7 +248,7 @@ export async function phoneSyncRoutes(fastify: FastifyInstance): Promise<void> {
       const region = await pool.query<{ name: string }>(`SELECT name FROM regions WHERE id = $1`, [request.params.id]);
       if (!region.rows[0]) return reply.code(404).send({ error: "Region not found" });
       const res = await pool.query(
-        `SELECT s.scientific_name, s.common_name, s.taxon_class, s.taxon_order, s.family, s.ebird_code, rs.is_vagrant,
+        `SELECT s.scientific_name, s.common_name, s.taxon_class, s.taxon_order, s.family, s.sort_order, s.ebird_code, rs.is_vagrant,
                 COALESCE(o.tier, rs.local_tier, sr.tier) AS tier, COALESCE(o.tier, rs.local_tier) AS local_tier,
                 COALESCE(o.tier, sr.tier) AS world_tier, rs.tier_reason AS local_tier_reason, sr.tier_reason,
                 (COALESCE(st.iucn_status = ANY($3::text[]), false) OR s.scientific_name = ANY($4::text[])) AS sensitive
@@ -251,6 +270,7 @@ export async function phoneSyncRoutes(fastify: FastifyInstance): Promise<void> {
           taxonClass: r.taxon_class,
           taxonOrder: r.taxon_order,
           family: r.family,
+          sortOrder: r.sort_order,
           ebirdCode: r.ebird_code,
           tier: r.tier,
           localTier: r.local_tier,

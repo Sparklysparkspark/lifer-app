@@ -374,7 +374,7 @@ describe.skipIf(!url)("phone sync routes", () => {
       [VOCAB_CAPTURE, USER, SPECIES, REGION],
     );
     await db.query(
-      `UPDATE species SET taxon_order = 'Zzorder', family = 'Zzfamily', common_name_aliases = '{Alpha Alias}' WHERE id = $1`,
+      `UPDATE species SET sort_order = 4242, taxon_order = 'Zzorder', family = 'Zzfamily', common_name_aliases = '{Alpha Alias}' WHERE id = $1`,
       [SPECIES],
     );
     await db.query(`INSERT INTO species_synonyms (species_id, synonym_name) VALUES ($1, 'Zzphone oldname')`, [SPECIES]);
@@ -382,7 +382,7 @@ describe.skipIf(!url)("phone sync routes", () => {
       const v = (await get("/sync/search-vocab")).json();
       expect(v.regions).toEqual(
         expect.arrayContaining([
-          { id: REGION, name: "Zzphoneland", parentId: PARENT },
+          { id: REGION, name: "Zzphoneland", parentId: PARENT, homeCountryId: null },
           expect.objectContaining({ id: PARENT, name: "Zzphonecontinent" }),
         ]),
       );
@@ -399,12 +399,32 @@ describe.skipIf(!url)("phone sync routes", () => {
       expect((await get(`/sync/regions/${REGION}/checklist`)).json().items[0]).toMatchObject({
         taxonOrder: "Zzorder",
         family: "Zzfamily",
+        sortOrder: 4242,
       });
     } finally {
       await db.query(`UPDATE regions SET parent_id = NULL WHERE id = $1`, [REGION]);
       await db.query(`DELETE FROM captures_all WHERE id = $1`, [VOCAB_CAPTURE]);
       await db.query(`DELETE FROM species_synonyms WHERE species_id = $1`, [SPECIES]);
       await db.query(`DELETE FROM regions WHERE id = $1`, [PARENT]);
+    }
+  });
+
+  it("search vocabulary lists a province's home country as an ancestor of a photo in it", async () => {
+    const HOME = "eeeeeeee-0000-4000-8000-000000000970";
+    await db.query(`INSERT INTO regions (id, name) VALUES ($1, 'Zzphonehome')`, [HOME]);
+    await db.query(`UPDATE regions SET home_country_id = $1 WHERE id = $2`, [HOME, REGION]);
+    await db.query(
+      `INSERT INTO captures_all (id, user_id, species_id, fingerprint, taken_at, region_id) VALUES ($1, $2, $3, 'phone-home', '2026-05-02T08:00:00Z', $4)`,
+      [VOCAB_CAPTURE, USER, SPECIES, REGION],
+    );
+    try {
+      const { regions } = (await get("/sync/search-vocab")).json();
+      expect(regions).toContainEqual({ id: REGION, name: "Zzphoneland", parentId: null, homeCountryId: HOME });
+      expect(regions).toContainEqual(expect.objectContaining({ id: HOME, name: "Zzphonehome" }));
+    } finally {
+      await db.query(`DELETE FROM captures_all WHERE id = $1`, [VOCAB_CAPTURE]);
+      await db.query(`UPDATE regions SET home_country_id = NULL WHERE id = $1`, [REGION]);
+      await db.query(`DELETE FROM regions WHERE id = $1`, [HOME]);
     }
   });
 

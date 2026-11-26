@@ -15,7 +15,7 @@ const byScientific = (a: CollectionSpecies, b: CollectionSpecies) =>
   a.scientificName.localeCompare(b.scientificName, undefined, { sensitivity: "base" });
 
 const ORDER: Record<Arrange, (a: CollectionSpecies, b: CollectionSpecies) => number> = {
-  // Class, bird order, order and family as the desktop; within a family by scientific name, so genera stay together.
+  // Class, bird order, order, family and the species' own sequence as the desktop; scientific name when the hub sent none.
   fieldGuide: (a, b) => compareFieldGuideOrder(a, b) || byScientific(a, b),
   common: byName,
   scientific: byScientific,

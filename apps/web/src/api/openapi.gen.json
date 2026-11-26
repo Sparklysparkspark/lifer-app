@@ -37335,6 +37335,15 @@
                           "taxonClass": { "type": "string" },
                           "taxonOrder": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "family": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "sortOrder": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "description": "The species' place in field guide order within its family"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
                           "ebirdCode": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "tier": {
                             "anyOf": [
@@ -37556,7 +37565,17 @@
                         "properties": {
                           "id": { "type": "string", "format": "uuid" },
                           "name": { "type": "string" },
-                          "parentId": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] }
+                          "parentId": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] },
+                          "homeCountryId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "description": "A province listed under a continent still belongs to this country"
+                              },
+                              { "type": "null" }
+                            ]
+                          }
                         },
                         "additionalProperties": true
                       }

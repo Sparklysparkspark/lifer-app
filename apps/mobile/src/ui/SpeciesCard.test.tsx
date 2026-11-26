@@ -25,6 +25,7 @@ const row = (o: Partial<CollectionSpecies> = {}): CollectionSpecies => ({
   needsBetterPhoto: false,
   taxonOrder: null,
   family: null,
+  sortOrder: null,
   ...o,
 });
 const noop = () => undefined;

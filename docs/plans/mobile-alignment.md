@@ -267,8 +267,8 @@ their large-screen presentation): `mobile-foldables.md` FD-1 and FD-2.
 - **MA-8:** progress bands (on by default with Broad group): group name, three photos, the big number in the new
   `type.display` token, a bar; one spoken label; tap folds. Folding has no motion, so nothing to reduce.
 - **MA-9:** Field guide order uses `compareFieldGuideOrder` from `@lifer/shared` on the stored class, order and family,
-  then the scientific name. Gap: the hub's per-species `sort_order` is not sent, so species within a family are
-  alphabetical, not in eBird sequence. Closing it needs an additive `sortOrder` on the checklist item. Family group
+  then the species' `sortOrder` (additive on the checklist item, from the catalog's `sort_order`; a new phone migration;
+  an older hub sends none and the order falls back to scientific name). Family group
   uses the desktop's bird family names (`collection/families.ts`).
 - **Sizes:** `ui/useSizeClass.ts` (compact under 600, medium to 839, expanded 840 up; tested at 344, 390, 669, 951,
   1366). Cards from a minimum width (Large 150 pt, Small 96 pt: 2 and 3 across at 344 and 390, 4 and 6 at 669; the

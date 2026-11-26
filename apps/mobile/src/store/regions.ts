@@ -28,6 +28,7 @@ export interface RegionSpecies {
   /** For group words in search ("predators"); absent until the hub sends them. */
   taxonOrder?: string | null;
   family?: string | null;
+  sortOrder?: number | null;
 }
 
 /** A region's checklist as GET /sync/regions/:id/checklist sends it. */
@@ -46,6 +47,7 @@ export interface HubChecklist {
     sensitiveByDefault: boolean;
     taxonOrder?: string | null;
     family?: string | null;
+    sortOrder?: number | null;
   }[];
 }
 
@@ -66,6 +68,7 @@ export const hubChecklistSpecies = (list: HubChecklist): RegionSpecies[] =>
     sensitive: i.sensitiveByDefault,
     taxonOrder: i.taxonOrder,
     family: i.family,
+    sortOrder: i.sortOrder,
   }));
 
 /** Keeps a region's checklist offline (replacing any earlier copy) and teaches the species table its names. */
@@ -84,12 +87,13 @@ export async function saveRegion(
         // an older hub filled with one region's tier); a source with no scoped tiers only fills a gap.
         const scoped = s.localTier !== undefined;
         await db.run(
-          `INSERT INTO species (scientific_name, common_name, taxon_class, tier, sensitive, taxon_order, family, tier_reason)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO species (scientific_name, common_name, taxon_class, tier, sensitive, taxon_order, family, tier_reason, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (scientific_name) DO UPDATE SET common_name = COALESCE(excluded.common_name, species.common_name),
              taxon_class = COALESCE(excluded.taxon_class, species.taxon_class),
              taxon_order = COALESCE(excluded.taxon_order, species.taxon_order),
              family = COALESCE(excluded.family, species.family),
+             sort_order = COALESCE(excluded.sort_order, species.sort_order),
              tier = CASE WHEN ? THEN excluded.tier ELSE COALESCE(excluded.tier, species.tier) END,
              tier_reason = CASE WHEN ? THEN excluded.tier_reason ELSE species.tier_reason END,
              sensitive = MAX(species.sensitive, excluded.sensitive)`,
@@ -102,6 +106,7 @@ export async function saveRegion(
             s.taxonOrder ?? null,
             s.family ?? null,
             s.tierReason ?? null,
+            s.sortOrder ?? null,
             scoped ? 1 : 0,
             scoped ? 1 : 0,
           ],
