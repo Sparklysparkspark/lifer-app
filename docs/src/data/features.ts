@@ -34,7 +34,7 @@ export const beats: Beat[] = [
   {
     kicker: "Naming them",
     title: "Your photo beside the species",
-    text: "Lifer suggests the species in each photo, on your own computer. Check it against reference photos side by side, zoom both together, and confirm.",
+    text: "Lifer suggests the species in each photo, on your own computer. Check it against reference photos side by side, and confirm.",
     image: "identify",
     alt: "A toucan photo compared with a reference photo of Keel-billed Toucan, a 100% match",
   },
