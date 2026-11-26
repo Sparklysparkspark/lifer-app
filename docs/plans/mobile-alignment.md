@@ -295,3 +295,13 @@ the maintainer's library was used. Folder:
 
 Not mocked: Stats with Photos over time (decision 5 first), Android variants (Material 3 equivalents of the same
 structure, as in `mobile-ux-plan.md`).
+
+## Decisions (maintainer, 2026-11-25)
+
+The phone is an accessory to Lifer, not a second Lifer: it does not need feature parity.
+
+1. **Naming: match the desktop.** The phone uses the desktop's current wording everywhere (Species downloads, and so on).
+2. **Featured**, not Favourites.
+3. **Grey unphotographed covers:** try React Native's built-in image filter first; hub-served grey thumbnails only if it fails on iOS.
+4. **Tree of life, Photos over time and smart tags stay off the phone** (accessory scope). Wave 4 is cut except Featured.
+5. Waves 1 to 3 and Featured go ahead. Mockups to be looked at by the maintainer before Wave 2 UI is built.
