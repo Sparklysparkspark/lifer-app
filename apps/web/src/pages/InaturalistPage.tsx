@@ -260,10 +260,8 @@ export default function InaturalistPage() {
     <div className="flex min-h-full flex-1 flex-col bg-canvas">
       <PageHeader
         sticky
-        topLevel={sidebarLayout}
+        topLevel
         title={t("inaturalist.title")}
-        backFallbackTo="/settings"
-        backLabel={t("nav.settings")}
       >
         <p className={`max-w-2xl text-subheadline text-muted ${sidebarLayout ? "" : "mt-1"}`}>
           {t("inaturalist.intro")}{" "}
