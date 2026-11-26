@@ -229,6 +229,17 @@ describe("runGate", () => {
       ]);
     });
 
+    it("lets a reviewed publish ship without the missing species of the classes it names", async () => {
+      missing.add = [
+        { scientificName: "Popular crab", taxonClass: "crustacea", inatObservations: 500 },
+        { scientificName: "Bird one", taxonClass: "aves", inatObservations: 0 },
+      ];
+      const report = await runGate({ index: null, acceptCatalogGaps: ["crustacea"], out: OUT });
+      expect(report.failures.map((f) => f.detail)).toEqual([
+        "1 species on iNaturalist or eBird lists are missing from the catalog (e.g. Bird one); run the catalog stage",
+      ]);
+    });
+
     it("lets a rarely seen invertebrate wait for a later catalog run", async () => {
       missing.add = [{ scientificName: "Obscure crab", taxonClass: "crustacea", inatObservations: 99 }];
       expect((await runGate({ index: null, out: OUT })).ok).toBe(true);

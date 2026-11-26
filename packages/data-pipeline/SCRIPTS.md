@@ -30,6 +30,7 @@ npm run refresh -w data-pipeline -- --publish --accept-drift=<pack id>,...
 npm run refresh -w data-pipeline -- --resume --allow-tier-skip   # keep old tiers of countries with no province files
 npm run refresh -w data-pipeline -- --fix-shared-inat-taxa      # catalog stage also applies fix-shared-inat-taxa.ts
 npm run refresh -w data-pipeline -- --publish --accept-stale=tiers # publish past a stage older than its inputs
+npm run refresh -w data-pipeline -- --publish --accept-catalog-gaps=corals,... # publish past missing species of reviewed classes
 ```
 
 The refresh prints the database it works on, and publishing (`--publish`, or `publish` in

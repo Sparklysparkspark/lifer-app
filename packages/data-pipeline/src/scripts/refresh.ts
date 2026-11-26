@@ -20,6 +20,7 @@
 //   npm run refresh -w data-pipeline -- --stages=regions --keep-provinces
 //                                                                     regions stage: every step after the province build
 //   npm run refresh -w data-pipeline -- --accept-stale=tiers,...      publish past stages older than their inputs
+//   npm run refresh -w data-pipeline -- --accept-catalog-gaps=corals,... publish past missing species of these classes
 //   npm run refresh -w data-pipeline -- --map-source=<planet.pmtiles> also cut detailed country maps
 //
 // Prints the database it works on; --publish needs DATABASE_URL set (in the shell or the repo .env).
@@ -146,6 +147,8 @@ interface Options {
   keepProvinces: boolean;
   /** Stages the gate may find older than their inputs without failing. */
   acceptStale: string[];
+  /** Taxon classes whose missing species the gate lets through. */
+  acceptCatalogGaps: string[];
   /** The Protomaps planet build the maps stage cuts from. */
   mapSource: string | null;
 }
@@ -196,6 +199,7 @@ export function parseArgs(argv: string[]): Options {
     replaceSeaZones,
     keepProvinces,
     acceptStale,
+    acceptCatalogGaps: list("accept-catalog-gaps") ?? [],
     mapSource,
   };
 }
@@ -694,6 +698,7 @@ async function main() {
             const report = await runGate({
               index: (packs as PacksResult | null)?.index ?? null,
               acceptDrift: opts.acceptDrift,
+              acceptCatalogGaps: opts.acceptCatalogGaps,
               freshness: { acceptStale: opts.acceptStale },
             });
             console.log(summarizeGate(report));

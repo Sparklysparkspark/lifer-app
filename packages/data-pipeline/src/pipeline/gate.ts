@@ -104,12 +104,13 @@ async function checkUntracedTiers(report: GateReport) {
     });
 }
 
-async function checkCatalogGaps(report: GateReport) {
+async function checkCatalogGaps(report: GateReport, acceptClasses: Set<string>) {
   const { add } = await findMissingSpecies({ offline: true });
   const serious = add.filter(
     (a) =>
-      ["aves", "mammalia", "actinopterygii", "squamata", "testudines", "amphibia"].includes(a.taxonClass) ||
-      a.inatObservations >= 100,
+      !acceptClasses.has(a.taxonClass) &&
+      (["aves", "mammalia", "actinopterygii", "squamata", "testudines", "amphibia"].includes(a.taxonClass) ||
+        a.inatObservations >= 100),
   );
   if (serious.length > 0) {
     report.failures.push({
@@ -226,6 +227,8 @@ async function checkFreshness(report: GateReport, accepted: Set<string>) {
 export async function runGate(opts: {
   index: PackIndex | null;
   acceptDrift?: string[] | "all";
+  /** Taxon classes whose missing species a reviewed publish ships without (a later catalog run adds them). */
+  acceptCatalogGaps?: string[];
   /** Check upstream stages are fresh (refresh does; a standalone gate run needn't). */
   freshness?: { acceptStale: string[] };
   out?: string;
@@ -235,7 +238,7 @@ export async function runGate(opts: {
   await checkAnchors(report);
   await checkFakeRare(report);
   await checkUntracedTiers(report);
-  await checkCatalogGaps(report);
+  await checkCatalogGaps(report, new Set(opts.acceptCatalogGaps ?? []));
   await checkPhotos(report);
   await checkSharedInatTaxa(report);
   if (opts.freshness) await checkFreshness(report, new Set(opts.freshness.acceptStale));
