@@ -66,6 +66,34 @@ export interface PluginNotice {
   action?: string;
 }
 
+/**
+ * A menu bar entry for the desktop menu. Labels are plain text, already translated. `accelerator`
+ * is Tauri's grammar ("CmdOrCtrl+Shift+E"); Lifer drops one that is its own and keeps the item.
+ * `checked` null is a plain item. Submenus nest up to PLUGIN_MENU_LIMITS.depth levels.
+ */
+export type HostMenuEntry =
+  | { kind: "separator" }
+  | { kind: "item"; id: string; label: string; enabled: boolean; accelerator: string | null; checked: boolean | null }
+  | { kind: "submenu"; label: string; enabled: boolean; items: HostMenuEntry[] };
+export interface HostMenu {
+  label: string;
+  items: HostMenuEntry[];
+}
+
+/** Caps on a `menu` message. Anything over them is invalid and clears the page's menu. */
+export const PLUGIN_MENU_LIMITS = {
+  menus: 12,
+  /** Every entry in every menu and submenu, separators included. */
+  entries: 300,
+  /** A top-level menu is level 1. */
+  depth: 3,
+  label: 80,
+  id: 64,
+  accelerator: 40,
+  /** The payload as UTF-8 JSON. */
+  bytes: 64 * 1024,
+} as const;
+
 type Envelope<T extends string, P> = { lifer: 1; type: T; id?: string; payload: P };
 
 /** What the page sends. Send an `id` to get exactly one `reply`; pickers require one. */
@@ -91,7 +119,12 @@ export type PluginToHostMessage =
    * Asks the person to turn "Open inside Lifer from now on" on or off. Replies `{ granted, openInHost }`
    * once they answer; Not now (or no answer in 5 minutes) changes nothing. Lifer never changes it by itself.
    */
-  | Envelope<"host.preference.request", { openInHost: boolean }>;
+  | Envelope<"host.preference.request", { openInHost: boolean }>
+  /**
+   * The page's menus for the desktop menu bar, shown while its page is on screen. Send after every
+   * `init` and when they change; `menus: []` clears them. Lifer applies at most a few per second.
+   */
+  | Envelope<"menu", { menus: HostMenu[] }>;
 
 export type PluginMessageType = PluginToHostMessage["type"];
 
@@ -127,6 +160,8 @@ export type HostToPluginMessage =
   | Envelope<"droppedPaths", { paths: string[] }>
   /** The person flipped the setting in Lifer. Sent only to a page that used host.preference.get or .request. */
   | Envelope<"host.preference.changed", HostPreference>
+  /** The person chose a menu item. Run it only if `id` was enabled in the last `menu` you sent. */
+  | Envelope<"menuCommand", { id: string }>
   | { lifer: 1; type: "reply"; id: string; payload: PluginReply };
 
 /** Requests that wait on the user, so the 30 s reply limit doesn't apply. */
@@ -148,6 +183,35 @@ const str = (v: unknown, max: number, min = 1): v is string =>
   typeof v === "string" && v.length >= min && v.length <= max;
 const optStr = (v: unknown, max: number) => v === undefined || str(v, max, 0);
 const bool = (v: unknown): v is boolean => typeof v === "boolean";
+
+// Menu text is native plain text: no control characters (a tab would add a fake shortcut column on Windows).
+// eslint-disable-next-line no-control-regex
+const plain = (v: unknown, max: number): v is string => str(v, max) && !/[\u0000-\u001f\u007f]/.test(v);
+
+function validMenu(p: Record<string, unknown>): boolean {
+  const L = PLUGIN_MENU_LIMITS;
+  if (!Array.isArray(p.menus) || p.menus.length > L.menus) return false;
+  if (new TextEncoder().encode(JSON.stringify(p)).length > L.bytes) return false;
+  let entries = 0;
+  const ids = new Set<string>();
+  const validItems = (items: unknown, depth: number): boolean =>
+    Array.isArray(items) &&
+    items.every((e) => {
+      if (!isObj(e) || ++entries > L.entries) return false;
+      if (e.kind === "separator") return true;
+      if (e.kind === "submenu")
+        return depth < L.depth && plain(e.label, L.label) && bool(e.enabled) && validItems(e.items, depth + 1);
+      if (e.kind !== "item" || !plain(e.id, L.id) || ids.has(e.id)) return false;
+      ids.add(e.id);
+      return (
+        plain(e.label, L.label) &&
+        bool(e.enabled) &&
+        (e.accelerator === null || plain(e.accelerator, L.accelerator)) &&
+        (e.checked === null || bool(e.checked))
+      );
+    });
+  return p.menus.every((m) => isObj(m) && plain(m.label, L.label) && validItems(m.items, 1));
+}
 
 function validPayload(type: string, p: Record<string, unknown>): boolean {
   switch (type) {
@@ -184,6 +248,8 @@ function validPayload(type: string, p: Record<string, unknown>): boolean {
       return bool(p.openInHost);
     case "notify":
       return str(p.title, MAX_TEXT) && optStr(p.body, MAX_BODY) && optStr(p.action, 40);
+    case "menu":
+      return validMenu(p);
     default:
       return false;
   }
@@ -202,6 +268,7 @@ const KNOWN = new Set<string>([
   "themeApplied",
   "host.preference.get",
   "host.preference.request",
+  "menu",
 ]);
 
 // Requests that only make sense with an answer.

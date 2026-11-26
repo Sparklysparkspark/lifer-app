@@ -206,7 +206,8 @@ pub fn run() {
             plugin_install::plugin_install_cancel,
             plugin_install::plugin_target,
             plugin_install::plugin_detect,
-            plugin_install::plugin_open_installed
+            plugin_install::plugin_open_installed,
+            menu::set_plugin_menu
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -214,7 +215,7 @@ pub fn run() {
             // Keys an earlier launch couldn't revoke on a server it switched away from.
             server_link::retry_pending_revokes(&app_data_dir(&handle));
             plugins::start_watching(&handle);
-            let menu = menu::build_menu(&handle)?;
+            let menu = menu::build_menu(&handle, None)?;
             app.set_menu(menu)?;
             app.on_menu_event(menu::handle_menu_event);
 

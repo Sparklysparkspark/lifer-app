@@ -256,6 +256,62 @@ export function matchesChord(e: KeyLike, chord: string, mac = isMac): boolean {
   return key.length === 1 ? e.key.toLowerCase() === key.toLowerCase() : e.key === key;
 }
 
+/** Whether `action` stays live on an embedded app's page: its page covers Lifer's, so only app-wide,
+ *  dialog and focused-control keys do. Gallery, photo and other page keys never reach Lifer there. */
+export const liveOnPluginPage = (action: KeyAction): boolean =>
+  ["global", "dialog", "widget"].includes(KEYMAP[action].scope);
+
+/** Every chord of the app-wide actions. */
+export const globalChords = (mac = isMac): string[] =>
+  Object.values(KEYMAP)
+    .filter((e) => e.scope === "global")
+    .flatMap((e) => (mac && e.mac ? e.mac : e.chords));
+
+const ACCEL_KEYS: Record<string, string> = {
+  plus: "+",
+  equal: "=",
+  minus: "-",
+  comma: ",",
+  period: ".",
+  slash: "/",
+  space: " ",
+  esc: "Escape",
+  return: "Enter",
+  up: "ArrowUp",
+  down: "ArrowDown",
+  left: "ArrowLeft",
+  right: "ArrowRight",
+};
+
+/** A Tauri menu accelerator ("CmdOrCtrl+Shift+E") as the key press it stands for, or null when it
+ *  doesn't parse. */
+export function acceleratorPress(accel: string, mac = isMac): KeyLike | null {
+  const plusKey = accel.endsWith("++") || accel === "+";
+  const parts = plusKey ? [...accel.slice(0, -2).split("+").filter(Boolean), "+"] : accel.split("+");
+  const raw = parts.pop()!.trim();
+  const press = { key: "", code: "", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false };
+  for (const m of parts.map((p) => p.trim().toLowerCase())) {
+    if (["cmdorctrl", "cmdorcontrol", "commandorctrl", "commandorcontrol"].includes(m)) {
+      if (mac) press.metaKey = true;
+      else press.ctrlKey = true;
+    } else if (["cmd", "command", "super", "meta"].includes(m)) press.metaKey = true;
+    else if (["ctrl", "control"].includes(m)) press.ctrlKey = true;
+    else if (["alt", "option"].includes(m)) press.altKey = true;
+    else if (m === "shift") press.shiftKey = true;
+    else return null;
+  }
+  if (!raw) return null;
+  const digit = /^(?:Digit|Numpad)?(\d)$/i.exec(raw)?.[1];
+  const letter = /^(?:Key)?([a-z])$/i.exec(raw)?.[1];
+  if (digit) Object.assign(press, { key: digit, code: `Digit${digit}` });
+  else if (letter) press.key = letter.toLowerCase();
+  else if (/^(\[|BracketLeft)$/i.test(raw)) Object.assign(press, { key: "[", code: "BracketLeft" });
+  else if (/^(\]|BracketRight)$/i.test(raw)) Object.assign(press, { key: "]", code: "BracketRight" });
+  else if (/^Arrow/i.test(raw)) press.key = `Arrow${raw.slice(5, 6).toUpperCase()}${raw.slice(6).toLowerCase()}`;
+  else press.key = ACCEL_KEYS[raw.toLowerCase()] ?? raw;
+  return press;
+}
+
 /** Whether the event triggers `action`. */
 export function matches(e: KeyLike, action: KeyAction, mac = isMac): boolean {
   const entry = KEYMAP[action];

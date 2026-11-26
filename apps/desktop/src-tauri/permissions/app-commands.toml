@@ -72,6 +72,8 @@ commands.allow = [
   "plugin_target",
   "plugin_detect",
   "plugin_open_installed",
+  # menu.rs: the embedded app's menus in the menu bar; checks is_app_page and the main window.
+  "set_plugin_menu",
   # editors.rs: installed photo editors and opening files in one; each checks is_app_page.
   "editors_list",
   "editor_pick_other",

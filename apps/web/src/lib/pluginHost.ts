@@ -9,6 +9,8 @@ import {
   PLUGIN_INTERACTIVE_TYPES,
   PLUGIN_PROTOCOL_VERSION,
   PLUGIN_REPLY_TIMEOUT_MS,
+  type HostMenu,
+  type HostMenuEntry,
   type HostPreference,
   type HostPreferenceDecision,
   type HostToPluginMessage,
@@ -30,11 +32,13 @@ import { useLatest } from "../hooks/useLatest";
 import { useTheme } from "../hooks/useTheme";
 import { useToast } from "../hooks/useToast";
 import i18n from "../i18n";
+import { acceleratorPress, globalChords, matchesChord } from "./keymap";
 import { askHostPreference, getHostPreference, onHostPreference } from "./hostPreference";
 import { ignore } from "./ignore";
 import { MAIN_PAGE_ROUTES } from "./mainPages";
 import { openExternal } from "./openExternal";
 import { noticesAllowed, pluginPath } from "./plugins";
+import { tauriInvoke } from "./tauri";
 import { registerThemeSync, waitApplied } from "./themeFade";
 
 type HostAction = { go: string } | "palette" | "sidebar" | null;
@@ -67,6 +71,39 @@ export function hostShortcuts(mac: boolean): Array<{ chord: ShortcutChord; actio
     { chord: mac ? mod("s", { ctrl: true }) : mod("s", { alt: true }), action: "sidebar" },
   ];
 }
+
+/**
+ * The menus with every accelerator Lifer keeps for itself removed (the items stay): its app-wide
+ * keys and the chords it reserves on an app's page. The desktop shell drops its own menu's chords
+ * (Undo, Select All, Delete and the rest) and, off macOS, all of them.
+ */
+export function withoutLiferAccelerators(menus: HostMenu[], mac: boolean): HostMenu[] {
+  const keymap = globalChords(mac);
+  const reserved = hostShortcuts(mac).map((s) => s.chord);
+  const lifers = (accel: string) => {
+    const p = acceleratorPress(accel, mac);
+    if (!p) return true;
+    const pressed = { key: p.key, code: p.code, meta: p.metaKey, ctrl: p.ctrlKey, alt: p.altKey, shift: p.shiftKey };
+    return keymap.some((c) => matchesChord(p, c, mac)) || reserved.some((c) => chordMatches(c, pressed));
+  };
+  const strip = (items: HostMenuEntry[]): HostMenuEntry[] =>
+    items.map((e) =>
+      e.kind === "item" && e.accelerator && lifers(e.accelerator)
+        ? { ...e, accelerator: null }
+        : e.kind === "submenu"
+          ? { ...e, items: strip(e.items) }
+          : e,
+    );
+  return menus.map((m) => ({ ...m, items: strip(m.items) }));
+}
+
+const enabledIds = (items: HostMenuEntry[]): string[] =>
+  items.flatMap((e) =>
+    e.kind === "item" ? (e.enabled ? [e.id] : []) : e.kind === "submenu" && e.enabled ? enabledIds(e.items) : [],
+  );
+
+// A page may resend its menu as often as it likes; the native bar rebuilds at most this often.
+export const MENU_MIN_INTERVAL_MS = 250;
 
 const THEME_TOKENS = [
   "--color-canvas",
@@ -135,6 +172,8 @@ export interface PluginHostOptions {
   actions: PluginHostActions;
   /** Per-plugin "Notices from this app" setting. */
   noticesAllowed?: () => boolean;
+  /** The page's menus changed (read them with `menus()`); throttled and deduplicated. */
+  onMenu?: () => void;
 }
 
 class Refused extends Error {
@@ -150,6 +189,10 @@ export function attachPluginHost(opts: PluginHostOptions): {
   applyTheme: (theme: PluginTheme) => Promise<void>;
   /** host.preference.changed, only to a page that was allowed to read the preference. */
   pushHostPreference: (pref: HostPreference) => void;
+  /** The page's current menus, or null. */
+  menus: () => HostMenu[] | null;
+  /** Sends `menuCommand`, only for an enabled item of the current menus. */
+  menuCommand: (id: string) => void;
   dispose: () => void;
 } {
   let applied: (() => void) | undefined;
@@ -158,6 +201,36 @@ export function attachPluginHost(opts: PluginHostOptions): {
   // One native picker at a time, so a page can't stack dialogs.
   let picking = false;
   let prefAllowed = false;
+  let menus: HostMenu[] | null = null;
+  let menusJson = "null";
+  let menusAt = -Infinity;
+  let queued: HostMenu[] | null = null;
+  let menuTimer: ReturnType<typeof setTimeout> | undefined;
+  const applyMenus = (next: HostMenu[] | null) => {
+    const json = JSON.stringify(next);
+    if (json === menusJson) return;
+    menus = next;
+    menusJson = json;
+    menusAt = Date.now();
+    opts.onMenu?.();
+  };
+  const queueMenus = (next: HostMenu[]) => {
+    queued = next.length ? next : null;
+    if (menuTimer !== undefined) return;
+    menuTimer = setTimeout(
+      () => {
+        menuTimer = undefined;
+        applyMenus(queued);
+      },
+      Math.max(0, menusAt + MENU_MIN_INTERVAL_MS - Date.now()),
+    );
+  };
+  // Right away: a reloaded, misbehaving or departing page's menu must not linger.
+  const clearMenus = () => {
+    clearTimeout(menuTimer);
+    menuTimer = undefined;
+    applyMenus(null);
+  };
   const send = (msg: HostToPluginMessage) => {
     // An explicit targetOrigin: if the frame navigated elsewhere, the message is dropped.
     if (!disposed) opts.frame()?.contentWindow?.postMessage(msg, opts.origin);
@@ -174,6 +247,8 @@ export function attachPluginHost(opts: PluginHostOptions): {
     switch (msg.type) {
       case "ready":
         ready = true;
+        // A new document: the old one's menu is gone with it.
+        clearMenus();
         // Only here: the origin and source checks in onMessage have passed.
         send({ lifer: PLUGIN_PROTOCOL_VERSION, type: "credential", payload: { token: opts.token } });
         send({ lifer: PLUGIN_PROTOCOL_VERSION, type: "init", payload: await opts.init() });
@@ -236,6 +311,9 @@ export function attachPluginHost(opts: PluginHostOptions): {
         prefAllowed = true;
         return result;
       }
+      case "menu":
+        queueMenus(msg.payload.menus);
+        return null;
     }
   }
 
@@ -245,7 +323,10 @@ export function attachPluginHost(opts: PluginHostOptions): {
     if (event.origin !== opts.origin || !frame || event.source !== frame.contentWindow) return;
     const parsed = parsePluginMessage(event.data);
     if (!parsed) return;
-    if (!parsed.ok) return reply(parsed.id, { ok: false, error: "invalid" });
+    if (!parsed.ok) {
+      if ((event.data as { type?: unknown }).type === "menu") clearMenus();
+      return reply(parsed.id, { ok: false, error: "invalid" });
+    }
     const { message } = parsed;
     let work = run(message);
     if (!PLUGIN_INTERACTIVE_TYPES.includes(message.type)) {
@@ -272,7 +353,14 @@ export function attachPluginHost(opts: PluginHostOptions): {
         send({ lifer: PLUGIN_PROTOCOL_VERSION, type: "theme", payload: theme });
       });
     },
+    menus: () => menus,
+    menuCommand: (id) => {
+      if (ready && menus && menus.some((m) => enabledIds(m.items).includes(id))) {
+        send({ lifer: PLUGIN_PROTOCOL_VERSION, type: "menuCommand", payload: { id } });
+      }
+    },
     dispose: () => {
+      clearMenus();
       disposed = true;
       window.removeEventListener("message", onMessage);
     },
@@ -301,6 +389,19 @@ export function usePluginTitle(id: string | null): string | null {
   return id ? (map.get(id) ?? null) : null;
 }
 
+// One native menu bar: the app whose page is on screen owns its slot, and only it may clear it.
+let menuOwner: string | null = null;
+let menuSent = "null";
+function setNativeMenu(owner: string, title: string, menus: HostMenu[] | null) {
+  if (!menus && menuOwner !== owner) return;
+  menuOwner = menus ? owner : null;
+  const menu = menus ? { title, menus: withoutLiferAccelerators(menus, hostPlatform() === "macos") } : null;
+  const json = JSON.stringify(menu);
+  if (json === menuSent) return;
+  menuSent = json;
+  tauriInvoke()?.("set_plugin_menu", { menu }).catch(ignore("Couldn't update the menu bar"));
+}
+
 // A burst of notices from one app collapses into one notice that counts them.
 const NOTICE_WINDOW_MS = 8000;
 const notices = new Map<string, { toastId: number; count: number; at: number }>();
@@ -327,6 +428,7 @@ async function dialog() {
 export function usePluginHost({
   pluginId,
   name,
+  menuTitle,
   origin,
   token,
   capabilities,
@@ -335,6 +437,8 @@ export function usePluginHost({
 }: {
   pluginId: string;
   name: string;
+  /** The app's own name, the title of its menu in the desktop menu bar. */
+  menuTitle: string;
   origin: string;
   token: string;
   capabilities: readonly PluginCapability[];
@@ -348,11 +452,13 @@ export function usePluginHost({
   const { theme } = useTheme();
   const host = useRef<ReturnType<typeof attachPluginHost> | null>(null);
   // Read by the long-lived listener, so a re-render never re-attaches it.
-  const live = useLatest({ navigate, toast, openPalette, t, name, visible });
+  const live = useLatest({ navigate, toast, openPalette, t, name, menuTitle, visible });
 
   useEffect(() => {
     const shown = () => live.current.visible && document.visibilityState === "visible";
     const mac = hostPlatform() === "macos";
+    const syncMenu = () =>
+      setNativeMenu(pluginId, live.current.menuTitle, shown() ? (host.current?.menus() ?? null) : null);
     host.current = attachPluginHost({
       origin,
       token,
@@ -360,6 +466,7 @@ export function usePluginHost({
       frame: () => frameRef.current,
       shortcuts: hostShortcuts(mac),
       noticesAllowed: () => noticesAllowed(pluginId),
+      onMenu: syncMenu,
       init: async () => {
         const hostVersion = await import("@tauri-apps/api/app").then((m) => m.getVersion()).catch(() => "");
         const frame = frameRef.current;
@@ -430,7 +537,26 @@ export function usePluginHost({
       },
     });
     const offPreference = onHostPreference(pluginId, (pref) => host.current?.pushHostPreference(pref));
-    const onVisibility = () => host.current?.post({ lifer: 1, type: "visibility", payload: { visible: shown() } });
+    const onVisibility = () => {
+      host.current?.post({ lifer: 1, type: "visibility", payload: { visible: shown() } });
+      syncMenu();
+    };
+    // A click on one of the app's items in the desktop menu bar (menu.rs), only while it owns the bar.
+    let cancelled = false;
+    let offMenu: (() => void) | undefined;
+    if (tauriInvoke()) {
+      import("@tauri-apps/api/event")
+        .then(({ listen }) =>
+          listen<string>("menu:plugin", (e) => {
+            if (menuOwner === pluginId && typeof e.payload === "string") host.current?.menuCommand(e.payload);
+          }),
+        )
+        .then((fn) => {
+          if (cancelled) fn();
+          else offMenu = fn;
+        })
+        .catch(ignore("Couldn't listen for the app's menu"));
+    }
     const onLanguage = (locale: string) => host.current?.post({ lifer: 1, type: "locale", payload: { locale } });
     document.addEventListener("visibilitychange", onVisibility);
     i18n.on("languageChanged", onLanguage);
@@ -440,6 +566,8 @@ export function usePluginHost({
       if (frame) await host.current?.applyTheme(live.current.visible ? frameTheme(frame) : liferTheme());
     });
     return () => {
+      cancelled = true;
+      offMenu?.();
       offPreference();
       unregister();
       document.removeEventListener("visibilitychange", onVisibility);
@@ -458,7 +586,9 @@ export function usePluginHost({
       type: "visibility",
       payload: { visible: visible && document.visibilityState === "visible" },
     });
-  }, [visible]);
+    const shown = visible && document.visibilityState === "visible";
+    setNativeMenu(pluginId, menuTitle, shown ? (host.current?.menus() ?? null) : null);
+  }, [visible, pluginId, menuTitle]);
 
   // Shown: its own surface's theme. Hidden: Lifer's theme, so the next visit starts in step.
   useEffect(() => {

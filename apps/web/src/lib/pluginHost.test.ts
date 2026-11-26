@@ -1,8 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { chordFromEvent, chordMatches, parsePluginMessage } from "@lifer/shared";
+import { chordFromEvent, chordMatches, parsePluginMessage, PLUGIN_MENU_LIMITS, type HostMenu } from "@lifer/shared";
 import { MAIN_PAGE_ROUTES } from "./mainPages";
-import { attachPluginHost, hostShortcuts, type PluginHostActions } from "./pluginHost";
+import {
+  attachPluginHost,
+  hostShortcuts,
+  MENU_MIN_INTERVAL_MS,
+  withoutLiferAccelerators,
+  type PluginHostActions,
+} from "./pluginHost";
 
 const ORIGIN = "http://127.0.0.1:5123";
 
@@ -29,7 +35,9 @@ function setup(capabilities: Cap[] = []) {
     hostPreference: vi.fn(async () => ({ openInHost: false })),
     requestHostPreference: vi.fn(async () => ({ granted: true, openInHost: true })),
   };
+  const onMenu = vi.fn();
   const host = attachPluginHost({
+    onMenu,
     origin: ORIGIN,
     token: "tok",
     capabilities,
@@ -55,7 +63,7 @@ function setup(capabilities: Cap[] = []) {
       }),
     );
   const flush = () => new Promise((r) => setTimeout(r, 0));
-  return { frame, posted, actions, host, send, flush };
+  return { frame, posted, actions, host, send, flush, onMenu };
 }
 
 let current: ReturnType<typeof setup> | null = null;
@@ -318,5 +326,165 @@ describe("protocol helpers", () => {
     });
     expect(parsePluginMessage({ type: "title", payload: { text: "x" } })).toBeNull();
     expect(parsePluginMessage({ lifer: 1, type: "title", payload: { text: "x" } })).toMatchObject({ ok: true });
+  });
+});
+
+const item = (id: string, accelerator: string | null = null, enabled = true) =>
+  ({ kind: "item", id, label: id, enabled, accelerator, checked: null }) as const;
+const bar = (...items: HostMenu["items"]): HostMenu[] => [{ label: "File", items }];
+const menuMsg = (menus: unknown) => ({ lifer: 1, type: "menu", payload: { menus } });
+const parsesMenu = (menus: unknown) => parsePluginMessage(menuMsg(menus))?.ok === true;
+
+describe("menu protocol", () => {
+  it("accepts items, separators, checks and submenus", () => {
+    const sub = { kind: "submenu", label: "Rating", enabled: true, items: [{ ...item("r1"), checked: true }] };
+    expect(parsesMenu([{ label: "Photo", items: [item("a", "CmdOrCtrl+O"), { kind: "separator" }, sub] }])).toBe(true);
+    expect(parsesMenu([])).toBe(true);
+  });
+
+  it("refuses anything over the limits", () => {
+    const L = PLUGIN_MENU_LIMITS;
+    const many = (n: number) => Array.from({ length: n }, (_, i) => item(`i${i}`));
+    expect(parsesMenu(Array.from({ length: L.menus + 1 }, () => ({ label: "M", items: [] })))).toBe(false);
+    expect(parsesMenu([{ label: "M", items: many(L.entries) }])).toBe(true);
+    expect(parsesMenu([{ label: "M", items: many(L.entries + 1) }])).toBe(false);
+    expect(parsesMenu(bar(item("x".repeat(L.id + 1))))).toBe(false);
+    expect(parsesMenu(bar({ ...item("a"), label: "x".repeat(L.label + 1) }))).toBe(false);
+    expect(parsesMenu(bar(item("a", "x".repeat(L.accelerator + 1))))).toBe(false);
+    // Under every count cap, over the byte cap.
+    expect(
+      parsesMenu([{ label: "M", items: many(L.entries).map((e) => ({ ...e, label: "\u{1F426}".repeat(40) })) }]),
+    ).toBe(false);
+  });
+
+  it("nests submenus three levels deep and no further", () => {
+    const nest = (levels: number): unknown =>
+      levels === 0 ? item("leaf") : { kind: "submenu", label: "S", enabled: true, items: [nest(levels - 1)] };
+    expect(parsesMenu([{ label: "M", items: [nest(2)] }])).toBe(true);
+    expect(parsesMenu([{ label: "M", items: [nest(3)] }])).toBe(false);
+  });
+
+  it("refuses markup-free tricks and malformed entries", () => {
+    expect(parsesMenu(bar({ ...item("a"), label: "Export\tCtrl+Q" }))).toBe(false);
+    expect(parsesMenu(bar({ ...item("a"), label: "" }))).toBe(false);
+    expect(parsesMenu(bar(item("a"), item("a")))).toBe(false);
+    expect(parsesMenu(bar({ ...item("a"), enabled: "yes" } as never))).toBe(false);
+    expect(parsesMenu(bar({ ...item("a"), checked: undefined } as never))).toBe(false);
+    expect(parsesMenu(bar({ kind: "script" } as never))).toBe(false);
+    expect(parsesMenu("File")).toBe(false);
+  });
+});
+
+describe("menu lifecycle", () => {
+  const ready = { lifer: 1, type: "ready", payload: { protocol: 1 } };
+  const started = async () => {
+    const h = make();
+    h.send(ready);
+    await h.flush();
+    h.posted.length = 0;
+    return h;
+  };
+
+  it("keeps the latest menu, throttled and deduplicated", async () => {
+    vi.useFakeTimers();
+    const { send, host, onMenu } = await (async () => {
+      const h = make();
+      h.send(ready);
+      await vi.runAllTimersAsync();
+      return h;
+    })();
+    send(menuMsg(bar(item("a"))));
+    send(menuMsg(bar(item("b"))));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(host.menus()).toEqual(bar(item("b")));
+    expect(onMenu).toHaveBeenCalledTimes(1);
+    send(menuMsg(bar(item("c"))));
+    await vi.advanceTimersByTimeAsync(MENU_MIN_INTERVAL_MS - 10);
+    expect(host.menus()).toEqual(bar(item("b")));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(host.menus()).toEqual(bar(item("c")));
+    send(menuMsg(bar(item("c"))));
+    await vi.advanceTimersByTimeAsync(MENU_MIN_INTERVAL_MS);
+    expect(onMenu).toHaveBeenCalledTimes(2);
+    send(menuMsg([]));
+    await vi.advanceTimersByTimeAsync(MENU_MIN_INTERVAL_MS);
+    expect(host.menus()).toBeNull();
+  });
+
+  it("ignores a forged menu from another origin or frame", async () => {
+    const { send, flush, host } = await started();
+    const other = document.createElement("iframe");
+    document.body.appendChild(other);
+    send(menuMsg(bar(item("a"))), { origin: "http://127.0.0.1:9999" });
+    send(menuMsg(bar(item("a"))), { source: other.contentWindow });
+    await flush();
+    expect(host.menus()).toBeNull();
+  });
+
+  it("clears on an invalid menu, a reload and when the frame goes", async () => {
+    const { send, flush, host, onMenu } = await started();
+    const show = async () => {
+      send(menuMsg(bar(item("a"))));
+      await new Promise((r) => setTimeout(r, MENU_MIN_INTERVAL_MS + 5));
+      expect(host.menus()).not.toBeNull();
+    };
+    await show();
+    send(menuMsg(bar(item("a"), item("a"))));
+    await flush();
+    expect(host.menus()).toBeNull();
+    await show();
+    send(ready);
+    await flush();
+    expect(host.menus()).toBeNull();
+    await show();
+    onMenu.mockClear();
+    host.dispose();
+    expect(host.menus()).toBeNull();
+    expect(onMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends menuCommand only for an enabled item of the current menu", async () => {
+    const { send, flush, host, posted } = await started();
+    const sub = { kind: "submenu", label: "S", enabled: true, items: [item("deep")] } as HostMenu["items"][number];
+    const off = { kind: "submenu", label: "Off", enabled: false, items: [item("hidden")] } as HostMenu["items"][number];
+    send(menuMsg(bar(item("go"), item("grey", null, false), sub, off)));
+    await new Promise((r) => setTimeout(r, MENU_MIN_INTERVAL_MS + 5));
+    for (const id of ["go", "deep", "grey", "hidden", "nav-settings", "plugin:go"]) host.menuCommand(id);
+    await flush();
+    expect(posted).toEqual([
+      { lifer: 1, type: "menuCommand", payload: { id: "go" } },
+      { lifer: 1, type: "menuCommand", payload: { id: "deep" } },
+    ]);
+  });
+});
+
+describe("withoutLiferAccelerators", () => {
+  it("drops the chords Lifer keeps and leaves the item", () => {
+    const menus = bar(
+      item("settings", "CmdOrCtrl+,"),
+      item("find", "CmdOrCtrl+F"),
+      item("info", "CmdOrCtrl+I"),
+      item("import", "Cmd+Shift+I"),
+      item("page", "CmdOrCtrl+1"),
+      item("palette", "Command+K"),
+      item("sidebar", "Ctrl+Cmd+S"),
+      item("open", "CmdOrCtrl+O"),
+      item("rotate", "CmdOrCtrl+["),
+      item("paste", "CmdOrCtrl+Alt+V"),
+      item("zoom", "CmdOrCtrl+="),
+      item("junk", "Hyper+Q"),
+    );
+    const kept = (mac: boolean) =>
+      withoutLiferAccelerators(menus, mac)[0]!.items.flatMap((e) => (e.kind === "item" && e.accelerator ? [e.id] : []));
+    expect(kept(true)).toEqual(["open", "rotate", "paste", "zoom"]);
+    // An explicit Cmd is the Super key off macOS, so only the CmdOrCtrl chords are Lifer's there.
+    expect(kept(false)).toEqual(["import", "palette", "sidebar", "open", "rotate", "paste", "zoom"]);
+    expect(withoutLiferAccelerators(menus, true)[0]!.items).toHaveLength(12);
+  });
+
+  it("reaches into submenus", () => {
+    const menus = bar({ kind: "submenu", label: "S", enabled: true, items: [item("find", "Cmd+F")] });
+    const sub = withoutLiferAccelerators(menus, true)[0]!.items[0];
+    expect(sub).toMatchObject({ kind: "submenu", items: [{ id: "find", accelerator: null }] });
   });
 });

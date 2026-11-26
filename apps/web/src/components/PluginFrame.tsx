@@ -25,6 +25,7 @@ export default function PluginFrame({
   usePluginHost({
     pluginId: plugin.id,
     name: plugin.page.label || plugin.name,
+    menuTitle: plugin.name,
     origin: endpoint.origin,
     token: endpoint.pageToken,
     capabilities: plugin.capabilities,

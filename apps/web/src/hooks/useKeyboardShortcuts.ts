@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useLatest } from "./useLatest";
-import { matches, type KeyAction } from "../lib/keymap";
+import { liveOnPluginPage, matches, type KeyAction } from "../lib/keymap";
+import { pluginIdFromPath } from "../lib/plugins";
 
 /** Ignores keystrokes while focus is inside a text-editing control, which use plain typing and
  *  Enter for their own purpose. */
@@ -26,7 +27,9 @@ export function useKeyboardShortcuts(
     function handleKeyDown(e: KeyboardEvent) {
       // defaultPrevented: an open dialog/menu already handled this key (see useEscapeToClose).
       if (isTypingTarget(e.target) || e.defaultPrevented) return;
+      const onAppPage = pluginIdFromPath(window.location.pathname) !== null;
       for (const [action, handler] of Object.entries(mapRef.current)) {
+        if (onAppPage && !liveOnPluginPage(action as KeyAction)) continue;
         if (matches(e, action as KeyAction)) {
           handler?.(e);
           return;

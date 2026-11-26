@@ -88,8 +88,24 @@ Every message is `{ lifer: 1, type, id?, payload }`. Check that `event.source` i
 | page to Lifer | `host.preference.get`           | `{}`, with an `id`; replies `{ openInHost }`; needs `host.preference`                                                        |
 | page to Lifer | `host.preference.request`       | `{ openInHost }`, with an `id`; asks the person, replies `{ granted, openInHost }` once they answer; needs `host.preference` |
 | Lifer to page | `host.preference.changed`       | `{ openInHost }`, after the person changed it, to a page that used the two above                                             |
+| page to Lifer | `menu`                          | `{ menus }`, your menus for the desktop menu bar; `menus: []` clears them                                                    |
+| Lifer to page | `menuCommand`                   | `{ id }`, the person chose that item                                                                                         |
 
 Lifer reserves a few chords (the page switchers, search, Settings, Import and the sidebar). `init` lists them: on a match, call `preventDefault()` and send `shortcut`. Escape belongs to your page.
+
+### Your menus in the menu bar
+
+Send `menu` after every `init` and whenever your menus change (keymap, language, state). Each menu is `{ label, items }`; an item is `{ kind: "separator" }`, `{ kind: "item", id, label, enabled, accelerator, checked }` or `{ kind: "submenu", label, enabled, items }`. Labels are plain text you have already translated. `accelerator` uses Tauri's grammar (`CmdOrCtrl+Shift+E`) or is null; `checked` is a boolean for a check item, null otherwise. Leave out what Lifer's menus already have: Cut, Copy, Paste, Close, Minimize, About and Quit.
+
+While your page is on screen, Lifer shows one menu titled with your app's name between Go and Window, holding your menus. It goes away when the person leaves the page or the window hides, and when your page reloads, crashes or your app exits. A choice comes back as `menuCommand` with the item's `id`; run it only if that id was enabled in the last `menu` you sent. Lifer only ever sends it to your own frame and never runs anything else for it.
+
+Limits: 12 menus, 300 entries in all (separators and submenus count), submenus 3 levels deep counting the top menu, labels 1 to 80 characters with no control characters, ids 1 to 64 characters and unique, accelerators up to 40 characters, and 64 KB of JSON. A `menu` over any limit is ignored and clears your current menus. Lifer rebuilds the bar at most 4 times a second, keeping your latest.
+
+Shortcuts:
+
+- Lifer drops an accelerator it binds itself and keeps the item: its own menu (Settings, Import, Find, Delete, the page switchers, the sidebar, Undo, Redo, Cut, Copy, Paste, Select All, Hide, Quit, Minimize, Close and Full Screen), its app-wide keys and the `reservedShortcuts` from `init`. Your page still gets Undo, Redo and Select All while it has focus, so handle them there.
+- macOS only: accelerators are registered. On Windows and Linux your menus show in the window's menu bar without them, so your page's own key handlers are the only ones that act. Handle every shortcut in your page with `preventDefault()`.
+- On your page Lifer ignores its gallery and photo keys (Delete included); only its app-wide keys stay.
 
 The shared types are in `packages/shared/src/pluginProtocol.ts` in the Lifer repository.
 
