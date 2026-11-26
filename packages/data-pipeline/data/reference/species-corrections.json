@@ -223,5 +223,30 @@
     "reason": "The catalog keeps GBIF's broad Island Thrush, alive across 103 region lists from Taiwan to Samoa. eBird and iNaturalist now use the name for the Tasman Sea Island-Thrush alone (eBird norist1, extinct), so the eBird code and its Extinct flag describe the wrong bird. Splitting the lists into eBird's island thrushes is left to the name-drift work.",
     "ebirdCode": null,
     "extinct": false
+  },
+  {
+    "scientificName": "Gallus gallus",
+    "reason": "Outside South and Southeast Asia, where Red Junglefowl is wild, the bird people photograph is a farm chicken. Where iNaturalist lists it as introduced, it's domestic: never a vagrant and with no local tier.",
+    "domesticWhereIntroduced": true
+  },
+  {
+    "scientificName": "Pavo cristatus",
+    "reason": "Indian Peafowl is wild in India and Sri Lanka. Elsewhere the birds are kept ornamental peafowl, so where iNaturalist lists it as introduced it's domestic: never a vagrant and with no local tier.",
+    "domesticWhereIntroduced": true
+  },
+  {
+    "scientificName": "Numida meleagris",
+    "reason": "Helmeted Guineafowl is wild in Africa. Elsewhere it's a farm bird, so where iNaturalist lists it as introduced it's domestic: never a vagrant and with no local tier.",
+    "domesticWhereIntroduced": true
+  },
+  {
+    "scientificName": "Anser cygnoides",
+    "reason": "Swan Goose is wild in East Asia. Elsewhere the birds are domestic Chinese geese, so where iNaturalist lists it as introduced it's domestic: never a vagrant and with no local tier.",
+    "domesticWhereIntroduced": true
+  },
+  {
+    "scientificName": "Cairina moschata",
+    "reason": "Muscovy Duck is wild from Mexico to South America. Elsewhere the birds are farm Muscovies, so where iNaturalist lists it as introduced it's domestic: never a vagrant and with no local tier.",
+    "domesticWhereIntroduced": true
   }
 ]

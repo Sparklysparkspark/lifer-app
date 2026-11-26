@@ -36,6 +36,9 @@ export interface SpeciesCorrection {
    *  endemic stage, for a species its records can't settle (a long-established introduced
    *  population no register lists). */
   endemicCountry?: string | null;
+  /** A wild species whose domestic breed is what's seen where it's introduced (Red Junglefowl's
+   *  chicken): there it's never a vagrant and gets no local tier (regions/domesticHere.ts). */
+  domesticWhereIntroduced?: true;
 }
 
 export function parseSpeciesCorrections(json: unknown): SpeciesCorrection[] {
@@ -57,6 +60,8 @@ export function parseSpeciesCorrections(json: unknown): SpeciesCorrection[] {
       throw new Error(`${at}: ebirdCode must be a non-empty string or null`);
     if ("endemicCountry" in e && e.endemicCountry !== null && !/^[A-Z]{3}$/.test(String(e.endemicCountry)))
       throw new Error(`${at}: endemicCountry must be a three-letter country code or null`);
+    if ("domesticWhereIntroduced" in e && e.domesticWhereIntroduced !== true)
+      throw new Error(`${at}: domesticWhereIntroduced must be true when present`);
     return e as unknown as SpeciesCorrection;
   });
 }

@@ -22,6 +22,9 @@ describe("parseSpeciesCorrections", () => {
     );
     expect(() => parseSpeciesCorrections([{ scientificName: "A a", reason: "x", ebirdCode: "" }])).toThrow(/ebirdCode/);
     expect(parseSpeciesCorrections([{ scientificName: "A a", reason: "x", ebirdCode: null }])[0].ebirdCode).toBeNull();
+    expect(() =>
+      parseSpeciesCorrections([{ scientificName: "A a", reason: "x", domesticWhereIntroduced: false }]),
+    ).toThrow(/domesticWhereIntroduced/);
   });
 
   it("keeps null for a status to clear, apart from one that's absent", () => {

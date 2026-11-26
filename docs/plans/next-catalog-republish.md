@@ -563,6 +563,12 @@ this order, so the republish carries it all. Ask the maintainer before running a
    removes listings (unconfirmed, extinct, never photographed there, birds eBird never had and
    iNaturalist doesn't confirm). Sea zone rows get no local tier by design; the app shows each
    species' worldwide tier there, and marine-only species with no country listing stay unrated.
+   Domestic breeds (added 2026-11-26): species marked `domesticWhereIntroduced` in
+   `species-corrections.json` (Red Junglefowl's chicken, Indian Peafowl, Helmeted Guineafowl, Swan
+   Goose, Muscovy Duck) count as domestic in every country where iNaturalist lists them as
+   introduced. This stage then gives them no local tier and clears their vagrant flag there (the
+   chicken in Belize shows "Vagrant" and "Legendary here" until it runs). In the native range the
+   wild bird is unchanged. Check one in the preview: Gallus gallus in Belize should be unrated.
 8. **Reference photo kinds (migration 189).** The `vectors` stage of the refresh command scores every
    reference photo as a portrait or not (eggs, nests, specimens, drawings, maps...) and swaps a main
    photo that isn't a portrait for the species' best portrait. It only scores rows that have no

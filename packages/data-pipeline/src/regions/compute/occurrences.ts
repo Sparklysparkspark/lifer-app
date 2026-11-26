@@ -3,6 +3,7 @@
 // membership, frequency and vagrant flags only: local tiers belong to the refresh
 // tiers stage (compute-local-tiers.ts).
 import { pool, withTransaction } from "@lifer/core/db.js";
+import { domesticSpeciesIn } from "../domesticHere.js";
 import {
   fetchSpeciesCountsForRegion,
   fetchYearCountsForSpecies,
@@ -224,13 +225,9 @@ export async function computeRegionOccurrences(region: {
     passedGbifKeys.add(candidate.gbifKey);
   }
 
-  // Domestic species never count as vagrants: their records measure farm photos.
-  const domesticRes = await pool.query<{ gbif_key: string }>(
-    `SELECT s.gbif_key FROM species s JOIN species_traits t ON t.species_id = s.id
-     WHERE s.gbif_key = ANY($1) AND t.domestic`,
-    [filtered.map((c) => c.gbifKey)],
-  );
-  const domesticGbifKeys = new Set(domesticRes.rows.map((r) => Number(r.gbif_key)));
+  // Domestic species never count as vagrants: their records measure farm photos (a chicken in
+  // Belize, where Red Junglefowl is introduced, too).
+  const domesticGbifKeys = (await domesticSpeciesIn(pool, regionId)).gbifKeys;
 
   // A single vagrant chased by many birders looks common by count alone, so every listed species
   // gets the recurrence check to flag vagrants.

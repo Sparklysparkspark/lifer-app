@@ -24,6 +24,7 @@
 //   npm run apply-inat-membership -- --apply
 //   LIFER_INAT_OFFLINE=1 npm run apply-inat-membership           (cached iNaturalist data only)
 import { execFileSync } from "node:child_process";
+import { domesticSpeciesIn } from "../regions/domesticHere.js";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,7 +60,6 @@ export interface CatalogIndex {
   byName: Map<string, Set<string>>;
   /** Species whose iNaturalist taxon is known, so missing from a place means absent there. */
   known: Set<string>;
-  domestic: Set<string>;
   taxonClass: Map<string, string | null>;
   label: Map<string, string>;
 }
@@ -70,7 +70,6 @@ export async function loadCatalogIndex(db: Pool | PoolClient = pool): Promise<Ca
     byTaxon: new Map(),
     byName: new Map(),
     known: new Set(),
-    domestic: new Set(),
     taxonClass: new Map(),
     label: new Map(),
   };
@@ -84,14 +83,12 @@ export async function loadCatalogIndex(db: Pool | PoolClient = pool): Promise<Ca
     common_name: string | null;
     inat_taxon_id: number | null;
     taxon_class: string | null;
-    domestic: boolean | null;
   }>(
-    `SELECT s.id, s.scientific_name, s.common_name, s.inat_taxon_id, s.taxon_class, t.domestic
-     FROM species s LEFT JOIN species_traits t ON t.species_id = s.id WHERE NOT s.is_other_taxa`,
+    `SELECT s.id, s.scientific_name, s.common_name, s.inat_taxon_id, s.taxon_class
+     FROM species s WHERE NOT s.is_other_taxa`,
   );
   for (const s of species.rows) {
     index.label.set(s.id, s.common_name ? `${s.common_name} (${s.scientific_name})` : s.scientific_name);
-    if (s.domestic) index.domestic.add(s.id);
     index.taxonClass.set(s.id, s.taxon_class);
     // iNaturalist's current taxon for the name catches a stored id left behind by a taxon change.
     const currentId = current[s.scientific_name] ?? null;
@@ -259,6 +256,8 @@ export async function planRegion(
     calls: new Map(),
   };
   const existing = new Map(rows.rows.map((r) => [r.species_id, r]));
+  // Farm animals, and domestic breeds where their wild species is introduced (regions/domesticHere.ts).
+  const domesticHere = (await domesticSpeciesIn(pool, region.id)).ids;
   for (const r of rows.rows) {
     if (!r.listed) continue;
     plan.before++;
@@ -267,7 +266,7 @@ export async function planRegion(
     else if (!index.known.has(r.species_id)) plan.keptUnknown++;
     else if ((groupObs.get(iconicOfClass(index.taxonClass.get(r.species_id) ?? null)) ?? 0) < WELL_OBSERVED_GROUP_OBS)
       plan.keptThin++;
-    else if (!r.is_vagrant && !r.is_invasive && !index.domestic.has(r.species_id)) {
+    else if (!r.is_vagrant && !r.is_invasive && !domesticHere.has(r.species_id)) {
       plan.flags.push({ speciesId: r.species_id, isVagrant: true });
       plan.changes.push({
         region: region.name,
@@ -297,7 +296,7 @@ export async function planRegion(
       current: row?.listed ? row.is_vagrant : false,
       override: row?.override_vagrant ?? null,
       introduced: row?.listed ? row.is_invasive : false,
-      domestic: index.domestic.has(speciesId),
+      domestic: domesticHere.has(speciesId),
     });
     const change = { region: region.name, speciesId, observations: m.observations, years: present, inat };
     if (!row?.listed) {

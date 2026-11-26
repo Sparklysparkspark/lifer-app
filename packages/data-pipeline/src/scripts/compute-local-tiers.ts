@@ -22,6 +22,7 @@
 // --allow-skip lets a country with checklist rows but no partitions on disk keep its old tiers, or
 // none (it fails the run otherwise, since those rows would ship unchecked or unrated).
 import { createReadStream, existsSync, readdirSync, readFileSync } from "node:fs";
+import { domesticSpeciesIn } from "../regions/domesticHere.js";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -464,6 +465,8 @@ export const EASIEST_PROVEN_RECORDS = 1000;
 export async function computeCountryTiers(country: Country): Promise<ComputedTier[]> {
   const regionIds = regionIdsOf(country);
   const groupOf = new Map(country.groups.flatMap((g) => g.provinceIds.map((id) => [id, g.id] as const)));
+  // Farm animals, and domestic breeds where their wild species is introduced (regions/domesticHere.ts).
+  const domesticHere = (await domesticSpeciesIn(pool, country.id)).ids;
   const [rowsRes, effortRes, hotspotRes, geoRes] = await Promise.all([
     pool.query<TierRow>(
       `SELECT rs.region_id, rs.species_id, s.scientific_name, s.common_name, s.taxon_class, rs.live_recent_records,
@@ -589,7 +592,7 @@ export async function computeCountryTiers(country: Country): Promise<ComputedTie
         homeRangeKm2: num(r.home_range_km2),
         depthMinM: num(r.depth_min_m),
         iucnStatus: r.iucn_status,
-        domestic: r.domestic,
+        domestic: domesticHere.has(r.species_id),
       },
     });
     // Nothing at all behind the listing (no records of any age, no photos): not enough to rate,
@@ -711,7 +714,9 @@ export async function writeTiers(tiers: ComputedTier[]) {
   for (let i = 0; i < tiers.length; i += BATCH) {
     const b = tiers.slice(i, i + BATCH);
     await pool.query(
-      `UPDATE region_species rs SET local_tier = v.tier, tier_reason = v.reason, tier_explain = v.explain::jsonb
+      // A domestic animal is never a vagrant (a chicken in Belize): clears a flag an earlier step set.
+      `UPDATE region_species rs SET local_tier = v.tier, tier_reason = v.reason, tier_explain = v.explain::jsonb,
+              is_vagrant = CASE WHEN v.reason = 'domestic' THEN false ELSE rs.is_vagrant END
        FROM unnest($1::uuid[], $2::uuid[], $3::text[], $4::text[], $5::text[]) AS v(region_id, species_id, tier, reason, explain)
        WHERE rs.region_id = v.region_id AND rs.species_id = v.species_id`,
       [
