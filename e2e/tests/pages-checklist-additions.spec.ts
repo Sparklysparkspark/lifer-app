@@ -1,5 +1,5 @@
 // Adding a species to a checklist yourself, from both places the app offers it: the region's
-// checklist (Add species > "Add one species by hand", by search) and a species page's menu ("Add to another checklist",
+// checklist (Add species > "Add other species", by search) and a species page's menu ("Add to another checklist",
 // by region or sea zone). The fixture's robin is on Canada's checklist but not British Columbia's,
 // so it's the species added. Each addition is removed again, leaving the checklist as it was.
 import { COUNTRY, PACKLESS_COUNTRY, PROVINCE, SEA_ZONE, SPECIES } from "../support/fixtureCatalog.js";
@@ -39,8 +39,8 @@ test("adds a species to a province's checklist and removes it, from the checklis
   await expect(robinCard).toHaveCount(0);
 
   await page.getByRole("button", { name: "+ Add species" }).click();
-  await page.getByRole("menuitem", { name: "Add one species by hand" }).click();
-  const dialog = page.getByRole("dialog", { name: `Add species to ${PROVINCE.name}` });
+  await page.getByRole("menuitem", { name: "Add other species" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add other species" });
   await expect(dialog).toBeVisible();
   await dialog.getByRole("combobox", { name: "Search species to add…" }).fill("robin");
   // Keyboard only: arrow to the match and pick it with Enter.
@@ -116,8 +116,8 @@ test("shows the species you added on a country whose pack isn't downloaded, with
 
   // Adding doesn't wait for the pack.
   await page.getByRole("button", { name: "+ Add species" }).click();
-  await page.getByRole("menuitem", { name: "Add one species by hand" }).click();
-  const dialog = page.getByRole("dialog", { name: `Add species to ${PACKLESS_COUNTRY.name}` });
+  await page.getByRole("menuitem", { name: "Add other species" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add other species" });
   await dialog.getByRole("combobox", { name: "Search species to add…" }).fill("robin");
   await dialog.getByRole("option", { name: new RegExp(robin) }).click();
   await expect(page.getByText(`Added ${robin} to ${PACKLESS_COUNTRY.name}'s species list.`)).toBeVisible();

@@ -19,6 +19,14 @@ test("dismisses a smart album suggestion and restores it", async ({ page }) => {
       tint: 186 + i,
     })),
   );
+  // New smart album answers from the last count and recounts behind it, so wait for a count that
+  // includes these photos.
+  await expect
+    .poll(async () => {
+      const res = await page.request.get("/api/albums/suggestions");
+      return ((await res.json()) as { suggestions: Array<{ name: string }> }).suggestions.map((s) => s.name);
+    })
+    .toContain(SUGGESTION);
 
   await page.goto("/albums");
   await page.getByRole("button", { name: "New smart album" }).click();

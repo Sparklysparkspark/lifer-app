@@ -1,6 +1,6 @@
 import { setWorkerUrl, addProtocol } from "maplibre-gl";
 import { Protocol } from "pmtiles";
-import type { Map as MapLibreMap, StyleSpecification } from "maplibre-gl";
+import type { StyleSpecification } from "maplibre-gl";
 // MapLibre builds its worker URL at runtime, which the production bundle can't see; `?url`
 // makes Vite emit the worker file and hand back its real path.
 import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
@@ -13,7 +13,6 @@ import {
   PMTILES_SOURCE_ID,
   quietLayers,
   reliefStyleParts,
-  RELIEF_SOURCE_ID,
 } from "./mapStyle";
 setWorkerUrl(maplibreWorkerUrl);
 

@@ -57,11 +57,12 @@ const failed = new Set<string>();
  *  For the viewer only (Lightbox); grids and thumbnails never use it. */
 export function useHdrPhoto(url: string): string | null {
   const [on] = useHdrViewerSetting();
-  const enabled = on && useHdrScreen();
+  const hdrScreen = useHdrScreen();
+  const enabled = on && hdrScreen;
   const list = renditions.use(false);
   // Fresh each time the viewer opens, so photos made since show too.
   useEffect(() => {
-    if (enabled) list.refresh().catch(ignore("Couldn't load the photos with HDR renditions"));
+    if (enabled) renditions.refresh().catch(ignore("Couldn't load the photos with HDR renditions"));
   }, [enabled]);
   const known = list.error ? null : list.data;
   const want = enabled && (list.error || list.data) ? hdrUrlFor(url, true, true, known) : null;

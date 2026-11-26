@@ -1489,6 +1489,7 @@ npm	json-stable-stringify-without-jsonify	MIT
 npm	json-stringify-pretty-compact	MIT
 npm	json5	MIT
 npm	jszip	(MIT OR GPL-3.0-or-later)
+npm	jxl-oxide-wasm	MIT OR Apache-2.0
 npm	kdbush	ISC
 npm	keyv	MIT
 npm	kleur	MIT

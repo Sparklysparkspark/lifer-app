@@ -388,9 +388,15 @@ export async function albumSuggestions(
   const skip = new Set(dismissed);
   const taken = new Set(existing.rows.map((r) => rulesKey(upgradeRules(r.rules))));
   const fresh = last.candidates.filter((c) => !taken.has(rulesKey(c.rules)));
+  const suggestions = fresh.filter((c) => skip.has(c.id) === onlyDismissed).slice(0, MAX_SUGGESTIONS);
+  // The counts can predate a deletion, and a preview of a photo that's gone would only 404.
+  const ids = [...last.start.previewPhotoIds, ...suggestions.flatMap((s) => s.previewPhotoIds)];
+  const live = await pool.query<{ id: string }>(`SELECT id FROM photos WHERE id = ANY($1::uuid[])`, [ids]);
+  const kept = new Set(live.rows.map((r) => r.id));
+  const shown = (previewPhotoIds: string[]) => previewPhotoIds.filter((id) => kept.has(id));
   return {
-    suggestions: fresh.filter((c) => skip.has(c.id) === onlyDismissed).slice(0, MAX_SUGGESTIONS),
+    suggestions: suggestions.map((s) => ({ ...s, previewPhotoIds: shown(s.previewPhotoIds) })),
     dismissedCount: fresh.filter((c) => skip.has(c.id)).length,
-    startMatches: last.start,
+    startMatches: { ...last.start, previewPhotoIds: shown(last.start.previewPhotoIds) },
   };
 }

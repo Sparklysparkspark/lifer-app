@@ -2,6 +2,7 @@
 // Back returns to the saved spot even when the page is too short at first, and holds it while the
 // page settles.
 import { act, render } from "@testing-library/react";
+import { useEffect } from "react";
 import { MemoryRouter, useNavigate, type NavigateFunction } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useScrollMemory } from "./useScrollMemory";
@@ -114,9 +115,12 @@ describe("useScrollMemory", () => {
   it("returns to each entry's own spot on Back and Forward within the same page", () => {
     maxScroll = 50_000;
     sessionStorage.setItem("lifer:scroll:b", JSON.stringify({ y: 300 }));
-    let navigate: NavigateFunction = () => {};
+    const nav: { go: NavigateFunction } = { go: () => {} };
     function Nav() {
-      navigate = useNavigate();
+      const navigate = useNavigate();
+      useEffect(() => {
+        nav.go = navigate;
+      });
       return null;
     }
     render(
@@ -137,10 +141,10 @@ describe("useScrollMemory", () => {
     window.history.replaceState({ key: "entry" }, "");
     act(() => void window.dispatchEvent(new Event("scroll")));
     act(() => vi.advanceTimersByTime(20));
-    act(() => navigate(1));
+    act(() => void nav.go(1));
     act(() => vi.advanceTimersByTime(100));
     expect(scrollY()).toBe(300);
-    act(() => navigate(-1));
+    act(() => void nav.go(-1));
     act(() => vi.advanceTimersByTime(100));
     expect(scrollY()).toBe(900);
   });

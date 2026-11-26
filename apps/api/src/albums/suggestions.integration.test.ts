@@ -227,6 +227,18 @@ describe.skipIf(!url)("album suggestions", () => {
     expect(after.suggestions.map((s: Suggestion) => s.id)).not.toContain("best-of-2023");
   });
 
+  it("leaves out previews of photos deleted since the last count", async () => {
+    for (let i = 0; i < 8; i++) await addCapture({});
+    const first = (await call("GET", "/api/albums/suggestions")).json();
+    const gone = first.startMatches.previewPhotoIds[0];
+    await db.query(`DELETE FROM captures_all WHERE id = (SELECT capture_id FROM photos WHERE id = $1)`, [gone]);
+    clearCaches();
+    const stale = (await call("GET", "/api/albums/suggestions")).json();
+    expect(stale.startMatches.previewPhotoIds).toHaveLength(7);
+    expect(stale.startMatches.previewPhotoIds).not.toContain(gone);
+    for (const s of stale.suggestions) expect(s.previewPhotoIds).not.toContain(gone);
+  });
+
   it("leaves out an album of the whole library, but not tidying it", async () => {
     for (let i = 0; i < 8; i++) await addCapture({ rating: 5, regionId: COUNTRY_A });
     expect(await ids()).toEqual([]);

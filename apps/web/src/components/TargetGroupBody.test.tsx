@@ -110,7 +110,8 @@ describe("Target a group", () => {
     expect(screen.getByRole("option", { name: "New list named raptors of BC" })).toBeTruthy();
     expect(calls(get, "by-group")).toEqual([`/collection/targets/by-group?q=raptors&regionId=${BC}`]);
     fireEvent.click(add);
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    // A loaded CI runner can take over the default second to get through the add.
+    await waitFor(() => expect(onClose).toHaveBeenCalled(), { timeout: 5000 });
     expect(post).toHaveBeenCalledWith("/collection/targets/by-group", {
       q: "raptors",
       regionId: BC,

@@ -370,12 +370,11 @@ export default function TaxaExplorer() {
     if (at < 0) return;
     setLightbox({ index: at, slides: rowPhotos.map((r) => slideFor(r.node, label(r.node))) });
   };
-  const randomUnder = (id: string | null) => {
+  // The collected species Random can jump to: under the selection, never the selection itself.
+  const randomPool = (id: string | null) => {
     const scope = id && index.byId.get(id)?.node.rank === "species" ? index.byId.get(id)!.parentId : id;
     const pool = scope ? collectedLeaves(index, scope) : index.roots.flatMap((r) => collectedLeaves(index, r));
-    const others = pool.filter((l) => l.id !== id);
-    if (others.length === 0) return null;
-    return () => choose(others[Math.floor(Math.random() * others.length)].id);
+    return pool.filter((l) => l.id !== id);
   };
   const shownPath = (id: string) =>
     ancestorIds(index, id).filter((a) => genus || index.byId.get(a)!.node.rank !== "genus");
@@ -519,7 +518,7 @@ export default function TaxaExplorer() {
   const last = Math.min(range?.[1] ?? 40, rows.length - 1);
   const focusable = active && rows.some((r) => r.id === active) ? active : rows[0]?.id;
   // One Random, beside View: from the selected group when there is one, else from everything.
-  const random = randomUnder(selectedEntry ? selected : null);
+  const randomChoices = randomPool(selectedEntry ? selected : null);
   const optionId = (i: number) => `${listId}-${i}`;
 
   return (
@@ -713,11 +712,11 @@ export default function TaxaExplorer() {
                     )}
                   </Tooltip>
                 </FilterPopover>
-                {random && (
+                {randomChoices.length > 0 && (
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={random}
+                    onClick={() => choose(randomChoices[Math.floor(Math.random() * randomChoices.length)].id)}
                     tooltip={{ label: t("explorer.random"), description: t("explorer.randomHelp") }}
                   >
                     {t("explorer.random")}

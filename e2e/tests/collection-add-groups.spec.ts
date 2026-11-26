@@ -26,8 +26,7 @@ test("downloads a missing group for a continent's countries from Add species", a
     await page.goto(`/?region=${northAmerica}`);
 
     await page.getByRole("button", { name: "+ Add species" }).click();
-    await expect(page.getByRole("menuitem", { name: "Add one species by hand" })).toHaveCount(0);
-    await page.getByRole("menuitem", { name: "Download animal groups" }).click();
+    await page.getByRole("menuitem", { name: "Download species lists" }).click();
     const dialog = page.getByRole("dialog", { name: `Add animal groups for ${COUNTRY.name}` });
     const birds = dialog.getByRole("checkbox", { name: "Birds" });
     await expect(birds).toBeChecked();

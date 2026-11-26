@@ -21,10 +21,11 @@ const noProgress = { update: () => {}, throwIfCancelled: () => {} };
 
 describe.skipIf(!url || !process.env.CATALOG_SEED_LOAD)("bundled catalog seed (fresh database)", () => {
   const pool = new pg.Pool({ connectionString: url });
+  // Ending the pool waits for the background work a first load starts, which can outlast 10 s on CI.
   afterAll(async () => {
     await pool.end();
     await appPool.end();
-  });
+  }, 180_000);
 
   const count = async (table: string) => Number((await pool.query(`SELECT count(*) FROM ${table}`)).rows[0].count);
   const indexes = async () =>

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 const { installerFor, isIntelMac, installErrorKey, SUGGESTED_APPS } = await import("./suggestedApps");
 

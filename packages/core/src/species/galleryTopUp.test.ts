@@ -62,7 +62,14 @@ describe("topUpGalleryFromObservations", () => {
     vi.doMock("../db.js", () => ({
       pool: {
         query: async () => ({
-          rows: [{ inat_taxon_id: 7, reference_photo: photo(1, "cc-by").medium_url, urls: [photo(2, "cc-by").medium_url], max_sort: 3 }],
+          rows: [
+            {
+              inat_taxon_id: 7,
+              reference_photo: photo(1, "cc-by").medium_url,
+              urls: [photo(2, "cc-by").medium_url],
+              max_sort: 3,
+            },
+          ],
         }),
       },
     }));
@@ -70,7 +77,10 @@ describe("topUpGalleryFromObservations", () => {
     vi.doMock("./inatClient.js", async (orig) => ({
       ...(await orig<object>()),
       fetchObservationPhotos: async () => [1, 2, 3, 4, 5, 6, 7, 8, 9].map((id) => photo(id, "cc-by-nc")),
-      downloadAndCacheImage: async (_url: string, key: string) => ({ displayPath: `${key}.jpg`, thumbPath: `${key}-t.jpg` }),
+      downloadAndCacheImage: async (_url: string, key: string) => ({
+        displayPath: `${key}.jpg`,
+        thumbPath: `${key}-t.jpg`,
+      }),
     }));
     const { topUpGalleryFromObservations } = await import("./galleryTopUp.js");
     expect(await topUpGalleryFromObservations("s1")).toBe(5);

@@ -205,6 +205,7 @@ fn allowed(raw: &str, hosts: &[String]) -> Option<url::Url> {
 /// Whether a code signer found on the file is the one the anchor pins. Windows reports
 /// "subject\nissued by issuer": the subject is pinned, the issuer only when a list is given,
 /// since short-lived certificates can come from several intermediates.
+#[cfg(any(target_os = "macos", windows, test))]
 fn signer_matches(found: &str, expected: &str, issuers: &[String]) -> bool {
     match found.split_once("\nissued by ") {
         Some((subject, issuer)) => {

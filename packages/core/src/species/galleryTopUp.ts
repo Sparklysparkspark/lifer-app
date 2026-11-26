@@ -34,7 +34,12 @@ export function topUpCandidates(photos: INaturalistPhoto[], existingUrls: Array<
  *  portrait filter: its prompts are tuned for animals and would turn plants away as habitat.
  *  Returns how many photos were added; null when iNaturalist didn't answer. */
 export async function topUpGalleryFromObservations(speciesId: string): Promise<number | null> {
-  const res = await pool.query<{ inat_taxon_id: number | null; reference_photo: string | null; urls: string[]; max_sort: number }>(
+  const res = await pool.query<{
+    inat_taxon_id: number | null;
+    reference_photo: string | null;
+    urls: string[];
+    max_sort: number;
+  }>(
     `SELECT s.inat_taxon_id, s.reference_photo,
             coalesce(array_agg(g.photo_url) FILTER (WHERE g.id IS NOT NULL), '{}') AS urls,
             coalesce(max(g.sort_order), -1) AS max_sort

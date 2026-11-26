@@ -258,11 +258,7 @@ export default function InaturalistPage() {
   const username = inat?.username;
   return (
     <div className="flex min-h-full flex-1 flex-col bg-canvas">
-      <PageHeader
-        sticky
-        topLevel
-        title={t("inaturalist.title")}
-      >
+      <PageHeader sticky topLevel title={t("inaturalist.title")}>
         <p className={`max-w-2xl text-subheadline text-muted ${sidebarLayout ? "" : "mt-1"}`}>
           {t("inaturalist.intro")}{" "}
           <Button
