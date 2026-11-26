@@ -458,6 +458,16 @@ species iNaturalist leaves without open photos are a later step.
 - `verify-vagrant-flags.ts`: checks vagrant flags against GBIF distributions.
 - `benchmark-matching.ts` (`npm run benchmark-matching`): species-matching quality per taxon class
   on the catalog's own gallery photos, through the import path. `--per-class=`, `--label=`.
+- `label-smart-tags.ts` (`npm run label-smart-tags -w data-pipeline -- --photos=<folder> --labels=<file>`):
+  a local labelling page (http://127.0.0.1:5199) for the smart tags benchmark set
+  (`docs/plans/smart-tags.md`, section (g)). Reads the photo copies, never writes to that folder;
+  saves a labels TSV after every photo and resumes from it. `--vocab=`, `--port=`.
+- `calibrate-smart-tags.ts` (`npm run calibrate-smart-tags -w data-pipeline -- --labels=<file> --photos=<folder> --out=<folder>`):
+  fits a threshold per CLIP vocabulary term on half the sessions (95% precision) and judges it on
+  the other half (90% bar, 50 hits); writes `calibration.json` and `report.txt` to `--out`.
+  Photo vectors are cached in `--out`, so a rerun only embeds new photos. `--bootstrap-catalog`
+  labels the Subject terms on catalog reference photos instead (read-only on `DATABASE_URL`;
+  `--per-class=`, default 120). `--vocab=`, `--fit-precision=`, `--bar=`, `--min-predicted=`.
 
 The two vagrant scripts write their JSONL logs to `data/reports/vagrant/` at the repo root
 (gitignored), or to `VAGRANT_REPORTS_DIR` when it's set.

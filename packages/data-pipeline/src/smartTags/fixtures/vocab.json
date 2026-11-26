@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "groups": [
+    { "id": "subject", "root": "Subject", "kind": "pick-one", "cap": 1, "none": true, "gate": "noSpecies" },
+    { "id": "habitat", "root": "Habitat", "kind": "many", "cap": 2, "none": false, "gate": "scene" },
+    { "id": "context", "root": "Context", "kind": "pick-one", "cap": 1, "none": true },
+    { "id": "time", "root": "Time of day", "kind": "pick-one", "cap": 1, "none": true }
+  ],
+  "terms": [
+    {
+      "id": "habitat.wetland",
+      "path": "Habitat|Wetland",
+      "name": "Wetland",
+      "usage": "Marsh, swamp or reed bed fills much of the frame, not a puddle.",
+      "synonyms": ["marsh", "swamp"],
+      "prompts": ["a photo of a marsh", "a wildlife photo of a reed bed"],
+      "signal": "scene",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "context.in-hand",
+      "path": "Context|In hand",
+      "name": "In hand",
+      "usage": "An animal held in a person's hand.",
+      "synonyms": [],
+      "prompts": ["a photo of an animal held in a person's hand"],
+      "signal": "clip",
+      "group": "context",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "subject.bird",
+      "path": "Subject|Bird",
+      "name": "Bird",
+      "usage": "A bird is the subject and no species is set.",
+      "synonyms": [],
+      "prompts": ["a photo of a bird"],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "subject.mammal",
+      "path": "Subject|Mammal",
+      "name": "Mammal",
+      "usage": "A mammal is the subject and no species is set.",
+      "synonyms": [],
+      "prompts": ["a photo of a mammal"],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "subject.fishes",
+      "path": "Subject|Fish",
+      "name": "Fish",
+      "usage": "A fish is the subject and no species is set.",
+      "synonyms": [],
+      "prompts": ["a photo of a fish"],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "time.sunrise",
+      "path": "Time of day|Sunrise",
+      "name": "Sunrise",
+      "usage": "Computed from the sun position.",
+      "synonyms": ["dawn"],
+      "prompts": [],
+      "signal": "computed",
+      "computed": "sun",
+      "group": "time",
+      "unvalidated": false,
+      "enabled": true
+    }
+  ]
+}

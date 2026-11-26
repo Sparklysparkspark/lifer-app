@@ -44,7 +44,9 @@
     "open-vectors": "tsx src/scripts/open-vectors.ts",
     "top-up-galleries": "tsx src/scripts/top-up-galleries.ts",
     "restore-published-rows": "tsx src/scripts/restore-published-rows.ts",
-    "benchmark-matching": "tsx src/scripts/benchmark-matching.ts"
+    "benchmark-matching": "tsx src/scripts/benchmark-matching.ts",
+    "calibrate-smart-tags": "tsx src/scripts/calibrate-smart-tags.ts",
+    "label-smart-tags": "tsx src/scripts/label-smart-tags.ts"
   },
   "dependencies": {
     "@lifer/core": "*",

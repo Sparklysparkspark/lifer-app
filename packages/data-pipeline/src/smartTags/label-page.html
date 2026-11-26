@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Smart tags labelling</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #111;
+        --panel: #1b1b1b;
+        --line: #333;
+        --text: #eee;
+        --muted: #999;
+        --on: #2f7d4f;
+        --match: #c9a227;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          13px/1.4 system-ui,
+          sans-serif;
+        display: grid;
+        grid-template-columns: 1fr 420px;
+        height: 100vh;
+      }
+      #view {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+        position: relative;
+      }
+      #view img {
+        max-width: 100%;
+        max-height: 100vh;
+        object-fit: contain;
+      }
+      #badge {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        background: #000a;
+        padding: 4px 8px;
+        border-radius: 4px;
+      }
+      aside {
+        background: var(--panel);
+        border-left: 1px solid var(--line);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      header {
+        padding: 12px;
+        border-bottom: 1px solid var(--line);
+        display: grid;
+        gap: 8px;
+      }
+      progress {
+        width: 100%;
+      }
+      label {
+        display: grid;
+        gap: 2px;
+        color: var(--muted);
+      }
+      input {
+        background: var(--bg);
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 6px 8px;
+        font: inherit;
+      }
+      #terms {
+        overflow: auto;
+        padding: 8px 12px 24px;
+      }
+      h3 {
+        margin: 12px 0 4px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .chip {
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--text);
+        border-radius: 12px;
+        padding: 2px 10px;
+        font: inherit;
+        cursor: pointer;
+      }
+      .chip.on {
+        background: var(--on);
+        border-color: var(--on);
+      }
+      .chip.first {
+        outline: 2px solid var(--match);
+      }
+      .keys {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      kbd {
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        padding: 0 4px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: space-between;
+      }
+      button.plain {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 4px 8px;
+        font: inherit;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="view"><img id="img" alt="" /><span id="badge"></span></main>
+    <aside>
+      <header>
+        <div class="row"><strong id="count"></strong><span id="name" class="keys"></span></div>
+        <progress id="progress" value="0" max="1"></progress>
+        <label>Session <input id="session" /></label>
+        <label>Find a term <input id="filter" placeholder="Type, then Enter to tick" autofocus /></label>
+        <div class="row">
+          <span class="keys"
+            ><kbd>Enter</kbd> or <kbd>&rarr;</kbd> save and next, <kbd>&larr;</kbd> back, <kbd>Shift+Enter</kbd> skip
+            photo, <kbd>Esc</kbd> clear search, <kbd>Ctrl+Backspace</kbd> untick all</span
+          >
+        </div>
+        <div class="row">
+          <span class="keys">Ticks carry over from the previous photo in the same session.</span>
+          <button class="plain" id="next-unlabelled">Next unlabelled</button>
+        </div>
+      </header>
+      <div id="terms"></div>
+    </aside>
+    <script type="module">
+      const state = await (await fetch("/api/state")).json();
+      const { photos, terms } = state;
+      const facets = [...new Set(terms.map((t) => t.facet))];
+      const $ = (id) => document.getElementById(id);
+      let i = Math.max(
+        0,
+        photos.findIndex((p) => !p.labelled),
+      );
+      let ticked = new Set();
+      let dirty = false;
+
+      const chips = new Map();
+      for (const f of facets) {
+        const h = document.createElement("h3");
+        h.textContent = f;
+        const box = document.createElement("div");
+        box.className = "chips";
+        for (const t of terms.filter((t) => t.facet === f)) {
+          const b = document.createElement("button");
+          b.className = "chip";
+          b.textContent = t.label;
+          b.title = t.description ?? "";
+          b.tabIndex = -1;
+          b.onclick = () => {
+            toggle(t.id);
+            $("filter").focus();
+          };
+          chips.set(t.id, b);
+          box.append(b);
+        }
+        $("terms").append(h, box);
+      }
+
+      function toggle(id) {
+        ticked.has(id) ? ticked.delete(id) : ticked.add(id);
+        dirty = true;
+        paint();
+      }
+
+      function matches() {
+        const q = $("filter").value.trim().toLowerCase();
+        if (!q) return [];
+        const starts = terms.filter((t) => t.label.toLowerCase().startsWith(q));
+        const inside = terms.filter((t) => !starts.includes(t) && t.label.toLowerCase().includes(q));
+        return [...starts, ...inside];
+      }
+
+      function paint() {
+        const m = matches();
+        const q = $("filter").value.trim();
+        for (const t of terms) {
+          const b = chips.get(t.id);
+          b.classList.toggle("on", ticked.has(t.id));
+          b.classList.toggle("first", m[0] === t);
+          b.hidden = !!q && !m.includes(t);
+        }
+        for (const h of document.querySelectorAll("#terms h3")) {
+          const box = h.nextElementSibling;
+          h.hidden = box.hidden = ![...box.children].some((c) => !c.hidden);
+        }
+        const done = photos.filter((p) => p.labelled).length;
+        $("count").textContent = `${done} of ${photos.length} labelled`;
+        $("progress").value = done;
+        $("progress").max = photos.length;
+      }
+
+      function show() {
+        const p = photos[i];
+        const prev = photos[i - 1];
+        // Bursts look alike: an unlabelled photo starts from the previous photo's ticks in its session.
+        const carry = !p.labelled && prev && prev.labelled && !prev.skipped && prev.session === p.session;
+        ticked = new Set(carry ? prev.present : p.present);
+        dirty = carry;
+        $("img").src = `/img/${i}`;
+        $("img").alt = p.photo;
+        $("name").textContent = `${i + 1} / ${photos.length}  ${p.photo}`;
+        $("badge").textContent = p.skipped ? "Skipped" : p.labelled ? "Labelled" : carry ? "Carried over" : "New";
+        $("session").value = p.session;
+        $("filter").value = "";
+        for (const k of [1, 2]) if (photos[i + k]) new Image().src = `/img/${i + k}`;
+        paint();
+      }
+
+      async function save(skip = false) {
+        const p = photos[i];
+        const body = { photo: p.photo, session: $("session").value, present: [...ticked], skip };
+        const res = await fetch("/api/label", { method: "POST", body: JSON.stringify(body) });
+        if (!res.ok) return alert(await res.text());
+        const old = p.session;
+        const session = body.session.trim();
+        // A renamed session carries on to later unlabelled photos that shared the old name.
+        if (session !== old)
+          for (const q of photos.slice(i + 1)) if (!q.labelled && q.session === old) q.session = session;
+        Object.assign(p, { session, present: skip ? [] : [...ticked], labelled: true, skipped: skip });
+        dirty = false;
+        return true;
+      }
+
+      async function go(delta, { store = true, skip = false } = {}) {
+        if ((store && (dirty || !photos[i].labelled)) || skip) {
+          if (!(await save(skip))) return;
+        }
+        i = Math.min(photos.length - 1, Math.max(0, i + delta));
+        show();
+      }
+
+      $("filter").addEventListener("keydown", (e) => {
+        const empty = !$("filter").value;
+        if (e.key === "Enter" && e.shiftKey) {
+          e.preventDefault();
+          go(1, { skip: true });
+        } else if (e.key === "Enter" && !empty) {
+          e.preventDefault();
+          const m = matches()[0];
+          if (m) toggle(m.id);
+          $("filter").value = "";
+          paint();
+        } else if ((e.key === "Enter" || e.key === "ArrowRight") && empty) {
+          e.preventDefault();
+          go(1);
+        } else if (e.key === "ArrowLeft" && empty) {
+          e.preventDefault();
+          go(-1, { store: dirty });
+        } else if (e.key === "Escape") {
+          $("filter").value = "";
+          paint();
+        } else if (e.key === "Backspace" && (e.ctrlKey || e.metaKey) && empty) {
+          e.preventDefault();
+          ticked.clear();
+          dirty = true;
+          paint();
+        }
+      });
+      $("filter").addEventListener("input", paint);
+      $("session").addEventListener("input", () => (dirty = true));
+      $("session").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("filter").focus();
+      });
+      $("next-unlabelled").onclick = () => {
+        const n = photos.findIndex((p, k) => k > i && !p.labelled);
+        if (n >= 0) {
+          i = n;
+          show();
+        }
+        $("filter").focus();
+      };
+      show();
+    </script>
+  </body>
+</html>
