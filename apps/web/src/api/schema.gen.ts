@@ -33814,6 +33814,81 @@ export interface paths {
       query?: never;
       header?: never;
       path?: never;
+  "/smart-tags/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Smart tag suggestion progress
+     * @description How many of your photos the background smart tag pass has evaluated and how many wait. Suggestions come from data Lifer already stores (time and place, scene and colour shares, the animal count and the photo's CLIP vector) and are kept in the database only.
+     */
+    get: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody?: never;
+      responses: {
+        /** @description OK */
+        200: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": {
+              /** @description The suggestion pass is running now */
+              running: boolean;
+              /** @description Your photos, trashed ones left out */
+              total: number;
+              /** @description Photos evaluated under the current vocabulary and data */
+              evaluated: number;
+              /** @description Photos waiting for the pass */
+              pending: number;
+            };
+          };
+        };
+        /** @description The request doesn't match this operation's parameters or body */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Missing key, or the key lacks the photos.read scope */
+        401: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description Any other error */
+        default: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
       cookie?: never;
     };
     /**

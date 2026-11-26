@@ -328,6 +328,13 @@ export const OPS: Record<string, Partial<Record<Method, OpText>>> = {
       description: "The ids of your photos that `/photos/{id}/hdr` serves. Made in the background after import.",
     },
   },
+  "/smart-tags/status": {
+    get: {
+      summary: "Smart tag suggestion progress",
+      description:
+        "How many of your photos the background smart tag pass has evaluated and how many wait. Suggestions come from data Lifer already stores (time and place, scene and colour shares, the animal count and the photo's CLIP vector) and are kept in the database only.",
+    },
+  },
   "/photos/{id}/card": {
     get: {
       summary: "Species card image (WebP)",

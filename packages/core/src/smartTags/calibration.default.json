@@ -1,0 +1,64 @@
+{
+  "vocabVersion": "1",
+  "imageModel": "clip-vit-l14-v2",
+  "textModel": "clip-vit-l14-text-v2",
+  "createdAt": "2026-11-26T00:25:52.542Z",
+  "settings": {
+    "fitPrecision": 0.95,
+    "bar": 0.9,
+    "minPredicted": 50
+  },
+  "halves": {
+    "fit": {
+      "photos": 818,
+      "sessions": 818
+    },
+    "heldOut": {
+      "photos": 817,
+      "sessions": 817
+    }
+  },
+  "source": "catalog bootstrap (npm run calibrate-smart-tags -w data-pipeline -- --bootstrap-catalog); iNaturalist-derived, Lifer only, never Preen",
+  "terms": [
+    {
+      "id": "subject.bird",
+      "threshold": 0.40343268615760985,
+      "validated": true,
+      "precision": 1,
+      "recall": 0.9811320754716981,
+      "n": 817
+    },
+    {
+      "id": "subject.mammal",
+      "threshold": 0.28212696695878553,
+      "validated": true,
+      "precision": 1,
+      "recall": 0.8970588235294118,
+      "n": 817
+    },
+    {
+      "id": "subject.reptile",
+      "threshold": 0.40818030734968364,
+      "validated": true,
+      "precision": 0.9652173913043478,
+      "recall": 0.888,
+      "n": 817
+    },
+    {
+      "id": "subject.amphibian",
+      "threshold": 0.9032699669508603,
+      "validated": true,
+      "precision": 1,
+      "recall": 0.9464285714285714,
+      "n": 817
+    },
+    {
+      "id": "subject.marine-invertebrate",
+      "threshold": 0.2564489713728616,
+      "validated": true,
+      "precision": 0.9844559585492227,
+      "recall": 0.8444444444444444,
+      "n": 817
+    }
+  ]
+}

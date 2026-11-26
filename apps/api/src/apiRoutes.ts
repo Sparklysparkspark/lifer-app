@@ -16,6 +16,7 @@ import { collectionMapRoutes } from "./collection/map.js";
 import { galleryRoutes } from "./gallery/routes.js";
 import { galleryMapRoutes } from "./gallery/map.js";
 import { sceneRoutes } from "./gallery/sceneRoutes.js";
+import { smartTagRoutes } from "./smartTags/routes.js";
 import { originalsRoutes } from "./originals/routes.js";
 import { captureRoutes } from "./captures/routes.js";
 import { regionRoutes } from "./regions/routes.js";
@@ -86,6 +87,7 @@ export async function apiRoutes(api: FastifyInstance): Promise<void> {
   await api.register(galleryRoutes);
   await api.register(galleryMapRoutes);
   await api.register(sceneRoutes);
+  await api.register(smartTagRoutes);
   await api.register(originalsRoutes);
   await api.register(captureRoutes);
   await api.register(regionRoutes);

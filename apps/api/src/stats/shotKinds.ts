@@ -73,6 +73,25 @@ function pick<K extends string>(sims: number[], keys: K[]): K {
   return [...share].sort((a, b) => b[1] - a[1])[0][0];
 }
 
+/** Reads one photo vector's shot type; the prompts are embedded once per reader (by `embed`, the
+ *  text model by default). */
+export async function shotTypeReader(
+  embed: (texts: string[]) => Promise<ArrayLike<number>[]> = embedTextVectors,
+): Promise<(embedding: ArrayLike<number>) => ShotType> {
+  const actions = SHOT_ACTIONS.flatMap((key) => ACTION_PROMPTS[key].map((prompt) => ({ key, prompt })));
+  const framings = SHOT_FRAMINGS.flatMap((key) => FRAMING_PROMPTS[key].map((prompt) => ({ key, prompt })));
+  const vectors = await embed([...actions, ...framings].map((f) => f.prompt));
+  const actionKeys = actions.map((a) => a.key);
+  const framingKeys = framings.map((f) => f.key);
+  return (embedding) => {
+    const sims = vectors.map((v) => cosineSimilarity(v, embedding));
+    return {
+      action: pick(sims.slice(0, actions.length), actionKeys),
+      framing: pick(sims.slice(actions.length), framingKeys),
+    };
+  };
+}
+
 // Reading every vector is the slow part, so a user's answer is kept briefly: opening the Gallery
 // from Stats reuses the run Stats just did.
 const CACHE_MS = 5 * 60_000;
@@ -92,18 +111,8 @@ export function classifyShotTypes(userId: string): Promise<Map<string, ShotType>
     const result = new Map<string, ShotType>();
     // Without the text model there's no reading, as with no vectors: Stats shows no shot types.
     if (res.rows.length === 0 || !isTextModelDownloaded()) return result;
-    const actions = SHOT_ACTIONS.flatMap((key) => ACTION_PROMPTS[key].map((prompt) => ({ key, prompt })));
-    const framings = SHOT_FRAMINGS.flatMap((key) => FRAMING_PROMPTS[key].map((prompt) => ({ key, prompt })));
-    const vectors = await embedTextVectors([...actions, ...framings].map((f) => f.prompt));
-    const actionKeys = actions.map((a) => a.key);
-    const framingKeys = framings.map((f) => f.key);
-    for (const row of res.rows) {
-      const sims = vectors.map((v) => cosineSimilarity(v, row.embedding));
-      result.set(row.capture_id, {
-        action: pick(sims.slice(0, actions.length), actionKeys),
-        framing: pick(sims.slice(actions.length), framingKeys),
-      });
-    }
+    const read = await shotTypeReader();
+    for (const row of res.rows) result.set(row.capture_id, read(row.embedding));
     return result;
   })();
   types.catch(() => cache.delete(userId));

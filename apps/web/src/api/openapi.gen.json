@@ -29459,6 +29459,50 @@
             "name": "q",
             "in": "query",
             "required": false,
+    "/smart-tags/status": {
+      "get": {
+        "summary": "Smart tag suggestion progress",
+        "description": "How many of your photos the background smart tag pass has evaluated and how many wait. Suggestions come from data Lifer already stores (time and place, scene and colour shares, the animal count and the photo's CLIP vector) and are kept in the database only.",
+        "tags": ["photos"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "photos.read",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["running", "total", "evaluated", "pending"],
+                  "properties": {
+                    "running": { "type": "boolean", "description": "The suggestion pass is running now" },
+                    "total": { "type": "integer", "description": "Your photos, trashed ones left out" },
+                    "evaluated": {
+                      "type": "integer",
+                      "description": "Photos evaluated under the current vocabulary and data"
+                    },
+                    "pending": { "type": "integer", "description": "Photos waiting for the pass" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request doesn't match this operation's parameters or body",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Missing key, or the key lacks the photos.read scope",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "default": {
+            "description": "Any other error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
             "description": "Search text. Empty returns your most recently photographed species",
             "schema": { "type": "string" }
           },
