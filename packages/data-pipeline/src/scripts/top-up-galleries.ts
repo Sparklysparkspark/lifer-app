@@ -30,7 +30,7 @@ import { persistGalleryPromotingMainIfMissing } from "@lifer/core/species/persis
 import { classifyReferencePhoto, PORTRAIT } from "@lifer/core/species/referencePortrait.js";
 import { pool } from "../db.js";
 import { closeClip, prepareClip } from "../lib/clipEmbedding.js";
-import { photoKey, publishableCount, topUpCandidates } from "../pipeline/galleryTopUp.js";
+import { photoKey, publishableCount, topUpCandidates } from "@lifer/core/species/galleryTopUp.js";
 
 setInatResponseCacheMaxAge(null);
 

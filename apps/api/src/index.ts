@@ -37,6 +37,7 @@ import { scheduleHdrRenditions } from "./photos/hdr/renditions.js";
 import { scheduleSmartTagSuggestions } from "./smartTags/suggestionPass.js";
 import { preferEditedCoversLater } from "./collection/defaultCardCrop.js";
 import { foldNestedPackCopies, seedCatalogIfEmpty } from "./species/catalogSeedUpdate.js";
+import { topUpOtherTaxaGalleries } from "./species/otherTaxaSpecies.js";
 import { ensureRegionRollup } from "./regions/rollup.js";
 import { warmAlbumSuggestions } from "./albums/suggestions.js";
 import { startAssetAutoDownloads } from "./settings/assets.js";
@@ -337,6 +338,8 @@ seedCatalogIfEmpty(pool)
       startWithheldPhotoFetch("startup");
       // Carries on with lists from iNaturalist that were waiting or cut short by a quit.
       kickSpeciesLists();
+      // Fills species added from iNaturalist up to a full gallery, for matching (otherTaxaSpecies.ts).
+      topUpOtherTaxaGalleries().catch((err) => app.log.warn({ err }, "Couldn't top up Other Taxa galleries"));
       // Lists eggs, nests, maps and the like after the photos of the animal itself.
       startReferencePhotoScoring();
       // Builds the Tree of life's region rollup after an update or a catalog change (regions/rollup.ts).

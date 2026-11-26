@@ -6,6 +6,9 @@ import {
   persistEnrichment,
   persistGalleryPromotingMainIfMissing,
 } from "@lifer/core/species/lazyEnrich.js";
+import { MAX_GALLERY_PHOTOS } from "@lifer/core/species/enrich.js";
+import { topUpGalleryFromObservations } from "@lifer/core/species/galleryTopUp.js";
+import { PersistentRateLimitError } from "@lifer/core/species/inatClient.js";
 import { iucnCodeFromInatLevel, normalizeIucnStatus } from "@lifer/shared";
 import { httpFetch } from "@lifer/core/lib/http.js";
 import { log } from "@lifer/core/lib/log.js";
@@ -123,5 +126,44 @@ async function enrichOtherTaxaSpecies(speciesId: string, scientificName: string)
   await persistEnrichment(speciesId, enrichment);
   if (enrichment.gallery.length > 0) {
     await persistGalleryPromotingMainIfMissing(speciesId, enrichment.gallery, enrichment.referencePhoto != null);
+  }
+  topUpOtherTaxaGalleries().catch((err) => log.warn({ err }, "Other Taxa gallery top-up failed"));
+}
+
+let toppingUp = false;
+let runAgain = false;
+
+/** Fills every Other Taxa gallery up to MAX_GALLERY_PHOTOS from research-grade observations, one
+ *  species at a time in the background, so they match as well as catalog species. Runs at startup
+ *  and after each new species; a call during a pass makes it go round once more. Only while
+ *  someone has iNaturalist search on, since these are live lookups. */
+export async function topUpOtherTaxaGalleries(): Promise<void> {
+  if (toppingUp) {
+    runAgain = true;
+    return;
+  }
+  toppingUp = true;
+  try {
+    do {
+      runAgain = false;
+      const thin = await pool.query<{ id: string }>(
+        `SELECT s.id FROM species s
+          WHERE s.is_other_taxa AND s.inat_taxon_id IS NOT NULL AND s.enriched_at IS NOT NULL
+            AND EXISTS (SELECT 1 FROM users WHERE any_taxa_search_enabled)
+            AND (SELECT count(*) FROM species_reference_photos g WHERE g.species_id = s.id) < $1
+          ORDER BY s.id`,
+        [MAX_GALLERY_PHOTOS],
+      );
+      for (const { id } of thin.rows) {
+        try {
+          await topUpGalleryFromObservations(id);
+        } catch (err) {
+          log.warn({ err, speciesId: id }, "Couldn't top up an Other Taxa gallery");
+          if (err instanceof PersistentRateLimitError) return;
+        }
+      }
+    } while (runAgain);
+  } finally {
+    toppingUp = false;
   }
 }
