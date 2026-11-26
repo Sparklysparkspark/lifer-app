@@ -224,6 +224,8 @@
     "info": "Info",
     "goTo": "Photo {n}",
     "openSpecies": "View species",
+    "showControls": "Show controls",
+    "hideControls": "Hide controls",
     "placeHidden": "Where this was taken is hidden for sensitive species.",
     "trip": "Trip",
     "albums": "{n, plural, one {Album} other {Albums}}",

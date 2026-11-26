@@ -15,6 +15,8 @@ import { INFO_DISTANCE, MIN_SCALE, shouldDismiss } from "../photos/dismiss";
 import { captureByPhoto } from "../store/library";
 import { getSpecies } from "../store/marks";
 import { BACKDROP, ON_BACKDROP, type } from "../theme/theme";
+import { filmstripSide, useReduceMotion } from "../photos/viewerChrome";
+import { MIN_TOUCH } from "../theme/theme";
 import { Button, RoundButton, Tap, showActions } from "../ui";
 
 type FullState = "idle" | "loading" | "offline" | "unavailable" | "done";
@@ -26,6 +28,7 @@ function ViewerPage({
   fullUri,
   label,
   onTap,
+  tapLabel,
   onZoom,
 }: {
   id: string;
@@ -34,6 +37,8 @@ function ViewerPage({
   fullUri: string | undefined;
   label: string;
   onTap: () => void;
+  /** The screen reader action that shows or hides the controls. */
+  tapLabel: string;
   onZoom: (id: string, zoomed: boolean) => void;
 }) {
   const { media } = useApp();
@@ -64,9 +69,13 @@ function ViewerPage({
     if (tries === 0) setTries(1);
     else setFailed(true);
   };
+  const toggle = { name: TOGGLE_ACTION, label: tapLabel };
   const image = shown ? (
     <Image
       accessibilityLabel={label}
+      // iPhone puts the action on the Tap below; Android has no Tap, so the image carries it.
+      accessibilityActions={Platform.OS === "ios" ? undefined : [toggle]}
+      onAccessibilityAction={Platform.OS === "ios" ? undefined : onTap}
       source={{ uri: shown }}
       contentFit="contain"
       style={{ width, height }}
@@ -81,6 +90,7 @@ function ViewerPage({
       {Platform.OS === "ios" ? (
         // Pinch and double tap to zoom are the platform scroll view's on iPhone.
         <ScrollView
+          testID="viewer-zoom"
           maximumZoomScale={5}
           minimumZoomScale={1}
           bouncesZoom
@@ -94,7 +104,7 @@ function ViewerPage({
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ width, height, justifyContent: "center" }}
         >
-          <Tap label={label} role="imagebutton" onPress={onTap}>
+          <Tap label={label} role="imagebutton" onPress={onTap} actions={[{ ...toggle, onPress: onTap }]}>
             {image}
           </Tap>
         </ScrollView>
@@ -142,6 +152,9 @@ function AndroidZoom({
 }
 
 const FILMSTRIP = 3;
+const TOGGLE_ACTION = "toggleControls";
+const THUMB_GAP = 4;
+const FADE_MS = 150;
 
 /** Full screen, black in every appearance: swipe between photos, pinch to zoom, glass controls, a filmstrip, the toolbar. */
 export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] } }) {
@@ -153,7 +166,25 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [index, setIndex] = useState(Math.min(start, ids.length - 1));
+  const indexRef = useRef(index);
+  indexRef.current = index;
+  // Per viewer, not remembered: a new viewer opens with the controls shown.
   const [chrome, setChrome] = useState(true);
+  const reduceMotion = useReduceMotion();
+  const shown = chrome && focused;
+  const chromeFade = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (reduceMotion) chromeFade.setValue(shown ? 1 : 0);
+    else Animated.timing(chromeFade, { toValue: shown ? 1 : 0, duration: FADE_MS, useNativeDriver: true }).start();
+  }, [shown, reduceMotion, chromeFade]);
+  // Controls hidden by zooming in come back when the zoom ends; a tap in between makes the choice the person's.
+  const hidByZoom = useRef(false);
+  const chromeRef = useRef(chrome);
+  chromeRef.current = chrome;
+  const toggleChrome = useCallback(() => {
+    hidByZoom.current = false;
+    setChrome((c) => !c);
+  }, []);
   const [info, setInfo] = useState<{
     name: string;
     scientificName: string;
@@ -164,6 +195,14 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
   const [fullUris, setFullUris] = useState<Record<string, string>>({});
   const list = useRef<FlatList<string>>(null);
   const id = ids[index] ?? ids[0];
+  // A fold, unfold or rotation changes the window width: keep the same photo in view (F-3).
+  // shortcut: reads the window width directly; swap for useSizeClass when the Wave 2 hook lands.
+  const lastWidth = useRef(width);
+  useEffect(() => {
+    if (lastWidth.current === width) return;
+    lastWidth.current = width;
+    list.current?.scrollToIndex({ index: indexRef.current, animated: false });
+  }, [width]);
   // While the Info sheet is up the photo moves above it.
   const lift = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -206,16 +245,9 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
   const share = () =>
     info?.sensitive ? nav.navigate("ShareSensitive", { photoId: id }) : void shareDisplayCopy(app, id);
   const state = full[id] ?? "idle";
+  // The one photo menu, with the desktop's item names. Info is also a bottom button (on Android the alert shows two choices, so it is last).
   const more = () =>
     showActions(info?.name ?? t("viewer.photoLabel"), t("common.cancel"), [
-      ...(state === "done" || !app.api
-        ? []
-        : [
-            {
-              label: t(state === "loading" ? "viewer.gettingFull" : "viewer.fullSize"),
-              onPress: () => void viewFull(),
-            },
-          ]),
       ...(info
         ? [
             {
@@ -224,12 +256,31 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
             },
           ]
         : []),
+      ...(state === "done" || !app.api
+        ? []
+        : [
+            {
+              label: t(state === "loading" ? "viewer.gettingFull" : "viewer.fullSize"),
+              onPress: () => void viewFull(),
+            },
+          ]),
+      { label: t("viewer.info"), onPress: () => nav.navigate("PhotoInfo", { photoId: id }) },
     ]);
 
   // Drag down to close, as in Photos: the photo follows the finger and shrinks while the backdrop fades.
   // Zoomed in, the drag pans the photo instead; two fingers are always a pinch.
   const [zoomedId, setZoomedId] = useState<string | null>(null);
   const onZoom = useCallback((p: string, z: boolean) => setZoomedId((cur) => (z ? p : cur === p ? null : cur)), []);
+  const zoomed = zoomedId === id;
+  useEffect(() => {
+    if (zoomed && chromeRef.current) {
+      hidByZoom.current = true;
+      setChrome(false);
+    } else if (!zoomed && hidByZoom.current) {
+      hidByZoom.current = false;
+      setChrome(true);
+    }
+  }, [zoomed]);
   const drag = useRef(new Animated.ValueXY()).current;
   const fade = drag.y.interpolate({ inputRange: [0, height / 2], outputRange: [1, 0], extrapolate: "clamp" });
   const shrink = drag.y.interpolate({ inputRange: [0, height / 2], outputRange: [1, MIN_SCALE], extrapolate: "clamp" });
@@ -255,9 +306,12 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
       if (e.translationY < -INFO_DISTANCE) nav.navigate("PhotoInfo", { photoId: id });
     });
 
+  // Every thumbnail is a full touch target, so narrow windows show fewer neighbours instead of squeezing them.
+  const thumb = MIN_TOUCH[Platform.OS === "ios" ? "ios" : "android"];
+  const side = filmstripSide(width, thumb, THUMB_GAP, FILMSTRIP);
   const near = ids
-    .slice(Math.max(0, index - FILMSTRIP), index + FILMSTRIP + 1)
-    .map((p, k) => ({ id: p, at: Math.max(0, index - FILMSTRIP) + k }));
+    .slice(Math.max(0, index - side), index + side + 1)
+    .map((p, k) => ({ id: p, at: Math.max(0, index - side) + k }));
   const label = (n: string | null) =>
     [info?.name, info?.date, t("viewer.position", { n: index + 1, total: ids.length })].filter(Boolean).join(". ") ||
     (n ?? t("viewer.photoLabel"));
@@ -265,7 +319,12 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
   return (
     // A transparent modal, so the page underneath shows through as the backdrop fades.
     <View style={{ flex: 1 }} accessibilityViewIsModal onAccessibilityEscape={close}>
-      <StatusBar style="light" />
+      <StatusBar
+        style="light"
+        hidden={!shown}
+        animated={!reduceMotion}
+        hideTransitionAnimation={reduceMotion ? "none" : "fade"}
+      />
       <Animated.View
         pointerEvents="none"
         style={[StyleSheet.absoluteFill, { backgroundColor: BACKDROP, opacity: fade }]}
@@ -277,6 +336,7 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
           >
             <FlatList
               ref={list}
+              testID="viewer-pager"
               data={ids}
               horizontal
               pagingEnabled
@@ -296,7 +356,8 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
                   height={height}
                   fullUri={fullUris[item]}
                   label={label(null)}
-                  onTap={() => setChrome((c) => !c)}
+                  onTap={toggleChrome}
+                  tapLabel={t(chrome ? "viewer.hideControls" : "viewer.showControls")}
                   onZoom={onZoom}
                 />
               )}
@@ -305,97 +366,95 @@ export function ViewerScreen({ route }: { route: { params: RootParams["Viewer"] 
         </Animated.View>
       </GestureDetector>
 
-      {chrome && focused ? (
-        <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { opacity: fade }]}>
-          <View
-            pointerEvents="box-none"
-            style={{
-              position: "absolute",
-              top: insets.top + 6,
-              left: 16,
-              right: 16,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 10,
-            }}
-          >
-            <RoundButton icon="close" label={t("common.close")} onPress={close} onPhoto />
-            <View style={{ flex: 1, alignItems: "center" }} accessible accessibilityRole="header">
-              {info ? (
-                <>
-                  <Text
-                    numberOfLines={1}
-                    style={{ color: ON_BACKDROP, fontSize: type.callout.size, fontWeight: "700" }}
-                  >
-                    {info.name}
+      <Animated.View
+        pointerEvents={shown ? "box-none" : "none"}
+        accessibilityElementsHidden={!shown}
+        importantForAccessibility={shown ? "auto" : "no-hide-descendants"}
+        style={[StyleSheet.absoluteFill, { opacity: Animated.multiply(fade, chromeFade) }]}
+      >
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: "absolute",
+            top: insets.top + 6,
+            left: 16,
+            right: 16,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <RoundButton icon="close" label={t("common.close")} onPress={close} onPhoto />
+          <View style={{ flex: 1, alignItems: "center" }} accessible accessibilityRole="header">
+            {info ? (
+              <>
+                <Text numberOfLines={1} style={{ color: ON_BACKDROP, fontSize: type.callout.size, fontWeight: "700" }}>
+                  {info.name}
+                </Text>
+                {info.date ? (
+                  <Text numberOfLines={1} style={{ color: ON_BACKDROP, opacity: 0.75, fontSize: type.footnote.size }}>
+                    {info.date}
                   </Text>
-                  {info.date ? (
-                    <Text numberOfLines={1} style={{ color: ON_BACKDROP, opacity: 0.75, fontSize: type.footnote.size }}>
-                      {info.date}
-                    </Text>
-                  ) : null}
-                </>
-              ) : null}
-            </View>
-            <RoundButton icon="more" label={t("common.more")} onPress={more} onPhoto />
+                ) : null}
+              </>
+            ) : null}
           </View>
+          <RoundButton icon="more" label={t("common.more")} onPress={more} onPhoto />
+        </View>
 
-          <View
-            pointerEvents="box-none"
-            style={{ position: "absolute", left: 0, right: 0, bottom: Math.max(insets.bottom, 12) + 70 }}
-          >
-            {state === "offline" ? <Text style={noteStyle}>{t("viewer.fullOffline")}</Text> : null}
-            {state === "unavailable" ? <Text style={noteStyle}>{t("viewer.fullUnavailable")}</Text> : null}
-            <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 2 }}>
-              {near.map((n) => (
-                <View
-                  key={n.id}
-                  style={{
-                    width: n.at === index ? 40 : 28,
-                    height: 40,
-                    marginHorizontal: n.at === index ? 4 : 0,
-                    borderRadius: n.at === index ? 6 : 3,
-                    overflow: "hidden",
-                    borderWidth: n.at === index ? 2 : 0,
-                    borderColor: ON_BACKDROP,
-                    opacity: n.at === index ? 1 : 0.85,
-                  }}
-                >
-                  <CachedTile
-                    photoId={n.id}
-                    size={40}
-                    width={n.at === index ? 40 : 28}
-                    label={t("viewer.goTo", { n: n.at + 1 })}
-                    onPress={() => list.current?.scrollToIndex({ index: n.at, animated: true })}
-                  />
-                </View>
-              ))}
-            </View>
+        <View
+          pointerEvents="box-none"
+          style={{ position: "absolute", left: 0, right: 0, bottom: Math.max(insets.bottom, 12) + 70 }}
+        >
+          {state === "offline" ? <Text style={noteStyle}>{t("viewer.fullOffline")}</Text> : null}
+          {state === "unavailable" ? <Text style={noteStyle}>{t("viewer.fullUnavailable")}</Text> : null}
+          <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: THUMB_GAP }}>
+            {near.map((n) => (
+              <View
+                key={n.id}
+                style={{
+                  width: thumb,
+                  height: thumb,
+                  borderRadius: n.at === index ? 6 : 3,
+                  overflow: "hidden",
+                  borderWidth: n.at === index ? 2 : 0,
+                  borderColor: ON_BACKDROP,
+                  opacity: n.at === index ? 1 : 0.85,
+                }}
+              >
+                <CachedTile
+                  photoId={n.id}
+                  size={thumb}
+                  width={thumb}
+                  label={t("viewer.goTo", { n: n.at + 1 })}
+                  onPress={() => list.current?.scrollToIndex({ index: n.at, animated: true })}
+                />
+              </View>
+            ))}
           </View>
+        </View>
 
-          <View
-            style={{
-              position: "absolute",
-              left: 16,
-              right: 16,
-              bottom: Math.max(insets.bottom, 12),
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <RoundButton icon="share" label={t("viewer.share")} size={52} onPress={share} onPhoto />
-            <RoundButton
-              icon="info"
-              label={t("viewer.info")}
-              size={52}
-              onPress={() => nav.navigate("PhotoInfo", { photoId: id })}
-              onPhoto
-            />
-            <RoundButton icon="more" label={t("common.more")} size={52} onPress={more} onPhoto />
-          </View>
-        </Animated.View>
-      ) : null}
+        <View
+          style={{
+            position: "absolute",
+            left: 16,
+            right: 16,
+            bottom: Math.max(insets.bottom, 12),
+            flexDirection: "row",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <RoundButton icon="share" label={t("viewer.share")} size={52} onPress={share} onPhoto />
+          <RoundButton
+            icon="info"
+            label={t("viewer.info")}
+            size={52}
+            onPress={() => nav.navigate("PhotoInfo", { photoId: id })}
+            onPhoto
+          />
+        </View>
+      </Animated.View>
     </View>
   );
 }
