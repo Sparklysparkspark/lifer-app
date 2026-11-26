@@ -50,8 +50,8 @@ export default function Home() {
       description="A free photo library and life list for wildlife photographers. Your photos sorted by species, on your computer or your own server."
     >
       <Hero
-        title="Your wildlife photos, sorted by species"
-        lede="A photo library and life list for wildlife photographers. Every region's checklist fills in from the photos you take."
+        title="Lifer Wildlife Archive"
+        lede="Your wildlife photos, sorted by species: a photo library and life list where every region's checklist fills in from the photos you take."
         actions={
           <div>
             <Downloads />

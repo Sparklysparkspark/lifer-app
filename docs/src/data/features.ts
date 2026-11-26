@@ -14,9 +14,9 @@ export interface Beat {
 }
 
 export const trip = {
-  title: "One trip, start to finish",
+  title: "Lifer, step by step",
   intro:
-    "A real trip to Belize in November 2026: 310 photos from thirteen days. Each step below is what Lifer did with them, in screenshots from the app.",
+    "A tour of what Lifer does, told through one real trip: Belize in November 2026, 310 photos from thirteen days. Each step shows a feature at work, in screenshots from the app.",
 };
 
 export const beats: Beat[] = [
