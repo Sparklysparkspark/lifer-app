@@ -28,6 +28,7 @@ import { normalizeIucnStatus, type LoadProgress } from "@lifer/shared";
 import { upgradeRegionLocalities } from "../places/gazetteer.js";
 import { ensureSpeciesSearchNames } from "./search.js";
 import { ensureRegionRollup } from "../regions/rollup.js";
+import { COUNTRIES_SQL, descendantIdsSql } from "@lifer/core/regions/regionTree.js";
 
 export { fetchCatalogManifest, type CatalogManifest };
 
@@ -662,6 +663,59 @@ async function foldDroppedDuplicateRegions(client: PoolClient): Promise<void> {
   }
   await client.query(`DELETE FROM region_fold WHERE keep_id = dup_id OR keep_id IN (SELECT dup_id FROM region_fold)`);
   if (Number((await client.query(`SELECT count(*) AS n FROM region_fold`)).rows[0].n) === 0) return;
+  const folded = await applyRegionFold(client, true);
+  log.info({ folded, ms: Date.now() - started }, "Folded duplicate regions into the ones kept");
+}
+
+/** Folds copies of a country's provinces that a pack nested inside a province sharing the
+ *  country's name (Belize > Belize District > Belize > Cayo...), back into the real ones: the same
+ *  name and eBird code among the country's own regions. An ambiguous match is left alone. Runs at
+ *  startup; finds nothing on a healthy install. Returns how many regions were folded. */
+export async function foldNestedPackCopies(pool: Pool): Promise<number> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`CREATE TEMP TABLE region_fold (dup_id uuid PRIMARY KEY, keep_id uuid NOT NULL) ON COMMIT DROP`);
+    await client.query(
+      `WITH RECURSIVE roots AS (
+         SELECT n.id, c.id AS country_id FROM regions n
+           JOIN regions p ON p.id = n.parent_id
+           JOIN (${COUNTRIES_SQL}) c ON c.name = n.name
+          -- A pack's copy carries the province's own eBird code; a real place inside it has its own.
+          WHERE n.ebird_region_code = p.ebird_region_code
+            AND (p.parent_id = c.id OR p.parent_id IN (SELECT g.id FROM regions g WHERE g.parent_id = c.id))
+       ),
+       copies AS (
+         SELECT id, country_id FROM roots
+         UNION SELECT r.id, copies.country_id FROM regions r JOIN copies ON r.parent_id = copies.id
+       ),
+       cand AS (
+         SELECT d.id AS dup_id, k.id AS keep_id
+           FROM copies cp JOIN regions d ON d.id = cp.id
+           JOIN regions k ON k.name = d.name AND k.ebird_region_code = d.ebird_region_code AND k.id <> d.id
+          WHERE k.id IN (${descendantIdsSql("cp.country_id")})
+            AND NOT EXISTS (SELECT 1 FROM copies x WHERE x.id = k.id)
+       )
+       INSERT INTO region_fold (dup_id, keep_id)
+       SELECT dup_id, min(keep_id::text)::uuid FROM cand GROUP BY dup_id HAVING count(DISTINCT keep_id) = 1`,
+    );
+    const found = Number((await client.query(`SELECT count(*) AS n FROM region_fold`)).rows[0].n);
+    const folded = found > 0 ? await applyRegionFold(client, false) : 0;
+    await client.query("COMMIT");
+    if (folded > 0) log.info({ folded }, "Folded province copies a pack had nested under a same-named province");
+    return folded;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** Moves everything pointing at each region_fold (dup_id, keep_id) row's copy onto the kept region,
+ *  then deletes the copies. `seedPlaced`: inside a catalog update, whose region_next places some
+ *  of the copies' children itself. Returns how many regions were folded. */
+async function applyRegionFold(client: PoolClient, seedPlaced: boolean): Promise<number> {
   await client.query(`ANALYZE region_fold`);
 
   // A pack's hotspots are one set per region and species: the kept region's set wins.
@@ -684,11 +738,12 @@ async function foldDroppedDuplicateRegions(client: PoolClient): Promise<void> {
   );
   for (const { tbl, col } of fks.rows) await repointRegionColumn(client, tbl, col);
 
-  // Children the seed doesn't place move under the kept region; ones it does get their parent below.
+  // Children not folded themselves move under the kept region; during a catalog update, ones the
+  // seed places get their parent from it instead.
   await client.query(
     `UPDATE regions r SET parent_id = f.keep_id FROM region_fold f
       WHERE r.parent_id = f.dup_id
-        AND NOT EXISTS (SELECT 1 FROM region_next n WHERE n.id = r.id)
+        ${seedPlaced ? "AND NOT EXISTS (SELECT 1 FROM region_next n WHERE n.id = r.id)" : ""}
         AND NOT EXISTS (SELECT 1 FROM region_fold g WHERE g.dup_id = r.id)`,
   );
   for (const { table, column } of REGION_ID_COLUMNS)
@@ -698,7 +753,7 @@ async function foldDroppedDuplicateRegions(client: PoolClient): Promise<void> {
   await client.query(`DELETE FROM region_species_rollup x USING region_fold f WHERE x.region_id = f.dup_id`);
   await repointRegionIdsInJson(client);
   const folded = await client.query(`DELETE FROM regions r USING region_fold f WHERE r.id = f.dup_id`);
-  log.info({ folded: folded.rowCount, ms: Date.now() - started }, "Folded duplicate regions into the ones kept");
+  return folded.rowCount ?? 0;
 }
 
 // Moves one foreign key column's rows from each dropped region to its kept one. Where the kept

@@ -36,7 +36,7 @@ import { scheduleVersionGrouping } from "./uploads/versionGrouping.js";
 import { scheduleHdrRenditions } from "./photos/hdr/renditions.js";
 import { scheduleSmartTagSuggestions } from "./smartTags/suggestionPass.js";
 import { preferEditedCoversLater } from "./collection/defaultCardCrop.js";
-import { seedCatalogIfEmpty } from "./species/catalogSeedUpdate.js";
+import { foldNestedPackCopies, seedCatalogIfEmpty } from "./species/catalogSeedUpdate.js";
 import { ensureRegionRollup } from "./regions/rollup.js";
 import { warmAlbumSuggestions } from "./albums/suggestions.js";
 import { startAssetAutoDownloads } from "./settings/assets.js";
@@ -318,6 +318,8 @@ seedCatalogIfEmpty(pool)
   .catch((err) => app.log.warn({ err }, "Catalog auto-seed failed. Settings > Update can still be run manually."))
   // After the seed, since gallery vectors attach to catalog photos.
   .finally(async () => {
+    // Undoes province copies an older pack install nested under a same-named province.
+    await foldNestedPackCopies(pool).catch((err) => app.log.warn({ err }, "Couldn't fold nested province copies"));
     // The collection-state restore matches species by name, so it needs the catalog in place.
     syncCollectionStateOnStartup().catch((err) => app.log.warn({ err }, "collection state sync failed"));
     await relinkCachedReferenceFiles(pool)
