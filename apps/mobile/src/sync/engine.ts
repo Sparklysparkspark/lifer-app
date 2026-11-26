@@ -35,6 +35,7 @@ export interface HubMark {
   cardCropY: number | null;
   cardCropSize: number | null;
   isTarget: boolean;
+  needsBetterPhoto?: boolean;
   updatedAt?: string;
 }
 
@@ -78,7 +79,7 @@ const rank = (s: Mark["state"]): number => (s === "collected" ? 2 : s === "seen"
  * for the first time): there nothing is lost, so the stronger state and any target flag are kept.
  */
 export function resolveConflict(local: Mark, hub: HubMark): { mark: Mark; requeue: boolean } {
-  const theirs: Mark = { ...hub, hubVersion: hub.updatedAt ?? null };
+  const theirs: Mark = { ...hub, needsBetterPhoto: hub.needsBetterPhoto ?? null, hubVersion: hub.updatedAt ?? null };
   if (local.hubVersion !== null) return { mark: theirs, requeue: false };
   const state = rank(local.state) > rank(hub.state) ? local.state : hub.state;
   const isTarget = local.isTarget || hub.isTarget;
@@ -123,6 +124,8 @@ async function pushMarks(d: SyncDeps, result: SyncResult): Promise<boolean> {
             cardCropY: m.cardCropY,
             cardCropSize: m.cardCropSize,
             isTarget: m.isTarget,
+            // Left out until the hub has sent it, so the hub keeps its own.
+            needsBetterPhoto: m.needsBetterPhoto ?? undefined,
             baseUpdatedAt: m.hubVersion,
           })),
         }),
@@ -222,12 +225,23 @@ async function pullFeed<T>(
 
 /**
  * A smart album has rules, not member rows: the hub says which photos match (minus its exclusions)
- * and the phone keeps them as the album's members, replaced whole at every sync.
+ * and the phone keeps them as the album's members, replaced whole at every sync. The same reply
+ * carries every album's cover as the desktop shows it, which can change with no album edit.
  */
 async function pullSmartAlbums(d: SyncDeps): Promise<number> {
   const res = await withRetry(
-    () => d.api.get<{ albums?: { id: string; captureIds: string[] }[] }>("/companion/v1/albums/smart", 60_000),
+    () =>
+      d.api.get<{
+        albums?: { id: string; captureIds: string[] }[];
+        covers?: { id: string; coverPhotoId: string | null }[];
+      }>("/companion/v1/albums/smart", 60_000),
     d.sleep,
+  );
+  await inBatches(res.covers ?? [], 200, (batch) =>
+    d.db.tx(async () => {
+      for (const c of batch)
+        await d.db.run("UPDATE albums SET hub_cover_photo_id = ? WHERE id = ?", [c.coverPhotoId, c.id]);
+    }),
   );
   const albums = res.albums ?? [];
   await inBatches(albums, 1, ([a]) =>
@@ -256,8 +270,10 @@ async function pullMarks(d: SyncDeps): Promise<void> {
       for (const hub of batch) {
         if (queued.has(hub.scientificName)) continue;
         const mine = await getMark(d.db, hub.scientificName);
-        if (mine && mine.hubVersion === (hub.updatedAt ?? null)) continue;
-        if (!mine && isBlank({ ...hub, hubVersion: null })) continue;
+        // A mark stored before the phone kept Needs a better photo is taken again once to learn it.
+        const known = mine?.needsBetterPhoto !== null || hub.needsBetterPhoto === undefined;
+        if (mine && mine.hubVersion === (hub.updatedAt ?? null) && known) continue;
+        if (!mine && isBlank(hub)) continue;
         await applyHubMark(d.db, hub, d.now());
       }
     }),

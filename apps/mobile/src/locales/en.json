@@ -108,7 +108,7 @@
     "statusNone": "Not yet seen",
     "target": "Target",
     "markSeen": "Mark as seen",
-    "unmarkSeen": "Remove seen mark",
+    "unmarkSeen": "Mark as unseen",
     "markTarget": "Add to targets",
     "unmarkTarget": "Remove from targets",
     "yourPhotosCount": "Your photos ({n, number})",
@@ -122,11 +122,13 @@
     "seenToggle": "Seen",
     "photographedCount": "Photographed, {n, plural, one {# photo} other {# photos}}",
     "tierIn": "{tier} in {region}",
-    "openInCollection": "Open in Collection",
+    "tierWorldwide": "{tier} worldwide",
+    "openInCollection": "Show in Collection",
     "firstPhotographed": "First photographed",
-    "lastSeen": "Last seen",
+    "latestPhoto": "Latest photo",
     "photosLabel": "Photos",
-    "none": "None yet"
+    "none": "None yet",
+    "needsBetter": "Needs a better photo"
   },
   "identify": {
     "lead": "Is this a lifer? Check a photo or a name against your list.",
@@ -159,7 +161,7 @@
     },
     "bestPhoto": "Your best photo of it",
     "changeSpecies": "Not this one? Change species",
-    "openSpecies": "Open species page",
+    "openSpecies": "View species",
     "resultTitle": "Is this a lifer?",
     "smartNote": "Smart search will be available once downloads are set up. Until then, find a species by name."
   },
@@ -221,7 +223,7 @@
     "shareSensitiveBody": "This species is on the sensitive list. The photo never includes where it was taken, but think about who will see it.",
     "info": "Info",
     "goTo": "Photo {n}",
-    "openSpecies": "Open species page",
+    "openSpecies": "View species",
     "placeHidden": "Where this was taken is hidden for sensitive species.",
     "trip": "Trip",
     "albums": "{n, plural, one {Album} other {Albums}}",
@@ -236,10 +238,10 @@
     "noSuggestion": "Couldn't tell which region you are in. Choose from the list.",
     "keep": "{n, plural, =0 {Choose a region} one {Keep # region} other {Keep # regions}}",
     "skip": "Not now",
-    "later": "You can add or remove regions any time in Regions."
+    "later": "You can add or remove regions any time in Species downloads."
   },
   "regions": {
-    "title": "Regions",
+    "title": "Species downloads",
     "intro": "Keep a region's species list on your phone to use it with no signal. Your marks and photos are never part of a list.",
     "empty": "No regions kept yet.",
     "add": "Add a region",
@@ -274,13 +276,13 @@
     "clear": "Clear",
     "showcase": "Showcase",
     "showcaseUsed": "{used} saved, {count, plural, one {# photo} other {# photos}} still to save",
-    "showcaseHint": "Your best photo of each species and your Favourites, saved at screen size so you can show them with no signal.",
-    "showcaseFavourites": "Favourites only",
+    "showcaseHint": "Your best photo of each species and your Featured photos, saved at screen size so you can show them with no signal.",
+    "showcaseFeatured": "Featured only",
     "clearShowcase": "Clear showcase",
     "wifiOnly": "Download photos on Wi-Fi only",
     "wifiOnlyHint": "Marks and lists are tiny and always sync. Photos wait for Wi-Fi.",
-    "appearance": "Appearance",
-    "appearanceSystem": "Match my phone",
+    "appearance": "Theme",
+    "appearanceSystem": "Follow system",
     "appearanceLight": "Light",
     "appearanceDark": "Dark",
     "appearanceSunlight": "Sunlight, high contrast",
@@ -289,10 +291,10 @@
     "advanced": "Advanced",
     "address": "Address",
     "fingerprint": "Certificate fingerprint",
-    "names": "Names",
-    "namesCommon": "Common name first",
-    "namesScientific": "Scientific name first",
-    "photosOnPhone": "Photos on this phone",
+    "names": "Main name",
+    "namesCommon": "Common",
+    "namesScientific": "Scientific",
+    "photosOnPhone": "Offline data",
     "cacheSize": "Keep up to",
     "smartSearch": "Smart search offline",
     "smartReady": "{size} on this phone. Search works with no signal.",
@@ -349,7 +351,7 @@
     "storage": "{size} of photos saved for offline use."
   },
   "collection": {
-    "searchPlaceholder": "Search species",
+    "searchPlaceholder": "Search species here, e.g. “owls”",
     "menu": "Show and arrange",
     "show": "Show",
     "showAll": "All",
@@ -359,7 +361,7 @@
     "showUnseen": "Not yet photographed",
     "arrange": "Arrange",
     "group": "Group",
-    "cardSize": "Card size",
+    "cardSize": "Species card size",
     "moreFilters": "More filters",
     "arrangeBy": {
       "common": "Common name",
@@ -374,8 +376,8 @@
       "none": "No grouping"
     },
     "size": {
-      "large": "Large",
-      "small": "Small",
+      "large": "2 columns",
+      "small": "3 columns",
       "list": "List"
     },
     "everywhere": "Everywhere",
@@ -407,10 +409,10 @@
   "filters": {
     "rarity": "Rarity",
     "rarityNote": "Rarity is how hard a species is to photograph, not how it ranks against others.",
-    "traits": "Traits",
+    "traits": "Records",
     "vagrants": "Include vagrants",
     "vagrantsHint": "Species that only rarely turn up in the region.",
-    "year": "Photographed in",
+    "year": "Photographed in year",
     "anyYear": "Any year"
   },
   "regionPicker": {
@@ -427,11 +429,11 @@
     "allOf": "All of {name}"
   },
   "gallery": {
-    "searchPlaceholder": "Search photos",
+    "searchPlaceholder": "Search, e.g. “heron in water”",
     "menu": "Show and arrange",
     "show": "Show",
     "allPhotos": "All photos",
-    "favourites": "Favourites",
+    "featured": "Featured",
     "group": "Group",
     "allGroups": "All groups",
     "trip": "Trip",
@@ -468,7 +470,7 @@
     "scrubber": "Scroll through months"
   },
   "albums": {
-    "segments": "Show albums or trips",
+    "segments": "Albums or trips",
     "searchPlaceholder": "Search albums",
     "arrange": "Arrange",
     "arrangeBy": {
@@ -483,10 +485,10 @@
     "emptyAlbum": "No photos in this album yet."
   },
   "toast": {
-    "seen": "{name} marked as seen",
-    "seenRemoved": "Seen mark removed from {name}",
-    "target": "{name} added to targets",
-    "targetRemoved": "{name} removed from targets"
+    "seen": "Marked {name} as seen",
+    "seenRemoved": "Marked {name} as not seen",
+    "target": "Added {name} to your targets",
+    "targetRemoved": "Removed {name} from your targets"
   },
   "stats": {
     "title": "Stats",
@@ -494,7 +496,7 @@
     "count": {
       "all": "All keepers",
       "featured": "Featured only",
-      "top": "Top rated"
+      "top": "Top rated (5-star)"
     },
     "photographed": "species photographed",
     "seenOnly": "seen, no photo yet",

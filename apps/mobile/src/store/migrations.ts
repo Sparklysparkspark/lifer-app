@@ -169,6 +169,17 @@ export const MIGRATIONS: string[] = [
   `
   DROP TABLE sightings;
   `,
+  // Rarity by scope: a region's own tier sits on its checklist row and species.tier is the worldwide
+  // one (it held the last synced region's). Kept checklists are fetched again to fill them. Also the
+  // hub's Needs a better photo mark (null: not yet heard) and each album's cover as the desktop shows it.
+  `
+  ALTER TABLE region_species ADD COLUMN tier TEXT;
+  ALTER TABLE region_species ADD COLUMN tier_reason TEXT;
+  ALTER TABLE species ADD COLUMN tier_reason TEXT;
+  ALTER TABLE marks ADD COLUMN needs_better_photo INTEGER;
+  ALTER TABLE albums ADD COLUMN hub_cover_photo_id TEXT;
+  DELETE FROM meta WHERE key LIKE 'regionSig.%';
+  `,
 ];
 
 export async function migrate(db: Db): Promise<void> {

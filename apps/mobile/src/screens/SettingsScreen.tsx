@@ -233,9 +233,9 @@ export function SettingsScreen() {
           chevron={false}
         />
         <SwitchRow
-          label={t("settings.showcaseFavourites")}
-          value={app.settings.showcaseFavouritesOnly}
-          onChange={(v) => void app.updateSettings({ showcaseFavouritesOnly: v }).then(app.bump)}
+          label={t("settings.showcaseFeatured")}
+          value={app.settings.showcaseFeaturedOnly}
+          onChange={(v) => void app.updateSettings({ showcaseFeaturedOnly: v }).then(app.bump)}
         />
         <ListRow
           title={t("settings.clearShowcase")}

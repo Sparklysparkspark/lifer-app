@@ -77,10 +77,10 @@ describe("IdentifyResultSheet", () => {
     expect(screen.getByText("New for your life list")).toBeOnTheScreen();
     expect(await getMark(h.db, "Cygnus columbianus")).toBeNull();
     await fireEvent.press(screen.getByRole("button", { name: "Mark as seen" }));
-    expect(await screen.findByText("Tundra Swan marked as seen")).toBeOnTheScreen();
+    expect(await screen.findByText("Marked Tundra Swan as seen")).toBeOnTheScreen();
     expect((await getMark(h.db, "Cygnus columbianus"))?.state).toBe("seen");
     await fireEvent.press(screen.getByRole("button", { name: "Undo" }));
-    await screen.findByText("Tundra Swan marked as seen").catch(() => undefined);
+    await screen.findByText("Marked Tundra Swan as seen").catch(() => undefined);
     expect((await getMark(h.db, "Cygnus columbianus"))?.state).toBeNull();
   });
 
@@ -90,6 +90,6 @@ describe("IdentifyResultSheet", () => {
     expect(await screen.findByText("Already photographed")).toBeOnTheScreen();
     expect(screen.getByText("2 photos of it in your Gallery.")).toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: "Mark as seen" })).not.toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole("button", { name: "Open species page" }));
+    await fireEvent.press(screen.getByRole("button", { name: "View species" }));
   });
 });

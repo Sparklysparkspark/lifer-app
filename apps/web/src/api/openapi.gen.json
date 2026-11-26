@@ -9297,7 +9297,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["albums"],
+                  "required": ["albums", "covers"],
                   "properties": {
                     "albums": {
                       "type": "array",
@@ -9309,6 +9309,18 @@
                           "captureIds": { "type": "array", "items": { "type": "string" } }
                         }
                       }
+                    },
+                    "covers": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "coverPhotoId"],
+                        "properties": {
+                          "id": { "type": "string" },
+                          "coverPhotoId": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                        }
+                      },
+                      "description": "Every album's cover as the desktop shows it: the stored pick (the user's or Lifer's own), else Lifer's live choice"
                     }
                   },
                   "additionalProperties": true
@@ -29447,18 +29459,6 @@
         }
       }
     },
-    "/species": {
-      "get": {
-        "summary": "Search species by name, alias, old scientific name, code, genus or family (accents ignored)",
-        "description": "Each hit carries `gbif_key`, `inat_taxon_id` and `taxon_class` for matching it in other sources.",
-        "tags": ["species"],
-        "security": [{ "apiKey": [] }],
-        "x-required-scope": "species.read",
-        "parameters": [
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
     "/smart-tags/status": {
       "get": {
         "summary": "Smart tag suggestion progress",
@@ -29503,6 +29503,18 @@
         }
       }
     },
+    "/species": {
+      "get": {
+        "summary": "Search species by name, alias, old scientific name, code, genus or family (accents ignored)",
+        "description": "Each hit carries `gbif_key`, `inat_taxon_id` and `taxon_class` for matching it in other sources.",
+        "tags": ["species"],
+        "security": [{ "apiKey": [] }],
+        "x-required-scope": "species.read",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
             "description": "Search text. Empty returns your most recently photographed species",
             "schema": { "type": "string" }
           },
@@ -36588,6 +36600,10 @@
                           "family",
                           "ebirdCode",
                           "tier",
+                          "localTier",
+                          "worldTier",
+                          "localTierReason",
+                          "tierReason",
                           "isVagrant",
                           "sensitiveByDefault"
                         ],
@@ -36598,7 +36614,45 @@
                           "taxonOrder": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "family": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                           "ebirdCode": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                          "tier": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                          "tier": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "description": "The user's tier, else this region's, else worldwide: kept for older phones"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "localTier": {
+                            "anyOf": [
+                              { "type": "string", "description": "The user's tier, else this region's own" },
+                              { "type": "null" }
+                            ]
+                          },
+                          "worldTier": {
+                            "anyOf": [
+                              { "type": "string", "description": "The user's tier, else the worldwide one" },
+                              { "type": "null" }
+                            ]
+                          },
+                          "localTierReason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "description": "Why this region's tier is missing or how it was set"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "tierReason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "description": "Why the worldwide tier is missing or how it was set"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
                           "isVagrant": { "type": "boolean" },
                           "sensitiveByDefault": {
                             "type": "boolean",

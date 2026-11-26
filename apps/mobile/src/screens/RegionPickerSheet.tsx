@@ -6,25 +6,18 @@ import { buildRegionTree } from "../collection/regionTree";
 import { useCollectionView } from "../collection/view";
 import { useSheetHeader } from "../navigation/useHeader";
 import { useNav } from "../navigation/types";
-import { listRegions, regionKeyForHub, regionProgress, saveRegion } from "../store/regions";
+import {
+  hubChecklistSpecies,
+  listRegions,
+  regionKeyForHub,
+  regionProgress,
+  saveRegion,
+  type HubChecklist,
+} from "../store/regions";
 import { getRegionTree, type TreeNode } from "../sync/regionTree";
 import { GroupHeader, Icon, InlineError, InsetGroup, ListRow, Note, Screen, Tap, TextField } from "../ui";
 import { type } from "../theme/theme";
 import { useTheme } from "../theme/useTheme";
-
-interface Checklist {
-  name: string;
-  items: {
-    scientificName: string;
-    commonName: string | null;
-    taxonClass: string;
-    tier: string | null;
-    isVagrant: boolean;
-    sensitiveByDefault: boolean;
-    taxonOrder?: string | null;
-    family?: string | null;
-  }[];
-}
 
 /**
  * Which region the Collection shows: Everywhere first, the regions chosen lately, then the hub's country > group >
@@ -85,20 +78,11 @@ export function RegionPickerSheet({ route }: { route?: { params?: { at?: string 
       setBusy(node.id);
       setError(null);
       try {
-        const list = await app.api.get<Checklist>(`/sync/regions/${node.id}/checklist`, 60_000);
+        const list = await app.api.get<HubChecklist>(`/sync/regions/${node.id}/checklist`, 60_000);
         await saveRegion(
           app.db,
           { key, name: list.name, source: "hub", hubRegionId: node.id },
-          list.items.map((i) => ({
-            scientificName: i.scientificName,
-            commonName: i.commonName,
-            taxonClass: i.taxonClass,
-            tier: i.tier,
-            vagrant: i.isVagrant,
-            sensitive: i.sensitiveByDefault,
-            taxonOrder: i.taxonOrder,
-            family: i.family,
-          })),
+          hubChecklistSpecies(list),
           new Date(),
         );
         app.bump();

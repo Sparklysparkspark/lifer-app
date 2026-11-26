@@ -9799,6 +9799,11 @@ export interface paths {
                 id: string;
                 captureIds: string[];
               }[];
+              /** @description Every album's cover as the desktop shows it: the stored pick (the user's or Lifer's own), else Lifer's live choice */
+              covers: {
+                id: string;
+                coverPhotoId: string | null;
+              }[];
             } & {
               [key: string]: unknown;
             };
@@ -33809,11 +33814,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/species": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
   "/smart-tags/status": {
     parameters: {
       query?: never;
@@ -33889,6 +33889,11 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/species": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
       cookie?: never;
     };
     /**
@@ -40854,6 +40859,10 @@ export interface paths {
                 family: string | null;
                 ebirdCode: string | null;
                 tier: string | null;
+                localTier: string | null;
+                worldTier: string | null;
+                localTierReason: string | null;
+                tierReason: string | null;
                 isVagrant: boolean;
                 /** @description Threatened on the IUCN Red List or on eBird's sensitive list */
                 sensitiveByDefault: boolean;

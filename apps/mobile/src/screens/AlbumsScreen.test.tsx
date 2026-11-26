@@ -55,12 +55,12 @@ describe("AlbumsScreen", () => {
     });
     await renderApp(<AlbumsScreen />, h);
     expect(await screen.findByRole("button", { name: /Hand picked/ })).toBeOnTheScreen();
-    const seg = screen.getByLabelText("Show albums or trips");
+    const seg = screen.getByLabelText("Albums or trips");
     await fireEvent(seg, "change", { nativeEvent: { selectedSegmentIndex: 1 } });
     expect(await screen.findByRole("button", { name: /Norfolk weekend/ })).toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: /Hand picked/ })).toBeNull();
     expect(JSON.stringify(await h.db.all("SELECT value FROM meta WHERE key = 'settings'"))).toContain("trips");
-    await fireEvent(screen.getByLabelText("Show albums or trips"), "change", {
+    await fireEvent(screen.getByLabelText("Albums or trips"), "change", {
       nativeEvent: { selectedSegmentIndex: 0 },
     });
     expect(await screen.findByRole("button", { name: /Hand picked/ })).toBeOnTheScreen();

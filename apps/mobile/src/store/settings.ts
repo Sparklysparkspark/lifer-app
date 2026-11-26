@@ -12,8 +12,8 @@ export interface Settings {
   wifiOnly: boolean;
   /** Thumbnail cache cap in bytes (default 1 GB). */
   thumbCapBytes: number;
-  /** Keep only the Favourites album in the showcase, not every species' cover photo. */
-  showcaseFavouritesOnly: boolean;
+  /** Keep only Featured photos in the showcase, not the best photo of every species. */
+  showcaseFeaturedOnly: boolean;
   /** Which name leads on cards and rows. */
   nameOrder: "common" | "scientific";
   /** Smart search offline: the hub's text encoder and photo vectors kept on the phone. On until the person removes it. */
@@ -31,7 +31,7 @@ export const DEFAULT_SETTINGS: Settings = {
   appearance: "system",
   wifiOnly: true,
   thumbCapBytes: GB,
-  showcaseFavouritesOnly: false,
+  showcaseFeaturedOnly: false,
   nameOrder: "common",
   smartSearch: true,
   hiddenTripBar: null,

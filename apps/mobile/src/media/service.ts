@@ -1,7 +1,7 @@
 // What screens talk to: photos by id, from disk when saved and from the hub when not, never
 // blocking. Saved copies are remembered in memory so a grid cell knows its picture synchronously.
 import type { Db } from "../store/db";
-import { favouritePhotoIds } from "../store/library";
+import { featuredPhotoIds } from "../store/library";
 import { SPECIES_SQL } from "../store/marks";
 import { toCrop, type Crop } from "../photos/crop";
 import {
@@ -155,13 +155,12 @@ export class MediaService {
     return fetchFull(this.d, id);
   }
 
-  /** Downloads the showcase: Favourites and cover photos not yet saved. One run at a time; resumes where it stopped. */
+  /** Downloads the showcase: Featured and cover photos not yet saved. One run at a time; resumes where it stopped. */
   async fillShowcase(onProgress?: (left: number) => void): Promise<void> {
     if (this.running || !this.hasHub()) return;
     this.running = true;
     try {
-      const favourites = await favouritePhotoIds(this.d.db);
-      const { ids } = await showcaseMissing(this.d, favourites);
+      const { ids } = await showcaseMissing(this.d, await featuredPhotoIds(this.d.db));
       for (let i = 0; i < ids.length; i++) {
         if (!this.hasHub() || !(await this.allowed())) break;
         onProgress?.(ids.length - i);
@@ -205,7 +204,7 @@ export class MediaService {
 
   /** How many showcase photos are still to be saved, and how many it holds in all. */
   async showcaseStatus(): Promise<{ missing: number; total: number }> {
-    const { ids, total } = await showcaseMissing(this.d, await favouritePhotoIds(this.d.db));
+    const { ids, total } = await showcaseMissing(this.d, await featuredPhotoIds(this.d.db));
     return { missing: ids.length, total };
   }
 

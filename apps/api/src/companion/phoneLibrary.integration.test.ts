@@ -109,12 +109,26 @@ describe.skipIf(!url)("phone albums and reference photos", () => {
     ).toEqual([MANUAL, SMART].sort());
   });
 
-  it("lists a smart album's photos for the phone, minus its exclusions", async () => {
+  it("lists a smart album's photos for the phone, minus its exclusions, and every album's cover", async () => {
+    const photo = (await db.query(`SELECT current_photo_id AS id FROM captures_all WHERE id = $1`, [CAPTURE])).rows[0]
+      .id;
+    const covers = (c: Record<string, string | null>) =>
+      expect.arrayContaining(Object.entries(c).map(([id, coverPhotoId]) => ({ id, coverPhotoId })));
+    // Neither album has a stored cover: both show the one Lifer picks live, as the desktop does.
     expect((await get("/companion/v1/albums/smart")).json()).toEqual({
       albums: [{ id: SMART, captureIds: [CAPTURE] }],
+      covers: covers({ [MANUAL]: photo, [SMART]: photo }),
     });
     await db.query(`INSERT INTO album_exclusions (album_id, capture_id) VALUES ($1, $2)`, [SMART, CAPTURE]);
-    expect((await get("/companion/v1/albums/smart")).json()).toEqual({ albums: [{ id: SMART, captureIds: [] }] });
+    // A smart album's stored pick its rules no longer match gives way, and nothing is written.
+    await db.query(`UPDATE albums SET cover_photo_id = $1 WHERE id = $2`, [photo, SMART]);
+    expect((await get("/companion/v1/albums/smart")).json()).toEqual({
+      albums: [{ id: SMART, captureIds: [] }],
+      covers: covers({ [MANUAL]: photo, [SMART]: null }),
+    });
+    expect((await db.query(`SELECT cover_photo_id FROM albums WHERE id = $1`, [SMART])).rows[0].cover_photo_id).toBe(
+      photo,
+    );
   });
 
   it("serves a species' reference photo and credit by name, 404 when there is none", async () => {

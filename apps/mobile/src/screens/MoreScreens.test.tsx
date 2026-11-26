@@ -37,12 +37,12 @@ describe("WelcomeScreen", () => {
 });
 
 describe("YourLiferSheet", () => {
-  it("on its own: says so, offers to connect, and lists Stats, Regions and Settings", async () => {
+  it("on its own: says so, offers to connect, and lists Stats, Species downloads and Settings", async () => {
     const h = await harness({ mode: "standalone", seed: seedLife });
     await renderApp(<YourLiferSheet />, h);
     expect(await screen.findByText("Lifer on this phone only")).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: "Connect to a Lifer" })).toBeOnTheScreen();
-    expect(await screen.findByRole("button", { name: /Regions, 1 on this phone/ })).toBeOnTheScreen();
+    expect(await screen.findByRole("button", { name: /Species downloads, 1 on this phone/ })).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: "Stats" })).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: "Settings" })).toBeOnTheScreen();
   });
@@ -85,7 +85,7 @@ describe("SettingsScreen", () => {
     await waitFor(async () => expect((await loadSettings(h.db)).wifiOnly).toBe(false));
     await fireEvent.press(screen.getByRole("button", { name: /Sunlight, high contrast/ }));
     await waitFor(async () => expect((await loadSettings(h.db)).appearance).toBe("sunlight"));
-    await fireEvent.press(screen.getByRole("button", { name: "Scientific name first" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Scientific" }));
     await waitFor(async () => expect((await loadSettings(h.db)).nameOrder).toBe("scientific"));
     await fireEvent.press(screen.getByRole("button", { name: "2.0 GB" }));
     await waitFor(async () => expect((await loadSettings(h.db)).thumbCapBytes).toBe(2 * 1024 ** 3));

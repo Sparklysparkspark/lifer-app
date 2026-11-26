@@ -87,7 +87,7 @@ export async function albumItemRows<T extends AlbumMember = GalleryRow>(
   return res.rows as T[];
 }
 
-const albumMembers = (albumId: string, userId: string, seen?: ReadonlySet<string>) =>
+export const albumMembers = (albumId: string, userId: string, seen?: ReadonlySet<string>) =>
   albumItemRows<AlbumMember>(albumId, userId, seen, ALBUM_MEMBER_COLUMNS);
 
 /** Full rows for these captures, in the order given. captures_all, not the captures view: a smart
@@ -133,7 +133,7 @@ async function smartCover(
 }
 
 /** The cover Lifer shows when nobody picked one: the first photo that isn't a RAW's preview. */
-const autoCover = (items: AlbumMember[]): string | null =>
+export const autoCover = (items: AlbumMember[]): string | null =>
   (items.find((i) => i.original_kind !== "raw") ?? items[0])?.photo_id ?? null;
 
 export async function albumRoutes(fastify: FastifyInstance): Promise<void> {

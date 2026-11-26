@@ -4,25 +4,43 @@ import { TIER_ORDER } from "@lifer/shared";
 import type { Db, Param } from "./db";
 import type { GridPhoto } from "./library";
 import { toCrop, type Crop } from "../photos/crop";
-import { SPECIES_SQL, speciesFrom, type RawSpecies, type SpeciesRow } from "./marks";
+import { FEATURED_SQL, SPECIES_SQL, speciesFrom, type RawSpecies, type SpeciesRow } from "./marks";
 
 export interface CollectionSpecies extends SpeciesRow {
   vagrant: boolean;
+  /** The tier in the region shown; null for Everywhere. `tier` is this, else the worldwide one. */
+  localTier: string | null;
+  worldTier: string | null;
 }
 
 /** Every species of a kept region (or every species the phone knows, for Everywhere), with its status. */
 export async function listCollection(db: Db, regionKey: string | null): Promise<CollectionSpecies[]> {
-  const rows = await db.all<RawSpecies & { vagrant: number }>(
+  const rows = await db.all<RawSpecies & { vagrant: number; local_tier: string | null }>(
     regionKey
-      ? `SELECT x.*, COALESCE((SELECT r.vagrant FROM region_species r WHERE r.region_key = ? AND r.scientific_name = x.scientific_name), 0) AS vagrant
-         FROM (${SPECIES_SQL}) x
-         WHERE EXISTS (SELECT 1 FROM region_species r WHERE r.region_key = ? AND r.scientific_name = x.scientific_name)`
-      : `SELECT x.*, COALESCE((SELECT max(r.vagrant) FROM region_species r WHERE r.scientific_name = x.scientific_name), 0) AS vagrant
+      ? `SELECT x.*, r.vagrant, r.tier AS local_tier FROM (${SPECIES_SQL}) x
+         JOIN region_species r ON r.region_key = ? AND r.scientific_name = x.scientific_name`
+      : `SELECT x.*, COALESCE((SELECT max(r.vagrant) FROM region_species r WHERE r.scientific_name = x.scientific_name), 0) AS vagrant,
+           NULL AS local_tier
          FROM (${SPECIES_SQL}) x`,
-    regionKey ? [regionKey, regionKey] : [],
+    regionKey ? [regionKey] : [],
   );
-  return rows.map((r) => ({ ...speciesFrom(r), vagrant: !!r.vagrant }));
+  return rows.map((r) => ({
+    ...speciesFrom(r),
+    tier: r.local_tier ?? r.tier,
+    vagrant: !!r.vagrant,
+    localTier: r.local_tier,
+    worldTier: r.tier,
+  }));
 }
+
+/** A species' own tier in one kept region, null when it has none there. */
+export const regionTier = async (db: Db, regionKey: string, scientificName: string): Promise<string | null> =>
+  (
+    await db.get<{ tier: string | null }>(
+      "SELECT tier FROM region_species WHERE region_key = ? AND scientific_name = ?",
+      [regionKey, scientificName],
+    )
+  )?.tier ?? null;
 
 /** Years with at least one photo, newest first. */
 export async function photoYears(db: Db): Promise<string[]> {
@@ -53,7 +71,8 @@ export interface ShapedPhoto extends GridPhoto {
 }
 
 export interface LibraryFilter {
-  favourites?: boolean;
+  /** Featured photos: each species' cover, as the desktop's Featured filter. */
+  featured?: boolean;
   /** Taxon classes of one broad group. */
   taxonClasses?: string[];
   tripId?: string;
@@ -64,10 +83,7 @@ export interface LibraryFilter {
 export function libraryShapes(db: Db, filter: LibraryFilter = {}, limit = -1): Promise<ShapedPhoto[]> {
   const where: string[] = ["c.photo_id IS NOT NULL", "c.hidden = 0", "c.kind = 'image'"];
   const params: Param[] = [];
-  if (filter.favourites)
-    where.push(
-      `c.id IN (SELECT ac.capture_id FROM album_captures ac JOIN albums a ON a.id = ac.album_id WHERE lower(a.name) IN ('favourites', 'favorites'))`,
-    );
+  if (filter.featured) where.push(`c.photo_id IN (${FEATURED_SQL})`);
   if (filter.taxonClasses) {
     where.push(
       `c.scientific_name IN (SELECT scientific_name FROM species WHERE taxon_class IN (${filter.taxonClasses.map(() => "?").join(",") || "NULL"}))`,
@@ -149,7 +165,6 @@ export interface AlbumRow {
   coverPhotoId: string | null;
   /** The crop of the cover the user chose; none when Lifer picked the cover. */
   coverCrop: Crop | null;
-  favourites: boolean;
 }
 
 export async function listAlbums(db: Db): Promise<AlbumRow[]> {
@@ -165,6 +180,7 @@ export async function listAlbums(db: Db): Promise<AlbumRow[]> {
   }>(
     `SELECT a.id, a.name, a.cover_photo_id AS chosen, a.cover_crop_x AS cx, a.cover_crop_y AS cy, a.cover_crop_size AS cs,
        COALESCE((SELECT c.photo_id FROM captures c WHERE c.photo_id = a.cover_photo_id AND c.hidden = 0),
+                (SELECT c.photo_id FROM captures c WHERE c.photo_id = a.hub_cover_photo_id AND c.hidden = 0),
                 (SELECT c.photo_id FROM album_captures ac JOIN captures c ON c.id = ac.capture_id
                   WHERE ac.album_id = a.id AND c.photo_id IS NOT NULL AND c.hidden = 0 AND c.kind = 'image'
                   ORDER BY c.rating DESC, c.taken_at DESC LIMIT 1)) AS cover,
@@ -179,12 +195,8 @@ export async function listAlbums(db: Db): Promise<AlbumRow[]> {
       count: Number(r.n),
       coverPhotoId: r.cover,
       coverCrop: r.cover && r.cover === r.chosen ? toCrop(r.cx, r.cy, r.cs) : null,
-      favourites: ["favourites", "favorites"].includes(r.name.trim().toLowerCase()),
     }))
-    .sort(
-      (a, b) =>
-        Number(b.favourites) - Number(a.favourites) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
-    );
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 }
 
 export const albumPhotos = (db: Db, albumId: string): Promise<GridPhoto[]> =>
@@ -238,8 +250,8 @@ export type PhotosToCount = "all" | "featured" | "top";
 
 const COUNTED: Record<PhotosToCount, string> = {
   all: "",
-  featured: "AND c.photo_id IN (SELECT cover_photo_id FROM marks WHERE cover_photo_id IS NOT NULL)",
-  top: "AND c.rating >= 4",
+  featured: `AND c.photo_id IN (${FEATURED_SQL})`,
+  top: "AND c.rating = 5",
 };
 
 export interface Stats {

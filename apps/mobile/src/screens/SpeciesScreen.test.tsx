@@ -16,7 +16,7 @@ describe("SpeciesScreen", () => {
     expect(seen.props.accessibilityState.checked).toBe(false);
     await fireEvent.press(seen);
     await waitFor(async () => expect((await getMark(h.db, "Cygnus columbianus"))?.state).toBe("seen"));
-    expect(await screen.findByText("Tundra Swan marked as seen")).toBeOnTheScreen();
+    expect(await screen.findByText("Marked Tundra Swan as seen")).toBeOnTheScreen();
     expect(screen.getByText("No photos of this species yet.")).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole("button", { name: "Undo" }));
     await waitFor(async () => expect((await getMark(h.db, "Cygnus columbianus"))?.state).toBeNull());
@@ -51,7 +51,7 @@ describe("SpeciesScreen", () => {
     const h = await harness({ mode: "standalone", seed: seedLife });
     await renderApp(page("Cygnus olor"), h);
     await screen.findByText("Mute Swan");
-    await barItem("Open in Collection").press();
+    await barItem("Show in Collection").press();
     expect(nav().navigate).toHaveBeenCalledWith("Tabs", { screen: "Collection" });
   });
 });

@@ -18,6 +18,8 @@ const sp = (
   photos: 0,
   coverPhotoId: null,
   lastTakenAt: null,
+  localTier: null,
+  worldTier: null,
   vagrant: false,
   ...o,
 });

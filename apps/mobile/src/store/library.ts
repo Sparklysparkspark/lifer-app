@@ -1,4 +1,5 @@
 import type { Db, Param } from "./db";
+import { FEATURED_SQL } from "./marks";
 
 export interface CaptureRow {
   id: string;
@@ -284,13 +285,12 @@ export async function applyMembers(
   }
 }
 
-/** The photos of the album named Favourites (any spelling of the name), best first. */
-export const favouritePhotoIds = async (db: Db): Promise<string[]> =>
+/** The Featured photos (species covers) still shown, best first. */
+export const featuredPhotoIds = async (db: Db): Promise<string[]> =>
   (
     await db.all<{ photo_id: string }>(
-      `SELECT DISTINCT c.photo_id FROM albums a JOIN album_captures ac ON ac.album_id = a.id
-       JOIN captures c ON c.id = ac.capture_id
-       WHERE (lower(a.name) = 'favourites' OR lower(a.name) = 'favorites') AND c.photo_id IS NOT NULL AND c.hidden = 0
+      `SELECT DISTINCT c.photo_id FROM captures c
+       WHERE c.photo_id IN (${FEATURED_SQL}) AND c.hidden = 0
        ORDER BY c.rating DESC, c.taken_at DESC`,
     )
   ).map((r) => r.photo_id);

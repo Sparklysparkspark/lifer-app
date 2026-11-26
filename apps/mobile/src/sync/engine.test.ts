@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { migratedDb } from "../store/testDb";
+import { memoryDb, migratedDb } from "../store/testDb";
+import { MIGRATIONS, migrate } from "../store/migrations";
 import { editMark, getMark } from "../store/marks";
-import { libraryPhotos } from "../store/library";
+import { applyAlbums, libraryPhotos } from "../store/library";
+import { listAlbums, listCollection } from "../store/browse";
 import { getMeta } from "../store/meta";
 import { listRegions, saveRegion } from "../store/regions";
 import { getRegionTree } from "./regionTree";
@@ -44,6 +46,8 @@ function fakeHub(
     offline?: boolean;
     regions?: { regionId: string | null; name: string; packIds: string[]; speciesCount: number }[];
     smart?: { id: string; captureIds: string[] }[];
+    covers?: { id: string; coverPhotoId: string | null }[];
+    checklists?: Record<string, object[]>;
     tree?: { id: string; name: string; parentId: string | null; depth: number; speciesCount: number }[];
   } = {},
 ) {
@@ -72,12 +76,13 @@ function fakeHub(
           geoprivacy: { spotDefault: "open" },
           regions: opts.regions ?? [],
         } as never;
-      if (url.pathname === "/companion/v1/albums/smart") return { albums: opts.smart ?? [] } as never;
+      if (url.pathname === "/companion/v1/albums/smart")
+        return { albums: opts.smart ?? [], ...(opts.covers ? { covers: opts.covers } : {}) } as never;
       if (url.pathname.endsWith("/checklist"))
         return {
           regionId: url.pathname.split("/")[3],
           name: "Norfolk",
-          items: [
+          items: opts.checklists?.[url.pathname.split("/")[3]] ?? [
             {
               scientificName: "Cygnus olor",
               commonName: "Mute Swan",
@@ -219,6 +224,113 @@ describe("preconfigured regions and smart albums", () => {
   });
 });
 
+describe("rarity by scope", () => {
+  const swan = (localTier: string | null, worldTier: string | null) => ({
+    scientificName: "Cygnus olor",
+    commonName: "Mute Swan",
+    taxonClass: "aves",
+    tier: localTier ?? worldTier,
+    localTier,
+    worldTier,
+    isVagrant: false,
+    sensitiveByDefault: false,
+  });
+
+  it("shows each region its own tier and Everywhere the worldwide one, whichever region synced last", async () => {
+    const db = await migratedDb();
+    const regions = ["r1", "r2"].map((id) => ({ regionId: id, name: id, packIds: [id], speciesCount: 1 }));
+    await runSync(
+      deps(
+        db,
+        fakeHub({ regions, checklists: { r1: [swan("rare", "common")], r2: [swan("uncommon", "common")] } }).api,
+      ),
+    );
+    const tiers = async (key: string | null) =>
+      (await listCollection(db, key)).map((r) => [r.tier, r.localTier, r.worldTier]);
+    expect(await tiers("hub:r1")).toEqual([["rare", "rare", "common"]]);
+    expect(await tiers("hub:r2")).toEqual([["uncommon", "uncommon", "common"]]);
+    expect(await tiers(null)).toEqual([["common", null, "common"]]);
+  });
+
+  it("refetches kept lists once after the update, so a stored per-region tier gives way to the worldwide one", async () => {
+    // What an older phone kept: one region's tier in the species row and the list's signature.
+    const db = memoryDb();
+    for (const m of MIGRATIONS.slice(0, 6)) await db.exec(m);
+    await db.exec("PRAGMA user_version = 6");
+    await db.run("INSERT INTO species (scientific_name, tier) VALUES ('Cygnus olor', 'rare')");
+    await db.run(
+      "INSERT INTO regions (key, name, source, hub_region_id, species_count, bytes, added_at) VALUES ('hub:r1', 'r1', 'hub', 'r1', 1, 1, 'x')",
+    );
+    await db.run("INSERT INTO region_species (region_key, scientific_name) VALUES ('hub:r1', 'Cygnus olor')");
+    await db.run(`INSERT INTO meta (key, value) VALUES ('regionSig.hub:r1', '"r1:1"')`);
+    await migrate(db);
+    const regions = [{ regionId: "r1", name: "r1", packIds: ["r1"], speciesCount: 1 }];
+    await runSync(deps(db, fakeHub({ regions, checklists: { r1: [swan("rare", "common")] } }).api));
+    expect((await listCollection(db, null))[0].tier).toBe("common");
+    expect((await listCollection(db, "hub:r1"))[0].tier).toBe("rare");
+  });
+
+  it("keeps the one tier an older hub sends", async () => {
+    const db = await migratedDb();
+    const { localTier: _l, worldTier: _w, ...old } = swan("rare", "common");
+    await runSync(
+      deps(
+        db,
+        fakeHub({
+          regions: [{ regionId: "r1", name: "r1", packIds: ["r1"], speciesCount: 1 }],
+          checklists: { r1: [old] },
+        }).api,
+      ),
+    );
+    expect((await listCollection(db, null))[0].tier).toBe("rare");
+  });
+});
+
+describe("album covers", () => {
+  it("shows the cover the desktop shows, and an older hub leaves the phone's own pick", async () => {
+    const db = await migratedDb();
+    const capture2 = { ...capture(2), takenAt: "2026-09-02T00:00:00Z" };
+    await runSync(deps(db, fakeHub({ captures: [capture(1), capture2] }).api));
+    await applyAlbums(db, [{ id: "a1", name: "Swans", coverPhotoId: null }], []);
+    await db.run("INSERT INTO album_captures (album_id, capture_id) VALUES ('a1', ?), ('a1', ?)", [
+      capture(1).id,
+      capture2.id,
+    ]);
+    await runSync(deps(db, fakeHub().api));
+    expect((await listAlbums(db))[0].coverPhotoId).toBe("p2");
+    await runSync(deps(db, fakeHub({ covers: [{ id: "a1", coverPhotoId: "p1" }] }).api));
+    expect((await listAlbums(db))[0].coverPhotoId).toBe("p1");
+  });
+});
+
+describe("needs a better photo", () => {
+  it("keeps the hub's mark, learns it for marks stored before, and sends it back only once known", async () => {
+    const db = await migratedDb();
+    const hub = fakeHub({ marks: [hubMark("Grus grus", { state: "seen" })] });
+    await runSync(deps(db, hub.api));
+    expect((await getMark(db, "Grus grus"))?.needsBetterPhoto).toBeNull();
+    // Same version, now with the field: taken once to learn it.
+    await runSync(deps(db, fakeHub({ marks: [hubMark("Grus grus", { state: "seen", needsBetterPhoto: true })] }).api));
+    expect((await getMark(db, "Grus grus"))?.needsBetterPhoto).toBe(true);
+
+    await editMark(db, "Grus grus", { isTarget: true }, NOW);
+    await editMark(db, "Anas crecca", { isTarget: true }, NOW);
+    const sent: Record<string, unknown>[] = [];
+    const api: SyncApi = {
+      get: fakeHub().api.get,
+      post: async (_p, body) => {
+        sent.push(...(body as { items: Record<string, unknown>[] }).items);
+        return { applied: {}, conflicts: [] } as never;
+      },
+    };
+    await runSync(deps(db, api));
+    expect(sent.find((i) => i.scientificName === "Grus grus")).toMatchObject({ needsBetterPhoto: true });
+    expect(JSON.parse(JSON.stringify(sent.find((i) => i.scientificName === "Anas crecca")))).not.toHaveProperty(
+      "needsBetterPhoto",
+    );
+  });
+});
+
 describe("push", () => {
   it("sends a queued mark with its base version and stores the new version", async () => {
     const db = await migratedDb();
@@ -342,6 +454,7 @@ describe("conflict rule and backoff", () => {
       cardCropX: null,
       cardCropY: null,
       cardCropSize: null,
+      needsBetterPhoto: null,
       hubVersion: "v1",
     };
     expect(resolveConflict(local, hubMark("a b", { state: null })).mark.state).toBe(null);

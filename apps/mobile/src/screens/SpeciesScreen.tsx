@@ -8,7 +8,7 @@ import { useNav, type RootParams } from "../navigation/types";
 import { HeroPager } from "../photos/HeroPager";
 import { PhotoGrid } from "../photos/PhotoGrid";
 import { referenceId, useReferenceCredit } from "../photos/reference";
-import { speciesFacts } from "../store/browse";
+import { regionTier, speciesFacts } from "../store/browse";
 import { speciesPhotos, type PhotoSort } from "../store/library";
 import { getMark, getSpecies } from "../store/marks";
 import { listRegions } from "../store/regions";
@@ -108,8 +108,9 @@ export function SpeciesScreen({ route }: { route: { params: RootParams["Species"
       all: await speciesPhotos(db, scientificName, sort),
       facts: await speciesFacts(db, scientificName),
       regions: await listRegions(db),
+      localTier: view.region ? await regionTier(db, view.region, scientificName) : null,
     }),
-    [scientificName, sort],
+    [scientificName, sort, view.region],
   );
   const species = data?.species ?? null;
   const target = {
@@ -184,11 +185,13 @@ export function SpeciesScreen({ route }: { route: { params: RootParams["Species"
   const photographed = species?.status === "photographed";
   const seenOn = species?.status === "seen" || photographed;
   const region = view.region ? data.regions.find((r) => r.key === view.region)?.name : null;
-  const tier = species?.tier
-    ? region
-      ? t("species.tierIn", { tier: t(TIER_LABEL[species.tier]), region })
-      : t(TIER_LABEL[species.tier])
-    : null;
+  // The region's own tier, then the worldwide one, named as such inside a region (U2).
+  const local = region && data.localTier && TIER_LABEL[data.localTier] ? data.localTier : null;
+  const world = species?.tier && TIER_LABEL[species.tier] ? species.tier : null;
+  const tiers = [
+    local ? t("species.tierIn", { tier: t(TIER_LABEL[local]), region }) : null,
+    world ? (region ? t("species.tierWorldwide", { tier: t(TIER_LABEL[world]) }) : t(TIER_LABEL[world])) : null,
+  ].filter((x): x is string => !!x);
   // The card photo leads, as the hub's square of it; the others follow by rating.
   const cover =
     species?.coverPhotoId && photos.some((p) => p.photoId === species.coverPhotoId) ? species.coverPhotoId : null;
@@ -263,8 +266,9 @@ export function SpeciesScreen({ route }: { route: { params: RootParams["Species"
                     {t(group.label)}
                   </Text>
                 </View>
-                {tier ? (
+                {tiers.map((tier) => (
                   <View
+                    key={tier}
                     style={{
                       paddingHorizontal: 7,
                       paddingVertical: 2,
@@ -284,7 +288,7 @@ export function SpeciesScreen({ route }: { route: { params: RootParams["Species"
                       {tier}
                     </Text>
                   </View>
-                ) : null}
+                ))}
               </View>
             </View>
 
@@ -319,10 +323,11 @@ export function SpeciesScreen({ route }: { route: { params: RootParams["Species"
                   value={facts.firstPhotographed ? dateText(t, facts.firstPhotographed) : t("species.none")}
                 />
                 <ListRow
-                  title={t("species.lastSeen")}
+                  title={t("species.latestPhoto")}
                   value={facts.lastSeen ? dateText(t, facts.lastSeen) : t("species.none")}
                 />
                 <ListRow title={t("species.photosLabel")} value={String(facts.photos)} />
+                {mark?.needsBetterPhoto ? <ListRow title={t("species.needsBetter")} /> : null}
               </InsetGroup>
             </View>
 

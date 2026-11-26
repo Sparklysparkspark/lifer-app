@@ -8,7 +8,7 @@ import { useFeatured } from "../photos/CachedTile";
 import { listAlbums, type AlbumRow } from "../store/browse";
 import { radius, type } from "../theme/theme";
 import { useTheme } from "../theme/useTheme";
-import { CroppedImage, EmptyState, Glass, Icon, Segmented, Tap } from "../ui";
+import { CroppedImage, EmptyState, Icon, Segmented, Tap } from "../ui";
 import { TripsScreen } from "./TripsScreen";
 import { ALBUM_ARRANGE_LABEL } from "../labels";
 
@@ -35,15 +35,6 @@ function Cover({ album, onPress }: { album: AlbumRow; onPress: () => void }) {
         ) : (
           <Icon name="albums" size={40} color={colors.muted} weight="regular" />
         )}
-        {album.favourites ? (
-          <View style={{ position: "absolute", left: 8, bottom: 8 }}>
-            <Glass style={{ width: 28, height: 28, borderRadius: 14, overflow: "hidden" }}>
-              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                <Icon name="favourite" size={14} color={colors.ink} weight="semibold" />
-              </View>
-            </Glass>
-          </View>
-        ) : null}
       </View>
       <Text style={{ color: colors.ink, fontSize: type.subheadline.size, fontWeight: "600", marginTop: 6 }}>
         {album.name}
@@ -85,10 +76,7 @@ function AlbumsList({ header }: { header: ReactNode }) {
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     const rows = (data ?? []).filter((a) => !q || a.name.toLowerCase().includes(q));
-    // Favourites always lead; the rest follow the choice.
-    return arrange === "count"
-      ? [...rows].sort((a, b) => Number(b.favourites) - Number(a.favourites) || b.count - a.count)
-      : rows;
+    return arrange === "count" ? [...rows].sort((a, b) => b.count - a.count) : rows;
   }, [data, query, arrange]);
   const columns = width >= 700 ? 4 : 2;
   // Whole rows only, so the last row's cover keeps its width.

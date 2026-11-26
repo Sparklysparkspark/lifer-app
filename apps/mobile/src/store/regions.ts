@@ -17,13 +17,56 @@ export interface RegionSpecies {
   scientificName: string;
   commonName: string | null;
   taxonClass: string | null;
+  /** The worldwide tier; from a hub that predates localTier, the one tier it sent for this region. */
   tier: string | null;
+  /** This region's own tier; undefined when the source has none to give (a pack, an older hub). */
+  localTier?: string | null;
+  tierReason?: string | null;
+  localTierReason?: string | null;
   vagrant: boolean;
   sensitive: boolean;
   /** For group words in search ("predators"); absent until the hub sends them. */
   taxonOrder?: string | null;
   family?: string | null;
 }
+
+/** A region's checklist as GET /sync/regions/:id/checklist sends it. */
+export interface HubChecklist {
+  name: string;
+  items: {
+    scientificName: string;
+    commonName: string | null;
+    taxonClass: string;
+    tier: string | null;
+    localTier?: string | null;
+    worldTier?: string | null;
+    tierReason?: string | null;
+    localTierReason?: string | null;
+    isVagrant: boolean;
+    sensitiveByDefault: boolean;
+    taxonOrder?: string | null;
+    family?: string | null;
+  }[];
+}
+
+export const hubChecklistSpecies = (list: HubChecklist): RegionSpecies[] =>
+  list.items.map((i) => ({
+    scientificName: i.scientificName,
+    commonName: i.commonName,
+    taxonClass: i.taxonClass,
+    ...(i.worldTier !== undefined
+      ? {
+          tier: i.worldTier,
+          localTier: i.localTier ?? null,
+          tierReason: i.tierReason,
+          localTierReason: i.localTierReason,
+        }
+      : { tier: i.tier }),
+    vagrant: i.isVagrant,
+    sensitive: i.sensitiveByDefault,
+    taxonOrder: i.taxonOrder,
+    family: i.family,
+  }));
 
 /** Keeps a region's checklist offline (replacing any earlier copy) and teaches the species table its names. */
 export async function saveRegion(
@@ -37,14 +80,19 @@ export async function saveRegion(
   await inBatches(items, 200, (batch) =>
     db.tx(async () => {
       for (const s of batch) {
+        // A worldwide tier is the same whichever region sends it, so it replaces what is stored (which
+        // an older hub filled with one region's tier); a source with no scoped tiers only fills a gap.
+        const scoped = s.localTier !== undefined;
         await db.run(
-          `INSERT INTO species (scientific_name, common_name, taxon_class, tier, sensitive, taxon_order, family)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO species (scientific_name, common_name, taxon_class, tier, sensitive, taxon_order, family, tier_reason)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (scientific_name) DO UPDATE SET common_name = COALESCE(excluded.common_name, species.common_name),
              taxon_class = COALESCE(excluded.taxon_class, species.taxon_class),
              taxon_order = COALESCE(excluded.taxon_order, species.taxon_order),
              family = COALESCE(excluded.family, species.family),
-             tier = COALESCE(excluded.tier, species.tier), sensitive = MAX(species.sensitive, excluded.sensitive)`,
+             tier = CASE WHEN ? THEN excluded.tier ELSE COALESCE(excluded.tier, species.tier) END,
+             tier_reason = CASE WHEN ? THEN excluded.tier_reason ELSE species.tier_reason END,
+             sensitive = MAX(species.sensitive, excluded.sensitive)`,
           [
             s.scientificName,
             s.commonName,
@@ -53,13 +101,15 @@ export async function saveRegion(
             s.sensitive ? 1 : 0,
             s.taxonOrder ?? null,
             s.family ?? null,
+            s.tierReason ?? null,
+            scoped ? 1 : 0,
+            scoped ? 1 : 0,
           ],
         );
-        await db.run("INSERT OR REPLACE INTO region_species (region_key, scientific_name, vagrant) VALUES (?, ?, ?)", [
-          region.key,
-          s.scientificName,
-          s.vagrant ? 1 : 0,
-        ]);
+        await db.run(
+          "INSERT OR REPLACE INTO region_species (region_key, scientific_name, vagrant, tier, tier_reason) VALUES (?, ?, ?, ?, ?)",
+          [region.key, s.scientificName, s.vagrant ? 1 : 0, s.localTier ?? null, s.localTierReason ?? null],
+        );
       }
     }),
   );

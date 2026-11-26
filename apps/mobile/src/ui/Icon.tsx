@@ -18,7 +18,7 @@ export const ICONS = {
   target: { ios: "scope", android: "my_location" },
   seen: { ios: "eye", android: "visibility" },
   photographed: { ios: "checkmark.circle.fill", android: "check_circle" },
-  favourite: { ios: "heart", android: "favorite" },
+  featured: { ios: "star", android: "star" },
   share: { ios: "square.and.arrow.up", android: "share" },
   info: { ios: "info.circle", android: "info" },
   camera: { ios: "camera", android: "photo_camera" },

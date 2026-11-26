@@ -26,7 +26,7 @@ interface GalleryView {
   /** By date (month headings with the place) or one continuous grid. */
   layout: "date" | "continuous";
   aspect: boolean;
-  favourites: boolean;
+  featured: boolean;
   group: GroupId | null;
   trip: string | null;
   year: string | null;
@@ -35,7 +35,7 @@ const DEFAULT: GalleryView = {
   columns: 3,
   layout: "date",
   aspect: false,
-  favourites: false,
+  featured: false,
   group: null,
   trip: null,
   year: null,
@@ -90,7 +90,7 @@ export function GalleryScreen() {
   }));
 
   const filter: LibraryFilter = {
-    favourites: view.favourites || undefined,
+    featured: view.featured || undefined,
     taxonClasses: view.group ? classesOf(view.group) : undefined,
     tripId: view.trip ?? undefined,
     year: view.year ?? undefined,
@@ -191,15 +191,15 @@ export function GalleryScreen() {
               {
                 type: "action",
                 label: t("gallery.allPhotos"),
-                checked: !view.favourites,
-                onPress: () => update({ favourites: false }),
+                checked: !view.featured,
+                onPress: () => update({ featured: false }),
               },
               {
                 type: "action",
-                label: t("gallery.favourites"),
-                checked: view.favourites,
-                icon: "favourite",
-                onPress: () => update({ favourites: true }),
+                label: t("gallery.featured"),
+                checked: view.featured,
+                icon: "featured",
+                onPress: () => update({ featured: true }),
               },
             ],
           },
@@ -329,7 +329,7 @@ export function GalleryScreen() {
             variant="plain"
             compact
             label={t("collection.clearFilters")}
-            onPress={() => update({ favourites: false, group: null, trip: null, year: null })}
+            onPress={() => update({ featured: false, group: null, trip: null, year: null })}
           />
         ) : null}
       </View>

@@ -1,5 +1,5 @@
 // What a paired phone needs beyond the sync feeds: the photos of each smart album (the feeds carry
-// only its rules) and the reference photo of a species with none of the person's own. Routes take
+// only its rules), every album's cover as the desktop shows it, and the reference photo of a species with none of the person's own. Routes take
 // a device key ("companion"); a species goes by its scientific name with every character outside
 // letters, digits and "-" turned into "_", the only form the desktop listener passes in a path.
 import { existsSync } from "node:fs";
@@ -8,7 +8,8 @@ import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
 import { downloadAndCacheImage } from "@lifer/core/species/lazyEnrich.js";
 import { requireScope } from "../auth/session.js";
-import { smartAlbumCaptureIds } from "../albums/routes.js";
+import { albumMembers, autoCover } from "../albums/routes.js";
+import { AUTO_COVER_ORDER } from "../lib/bestPhotoOrder.js";
 import { Nullable, Open, replies, withSchemas } from "../lib/schema.js";
 import { queueReferenceDownload, sendReferenceFile } from "../species/referencePhotos.js";
 
@@ -44,19 +45,56 @@ export async function phoneLibraryRoutes(fastify: FastifyInstance): Promise<void
       preValidation: scope,
       schema: {
         response: replies(
-          Open({ albums: Type.Array(Type.Object({ id: Type.String(), captureIds: Type.Array(Type.String()) })) }),
+          Open({
+            albums: Type.Array(Type.Object({ id: Type.String(), captureIds: Type.Array(Type.String()) })),
+            covers: Type.Array(Type.Object({ id: Type.String(), coverPhotoId: Nullable(Type.String()) }), {
+              description:
+                "Every album's cover as the desktop shows it: the stored pick (the user's or Lifer's own), else Lifer's live choice",
+            }),
+          }),
         ),
       },
     },
     async (request) => {
       const userId = request.user!.id;
-      const ids = (
-        await pool.query<{ id: string }>(`SELECT id FROM albums WHERE user_id = $1 AND rules IS NOT NULL`, [userId])
+      // Mirrors GET /albums without its clean-up writes: a pick whose capture is trashed, or that a
+      // smart album's rules no longer match, gives way to the automatic cover.
+      const rows = (
+        await pool.query<{
+          id: string;
+          smart: boolean;
+          picked: string | null;
+          picked_capture: string | null;
+          fallback: string | null;
+        }>(
+          `SELECT a.id, a.rules IS NOT NULL AS smart, cover_p.id AS picked, cover_p.capture_id AS picked_capture,
+                  fallback.photo_id AS fallback
+             FROM albums a
+             LEFT JOIN LATERAL (
+               SELECT p.id, c.id AS capture_id FROM photos p JOIN captures c ON c.id = p.capture_id WHERE p.id = a.cover_photo_id
+             ) cover_p ON true
+             LEFT JOIN LATERAL (
+               SELECT c.current_photo_id AS photo_id FROM album_captures ac JOIN captures c ON c.id = ac.capture_id
+                WHERE ac.album_id = a.id AND c.current_photo_id IS NOT NULL
+                ORDER BY ${AUTO_COVER_ORDER} LIMIT 1
+             ) fallback ON true
+            WHERE a.user_id = $1 ORDER BY a.id`,
+          [userId],
+        )
       ).rows;
       const albums = [];
-      for (const { id } of ids)
-        albums.push({ id, captureIds: (await smartAlbumCaptureIds(id, userId, new Set())) ?? [] });
-      return { albums };
+      const covers = [];
+      for (const r of rows) {
+        if (!r.smart) {
+          covers.push({ id: r.id, coverPhotoId: r.picked ?? r.fallback });
+          continue;
+        }
+        const items = await albumMembers(r.id, userId);
+        albums.push({ id: r.id, captureIds: items.map((i) => i.capture_id) });
+        const picked = r.picked && items.some((i) => i.capture_id === r.picked_capture) ? r.picked : null;
+        covers.push({ id: r.id, coverPhotoId: picked ?? autoCover(items) });
+      }
+      return { albums, covers };
     },
   );
 

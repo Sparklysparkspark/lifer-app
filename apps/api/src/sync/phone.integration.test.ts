@@ -303,11 +303,52 @@ describe.skipIf(!url)("phone sync routes", () => {
         commonName: "Alpha Bird",
         ebirdCode: "alpbir",
         tier: "rare",
+        localTier: null,
+        worldTier: "rare",
         isVagrant: false,
       }),
       expect.objectContaining({ scientificName: "Zzphone beta", tier: null, isVagrant: true }),
     ]);
     expect((await get("/sync/regions/eeeeeeee-0000-4000-8000-0000000009ff/checklist")).statusCode).toBe(404);
+  });
+
+  it("sends each region's own tier beside the worldwide one, so a phone never shows one region's tier elsewhere", async () => {
+    const OTHER = "eeeeeeee-0000-4000-8000-00000000096f";
+    await db.query(`INSERT INTO regions (id, name) VALUES ($1, 'Zzphoneother')`, [OTHER]);
+    await db.query(`UPDATE species_rarity SET tier_reason = 'computed' WHERE species_id = $1`, [SPECIES]);
+    await db.query(
+      `UPDATE region_species SET local_tier = 'legendary', tier_reason = 'few_records' WHERE region_id = $1 AND species_id = $2`,
+      [REGION, SPECIES],
+    );
+    await db.query(
+      `INSERT INTO region_species (region_id, species_id, local_tier, is_vagrant, is_invasive) VALUES ($1, $2, 'common', false, false)`,
+      [OTHER, SPECIES],
+    );
+    const alpha = async (region: string) =>
+      (await get(`/sync/regions/${region}/checklist`))
+        .json()
+        .items.find((i: { scientificName: string }) => i.scientificName === "Zzphone alpha");
+    try {
+      expect(await alpha(REGION)).toMatchObject({
+        tier: "legendary",
+        localTier: "legendary",
+        worldTier: "rare",
+        localTierReason: "few_records",
+        tierReason: "computed",
+      });
+      expect(await alpha(OTHER)).toMatchObject({ tier: "common", localTier: "common", worldTier: "rare" });
+      // The user's own tier wins on every scope, as on the desktop.
+      await db.query(`INSERT INTO user_tier_overrides (user_id, species_id, tier) VALUES ($1, $2, 'uncommon')`, [
+        USER,
+        SPECIES,
+      ]);
+      expect(await alpha(REGION)).toMatchObject({ tier: "uncommon", localTier: "uncommon", worldTier: "uncommon" });
+    } finally {
+      await db.query(`DELETE FROM user_tier_overrides WHERE user_id = $1`, [USER]);
+      await db.query(`UPDATE region_species SET local_tier = NULL, tier_reason = NULL WHERE region_id = $1`, [REGION]);
+      await db.query(`UPDATE species_rarity SET tier_reason = NULL WHERE species_id = $1`, [SPECIES]);
+      await db.query(`DELETE FROM regions WHERE id = $1`, [OTHER]);
+    }
   });
 
   it("gives the region tree: regions with a species list, their ancestors, depth and own species count", async () => {

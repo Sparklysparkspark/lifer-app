@@ -1,5 +1,5 @@
 // The phone's photo copies. Thumbnails (400 px) live under a cap, least recently used first out;
-// the showcase (2048 px covers and Favourites, and the 1024 px squares of cards and covers) is kept; a full-size render lives for an hour.
+// the showcase (2048 px covers and Featured photos, and the 1024 px squares of cards and covers) is kept; a full-size render lives for an hour.
 // Files and the network are injected (expoMedia.ts), so the rules here run in plain tests.
 import type { Db } from "../store/db";
 import { SPECIES_SQL } from "../store/marks";
@@ -168,11 +168,12 @@ export async function fetchMedia(d: MediaDeps, kind: MediaKind, photoId: string)
 export const ESTIMATED_SHOWCASE_BYTES = 750 * 1024;
 
 /**
- * The showcase: every species' cover photo and the Favourites album, or Favourites only. Ids with no
- * copy yet, covers first. The size to show before the person turns it on is count * 750 KB.
+ * The showcase: every species' cover photo (the best photo where none is set) and the Featured photos,
+ * or Featured only. Ids with no copy yet, covers first. The size to show before the person turns it on
+ * is count * 750 KB.
  */
-export async function showcaseMissing(d: MediaDeps, favourites: string[]): Promise<{ ids: string[]; total: number }> {
-  const covers = d.settings().showcaseFavouritesOnly
+export async function showcaseMissing(d: MediaDeps, featured: string[]): Promise<{ ids: string[]; total: number }> {
+  const covers = d.settings().showcaseFeaturedOnly
     ? []
     : (
         await d.db.all<{ id: string }>(
@@ -181,7 +182,7 @@ export async function showcaseMissing(d: MediaDeps, favourites: string[]): Promi
       )
         .map((r) => r.id)
         .filter((id) => id !== null);
-  const all = [...new Set([...covers, ...favourites])];
+  const all = [...new Set([...covers, ...featured])];
   const have = new Set(
     (await d.db.all<{ photo_id: string }>("SELECT photo_id FROM media WHERE kind = 'phone'")).map((r) => r.photo_id),
   );

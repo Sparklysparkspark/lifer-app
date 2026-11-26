@@ -7,22 +7,17 @@ import { useSheetHeader } from "../navigation/useHeader";
 import { fetchPackIndex } from "../standalone/indexFile";
 import { listPackRegions, packChecklist, type PackIndex } from "../standalone/packs";
 import { getMeta } from "../store/meta";
-import { BYTES_PER_SPECIES, listRegions, regionKeyForHub, regionKeyForPack, saveRegion } from "../store/regions";
+import {
+  BYTES_PER_SPECIES,
+  hubChecklistSpecies,
+  listRegions,
+  regionKeyForHub,
+  regionKeyForPack,
+  saveRegion,
+  type HubChecklist,
+} from "../store/regions";
 import type { Preferences } from "../sync/engine";
 import { Body, Button, GroupFooter, InlineError, InsetGroup, ListRow, Note, Screen, Spinner, TextField } from "../ui";
-
-interface Checklist {
-  regionId: string;
-  name: string;
-  items: {
-    scientificName: string;
-    commonName: string | null;
-    taxonClass: string;
-    tier: string | null;
-    isVagrant: boolean;
-    sensitiveByDefault: boolean;
-  }[];
-}
 
 /** Keep another region's species list on the phone. The size is shown before anything is downloaded. */
 export function AddRegionScreen() {
@@ -46,18 +41,11 @@ export function AddRegionScreen() {
     setBusy(regionId);
     setError(null);
     try {
-      const list = await app.api!.get<Checklist>(`/sync/regions/${regionId}/checklist`);
+      const list = await app.api!.get<HubChecklist>(`/sync/regions/${regionId}/checklist`);
       await saveRegion(
         app.db,
         { key: regionKeyForHub(regionId), name: list.name, source: "hub", hubRegionId: regionId },
-        list.items.map((i) => ({
-          scientificName: i.scientificName,
-          commonName: i.commonName,
-          taxonClass: i.taxonClass,
-          tier: i.tier,
-          vagrant: i.isVagrant,
-          sensitive: i.sensitiveByDefault,
-        })),
+        hubChecklistSpecies(list),
         new Date(),
       );
       app.bump();

@@ -84,6 +84,23 @@ describe("gallery reads", () => {
     expect(all[0]).toMatchObject({ width: 100, height: 80, name: "Alpha" });
     expect((await libraryShapes(db, { year: "2025" })).map((p) => p.photoId)).toEqual(["p-3"]);
     expect(await libraryShapes(db, { taxonClasses: ["mammalia"] })).toEqual([]);
+    expect(await libraryShapes(db, { featured: true })).toEqual([]);
+    await applyHubMark(
+      db,
+      {
+        scientificName: "A a",
+        state: "collected",
+        isTarget: false,
+        coverPhotoId: "p-1",
+        firstCollected: null,
+        bestQuality: null,
+        cardCropX: null,
+        cardCropY: null,
+        cardCropSize: null,
+      },
+      new Date(),
+    );
+    expect((await libraryShapes(db, { featured: true })).map((p) => p.photoId)).toEqual(["p-1"]);
     expect(await monthPlaces(db)).toEqual({ "2026-05": "Tofino" });
   });
   it("describes one photo with its albums", async () => {
@@ -101,7 +118,7 @@ describe("gallery reads", () => {
 });
 
 describe("albums", () => {
-  it("counts, picks a cover, puts Favourites first and lists an album's photos", async () => {
+  it("counts, picks a cover (the desktop's when the hub sent it) and lists an album's photos by name", async () => {
     const db = await life();
     await applyAlbums(
       db,
@@ -121,11 +138,16 @@ describe("albums", () => {
       [],
     );
     const list = await listAlbums(db);
-    expect(list.map((a) => [a.name, a.count, a.favourites])).toEqual([
-      ["favourites", 1, true],
-      ["Zed", 2, false],
+    expect(list.map((a) => [a.name, a.count])).toEqual([
+      ["favourites", 1],
+      ["Zed", 2],
     ]);
-    expect(list[1].coverPhotoId).toMatch(/^p-/);
+    expect(list[1].coverPhotoId).toBe("p-2");
+    await db.run("UPDATE albums SET hub_cover_photo_id = 'p-1' WHERE id = 'z'");
+    expect((await listAlbums(db))[1].coverPhotoId).toBe("p-1");
+    // One the phone does not hold (hidden or not yet synced) falls back to the phone's pick.
+    await db.run("UPDATE albums SET hub_cover_photo_id = 'p-gone' WHERE id = 'z'");
+    expect((await listAlbums(db))[1].coverPhotoId).toBe("p-2");
     expect((await albumPhotos(db, "z")).map((p) => p.photoId)).toEqual(["p-2", "p-1"]);
   });
 });

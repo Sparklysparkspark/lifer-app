@@ -14,6 +14,8 @@ export interface Mark {
   cardCropX: number | null;
   cardCropY: number | null;
   cardCropSize: number | null;
+  /** The hub's Needs a better photo mark; null until the hub has sent it, and then never sent back. */
+  needsBetterPhoto: boolean | null;
   /** The hub's version of this mark as last seen; null if it never had one. */
   hubVersion: string | null;
 }
@@ -28,6 +30,7 @@ interface MarkRow {
   card_crop_x: number | null;
   card_crop_y: number | null;
   card_crop_size: number | null;
+  needs_better_photo: number | null;
   hub_version: string | null;
 }
 
@@ -41,6 +44,7 @@ const fromRow = (r: MarkRow): Mark => ({
   cardCropX: r.card_crop_x,
   cardCropY: r.card_crop_y,
   cardCropSize: r.card_crop_size,
+  needsBetterPhoto: r.needs_better_photo === null ? null : !!r.needs_better_photo,
   hubVersion: r.hub_version,
 });
 
@@ -50,12 +54,13 @@ export async function getMark(db: Db, scientificName: string): Promise<Mark | nu
 }
 
 const UPSERT = `INSERT INTO marks (scientific_name, state, is_target, cover_photo_id, first_collected, best_quality,
-    card_crop_x, card_crop_y, card_crop_size, hub_version, local_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    card_crop_x, card_crop_y, card_crop_size, needs_better_photo, hub_version, local_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT (scientific_name) DO UPDATE SET state = excluded.state, is_target = excluded.is_target,
     cover_photo_id = excluded.cover_photo_id, first_collected = excluded.first_collected,
     best_quality = excluded.best_quality, card_crop_x = excluded.card_crop_x, card_crop_y = excluded.card_crop_y,
-    card_crop_size = excluded.card_crop_size, hub_version = excluded.hub_version, local_at = excluded.local_at`;
+    card_crop_size = excluded.card_crop_size, needs_better_photo = excluded.needs_better_photo,
+    hub_version = excluded.hub_version, local_at = excluded.local_at`;
 
 async function write(db: Db, m: Mark, now: string): Promise<void> {
   await db.run("INSERT OR IGNORE INTO species (scientific_name) VALUES (?)", [m.scientificName]);
@@ -69,6 +74,7 @@ async function write(db: Db, m: Mark, now: string): Promise<void> {
     m.cardCropX,
     m.cardCropY,
     m.cardCropSize,
+    m.needsBetterPhoto === null ? null : m.needsBetterPhoto ? 1 : 0,
     m.hubVersion,
     now,
   ]);
@@ -84,6 +90,7 @@ const blank = (scientificName: string): Mark => ({
   cardCropX: null,
   cardCropY: null,
   cardCropSize: null,
+  needsBetterPhoto: null,
   hubVersion: null,
 });
 
@@ -107,16 +114,23 @@ export async function editMark(
 /** The hub's copy of a mark, taken as is. Never called for a mark with an edit still queued. */
 export async function applyHubMark(
   db: Db,
-  hub: Omit<Mark, "hubVersion"> & { updatedAt?: string | null },
+  hub: Omit<Mark, "hubVersion" | "needsBetterPhoto"> & { needsBetterPhoto?: boolean | null; updatedAt?: string | null },
   now: Date,
 ): Promise<void> {
-  const { updatedAt, ...rest } = hub;
-  await write(db, { ...rest, hubVersion: updatedAt ?? null }, now.toISOString());
+  const { updatedAt, needsBetterPhoto, ...rest } = hub;
+  await write(
+    db,
+    { ...rest, needsBetterPhoto: needsBetterPhoto ?? null, hubVersion: updatedAt ?? null },
+    now.toISOString(),
+  );
   await db.run("DELETE FROM outbox WHERE kind = 'mark' AND ref = ?", [hub.scientificName]);
 }
 
 /** Whether the mark has no information worth keeping (neither seen nor a target). */
-export const isBlank = (m: Mark): boolean => m.state === null && !m.isTarget;
+export const isBlank = (m: Pick<Mark, "state" | "isTarget">): boolean => m.state === null && !m.isTarget;
+
+/** Featured photos, as the desktop counts them: each species' cover. */
+export const FEATURED_SQL = "SELECT cover_photo_id FROM marks WHERE cover_photo_id IS NOT NULL";
 
 export interface SpeciesRow {
   scientificName: string;

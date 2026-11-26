@@ -4,7 +4,7 @@ import { MIGRATIONS, migrate } from "./migrations";
 import { editMark, getMark, listSpecies, speciesCounts } from "./marks";
 import {
   applyCaptureChanges,
-  favouritePhotoIds,
+  featuredPhotoIds,
   libraryPhotos,
   applyAlbums,
   applyMembers,
@@ -147,12 +147,20 @@ describe("captures", () => {
     expect((await photosForSpecies(db, [], "100%")).length).toBe(0);
   });
 
-  it("finds the Favourites album's photos", async () => {
+  it("finds the Featured photos: species covers, not an album named Favourites", async () => {
     const db = await migratedDb();
-    await applyCaptureChanges(db, [cap("1", "A a", "2026-01-01T00:00:00Z")], []);
+    await applyCaptureChanges(
+      db,
+      [cap("1", "A a", "2026-01-01T00:00:00Z"), cap("2", "A a", "2026-01-02T00:00:00Z")],
+      [],
+    );
     await applyAlbums(db, [{ id: "al", name: "Favourites", coverPhotoId: null }], []);
-    await applyMembers(db, [{ albumId: "al", captureId: "1" }], []);
-    expect(await favouritePhotoIds(db)).toEqual(["p-1"]);
+    await applyMembers(db, [{ albumId: "al", captureId: "2" }], []);
+    expect(await featuredPhotoIds(db)).toEqual([]);
+    await db.run(
+      "INSERT INTO marks (scientific_name, state, cover_photo_id, local_at) VALUES ('A a', 'collected', 'p-1', 'x')",
+    );
+    expect(await featuredPhotoIds(db)).toEqual(["p-1"]);
   });
 });
 

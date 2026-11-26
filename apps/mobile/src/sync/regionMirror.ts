@@ -3,23 +3,16 @@
 // group the person picked in the region picker is kept the same way while the hub still lists it in its tree.
 import type { Db } from "../store/db";
 import { deleteMeta, getMeta, setMeta } from "../store/meta";
-import { listRegions, regionKeyForHub, removeRegion, saveRegion } from "../store/regions";
+import {
+  hubChecklistSpecies,
+  listRegions,
+  regionKeyForHub,
+  removeRegion,
+  saveRegion,
+  type HubChecklist,
+} from "../store/regions";
 import type { Preferences, SyncApi } from "./engine";
 import type { TreeNode } from "./regionTree";
-
-interface Checklist {
-  items: {
-    scientificName: string;
-    commonName: string | null;
-    taxonClass: string;
-    tier: string | null;
-    isVagrant: boolean;
-    sensitiveByDefault: boolean;
-    taxonOrder?: string | null;
-    family?: string | null;
-  }[];
-  name: string;
-}
 
 const sigKey = (key: string) => `regionSig.${key}`;
 
@@ -55,20 +48,11 @@ export async function mirrorRegions(
     const have = (await listRegions(d.db)).some((x) => x.key === key);
     if (have && (await getMeta<string>(d.db, sigKey(key))) === sig) continue;
     try {
-      const list = await d.api.get<Checklist>(`/sync/regions/${r.regionId}/checklist`, 60_000);
+      const list = await d.api.get<HubChecklist>(`/sync/regions/${r.regionId}/checklist`, 60_000);
       await saveRegion(
         d.db,
         { key, name: list.name, source: "hub", hubRegionId: r.regionId },
-        list.items.map((i) => ({
-          scientificName: i.scientificName,
-          commonName: i.commonName,
-          taxonClass: i.taxonClass,
-          tier: i.tier,
-          vagrant: i.isVagrant,
-          sensitive: i.sensitiveByDefault,
-          taxonOrder: i.taxonOrder,
-          family: i.family,
-        })),
+        hubChecklistSpecies(list),
         d.now(),
       );
       await setMeta(d.db, sigKey(key), sig);

@@ -126,17 +126,17 @@ describe("showcase", () => {
     photo: { id: photo, width: 1, height: 1, kind: "image" },
   });
 
-  it("is one cover per species plus Favourites, minus what is already saved", async () => {
+  it("is one cover per species plus Featured, minus what is already saved", async () => {
     const { deps, db } = await setup();
     await applyCaptureChanges(db, [cap("1", "A a", 3), cap("2", "A a", 5), cap("3", "B b", null)], []);
     await fetchMedia(deps, "phone", "p-2");
-    const plan = await showcaseMissing(deps, ["p-fav"]);
+    const plan = await showcaseMissing(deps, ["p-feat"]);
     expect(plan.total).toBe(3);
-    expect(plan.ids.sort()).toEqual(["p-3", "p-fav"]);
+    expect(plan.ids.sort()).toEqual(["p-3", "p-feat"]);
   });
 
-  it("can be limited to Favourites and cleared", async () => {
-    const { deps, db } = await setup({ showcaseFavouritesOnly: true });
+  it("can be limited to Featured and cleared", async () => {
+    const { deps, db } = await setup({ showcaseFeaturedOnly: true });
     await applyCaptureChanges(db, [cap("1", "A a", 3)], []);
     expect((await showcaseMissing(deps, ["f"])).ids).toEqual(["f"]);
     await fetchMedia(deps, "phone", "f");

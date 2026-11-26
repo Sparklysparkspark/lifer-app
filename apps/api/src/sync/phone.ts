@@ -65,7 +65,13 @@ const Checklist = Open({
       taxonOrder: Nullable(Type.String()),
       family: Nullable(Type.String()),
       ebirdCode: Nullable(Type.String()),
-      tier: Nullable(Type.String()),
+      tier: Nullable(
+        Type.String({ description: "The user's tier, else this region's, else worldwide: kept for older phones" }),
+      ),
+      localTier: Nullable(Type.String({ description: "The user's tier, else this region's own" })),
+      worldTier: Nullable(Type.String({ description: "The user's tier, else the worldwide one" })),
+      localTierReason: Nullable(Type.String({ description: "Why this region's tier is missing or how it was set" })),
+      tierReason: Nullable(Type.String({ description: "Why the worldwide tier is missing or how it was set" })),
       isVagrant: Type.Boolean(),
       sensitiveByDefault: Type.Boolean({ description: "Threatened on the IUCN Red List or on eBird's sensitive list" }),
     }),
@@ -224,7 +230,8 @@ export async function phoneSyncRoutes(fastify: FastifyInstance): Promise<void> {
       if (!region.rows[0]) return reply.code(404).send({ error: "Region not found" });
       const res = await pool.query(
         `SELECT s.scientific_name, s.common_name, s.taxon_class, s.taxon_order, s.family, s.ebird_code, rs.is_vagrant,
-                COALESCE(o.tier, rs.local_tier, sr.tier) AS tier,
+                COALESCE(o.tier, rs.local_tier, sr.tier) AS tier, COALESCE(o.tier, rs.local_tier) AS local_tier,
+                COALESCE(o.tier, sr.tier) AS world_tier, rs.tier_reason AS local_tier_reason, sr.tier_reason,
                 (COALESCE(st.iucn_status = ANY($3::text[]), false) OR s.scientific_name = ANY($4::text[])) AS sensitive
            FROM region_species rs
            JOIN species s ON s.id = rs.species_id
@@ -246,6 +253,10 @@ export async function phoneSyncRoutes(fastify: FastifyInstance): Promise<void> {
           family: r.family,
           ebirdCode: r.ebird_code,
           tier: r.tier,
+          localTier: r.local_tier,
+          worldTier: r.world_tier,
+          localTierReason: r.local_tier_reason,
+          tierReason: r.tier_reason,
           isVagrant: r.is_vagrant,
           sensitiveByDefault: r.sensitive,
         })),
