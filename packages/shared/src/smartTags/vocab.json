@@ -1,0 +1,5316 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "id": "subject",
+      "root": "Subject",
+      "kind": "pick-one",
+      "cap": 1,
+      "none": true,
+      "gate": "noSpecies"
+    },
+    {
+      "id": "genre",
+      "root": "Genre",
+      "kind": "many",
+      "cap": 2,
+      "none": false
+    },
+    {
+      "id": "habitat",
+      "root": "Habitat",
+      "kind": "many",
+      "cap": 2,
+      "none": false,
+      "gate": "scene"
+    },
+    {
+      "id": "time",
+      "root": "Time of day",
+      "kind": "pick-one",
+      "cap": 1,
+      "none": true
+    },
+    {
+      "id": "light",
+      "root": "Light",
+      "kind": "many",
+      "cap": 2,
+      "none": false
+    },
+    {
+      "id": "season",
+      "root": "Season",
+      "kind": "pick-one",
+      "cap": 1,
+      "none": true
+    },
+    {
+      "id": "weather",
+      "root": "Weather",
+      "kind": "pick-one",
+      "cap": 1,
+      "none": true,
+      "gate": "scene"
+    },
+    {
+      "id": "sky",
+      "root": "Weather",
+      "kind": "many",
+      "cap": 2,
+      "none": false
+    },
+    {
+      "id": "colour",
+      "root": "Color",
+      "kind": "many",
+      "cap": 2,
+      "none": false,
+      "rootUk": "Colour"
+    },
+    {
+      "id": "framing",
+      "root": "Composition",
+      "kind": "pick-one",
+      "cap": 1,
+      "none": true
+    },
+    {
+      "id": "count",
+      "root": "Composition",
+      "kind": "pick-one",
+      "cap": 1,
+      "none": true
+    },
+    {
+      "id": "composition",
+      "root": "Composition",
+      "kind": "many",
+      "cap": 3,
+      "none": false
+    },
+    {
+      "id": "context",
+      "root": "Context",
+      "kind": "pick-one",
+      "cap": 1,
+      "none": true
+    },
+    {
+      "id": "behaviour",
+      "root": "Behavior",
+      "kind": "many",
+      "cap": 1,
+      "none": false,
+      "gate": "crop",
+      "rootUk": "Behaviour"
+    },
+    {
+      "id": "people",
+      "root": "People",
+      "kind": "many",
+      "cap": 1,
+      "none": false
+    },
+    {
+      "id": "things-nature",
+      "root": "Things",
+      "kind": "many",
+      "cap": 3,
+      "none": false
+    },
+    {
+      "id": "things-vehicles",
+      "root": "Things",
+      "kind": "many",
+      "cap": 2,
+      "none": false
+    },
+    {
+      "id": "things-buildings",
+      "root": "Things",
+      "kind": "many",
+      "cap": 2,
+      "none": false
+    },
+    {
+      "id": "things-gear",
+      "root": "Things",
+      "kind": "many",
+      "cap": 2,
+      "none": false
+    },
+    {
+      "id": "things-everyday",
+      "root": "Things",
+      "kind": "many",
+      "cap": 3,
+      "none": false
+    },
+    {
+      "id": "things-food",
+      "root": "Things",
+      "kind": "many",
+      "cap": 2,
+      "none": false
+    },
+    {
+      "id": "activities",
+      "root": "Activity",
+      "kind": "many",
+      "cap": 2,
+      "none": false,
+      "gate": "people"
+    },
+    {
+      "id": "events",
+      "root": "Event",
+      "kind": "many",
+      "cap": 1,
+      "none": false,
+      "gate": "people"
+    }
+  ],
+  "terms": [
+    {
+      "id": "subject.bird",
+      "path": "Subject|Bird",
+      "name": "Bird",
+      "usage": "Use when a bird is the obvious subject but no species is set.",
+      "synonyms": ["birds", "avian"],
+      "prompts": [
+        "a photo of a bird",
+        "a close-up photo of a bird",
+        "a bird",
+        "a photo of a bird in its habitat",
+        "a close-up photo of a bird in its habitat",
+        "a bird in its habitat"
+      ],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "subject.mammal",
+      "path": "Subject|Mammal",
+      "name": "Mammal",
+      "usage": "Use when a mammal is the obvious subject but no species is set.",
+      "synonyms": ["mammals"],
+      "prompts": [
+        "a photo of a mammal",
+        "a close-up photo of a mammal",
+        "a mammal",
+        "a photo of a wild mammal",
+        "a close-up photo of a wild mammal",
+        "a wild mammal"
+      ],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "subject.reptile",
+      "path": "Subject|Reptile",
+      "name": "Reptile",
+      "usage": "Use when a reptile is the obvious subject but no species is set.",
+      "synonyms": ["reptiles", "lizard", "turtle"],
+      "prompts": [
+        "a photo of a reptile",
+        "a close-up photo of a reptile",
+        "a reptile",
+        "a photo of a lizard or snake or turtle",
+        "a close-up photo of a lizard or snake or turtle",
+        "a lizard or snake or turtle"
+      ],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "subject.amphibian",
+      "path": "Subject|Amphibian",
+      "name": "Amphibian",
+      "usage": "Use when a frog, toad or salamander is the obvious subject but no species is set.",
+      "synonyms": ["amphibians", "frog", "salamander", "newt"],
+      "prompts": [
+        "a photo of an amphibian",
+        "a close-up photo of an amphibian",
+        "an amphibian",
+        "a photo of a frog or salamander",
+        "a close-up photo of a frog or salamander",
+        "a frog or salamander"
+      ],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "subject.fishes",
+      "path": "Subject|Fishes",
+      "name": "Fishes",
+      "usage": "Use when a fish is the obvious subject but no species is set.",
+      "synonyms": ["fishes"],
+      "prompts": [
+        "a photo of a fish",
+        "a close-up photo of a fish",
+        "a fish",
+        "a photo of a fish swimming",
+        "a close-up photo of a fish swimming",
+        "a fish swimming"
+      ],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "subject.insect",
+      "path": "Subject|Insect",
+      "name": "Insect",
+      "usage": "Use when an insect is the obvious subject but no species is set.",
+      "synonyms": ["insects", "bug", "beetle", "dragonfly"],
+      "prompts": [
+        "a photo of an insect",
+        "a close-up photo of an insect",
+        "an insect",
+        "a photo of a butterfly or beetle or dragonfly",
+        "a close-up photo of a butterfly or beetle or dragonfly",
+        "a butterfly or beetle or dragonfly"
+      ],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "subject.arachnid",
+      "path": "Subject|Arachnid",
+      "name": "Arachnid",
+      "usage": "Use when a spider, scorpion or mite is the obvious subject.",
+      "synonyms": ["spider", "spiders", "scorpion"],
+      "prompts": [
+        "a photo of a spider",
+        "a close-up photo of a spider",
+        "a spider",
+        "a photo of a spider on its web",
+        "a close-up photo of a spider on its web",
+        "a spider on its web"
+      ],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "subject.marine-invertebrate",
+      "path": "Subject|Marine invertebrate",
+      "name": "Marine invertebrate",
+      "usage": "Use when a coral, anemone, jellyfish, starfish, snail or other sea creature without a backbone is the subject.",
+      "synonyms": ["sea life"],
+      "prompts": [
+        "a photo of a marine invertebrate",
+        "a close-up photo of a marine invertebrate",
+        "a marine invertebrate",
+        "a photo of a jellyfish or sea star or sea slug",
+        "a close-up photo of a jellyfish or sea star or sea slug",
+        "a jellyfish or sea star or sea slug"
+      ],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "subject.plant",
+      "path": "Subject|Plant",
+      "name": "Plant",
+      "usage": "Use when a plant is the subject, not just part of the scene.",
+      "synonyms": ["plants", "flora", "wildflower"],
+      "prompts": [
+        "a photo of a plant",
+        "a close-up photo of a plant",
+        "a plant",
+        "a photo of a wild plant",
+        "a close-up photo of a wild plant",
+        "a wild plant"
+      ],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "subject.fungus",
+      "path": "Subject|Fungus",
+      "name": "Fungus",
+      "usage": "Use when a mushroom or other fungus is the subject.",
+      "synonyms": ["fungi", "mushroom", "toadstool"],
+      "prompts": [
+        "a photo of a mushroom",
+        "a close-up photo of a mushroom",
+        "a mushroom",
+        "a photo of a wild fungus on the ground",
+        "a close-up photo of a wild fungus on the ground",
+        "a wild fungus on the ground"
+      ],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "subject.landscape",
+      "path": "Subject|Landscape",
+      "name": "Landscape",
+      "usage": "Use when scenery with no animal is the subject.",
+      "synonyms": ["scenery", "vista"],
+      "prompts": [
+        "a photo of a landscape with no animals",
+        "a close-up photo of a landscape with no animals",
+        "a landscape with no animals",
+        "a photo of scenic view",
+        "a close-up photo of scenic view",
+        "scenic view"
+      ],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "subject.night-sky",
+      "path": "Subject|Night sky",
+      "name": "Night sky",
+      "usage": "Use when stars, the Milky Way or the moon fill the frame.",
+      "synonyms": ["stars", "astrophotography"],
+      "prompts": [
+        "a photo of the night sky with stars",
+        "a close-up photo of the night sky with stars",
+        "the night sky with stars",
+        "a photo of the moon in the sky",
+        "a close-up photo of the moon in the sky",
+        "the moon in the sky"
+      ],
+      "signal": "clip",
+      "group": "subject",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.wildlife-portrait",
+      "path": "Genre|Wildlife portrait",
+      "name": "Wildlife portrait",
+      "usage": "Use when one animal fills the frame as a portrait, head and eyes clear.",
+      "synonyms": ["animal portrait"],
+      "prompts": [
+        "a wildlife portrait photograph",
+        "wildlife portrait",
+        "an example of wildlife portrait",
+        "a a close portrait of an animal photograph",
+        "a close portrait of an animal",
+        "an example of a close portrait of an animal"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.macro",
+      "path": "Genre|Macro",
+      "name": "Macro",
+      "usage": "Use when a tiny subject is shown very large, close up.",
+      "synonyms": ["macro photography", "extreme close-up"],
+      "prompts": [
+        "a macro photograph",
+        "macro",
+        "an example of macro",
+        "a a macro photograph of a tiny subject photograph",
+        "a macro photograph of a tiny subject",
+        "an example of a macro photograph of a tiny subject"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.aerial",
+      "path": "Genre|Aerial",
+      "name": "Aerial",
+      "usage": "Use when the view is from a drone, plane or high lookout.",
+      "synonyms": ["aerial view"],
+      "prompts": [
+        "a aerial photograph",
+        "aerial",
+        "an example of aerial",
+        "a a drone photo from above photograph",
+        "a drone photo from above",
+        "an example of a drone photo from above"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.panorama",
+      "path": "Genre|Panorama",
+      "name": "Panorama",
+      "usage": "Use when the frame is unusually wide, a stitched or panoramic view.",
+      "synonyms": ["panoramic", "wide vista"],
+      "prompts": [
+        "a panoramic photograph",
+        "panoramic",
+        "an example of panoramic",
+        "a a very wide panorama photograph",
+        "a very wide panorama",
+        "an example of a very wide panorama"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.long-exposure",
+      "path": "Genre|Long exposure",
+      "name": "Long exposure",
+      "usage": "Use when water or sky is smoothed by a long exposure.",
+      "synonyms": ["silky water"],
+      "prompts": [
+        "a long exposure photograph",
+        "long exposure",
+        "an example of long exposure",
+        "a a long exposure with silky water photograph",
+        "a long exposure with silky water",
+        "an example of a long exposure with silky water"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.street-photography",
+      "path": "Genre|Street photography",
+      "name": "Street photography",
+      "usage": "Use when candid scenes of people in towns are the subject.",
+      "synonyms": ["street"],
+      "prompts": [
+        "a street photography photograph",
+        "street photography",
+        "an example of street photography",
+        "a candid street scene photograph",
+        "candid street scene",
+        "an example of candid street scene"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.architecture",
+      "path": "Genre|Architecture",
+      "name": "Architecture",
+      "usage": "Use when a building is the subject.",
+      "synonyms": ["buildings"],
+      "prompts": [
+        "a architectural photography photograph",
+        "architectural photography",
+        "an example of architectural photography",
+        "a a building photograph",
+        "a building",
+        "an example of a building"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.still-life",
+      "path": "Genre|Still life",
+      "name": "Still life",
+      "usage": "Use when arranged objects are the subject.",
+      "synonyms": ["object study"],
+      "prompts": [
+        "a still life photograph",
+        "still life",
+        "an example of still life",
+        "a arranged objects on a table photograph",
+        "arranged objects on a table",
+        "an example of arranged objects on a table"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.documentary",
+      "path": "Genre|Documentary",
+      "name": "Documentary",
+      "usage": "Use when a scene shows fieldwork, conservation or an event as a record.",
+      "synonyms": [],
+      "prompts": [
+        "a documentary photograph photograph",
+        "documentary photograph",
+        "an example of documentary photograph",
+        "a a documentary photo of people at work photograph",
+        "a documentary photo of people at work",
+        "an example of a documentary photo of people at work"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.abstract",
+      "path": "Genre|Abstract",
+      "name": "Abstract",
+      "usage": "Use when colors, shapes or textures matter more than a recognizable subject.",
+      "synonyms": ["abstraction"],
+      "prompts": [
+        "a abstract photograph",
+        "abstract",
+        "an example of abstract",
+        "a an abstract photo of shapes and color photograph",
+        "an abstract photo of shapes and color",
+        "an example of an abstract photo of shapes and color"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false,
+      "uk": {
+        "usage": "Use when colours, shapes or textures matter more than a recognizable subject."
+      }
+    },
+    {
+      "id": "genre.record-shot",
+      "path": "Genre|Record shot",
+      "name": "Record shot",
+      "usage": "Use when a poor or distant frame is kept only as proof of a sighting.",
+      "synonyms": ["documentation shot", "proof shot"],
+      "prompts": [
+        "a a distant blurry record shot of an animal photograph",
+        "a distant blurry record shot of an animal",
+        "an example of a distant blurry record shot of an animal",
+        "a a poor quality record photo photograph",
+        "a poor quality record photo",
+        "an example of a poor quality record photo"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.camera-phone",
+      "path": "Genre|Camera phone",
+      "name": "Camera phone",
+      "usage": "Use when a casual photo with a phone look, not a camera frame.",
+      "synonyms": ["phone photo", "snapshot"],
+      "prompts": [
+        "a a casual phone snapshot photograph",
+        "a casual phone snapshot",
+        "an example of a casual phone snapshot",
+        "a a phone photo photograph",
+        "a phone photo",
+        "an example of a phone photo"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.nature-close-up",
+      "path": "Genre|Nature close-up",
+      "name": "Nature close-up",
+      "usage": "Use when a small natural detail fills the frame, feather, leaf, bark, scales.",
+      "synonyms": ["detail", "nature detail"],
+      "prompts": [
+        "a a close-up of a natural detail photograph",
+        "a close-up of a natural detail",
+        "an example of a close-up of a natural detail",
+        "a a close-up of a feather or leaf or bark photograph",
+        "a close-up of a feather or leaf or bark",
+        "an example of a close-up of a feather or leaf or bark"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.flat-lay",
+      "path": "Genre|Flat lay",
+      "name": "Flat lay",
+      "usage": "Use when the camera looks straight down at items laid out.",
+      "synonyms": ["top-down", "overhead"],
+      "prompts": [
+        "a a top-down flat lay photo photograph",
+        "a top-down flat lay photo",
+        "an example of a top-down flat lay photo",
+        "a a flat lay of items photograph",
+        "a flat lay of items",
+        "an example of a flat lay of items"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.cityscape",
+      "path": "Genre|Cityscape",
+      "name": "Cityscape",
+      "usage": "Use when a city is the subject.",
+      "synonyms": ["skyline", "urban view"],
+      "prompts": [
+        "a a cityscape photograph",
+        "a cityscape",
+        "an example of a cityscape",
+        "a a city skyline photograph",
+        "a city skyline",
+        "an example of a city skyline"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.seascape",
+      "path": "Genre|Seascape",
+      "name": "Seascape",
+      "usage": "Use when the sea and coast are the subject, no animal.",
+      "synonyms": ["sea view", "ocean view"],
+      "prompts": [
+        "a a seascape photograph",
+        "a seascape",
+        "an example of a seascape",
+        "a the sea and the coast photograph",
+        "the sea and the coast",
+        "an example of the sea and the coast"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "genre.plant-portrait",
+      "path": "Genre|Plant portrait",
+      "name": "Plant portrait",
+      "usage": "Use when one plant or flower is the clear subject.",
+      "synonyms": ["flower portrait", "botanical"],
+      "prompts": [
+        "a a botanical photograph of one plant photograph",
+        "a botanical photograph of one plant",
+        "an example of a botanical photograph of one plant",
+        "a a flower portrait photograph",
+        "a flower portrait",
+        "an example of a flower portrait"
+      ],
+      "signal": "clip",
+      "group": "genre",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.wetland",
+      "path": "Habitat|Wetland",
+      "name": "Wetland",
+      "usage": "Use when marsh, swamp, reed bed or bog fills much of the frame, not a puddle.",
+      "synonyms": ["marsh", "bog", "fen", "reeds", "reed bed", "mire"],
+      "prompts": [
+        "a wildlife photo of a wetland marsh with reeds",
+        "a nature photograph of a wetland marsh with reeds",
+        "a wetland marsh with reeds",
+        "a wildlife photo of a swamp with standing water",
+        "a nature photograph of a swamp with standing water",
+        "a swamp with standing water"
+      ],
+      "signal": "scene",
+      "group": "habitat",
+      "scene": ["water", "plant"],
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.open-water",
+      "path": "Habitat|Open water",
+      "name": "Open water",
+      "usage": "Use when a large open lake, bay or sea surface fills much of the frame.",
+      "synonyms": ["lake", "bay", "reservoir"],
+      "prompts": [
+        "a wildlife photo of open water",
+        "a nature photograph of open water",
+        "open water",
+        "a wildlife photo of a large lake",
+        "a nature photograph of a large lake",
+        "a large lake"
+      ],
+      "signal": "scene",
+      "group": "habitat",
+      "scene": ["water", "lake", "sea"],
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.pond",
+      "path": "Habitat|Pond",
+      "name": "Pond",
+      "usage": "Use when a small pond or pool is the setting.",
+      "synonyms": ["pool", "small lake", "ponds"],
+      "prompts": [
+        "a wildlife photo of a small pond",
+        "a nature photograph of a small pond",
+        "a small pond",
+        "a wildlife photo of a garden pond",
+        "a nature photograph of a garden pond",
+        "a garden pond"
+      ],
+      "signal": "scene",
+      "group": "habitat",
+      "scene": ["water", "lake"],
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.river",
+      "path": "Habitat|River",
+      "name": "River",
+      "usage": "Use when a river or stream is the setting.",
+      "synonyms": ["stream", "creek", "brook", "rivers"],
+      "prompts": [
+        "a wildlife photo of a river",
+        "a nature photograph of a river",
+        "a river",
+        "a wildlife photo of a stream with rocks",
+        "a nature photograph of a stream with rocks",
+        "a stream with rocks"
+      ],
+      "signal": "scene",
+      "group": "habitat",
+      "scene": ["river", "water"],
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.waterfall",
+      "path": "Habitat|Waterfall",
+      "name": "Waterfall",
+      "usage": "Use when falling water is clearly visible.",
+      "synonyms": ["falls", "cascade"],
+      "prompts": [
+        "a wildlife photo of a waterfall",
+        "a nature photograph of a waterfall",
+        "a waterfall",
+        "a wildlife photo of a cascade of falling water",
+        "a nature photograph of a cascade of falling water",
+        "a cascade of falling water"
+      ],
+      "signal": "scene",
+      "group": "habitat",
+      "scene": ["waterfall"],
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.coast",
+      "path": "Habitat|Coast",
+      "name": "Coast",
+      "usage": "Use when the shoreline where land meets sea is the setting.",
+      "synonyms": ["shore", "seashore", "coastline", "seaside"],
+      "prompts": [
+        "a wildlife photo of a rocky coastline",
+        "a nature photograph of a rocky coastline",
+        "a rocky coastline",
+        "a wildlife photo of the coast with waves",
+        "a nature photograph of the coast with waves",
+        "the coast with waves"
+      ],
+      "signal": "scene",
+      "group": "habitat",
+      "scene": ["sea", "water", "rock"],
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.beach",
+      "path": "Habitat|Beach",
+      "name": "Beach",
+      "usage": "Use when sand and surf fill much of the frame.",
+      "synonyms": ["sand", "sandy beach", "dunes", "shoreline"],
+      "prompts": [
+        "a wildlife photo of a sandy beach by the sea",
+        "a nature photograph of a sandy beach by the sea",
+        "a sandy beach by the sea",
+        "a wildlife photo of a beach with waves",
+        "a nature photograph of a beach with waves",
+        "a beach with waves"
+      ],
+      "signal": "scene",
+      "group": "habitat",
+      "scene": ["sand", "sea"],
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.rocky-shore",
+      "path": "Habitat|Rocky shore",
+      "name": "Rocky shore",
+      "usage": "Use when rocks and tide pools by the sea are the setting.",
+      "synonyms": ["tide pool", "tidepool", "rocky coast", "intertidal"],
+      "prompts": [
+        "a wildlife photo of a rocky shore with tide pools",
+        "a nature photograph of a rocky shore with tide pools",
+        "a rocky shore with tide pools",
+        "a wildlife photo of intertidal rocks at low tide",
+        "a nature photograph of intertidal rocks at low tide",
+        "intertidal rocks at low tide"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.open-sea",
+      "path": "Habitat|Open sea",
+      "name": "Open sea",
+      "usage": "Use when deep open ocean with no land in sight.",
+      "synonyms": ["ocean", "pelagic", "at sea"],
+      "prompts": [
+        "a wildlife photo of the open sea",
+        "a nature photograph of the open sea",
+        "the open sea",
+        "a wildlife photo of open ocean water",
+        "a nature photograph of open ocean water",
+        "open ocean water"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.forest",
+      "path": "Habitat|Forest",
+      "name": "Forest",
+      "usage": "Use when trees fill the frame and form a closed canopy.",
+      "synonyms": ["woods", "woodland", "trees", "canopy"],
+      "prompts": [
+        "a wildlife photo of a forest",
+        "a nature photograph of a forest",
+        "a forest",
+        "a wildlife photo of a dense forest with tall trees",
+        "a nature photograph of a dense forest with tall trees",
+        "a dense forest with tall trees"
+      ],
+      "signal": "scene",
+      "group": "habitat",
+      "scene": ["tree"],
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.rainforest",
+      "path": "Habitat|Rainforest",
+      "name": "Rainforest",
+      "usage": "Use when a dense tropical forest with lush green growth.",
+      "synonyms": ["jungle", "tropical forest", "cloud forest"],
+      "prompts": [
+        "a wildlife photo of a tropical rainforest",
+        "a nature photograph of a tropical rainforest",
+        "a tropical rainforest",
+        "a wildlife photo of a lush jungle",
+        "a nature photograph of a lush jungle",
+        "a lush jungle"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.open-woodland",
+      "path": "Habitat|Open woodland",
+      "name": "Open woodland",
+      "usage": "Use when scattered trees with open ground between them.",
+      "synonyms": ["savanna woodland", "parkland", "orchard"],
+      "prompts": [
+        "a wildlife photo of open woodland with scattered trees",
+        "a nature photograph of open woodland with scattered trees",
+        "open woodland with scattered trees",
+        "a wildlife photo of a woodland clearing",
+        "a nature photograph of a woodland clearing",
+        "a woodland clearing"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.grassland",
+      "path": "Habitat|Grassland",
+      "name": "Grassland",
+      "usage": "Use when grass fills much of the frame, a prairie, steppe or pasture.",
+      "synonyms": ["prairie", "steppe", "pasture", "field", "plains", "meadow"],
+      "prompts": [
+        "a wildlife photo of a grassland",
+        "a nature photograph of a grassland",
+        "a grassland",
+        "a wildlife photo of an open grass field",
+        "a nature photograph of an open grass field",
+        "an open grass field"
+      ],
+      "signal": "scene",
+      "group": "habitat",
+      "scene": ["grass", "field"],
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.savanna",
+      "path": "Habitat|Savanna",
+      "name": "Savanna",
+      "usage": "Use when open grass with scattered trees, typical of Africa.",
+      "synonyms": ["african savanna", "bushveld"],
+      "prompts": [
+        "a wildlife photo of an african savanna",
+        "a nature photograph of an african savanna",
+        "an african savanna",
+        "a wildlife photo of a savanna with acacia trees",
+        "a nature photograph of a savanna with acacia trees",
+        "a savanna with acacia trees"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.scrub",
+      "path": "Habitat|Scrub",
+      "name": "Scrub",
+      "usage": "Use when low bushes and shrubs cover the ground, heath, chaparral or brush.",
+      "synonyms": ["shrubland", "heath", "brush", "chaparral", "maquis"],
+      "prompts": [
+        "a wildlife photo of shrubland",
+        "a nature photograph of shrubland",
+        "shrubland",
+        "a wildlife photo of a heath with low bushes",
+        "a nature photograph of a heath with low bushes",
+        "a heath with low bushes"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.desert",
+      "path": "Habitat|Desert",
+      "name": "Desert",
+      "usage": "Use when dry sand, gravel or sparse scrub dominates, little green.",
+      "synonyms": ["arid", "dune desert", "dry land"],
+      "prompts": [
+        "a wildlife photo of a desert",
+        "a nature photograph of a desert",
+        "a desert",
+        "a wildlife photo of an arid desert landscape",
+        "a nature photograph of an arid desert landscape",
+        "an arid desert landscape"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.mountains",
+      "path": "Habitat|Mountains",
+      "name": "Mountains",
+      "usage": "Use when peaks, ridges or slopes fill the background.",
+      "synonyms": ["mountain", "alpine", "peaks", "highlands"],
+      "prompts": [
+        "a wildlife photo of mountains",
+        "a nature photograph of mountains",
+        "mountains",
+        "a wildlife photo of a mountain range",
+        "a nature photograph of a mountain range",
+        "a mountain range"
+      ],
+      "signal": "scene",
+      "group": "habitat",
+      "scene": ["mountain", "hill"],
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.cliff",
+      "path": "Habitat|Cliff",
+      "name": "Cliff",
+      "usage": "Use when a vertical rock face or sea cliff is the setting.",
+      "synonyms": ["crag", "rock face", "bluff", "cliffs"],
+      "prompts": [
+        "a wildlife photo of a cliff face",
+        "a nature photograph of a cliff face",
+        "a cliff face",
+        "a wildlife photo of a sea cliff with ledges",
+        "a nature photograph of a sea cliff with ledges",
+        "a sea cliff with ledges"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.cave",
+      "path": "Habitat|Cave",
+      "name": "Cave",
+      "usage": "Use when inside or at the mouth of a cave.",
+      "synonyms": ["cavern", "grotto"],
+      "prompts": [
+        "a wildlife photo of a cave",
+        "a nature photograph of a cave",
+        "a cave",
+        "a wildlife photo of a cave interior",
+        "a nature photograph of a cave interior",
+        "a cave interior"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.canyon",
+      "path": "Habitat|Canyon",
+      "name": "Canyon",
+      "usage": "Use when a deep gorge or ravine with steep walls.",
+      "synonyms": ["gorge", "ravine", "badlands"],
+      "prompts": [
+        "a wildlife photo of a canyon",
+        "a nature photograph of a canyon",
+        "a canyon",
+        "a wildlife photo of a deep gorge",
+        "a nature photograph of a deep gorge",
+        "a deep gorge"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.volcanic",
+      "path": "Habitat|Volcanic",
+      "name": "Volcanic",
+      "usage": "Use when lava, ash or volcano slopes are the setting.",
+      "synonyms": ["volcano", "lava field"],
+      "prompts": [
+        "a wildlife photo of a volcano",
+        "a nature photograph of a volcano",
+        "a volcano",
+        "a wildlife photo of a lava field",
+        "a nature photograph of a lava field",
+        "a lava field"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.snow-and-ice",
+      "path": "Habitat|Snow and ice",
+      "name": "Snow and ice",
+      "usage": "Use when snow, ice or glacier covers most of the ground.",
+      "synonyms": ["snowfield", "glacier", "frozen"],
+      "prompts": [
+        "a wildlife photo of a snowy landscape",
+        "a nature photograph of a snowy landscape",
+        "a snowy landscape",
+        "a wildlife photo of a glacier or ice field",
+        "a nature photograph of a glacier or ice field",
+        "a glacier or ice field"
+      ],
+      "signal": "scene",
+      "group": "habitat",
+      "scene": ["snow"],
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.tundra",
+      "path": "Habitat|Tundra",
+      "name": "Tundra",
+      "usage": "Use when cold treeless ground of moss, lichen and low plants.",
+      "synonyms": ["arctic", "polar", "taiga edge"],
+      "prompts": [
+        "a wildlife photo of arctic tundra",
+        "a nature photograph of arctic tundra",
+        "arctic tundra",
+        "a wildlife photo of a treeless tundra",
+        "a nature photograph of a treeless tundra",
+        "a treeless tundra"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.farmland",
+      "path": "Habitat|Farmland",
+      "name": "Farmland",
+      "usage": "Use when crops, fields or pasture worked by people.",
+      "synonyms": ["agriculture", "fields", "cropland", "fields of crops"],
+      "prompts": [
+        "a wildlife photo of farmland",
+        "a nature photograph of farmland",
+        "farmland",
+        "a wildlife photo of a farm field with crops",
+        "a nature photograph of a farm field with crops",
+        "a farm field with crops"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.garden-or-town",
+      "path": "Habitat|Garden or town",
+      "name": "Garden or town",
+      "usage": "Use when a garden, park, yard or street is the setting.",
+      "synonyms": ["garden", "backyard", "yard", "park", "suburb", "town"],
+      "prompts": [
+        "a wildlife photo of a garden",
+        "a nature photograph of a garden",
+        "a garden",
+        "a wildlife photo of a city park",
+        "a nature photograph of a city park",
+        "a city park",
+        "a wildlife photo of a backyard with plants",
+        "a nature photograph of a backyard with plants",
+        "a backyard with plants"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.urban",
+      "path": "Habitat|Urban",
+      "name": "Urban",
+      "usage": "Use when buildings and streets dominate the setting.",
+      "synonyms": ["city", "downtown"],
+      "prompts": [
+        "a wildlife photo of a city street",
+        "a nature photograph of a city street",
+        "a city street",
+        "a wildlife photo of urban buildings",
+        "a nature photograph of urban buildings",
+        "urban buildings"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.indoors",
+      "path": "Habitat|Indoors",
+      "name": "Indoors",
+      "usage": "Use when the photo was taken inside a building.",
+      "synonyms": ["inside", "interior", "room"],
+      "prompts": [
+        "a wildlife photo of an indoor scene",
+        "a nature photograph of an indoor scene",
+        "an indoor scene",
+        "a wildlife photo of the inside of a room",
+        "a nature photograph of the inside of a room",
+        "the inside of a room"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.roadside",
+      "path": "Habitat|Roadside",
+      "name": "Roadside",
+      "usage": "Use when a road, verge or track is the setting.",
+      "synonyms": ["verge", "track", "trail"],
+      "prompts": [
+        "a wildlife photo of a road",
+        "a nature photograph of a road",
+        "a road",
+        "a wildlife photo of a country road",
+        "a nature photograph of a country road",
+        "a country road",
+        "a wildlife photo of a dirt trail",
+        "a nature photograph of a dirt trail",
+        "a dirt trail"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.underwater",
+      "path": "Habitat|Underwater",
+      "name": "Underwater",
+      "usage": "Use when the camera is below the water surface.",
+      "synonyms": ["submerged", "snorkeling", "subsea", "snorkelling"],
+      "prompts": [
+        "a wildlife photo of an underwater scene",
+        "a nature photograph of an underwater scene",
+        "an underwater scene",
+        "a wildlife photo of fish underwater",
+        "a nature photograph of fish underwater",
+        "fish underwater"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.coral-reef",
+      "path": "Habitat|Coral reef",
+      "name": "Coral reef",
+      "usage": "Use when coral and reef fish are the setting.",
+      "synonyms": ["reef", "tropical reef"],
+      "prompts": [
+        "a wildlife photo of a coral reef",
+        "a nature photograph of a coral reef",
+        "a coral reef",
+        "a wildlife photo of a colorful coral reef",
+        "a nature photograph of a colorful coral reef",
+        "a colorful coral reef"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.kelp-forest",
+      "path": "Habitat|Kelp forest",
+      "name": "Kelp forest",
+      "usage": "Use when tall kelp fronds fill the underwater view.",
+      "synonyms": ["kelp", "seaweed bed"],
+      "prompts": [
+        "a wildlife photo of a kelp forest",
+        "a nature photograph of a kelp forest",
+        "a kelp forest",
+        "a wildlife photo of kelp underwater",
+        "a nature photograph of kelp underwater",
+        "kelp underwater"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.mangrove-forest",
+      "path": "Habitat|Mangrove forest",
+      "name": "Mangrove forest",
+      "usage": "Use when mangrove roots and trees stand in tidal water.",
+      "synonyms": ["mangroves", "mangrove swamp"],
+      "prompts": [
+        "a wildlife photo of a mangrove forest",
+        "a nature photograph of a mangrove forest",
+        "a mangrove forest",
+        "a wildlife photo of mangrove roots in water",
+        "a nature photograph of mangrove roots in water",
+        "mangrove roots in water"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.estuary-or-mudflat",
+      "path": "Habitat|Estuary or mudflat",
+      "name": "Estuary or mudflat",
+      "usage": "Use when tidal mud, sand flats or a river mouth.",
+      "synonyms": ["mudflat", "tidal flat", "saltmarsh", "salt marsh", "lagoon"],
+      "prompts": [
+        "a wildlife photo of a tidal mudflat",
+        "a nature photograph of a tidal mudflat",
+        "a tidal mudflat",
+        "a wildlife photo of an estuary at low tide",
+        "a nature photograph of an estuary at low tide",
+        "an estuary at low tide"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.island",
+      "path": "Habitat|Island",
+      "name": "Island",
+      "usage": "Use when a small island or islet is the setting.",
+      "synonyms": ["islet", "cay", "atoll"],
+      "prompts": [
+        "a wildlife photo of a small island",
+        "a nature photograph of a small island",
+        "a small island",
+        "a wildlife photo of a rocky islet in the sea",
+        "a nature photograph of a rocky islet in the sea",
+        "a rocky islet in the sea"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.hedgerow",
+      "path": "Habitat|Hedgerow",
+      "name": "Hedgerow",
+      "usage": "Use when a hedge or field edge of mixed shrubs is the setting.",
+      "synonyms": ["hedge", "field margin", "thicket"],
+      "prompts": [
+        "a wildlife photo of a hedgerow",
+        "a nature photograph of a hedgerow",
+        "a hedgerow",
+        "a wildlife photo of a thicket of bushes",
+        "a nature photograph of a thicket of bushes",
+        "a thicket of bushes"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.orchard-or-vineyard",
+      "path": "Habitat|Orchard or vineyard",
+      "name": "Orchard or vineyard",
+      "usage": "Use when planted trees or vines in rows.",
+      "synonyms": ["vineyard", "plantation"],
+      "prompts": [
+        "a wildlife photo of a vineyard",
+        "a nature photograph of a vineyard",
+        "a vineyard",
+        "a wildlife photo of an orchard",
+        "a nature photograph of an orchard",
+        "an orchard"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.dam-or-reservoir",
+      "path": "Habitat|Dam or reservoir",
+      "name": "Dam or reservoir",
+      "usage": "Use when a man-made water body or dam is the setting.",
+      "synonyms": ["dam", "weir", "canal"],
+      "prompts": [
+        "a wildlife photo of a dam",
+        "a nature photograph of a dam",
+        "a dam",
+        "a wildlife photo of a canal",
+        "a nature photograph of a canal",
+        "a canal"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.sky",
+      "path": "Habitat|Sky",
+      "name": "Sky",
+      "usage": "Use when the sky fills the frame with little else.",
+      "synonyms": ["skyscape", "clouds"],
+      "prompts": [
+        "a wildlife photo of an open sky",
+        "a nature photograph of an open sky",
+        "an open sky",
+        "a wildlife photo of a sky with clouds",
+        "a nature photograph of a sky with clouds",
+        "a sky with clouds"
+      ],
+      "signal": "scene",
+      "group": "habitat",
+      "scene": ["sky"],
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "habitat.zoo-or-aquarium",
+      "path": "Habitat|Zoo or aquarium",
+      "name": "Zoo or aquarium",
+      "usage": "Use when an enclosure, tank or zoo path is visible.",
+      "synonyms": ["zoo", "aquarium", "enclosure", "wildlife park"],
+      "prompts": [
+        "a wildlife photo of a zoo enclosure",
+        "a nature photograph of a zoo enclosure",
+        "a zoo enclosure",
+        "a wildlife photo of an aquarium tank",
+        "a nature photograph of an aquarium tank",
+        "an aquarium tank"
+      ],
+      "signal": "clip",
+      "group": "habitat",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "time-of-day.around-sunrise",
+      "path": "Time of day|Around sunrise",
+      "name": "Around sunrise",
+      "usage": "Use when the sun is at the horizon in the morning at the photo's place and time.",
+      "synonyms": ["dawn", "first light", "daybreak"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "time",
+      "computed": "sun",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "time-of-day.morning",
+      "path": "Time of day|Morning",
+      "name": "Morning",
+      "usage": "Use when the sun is up and still low in the morning.",
+      "synonyms": ["early day", "am"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "time",
+      "computed": "sun",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "time-of-day.midday",
+      "path": "Time of day|Midday",
+      "name": "Midday",
+      "usage": "Use when the sun is high, around noon.",
+      "synonyms": ["noon", "high sun"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "time",
+      "computed": "sun",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "time-of-day.afternoon",
+      "path": "Time of day|Afternoon",
+      "name": "Afternoon",
+      "usage": "Use when the sun is past noon and descending.",
+      "synonyms": ["pm", "late day"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "time",
+      "computed": "sun",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "time-of-day.around-sunset",
+      "path": "Time of day|Around sunset",
+      "name": "Around sunset",
+      "usage": "Use when the sun is at the horizon in the evening.",
+      "synonyms": ["dusk", "sundown", "evening"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "time",
+      "computed": "sun",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "time-of-day.night",
+      "path": "Time of day|Night",
+      "name": "Night",
+      "usage": "Use when the sun is well below the horizon.",
+      "synonyms": ["after dark", "nighttime", "dark"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "time",
+      "computed": "sun",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "light.golden-hour",
+      "path": "Light|Golden hour",
+      "name": "Golden hour",
+      "usage": "Use when the light is warm low sun just after sunrise or before sunset.",
+      "synonyms": ["golden light", "warm light", "magic hour"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "light",
+      "unvalidated": false,
+      "enabled": true,
+      "computed": "sun"
+    },
+    {
+      "id": "light.blue-hour",
+      "path": "Light|Blue hour",
+      "name": "Blue hour",
+      "usage": "Use when the light is the cool twilight just before sunrise or after sunset.",
+      "synonyms": ["twilight", "civil twilight"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "light",
+      "unvalidated": false,
+      "enabled": true,
+      "computed": "sun"
+    },
+    {
+      "id": "light.backlit",
+      "path": "Light|Backlit",
+      "name": "Backlit",
+      "usage": "Use when the light comes from behind the subject and rims it.",
+      "synonyms": ["backlighting", "rim light", "rim lit", "contre-jour"],
+      "prompts": [
+        "a photo with strong backlight",
+        "a photograph taken in strong backlight",
+        "strong backlight",
+        "a photo with a backlit subject glowing with rim light",
+        "a photograph taken in a backlit subject glowing with rim light",
+        "a backlit subject glowing with rim light"
+      ],
+      "signal": "clip",
+      "group": "light",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "light.silhouette",
+      "path": "Light|Silhouette",
+      "name": "Silhouette",
+      "usage": "Use when the subject is a dark shape against a bright sky or water.",
+      "synonyms": ["silhouetted", "shadow shape"],
+      "prompts": [
+        "a photo with a dark silhouette against a bright sky",
+        "a photograph taken in a dark silhouette against a bright sky",
+        "a dark silhouette against a bright sky",
+        "a photo with a black silhouette",
+        "a photograph taken in a black silhouette",
+        "a black silhouette"
+      ],
+      "signal": "clip",
+      "group": "light",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "light.overcast",
+      "path": "Light|Overcast",
+      "name": "Overcast",
+      "usage": "Use when soft light under a gray, even cloud layer.",
+      "synonyms": ["cloudy light", "flat light", "gray sky", "grey sky"],
+      "prompts": [
+        "a photo with soft overcast light",
+        "a photograph taken in soft overcast light",
+        "soft overcast light",
+        "a photo with a gray overcast sky",
+        "a photograph taken in a gray overcast sky",
+        "a gray overcast sky"
+      ],
+      "signal": "clip",
+      "group": "light",
+      "unvalidated": true,
+      "enabled": false,
+      "uk": {
+        "usage": "Use when soft light under a grey, even cloud layer."
+      }
+    },
+    {
+      "id": "light.soft-light",
+      "path": "Light|Soft light",
+      "name": "Soft light",
+      "usage": "Use when light is gentle and diffused with soft shadows.",
+      "synonyms": ["diffused light", "soft shadows"],
+      "prompts": [
+        "a photo with soft diffused light",
+        "a photograph taken in soft diffused light",
+        "soft diffused light",
+        "a photo with gentle light with soft shadows",
+        "a photograph taken in gentle light with soft shadows",
+        "gentle light with soft shadows"
+      ],
+      "signal": "clip",
+      "group": "light",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "light.harsh-light",
+      "path": "Light|Harsh light",
+      "name": "Harsh light",
+      "usage": "Use when hard midday sun makes strong shadows and highlights.",
+      "synonyms": ["hard light", "midday sun", "strong shadows"],
+      "prompts": [
+        "a photo with harsh midday sunlight",
+        "a photograph taken in harsh midday sunlight",
+        "harsh midday sunlight",
+        "a photo with hard shadows in bright sun",
+        "a photograph taken in hard shadows in bright sun",
+        "hard shadows in bright sun"
+      ],
+      "signal": "clip",
+      "group": "light",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "light.dappled-light",
+      "path": "Light|Dappled light",
+      "name": "Dappled light",
+      "usage": "Use when sun filtering through leaves makes patches of light.",
+      "synonyms": ["sunlit leaves", "light patches", "sunbeams"],
+      "prompts": [
+        "a photo with dappled light through leaves",
+        "a photograph taken in dappled light through leaves",
+        "dappled light through leaves",
+        "a photo with patches of sunlight in a forest",
+        "a photograph taken in patches of sunlight in a forest",
+        "patches of sunlight in a forest"
+      ],
+      "signal": "clip",
+      "group": "light",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "light.low-key",
+      "path": "Light|Low key",
+      "name": "Low key",
+      "usage": "Use when the whole frame is dark and moody with a black background.",
+      "synonyms": ["moody", "dark and moody"],
+      "prompts": [
+        "a photo with a low key dark photograph",
+        "a photograph taken in a low key dark photograph",
+        "a low key dark photograph",
+        "a photo with a dark moody photo on a black background",
+        "a photograph taken in a dark moody photo on a black background",
+        "a dark moody photo on a black background"
+      ],
+      "signal": "clip",
+      "group": "light",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "light.high-key",
+      "path": "Light|High key",
+      "name": "High key",
+      "usage": "Use when the frame is bright and mostly white.",
+      "synonyms": ["bright", "airy"],
+      "prompts": [
+        "a photo with a high key bright photograph",
+        "a photograph taken in a high key bright photograph",
+        "a high key bright photograph",
+        "a photo with a bright mostly white photo",
+        "a photograph taken in a bright mostly white photo",
+        "a bright mostly white photo"
+      ],
+      "signal": "clip",
+      "group": "light",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "light.artificial-light",
+      "path": "Light|Artificial light",
+      "name": "Artificial light",
+      "usage": "Use when lamps, streetlights or neon are the main light.",
+      "synonyms": ["streetlight", "lamplight", "neon", "floodlight"],
+      "prompts": [
+        "a photo with artificial lamp light",
+        "a photograph taken in artificial lamp light",
+        "artificial lamp light",
+        "a photo with a scene lit by streetlights",
+        "a photograph taken in a scene lit by streetlights",
+        "a scene lit by streetlights"
+      ],
+      "signal": "clip",
+      "group": "light",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "light.twilight-glow",
+      "path": "Light|Twilight glow",
+      "name": "Twilight glow",
+      "usage": "Use when the sky holds color after sunset or before sunrise.",
+      "synonyms": ["afterglow", "red sky", "pink sky"],
+      "prompts": [
+        "a photo with a colorful twilight sky",
+        "a photograph taken in a colorful twilight sky",
+        "a colorful twilight sky",
+        "a photo with a glowing sky after sunset",
+        "a photograph taken in a glowing sky after sunset",
+        "a glowing sky after sunset"
+      ],
+      "signal": "clip",
+      "group": "light",
+      "unvalidated": true,
+      "enabled": false,
+      "uk": {
+        "usage": "Use when the sky holds colour after sunset or before sunrise."
+      }
+    },
+    {
+      "id": "season.spring",
+      "path": "Season|Spring",
+      "name": "Spring",
+      "usage": "Use when the date and latitude put the photo in spring, outside the tropics.",
+      "synonyms": ["springtime"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "season",
+      "computed": "date",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "season.summer",
+      "path": "Season|Summer",
+      "name": "Summer",
+      "usage": "Use when the date and latitude put the photo in summer, outside the tropics.",
+      "synonyms": ["summertime"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "season",
+      "computed": "date",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "season.autumn",
+      "path": "Season|Autumn",
+      "name": "Autumn",
+      "usage": "Use when the date and latitude put the photo in autumn, outside the tropics.",
+      "synonyms": ["fall", "autumnal"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "season",
+      "computed": "date",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "season.winter",
+      "path": "Season|Winter",
+      "name": "Winter",
+      "usage": "Use when the date and latitude put the photo in winter, outside the tropics.",
+      "synonyms": ["wintertime"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "season",
+      "computed": "date",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "weather.clear-sky",
+      "path": "Weather|Clear sky",
+      "name": "Clear sky",
+      "usage": "Use when the sky is cloudless and blue.",
+      "synonyms": ["blue sky", "cloudless"],
+      "prompts": [
+        "a photo of a clear blue sky",
+        "a wildlife photo in a clear blue sky",
+        "a clear blue sky",
+        "a photo of a sunny cloudless day",
+        "a wildlife photo in a sunny cloudless day",
+        "a sunny cloudless day"
+      ],
+      "signal": "clip",
+      "group": "weather",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "weather.partly-cloudy",
+      "path": "Weather|Partly cloudy",
+      "name": "Partly cloudy",
+      "usage": "Use when scattered clouds with blue sky between.",
+      "synonyms": ["scattered clouds", "fair weather clouds"],
+      "prompts": [
+        "a photo of a partly cloudy sky",
+        "a wildlife photo in a partly cloudy sky",
+        "a partly cloudy sky",
+        "a photo of blue sky with white clouds",
+        "a wildlife photo in blue sky with white clouds",
+        "blue sky with white clouds"
+      ],
+      "signal": "clip",
+      "group": "weather",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "weather.cloudy",
+      "path": "Weather|Cloudy",
+      "name": "Cloudy",
+      "usage": "Use when clouds cover most of the sky.",
+      "synonyms": ["heavy clouds", "gray clouds", "grey clouds"],
+      "prompts": [
+        "a photo of a cloudy sky",
+        "a wildlife photo in a cloudy sky",
+        "a cloudy sky",
+        "a photo of a sky full of clouds",
+        "a wildlife photo in a sky full of clouds",
+        "a sky full of clouds"
+      ],
+      "signal": "clip",
+      "group": "weather",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "weather.fog",
+      "path": "Weather|Fog",
+      "name": "Fog",
+      "usage": "Use when fog or mist hides the distance.",
+      "synonyms": ["mist", "misty", "foggy", "haze"],
+      "prompts": [
+        "a photo of fog",
+        "a wildlife photo in fog",
+        "fog",
+        "a photo of a misty foggy scene",
+        "a wildlife photo in a misty foggy scene",
+        "a misty foggy scene"
+      ],
+      "signal": "clip",
+      "group": "weather",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "weather.rain",
+      "path": "Weather|Rain",
+      "name": "Rain",
+      "usage": "Use when rain is falling or the scene is rain-soaked.",
+      "synonyms": ["raining", "rainy", "drizzle", "wet"],
+      "prompts": [
+        "a photo of rain falling",
+        "a wildlife photo in rain falling",
+        "rain falling",
+        "a photo of a rainy day",
+        "a wildlife photo in a rainy day",
+        "a rainy day"
+      ],
+      "signal": "clip",
+      "group": "weather",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "weather.snowfall",
+      "path": "Weather|Snowfall",
+      "name": "Snowfall",
+      "usage": "Use when snow is falling in the air.",
+      "synonyms": ["snowing", "snowy weather", "blizzard"],
+      "prompts": [
+        "a photo of falling snow",
+        "a wildlife photo in falling snow",
+        "falling snow",
+        "a photo of snowflakes in the air",
+        "a wildlife photo in snowflakes in the air",
+        "snowflakes in the air"
+      ],
+      "signal": "clip",
+      "group": "weather",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "weather.storm",
+      "path": "Weather|Storm",
+      "name": "Storm",
+      "usage": "Use when dark storm clouds or lightning fill the sky.",
+      "synonyms": ["stormy", "thunderstorm", "lightning", "dark clouds"],
+      "prompts": [
+        "a photo of a storm with dark clouds",
+        "a wildlife photo in a storm with dark clouds",
+        "a storm with dark clouds",
+        "a photo of a stormy sky",
+        "a wildlife photo in a stormy sky",
+        "a stormy sky"
+      ],
+      "signal": "clip",
+      "group": "weather",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "weather.rainbow-in-sky",
+      "path": "Weather|Rainbow in sky",
+      "name": "Rainbow in sky",
+      "usage": "Use when a rainbow is visible.",
+      "synonyms": ["rainbows"],
+      "prompts": [
+        "a photo of a rainbow in the sky",
+        "a nature photograph of a rainbow in the sky",
+        "a rainbow in the sky",
+        "a photo of a rainbow over a landscape",
+        "a nature photograph of a rainbow over a landscape",
+        "a rainbow over a landscape"
+      ],
+      "signal": "clip",
+      "group": "sky",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "weather.frost",
+      "path": "Weather|Frost",
+      "name": "Frost",
+      "usage": "Use when ice crystals cover plants or ground.",
+      "synonyms": ["hoar frost", "rime", "frozen dew"],
+      "prompts": [
+        "a photo of frost on plants",
+        "a nature photograph of frost on plants",
+        "frost on plants",
+        "a photo of a frosty morning",
+        "a nature photograph of a frosty morning",
+        "a frosty morning"
+      ],
+      "signal": "clip",
+      "group": "sky",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "weather.dramatic-clouds",
+      "path": "Weather|Dramatic clouds",
+      "name": "Dramatic clouds",
+      "usage": "Use when big, textured or colorful clouds are a feature of the frame.",
+      "synonyms": ["cloudscape", "cumulus", "storm clouds"],
+      "prompts": [
+        "a photo of dramatic clouds",
+        "a nature photograph of dramatic clouds",
+        "dramatic clouds",
+        "a photo of a dramatic cloudy sky",
+        "a nature photograph of a dramatic cloudy sky",
+        "a dramatic cloudy sky"
+      ],
+      "signal": "clip",
+      "group": "sky",
+      "unvalidated": true,
+      "enabled": false,
+      "uk": {
+        "usage": "Use when big, textured or colourful clouds are a feature of the frame."
+      }
+    },
+    {
+      "id": "color.red-tones",
+      "path": "Color|Red tones",
+      "name": "Red tones",
+      "usage": "Use when red covers a large share of the frame.",
+      "synonyms": ["reddish", "crimson", "scarlet"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "colour",
+      "computed": "colour",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "color.orange-tones",
+      "path": "Color|Orange tones",
+      "name": "Orange tones",
+      "usage": "Use when orange covers a large share of the frame.",
+      "synonyms": ["rust"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "colour",
+      "computed": "colour",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "color.yellow-tones",
+      "path": "Color|Yellow tones",
+      "name": "Yellow tones",
+      "usage": "Use when yellow covers a large share of the frame.",
+      "synonyms": ["golden", "gold"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "colour",
+      "computed": "colour",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "color.green-tones",
+      "path": "Color|Green tones",
+      "name": "Green tones",
+      "usage": "Use when green covers a large share of the frame.",
+      "synonyms": ["greenery", "verdant"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "colour",
+      "computed": "colour",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "color.blue-tones",
+      "path": "Color|Blue tones",
+      "name": "Blue tones",
+      "usage": "Use when blue covers a large share of the frame.",
+      "synonyms": ["azure", "cobalt", "turquoise"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "colour",
+      "computed": "colour",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "color.purple-tones",
+      "path": "Color|Purple tones",
+      "name": "Purple tones",
+      "usage": "Use when purple covers a large share of the frame.",
+      "synonyms": ["violet", "lilac", "lavender", "mauve"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "colour",
+      "computed": "colour",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "color.pink-tones",
+      "path": "Color|Pink tones",
+      "name": "Pink tones",
+      "usage": "Use when pink covers a large share of the frame.",
+      "synonyms": ["rose", "magenta"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "colour",
+      "computed": "colour",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "color.brown-tones",
+      "path": "Color|Brown tones",
+      "name": "Brown tones",
+      "usage": "Use when brown covers a large share of the frame.",
+      "synonyms": ["tan", "earth tones", "russet"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "colour",
+      "computed": "colour",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "color.white-tones",
+      "path": "Color|White tones",
+      "name": "White tones",
+      "usage": "Use when white covers a large share of the frame.",
+      "synonyms": ["pale", "snowy white"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "colour",
+      "computed": "colour",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "color.black-tones",
+      "path": "Color|Black tones",
+      "name": "Black tones",
+      "usage": "Use when black covers a large share of the frame.",
+      "synonyms": ["jet black"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "colour",
+      "computed": "colour",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "color.gray-tones",
+      "path": "Color|Gray tones",
+      "name": "Gray tones",
+      "usage": "Use when gray covers a large share of the frame.",
+      "synonyms": ["gray", "grey", "slate", "grey tones"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "colour",
+      "computed": "colour",
+      "unvalidated": false,
+      "enabled": true,
+      "uk": {
+        "name": "Grey tones",
+        "usage": "Use when grey covers a large share of the frame."
+      }
+    },
+    {
+      "id": "color.black-and-white",
+      "path": "Color|Black and white",
+      "name": "Black and white",
+      "usage": "Use when the photo has no color, monochrome or desaturated.",
+      "synonyms": ["monochrome", "bw", "b&w", "greyscale", "grayscale"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "colour",
+      "computed": "pixels",
+      "unvalidated": false,
+      "enabled": true,
+      "uk": {
+        "usage": "Use when the photo has no colour, monochrome or desaturated."
+      }
+    },
+    {
+      "id": "color.colorful",
+      "path": "Color|Colorful",
+      "name": "Colorful",
+      "usage": "Use when many strong colors share the frame.",
+      "synonyms": ["vibrant", "rainbow of colors", "multicolor", "rainbow of colours", "multicolour", "colourful"],
+      "prompts": [
+        "a photo of a very colorful photo",
+        "a photograph with a very colorful photo",
+        "a very colorful photo",
+        "a photo of a vibrant multicolor scene",
+        "a photograph with a vibrant multicolor scene",
+        "a vibrant multicolor scene"
+      ],
+      "signal": "clip",
+      "group": "colour",
+      "unvalidated": true,
+      "enabled": false,
+      "uk": {
+        "name": "Colourful",
+        "usage": "Use when many strong colours share the frame."
+      }
+    },
+    {
+      "id": "color.muted",
+      "path": "Color|Muted",
+      "name": "Muted",
+      "usage": "Use when soft, low-saturation colors.",
+      "synonyms": ["pastel", "subtle colors", "earthy", "subtle colours"],
+      "prompts": [
+        "a photo of a photo in soft muted colors",
+        "a photograph with a photo in soft muted colors",
+        "a photo in soft muted colors",
+        "a photo of pastel colors",
+        "a photograph with pastel colors",
+        "pastel colors"
+      ],
+      "signal": "clip",
+      "group": "colour",
+      "unvalidated": true,
+      "enabled": false,
+      "uk": {
+        "usage": "Use when soft, low-saturation colours."
+      }
+    },
+    {
+      "id": "composition.close",
+      "path": "Composition|Close",
+      "name": "Close",
+      "usage": "Use when the animal fills much of the frame, a tight portrait.",
+      "synonyms": ["tight", "portrait framing", "close shot"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "framing",
+      "computed": "shotType",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "composition.environmental",
+      "path": "Composition|Environmental",
+      "name": "Environmental",
+      "usage": "Use when the animal is small in a larger scene.",
+      "synonyms": ["in habitat", "wide shot", "habitat shot"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "framing",
+      "computed": "shotType",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "composition.pair",
+      "path": "Composition|Pair",
+      "name": "Pair",
+      "usage": "Use when exactly two animals are in the frame.",
+      "synonyms": ["two animals", "couple", "duo"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "count",
+      "computed": "detector",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "composition.group",
+      "path": "Composition|Group",
+      "name": "Group",
+      "usage": "Use when three to nine animals are in the frame.",
+      "synonyms": ["small group", "several animals", "family group"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "count",
+      "computed": "detector",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "composition.flock-or-herd",
+      "path": "Composition|Flock or herd",
+      "name": "Flock or herd",
+      "usage": "Use when ten or more animals fill the frame.",
+      "synonyms": ["flock", "herd", "school", "colony", "swarm", "pack"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "count",
+      "computed": "detector",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "composition.negative-space",
+      "path": "Composition|Negative space",
+      "name": "Negative space",
+      "usage": "Use when the subject sits in a lot of empty space.",
+      "synonyms": ["minimalist", "minimal", "clean background", "empty space"],
+      "prompts": [
+        "a photo with lots of empty negative space",
+        "a photograph showing lots of empty negative space",
+        "lots of empty negative space",
+        "a photo with a minimalist composition with a small subject",
+        "a photograph showing a minimalist composition with a small subject",
+        "a minimalist composition with a small subject"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.centered",
+      "path": "Composition|Centered",
+      "name": "Centered",
+      "usage": "Use when the subject is in the middle of the frame.",
+      "synonyms": ["central", "symmetric subject", "centred"],
+      "prompts": [
+        "a photo with a subject centered in the frame",
+        "a photograph showing a subject centered in the frame",
+        "a subject centered in the frame",
+        "a photo with a centered composition",
+        "a photograph showing a centered composition",
+        "a centered composition"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false,
+      "uk": {
+        "name": "Centred"
+      }
+    },
+    {
+      "id": "composition.symmetry",
+      "path": "Composition|Symmetry",
+      "name": "Symmetry",
+      "usage": "Use when the two halves of the frame mirror each other.",
+      "synonyms": ["symmetrical", "balanced"],
+      "prompts": [
+        "a photo with a symmetrical composition",
+        "a photograph showing a symmetrical composition",
+        "a symmetrical composition",
+        "a photo with a mirrored symmetrical scene",
+        "a photograph showing a mirrored symmetrical scene",
+        "a mirrored symmetrical scene"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.reflection",
+      "path": "Composition|Reflection",
+      "name": "Reflection",
+      "usage": "Use when the subject is mirrored in water or glass.",
+      "synonyms": ["reflected", "mirror image", "water reflection"],
+      "prompts": [
+        "a photo with a reflection in water",
+        "a photograph showing a reflection in water",
+        "a reflection in water",
+        "a photo with an animal and its reflection",
+        "a photograph showing an animal and its reflection",
+        "an animal and its reflection"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.leading-lines",
+      "path": "Composition|Leading lines",
+      "name": "Leading lines",
+      "usage": "Use when lines in the scene draw the eye to the subject.",
+      "synonyms": ["lines", "converging lines"],
+      "prompts": [
+        "a photo with strong leading lines",
+        "a photograph showing strong leading lines",
+        "strong leading lines",
+        "a photo with lines leading to the subject",
+        "a photograph showing lines leading to the subject",
+        "lines leading to the subject"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.shallow-depth-of-field",
+      "path": "Composition|Shallow depth of field",
+      "name": "Shallow depth of field",
+      "usage": "Use when the subject is sharp and the background melts away.",
+      "synonyms": ["bokeh", "blurred background", "blurry background", "background blur"],
+      "prompts": [
+        "a photo with a smooth blurred bokeh background",
+        "a photograph showing a smooth blurred bokeh background",
+        "a smooth blurred bokeh background",
+        "a photo with a sharp subject with a blurred background",
+        "a photograph showing a sharp subject with a blurred background",
+        "a sharp subject with a blurred background"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.motion-blur",
+      "path": "Composition|Motion blur",
+      "name": "Motion blur",
+      "usage": "Use when movement shows as blur in the frame.",
+      "synonyms": ["blur", "blurred motion", "slow shutter"],
+      "prompts": [
+        "a photo with motion blur",
+        "a photograph showing motion blur",
+        "motion blur",
+        "a photo with a blurred moving subject",
+        "a photograph showing a blurred moving subject",
+        "a blurred moving subject"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.panning",
+      "path": "Composition|Panning",
+      "name": "Panning",
+      "usage": "Use when the subject is sharp and the background streaks sideways.",
+      "synonyms": ["panned", "panning shot"],
+      "prompts": [
+        "a photo with a panning shot with a streaked background",
+        "a photograph showing a panning shot with a streaked background",
+        "a panning shot with a streaked background",
+        "a photo with a sharp moving subject with streaked background",
+        "a photograph showing a sharp moving subject with streaked background",
+        "a sharp moving subject with streaked background"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.eye-contact",
+      "path": "Composition|Eye contact",
+      "name": "Eye contact",
+      "usage": "Use when the animal looks straight at the camera.",
+      "synonyms": ["looking at the camera", "staring at the camera", "eye contact with the camera"],
+      "prompts": [
+        "a photo with an animal looking straight at the camera",
+        "a photograph showing an animal looking straight at the camera",
+        "an animal looking straight at the camera",
+        "a photo with an animal making eye contact",
+        "a photograph showing an animal making eye contact",
+        "an animal making eye contact"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.looking-away",
+      "path": "Composition|Looking away",
+      "name": "Looking away",
+      "usage": "Use when the animal looks away from the camera.",
+      "synonyms": ["profile", "side view", "turned away"],
+      "prompts": [
+        "a photo with an animal looking away from the camera",
+        "a photograph showing an animal looking away from the camera",
+        "an animal looking away from the camera",
+        "a photo with an animal in profile",
+        "a photograph showing an animal in profile",
+        "an animal in profile"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.low-angle",
+      "path": "Composition|Low angle",
+      "name": "Low angle",
+      "usage": "Use when the camera is at ground level looking at the subject.",
+      "synonyms": ["ground level", "eye level", "worm's eye"],
+      "prompts": [
+        "a photo with a low angle shot at ground level",
+        "a photograph showing a low angle shot at ground level",
+        "a low angle shot at ground level",
+        "a photo with a photo taken from ground level",
+        "a photograph showing a photo taken from ground level",
+        "a photo taken from ground level"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.from-above",
+      "path": "Composition|From above",
+      "name": "From above",
+      "usage": "Use when the camera looks down on the subject.",
+      "synonyms": ["high angle"],
+      "prompts": [
+        "a photo with a photo looking down from above",
+        "a photograph showing a photo looking down from above",
+        "a photo looking down from above",
+        "a photo with a top-down view",
+        "a photograph showing a top-down view",
+        "a top-down view"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.wide-angle",
+      "path": "Composition|Wide angle",
+      "name": "Wide angle",
+      "usage": "Use when a wide lens shows the subject big in a wide scene.",
+      "synonyms": ["ultra wide"],
+      "prompts": [
+        "a photo with a wide angle photo with a large foreground subject",
+        "a photograph showing a wide angle photo with a large foreground subject",
+        "a wide angle photo with a large foreground subject",
+        "a photo with a wide angle shot",
+        "a photograph showing a wide angle shot",
+        "a wide angle shot"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.pattern",
+      "path": "Composition|Pattern",
+      "name": "Pattern",
+      "usage": "Use when repeating shapes or marks fill the frame.",
+      "synonyms": ["patterns", "repetition"],
+      "prompts": [
+        "a photo with a repeating pattern",
+        "a photograph showing a repeating pattern",
+        "a repeating pattern",
+        "a photo with a photo of a repeating pattern",
+        "a photograph showing a photo of a repeating pattern",
+        "a photo of a repeating pattern"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.texture",
+      "path": "Composition|Texture",
+      "name": "Texture",
+      "usage": "Use when surface detail like feathers, bark, fur or scales is the point.",
+      "synonyms": ["textures"],
+      "prompts": [
+        "a photo with a close-up of a texture",
+        "a photograph showing a close-up of a texture",
+        "a close-up of a texture",
+        "a photo with detailed texture of fur or feathers or bark",
+        "a photograph showing detailed texture of fur or feathers or bark",
+        "detailed texture of fur or feathers or bark"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.frame-within-a-frame",
+      "path": "Composition|Frame within a frame",
+      "name": "Frame within a frame",
+      "usage": "Use when branches, an arch or foliage frame the subject.",
+      "synonyms": ["framed", "natural frame", "through branches"],
+      "prompts": [
+        "a photo with a subject framed by branches",
+        "a photograph showing a subject framed by branches",
+        "a subject framed by branches",
+        "a photo with a natural frame around the subject",
+        "a photograph showing a natural frame around the subject",
+        "a natural frame around the subject"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.cropped-tight",
+      "path": "Composition|Cropped tight",
+      "name": "Cropped tight",
+      "usage": "Use when the subject is cut off by the frame on purpose.",
+      "synonyms": ["tight crop", "cut off"],
+      "prompts": [
+        "a photo with a tightly cropped subject",
+        "a photograph showing a tightly cropped subject",
+        "a tightly cropped subject",
+        "a photo with a subject cut off by the frame edge",
+        "a photograph showing a subject cut off by the frame edge",
+        "a subject cut off by the frame edge"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.subject-small-in-frame",
+      "path": "Composition|Subject small in frame",
+      "name": "Subject small in frame",
+      "usage": "Use when the subject is a small part of a wide scene.",
+      "synonyms": ["tiny subject", "distant subject"],
+      "prompts": [
+        "a photo with a tiny subject far away in a wide scene",
+        "a photograph showing a tiny subject far away in a wide scene",
+        "a tiny subject far away in a wide scene",
+        "a photo with a distant animal",
+        "a photograph showing a distant animal",
+        "a distant animal"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.full-body",
+      "path": "Composition|Full body",
+      "name": "Full body",
+      "usage": "Use when the whole animal is visible from head to tail.",
+      "synonyms": ["whole animal", "full length"],
+      "prompts": [
+        "a photo with the whole animal visible head to tail",
+        "a photograph showing the whole animal visible head to tail",
+        "the whole animal visible head to tail",
+        "a photo with a full body shot of an animal",
+        "a photograph showing a full body shot of an animal",
+        "a full body shot of an animal"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.head-and-shoulders",
+      "path": "Composition|Head and shoulders",
+      "name": "Head and shoulders",
+      "usage": "Use when only the head and upper body fill the frame.",
+      "synonyms": ["head shot", "headshot", "face"],
+      "prompts": [
+        "a photo with a close-up of an animal's head",
+        "a photograph showing a close-up of an animal's head",
+        "a close-up of an animal's head",
+        "a photo with a head and shoulders portrait of an animal",
+        "a photograph showing a head and shoulders portrait of an animal",
+        "a head and shoulders portrait of an animal"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.two-subjects",
+      "path": "Composition|Two subjects",
+      "name": "Two subjects",
+      "usage": "Use when two different subjects share the frame and interact.",
+      "synonyms": ["interaction", "together"],
+      "prompts": [
+        "a photo with two animals interacting",
+        "a photograph showing two animals interacting",
+        "two animals interacting",
+        "a photo with two animals together",
+        "a photograph showing two animals together",
+        "two animals together"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "composition.foreground-blur",
+      "path": "Composition|Foreground blur",
+      "name": "Foreground blur",
+      "usage": "Use when out-of-focus plants or branches in front soften the frame.",
+      "synonyms": ["foreground bokeh", "through grass"],
+      "prompts": [
+        "a photo with out of focus plants in the foreground",
+        "a photograph showing out of focus plants in the foreground",
+        "out of focus plants in the foreground",
+        "a photo with a subject seen through blurred grass",
+        "a photograph showing a subject seen through blurred grass",
+        "a subject seen through blurred grass"
+      ],
+      "signal": "clip",
+      "group": "composition",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "context.in-hand",
+      "path": "Context|In hand",
+      "name": "In hand",
+      "usage": "Use when a person holds the animal or plant, up close.",
+      "synonyms": ["held", "hand held", "handheld", "being held"],
+      "prompts": [
+        "a photo of an animal held in a person's hand",
+        "a wildlife photo of an animal held in a person's hand",
+        "an animal held in a person's hand",
+        "a photo of a person holding a small animal",
+        "a wildlife photo of a person holding a small animal",
+        "a person holding a small animal"
+      ],
+      "signal": "clip",
+      "group": "context",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "context.captive",
+      "path": "Context|Captive",
+      "name": "Captive",
+      "usage": "Use when the animal is in a zoo, aquarium, cage, pen or terrarium.",
+      "synonyms": ["caged", "pet", "farm animal"],
+      "prompts": [
+        "a photo of a captive animal in a zoo enclosure",
+        "a wildlife photo of a captive animal in a zoo enclosure",
+        "a captive animal in a zoo enclosure",
+        "a photo of an animal behind glass or a cage",
+        "a wildlife photo of an animal behind glass or a cage",
+        "an animal behind glass or a cage"
+      ],
+      "signal": "clip",
+      "group": "context",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "context.specimen",
+      "path": "Context|Specimen",
+      "name": "Specimen",
+      "usage": "Use when a dead, preserved, mounted or pinned specimen, museum or collection.",
+      "synonyms": ["museum specimen", "mounted", "pinned", "taxidermy", "preserved"],
+      "prompts": [
+        "a photo of a museum specimen on display",
+        "a wildlife photo of a museum specimen on display",
+        "a museum specimen on display",
+        "a photo of a pinned insect or a mounted animal",
+        "a wildlife photo of a pinned insect or a mounted animal",
+        "a pinned insect or a mounted animal"
+      ],
+      "signal": "clip",
+      "group": "context",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "context.night-flash",
+      "path": "Context|Night flash",
+      "name": "Night flash",
+      "usage": "Use when the animal is lit by a flash against a dark background at night.",
+      "synonyms": ["flash at night", "spotlight", "flashlight", "headlamp"],
+      "prompts": [
+        "a photo of an animal lit by a flash at night",
+        "a wildlife photo of an animal lit by a flash at night",
+        "an animal lit by a flash at night",
+        "a photo of an animal in a flashlight beam in the dark",
+        "a wildlife photo of an animal in a flashlight beam in the dark",
+        "an animal in a flashlight beam in the dark"
+      ],
+      "signal": "clip",
+      "group": "context",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "context.camera-trap",
+      "path": "Context|Camera trap",
+      "name": "Camera trap",
+      "usage": "Use when a trail camera took the photo, fixed view, often infrared or timestamped.",
+      "synonyms": ["trail camera", "trailcam", "game camera", "wildlife camera"],
+      "prompts": [
+        "a photo of a trail camera photo of an animal",
+        "a wildlife photo of a trail camera photo of an animal",
+        "a trail camera photo of an animal",
+        "a photo of a camera trap night image",
+        "a wildlife photo of a camera trap night image",
+        "a camera trap night image"
+      ],
+      "signal": "clip",
+      "group": "context",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "context.drawing",
+      "path": "Context|Drawing",
+      "name": "Drawing",
+      "usage": "Use when the photo shows a drawing, painting, illustration or print, not a real animal.",
+      "synonyms": ["illustration", "painting", "artwork", "sketch", "print"],
+      "prompts": [
+        "a photo of a drawing of an animal",
+        "a wildlife photo of a drawing of an animal",
+        "a drawing of an animal",
+        "a photo of an illustration or painting of an animal",
+        "a wildlife photo of an illustration or painting of an animal",
+        "an illustration or painting of an animal"
+      ],
+      "signal": "clip",
+      "group": "context",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "context.screenshot",
+      "path": "Context|Screenshot",
+      "name": "Screenshot",
+      "usage": "Use when a screen capture or app screenshot.",
+      "synonyms": ["screen capture", "app screen"],
+      "prompts": [
+        "a photo of a screenshot of a phone screen",
+        "a wildlife photo of a screenshot of a phone screen",
+        "a screenshot of a phone screen",
+        "a photo of a screenshot of an app",
+        "a wildlife photo of a screenshot of an app",
+        "a screenshot of an app"
+      ],
+      "signal": "clip",
+      "group": "context",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "context.document",
+      "path": "Context|Document",
+      "name": "Document",
+      "usage": "Use when text, a page, label or receipt fills the frame.",
+      "synonyms": ["text", "page", "paper", "notes", "label"],
+      "prompts": [
+        "a photo of a photo of a document",
+        "a wildlife photo of a photo of a document",
+        "a photo of a document",
+        "a photo of a photo of a page of text",
+        "a wildlife photo of a photo of a page of text",
+        "a photo of a page of text"
+      ],
+      "signal": "clip",
+      "group": "context",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "context.information-sign",
+      "path": "Context|Information sign",
+      "name": "Information sign",
+      "usage": "Use when an info board, plaque or sign explains the place or species.",
+      "synonyms": ["info board", "signboard", "plaque", "interpretive sign"],
+      "prompts": [
+        "a photo of an information sign",
+        "a wildlife photo of an information sign",
+        "an information sign",
+        "a photo of a nature reserve info board",
+        "a wildlife photo of a nature reserve info board",
+        "a nature reserve info board"
+      ],
+      "signal": "clip",
+      "group": "context",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "behavior.flying",
+      "path": "Behavior|Flying",
+      "name": "Flying",
+      "usage": "Use when the animal is in flight, wings in the air.",
+      "synonyms": ["in flight", "flight", "airborne", "on the wing", "flying bird"],
+      "prompts": [
+        "a photo of a bird flying",
+        "a wildlife photo of a bird flying",
+        "a bird flying",
+        "a photo of an animal in flight with wings spread",
+        "a wildlife photo of an animal in flight with wings spread",
+        "an animal in flight with wings spread"
+      ],
+      "signal": "clip",
+      "group": "behaviour",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "behavior.perched",
+      "path": "Behavior|Perched",
+      "name": "Perched",
+      "usage": "Use when the animal sits on a branch, post or wire.",
+      "synonyms": ["sitting", "perching", "on a branch", "on a perch"],
+      "prompts": [
+        "a photo of a bird perched on a branch",
+        "a wildlife photo of a bird perched on a branch",
+        "a bird perched on a branch",
+        "a photo of an animal perched on a post",
+        "a wildlife photo of an animal perched on a post",
+        "an animal perched on a post"
+      ],
+      "signal": "clip",
+      "group": "behaviour",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "people.people-in-photo",
+      "path": "People|People in photo",
+      "name": "People in photo",
+      "usage": "Use when a person is visible in the frame, presence only, no counting or identity.",
+      "synonyms": ["woman", "child"],
+      "prompts": [],
+      "signal": "computed",
+      "group": "people",
+      "computed": "person",
+      "unvalidated": false,
+      "enabled": true
+    },
+    {
+      "id": "things.nature.flowers",
+      "path": "Things|Nature|Flowers",
+      "name": "Flowers",
+      "usage": "Use when flowers are an obvious compositional subject, not just part of the scene.",
+      "synonyms": ["flower", "blossom", "blooms", "wildflowers"],
+      "prompts": [
+        "a photo of flowers",
+        "a close-up photo of flowers",
+        "flowers",
+        "a photo of a field of flowers",
+        "a close-up photo of a field of flowers",
+        "a field of flowers"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.tree",
+      "path": "Things|Nature|Tree",
+      "name": "Tree",
+      "usage": "Use when a single tree or tree trunk is the obvious subject.",
+      "synonyms": ["trunk", "old tree"],
+      "prompts": [
+        "a photo of a tree",
+        "a close-up photo of a tree",
+        "a tree",
+        "a photo of a single tree",
+        "a close-up photo of a single tree",
+        "a single tree"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.leaves",
+      "path": "Things|Nature|Leaves",
+      "name": "Leaves",
+      "usage": "Use when leaves fill the frame, green or autumn.",
+      "synonyms": ["foliage", "fall leaves", "autumn leaves"],
+      "prompts": [
+        "a photo of leaves",
+        "a close-up photo of leaves",
+        "leaves",
+        "a photo of colorful autumn leaves",
+        "a close-up photo of colorful autumn leaves",
+        "colorful autumn leaves"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.rocks",
+      "path": "Things|Nature|Rocks",
+      "name": "Rocks",
+      "usage": "Use when rocks or boulders are the subject.",
+      "synonyms": ["stones", "boulders", "pebbles"],
+      "prompts": [
+        "a photo of rocks",
+        "a close-up photo of rocks",
+        "rocks",
+        "a photo of a pile of boulders",
+        "a close-up photo of a pile of boulders",
+        "a pile of boulders"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.waves",
+      "path": "Things|Nature|Waves",
+      "name": "Waves",
+      "usage": "Use when breaking waves or ripples fill the frame.",
+      "synonyms": ["surf", "ripples", "swell"],
+      "prompts": [
+        "a photo of waves",
+        "a close-up photo of waves",
+        "waves",
+        "a photo of breaking ocean waves",
+        "a close-up photo of breaking ocean waves",
+        "breaking ocean waves"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.aurora",
+      "path": "Things|Nature|Aurora",
+      "name": "Aurora",
+      "usage": "Use when northern or southern lights glow in the sky.",
+      "synonyms": ["northern lights", "southern lights"],
+      "prompts": [
+        "a photo of the aurora borealis",
+        "a close-up photo of the aurora borealis",
+        "the aurora borealis",
+        "a photo of green aurora lights in the night sky",
+        "a close-up photo of green aurora lights in the night sky",
+        "green aurora lights in the night sky"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.milky-way",
+      "path": "Things|Nature|Milky Way",
+      "name": "Milky Way",
+      "usage": "Use when the band of the galaxy is visible.",
+      "synonyms": ["galaxy", "galactic core"],
+      "prompts": [
+        "a photo of the Milky Way galaxy",
+        "a close-up photo of the Milky Way galaxy",
+        "the Milky Way galaxy",
+        "a photo of a starry sky with the Milky Way",
+        "a close-up photo of a starry sky with the Milky Way",
+        "a starry sky with the Milky Way"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.moon",
+      "path": "Things|Nature|Moon",
+      "name": "Moon",
+      "usage": "Use when the moon is a clear feature.",
+      "synonyms": ["full moon", "crescent moon", "moonlight"],
+      "prompts": [
+        "a photo of the moon in the sky",
+        "a close-up photo of the moon in the sky",
+        "the moon in the sky",
+        "a photo of a full moon over a landscape",
+        "a close-up photo of a full moon over a landscape",
+        "a full moon over a landscape"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.sun",
+      "path": "Things|Nature|Sun",
+      "name": "Sun",
+      "usage": "Use when the sun disc or sunstar is in the frame.",
+      "synonyms": ["sunburst", "sunstar", "sun in frame"],
+      "prompts": [
+        "a photo of the sun in the sky",
+        "a close-up photo of the sun in the sky",
+        "the sun in the sky",
+        "a photo of a sunburst through trees",
+        "a close-up photo of a sunburst through trees",
+        "a sunburst through trees"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.fire",
+      "path": "Things|Nature|Fire",
+      "name": "Fire",
+      "usage": "Use when flames or a burn are visible.",
+      "synonyms": ["flames", "wildfire", "campfire", "burn"],
+      "prompts": [
+        "a photo of fire",
+        "a close-up photo of fire",
+        "fire",
+        "a photo of flames",
+        "a close-up photo of flames",
+        "flames"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.smoke",
+      "path": "Things|Nature|Smoke",
+      "name": "Smoke",
+      "usage": "Use when smoke or steam rises.",
+      "synonyms": ["steam"],
+      "prompts": [
+        "a photo of smoke",
+        "a close-up photo of smoke",
+        "smoke",
+        "a photo of smoke rising",
+        "a close-up photo of smoke rising",
+        "smoke rising"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.ice",
+      "path": "Things|Nature|Ice",
+      "name": "Ice",
+      "usage": "Use when ice formations are the subject.",
+      "synonyms": ["icicles", "frozen water", "iceberg"],
+      "prompts": [
+        "a photo of ice",
+        "a close-up photo of ice",
+        "ice",
+        "a photo of an ice formation",
+        "a close-up photo of an ice formation",
+        "an ice formation"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.feather",
+      "path": "Things|Nature|Feather",
+      "name": "Feather",
+      "usage": "Use when a feather is the subject.",
+      "synonyms": ["feathers", "plumage detail"],
+      "prompts": [
+        "a photo of a feather",
+        "a close-up photo of a feather",
+        "a feather",
+        "a photo of a close-up of a feather",
+        "a close-up photo of a close-up of a feather",
+        "a close-up of a feather"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.nest",
+      "path": "Things|Nature|Nest",
+      "name": "Nest",
+      "usage": "Use when a nest is visible, with or without eggs or young.",
+      "synonyms": ["nests", "nest with eggs", "nestlings"],
+      "prompts": [
+        "a photo of a nest",
+        "a close-up photo of a nest",
+        "a nest",
+        "a photo of a bird nest with eggs",
+        "a close-up photo of a bird nest with eggs",
+        "a bird nest with eggs"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.eggs",
+      "path": "Things|Nature|Eggs",
+      "name": "Eggs",
+      "usage": "Use when eggs are the subject.",
+      "synonyms": ["egg", "egg clutch"],
+      "prompts": [
+        "a photo of eggs",
+        "a close-up photo of eggs",
+        "eggs",
+        "a photo of a clutch of eggs",
+        "a close-up photo of a clutch of eggs",
+        "a clutch of eggs"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.tracks",
+      "path": "Things|Nature|Tracks",
+      "name": "Tracks",
+      "usage": "Use when footprints, scat or other animal sign are the subject.",
+      "synonyms": ["footprints", "tracks and sign", "paw prints", "spoor"],
+      "prompts": [
+        "a photo of animal tracks in mud or snow",
+        "a close-up photo of animal tracks in mud or snow",
+        "animal tracks in mud or snow",
+        "a photo of a footprint on the ground",
+        "a close-up photo of a footprint on the ground",
+        "a footprint on the ground"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.skull-or-bones",
+      "path": "Things|Nature|Skull or bones",
+      "name": "Skull or bones",
+      "usage": "Use when a skull, skeleton or bones lie on the ground.",
+      "synonyms": ["skull", "bones", "skeleton", "antlers", "shell"],
+      "prompts": [
+        "a photo of an animal skull",
+        "a close-up photo of an animal skull",
+        "an animal skull",
+        "a photo of bones on the ground",
+        "a close-up photo of bones on the ground",
+        "bones on the ground"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.carcass",
+      "path": "Things|Nature|Carcass",
+      "name": "Carcass",
+      "usage": "Use when a dead animal is the subject.",
+      "synonyms": ["roadkill", "dead animal", "remains"],
+      "prompts": [
+        "a photo of a dead animal on the ground",
+        "a close-up photo of a dead animal on the ground",
+        "a dead animal on the ground",
+        "a photo of a carcass",
+        "a close-up photo of a carcass",
+        "a carcass"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.fruit-and-seeds",
+      "path": "Things|Nature|Fruit and seeds",
+      "name": "Fruit and seeds",
+      "usage": "Use when fruit, berries, cones or seeds are the subject.",
+      "synonyms": ["berries", "seeds", "cones", "seed pods"],
+      "prompts": [
+        "a photo of berries on a branch",
+        "a close-up photo of berries on a branch",
+        "berries on a branch",
+        "a photo of fruit and seeds",
+        "a close-up photo of fruit and seeds",
+        "fruit and seeds"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.web",
+      "path": "Things|Nature|Web",
+      "name": "Web",
+      "usage": "Use when a spider web is the subject.",
+      "synonyms": ["spiderweb", "cobweb"],
+      "prompts": [
+        "a photo of a spider web",
+        "a close-up photo of a spider web",
+        "a spider web",
+        "a photo of a web with dew drops",
+        "a close-up photo of a web with dew drops",
+        "a web with dew drops"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.nature.burrow-or-den",
+      "path": "Things|Nature|Burrow or den",
+      "name": "Burrow or den",
+      "usage": "Use when a hole, burrow or den entrance is visible.",
+      "synonyms": ["burrow", "hole", "den", "lodge", "mound"],
+      "prompts": [
+        "a photo of a burrow in the ground",
+        "a close-up photo of a burrow in the ground",
+        "a burrow in the ground",
+        "a photo of an animal den entrance",
+        "a close-up photo of an animal den entrance",
+        "an animal den entrance"
+      ],
+      "signal": "clip",
+      "group": "things-nature",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.vehicle.car",
+      "path": "Things|Vehicle|Car",
+      "name": "Car",
+      "usage": "Use when a car or truck is the obvious subject, not just part of the scene.",
+      "synonyms": ["cars", "automobile", "suv", "pickup", "truck"],
+      "prompts": [
+        "a photo of a car",
+        "a photo showing a car",
+        "a car",
+        "a photo of a pickup truck",
+        "a photo showing a pickup truck",
+        "a pickup truck"
+      ],
+      "signal": "clip",
+      "group": "things-vehicles",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.vehicle.bus",
+      "path": "Things|Vehicle|Bus",
+      "name": "Bus",
+      "usage": "Use when a bus is visible.",
+      "synonyms": ["buses", "coach", "minibus"],
+      "prompts": [
+        "a photo of a bus",
+        "a photo showing a bus",
+        "a bus",
+        "a photo of a tour bus",
+        "a photo showing a tour bus",
+        "a tour bus"
+      ],
+      "signal": "clip",
+      "group": "things-vehicles",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.vehicle.motorcycle",
+      "path": "Things|Vehicle|Motorcycle",
+      "name": "Motorcycle",
+      "usage": "Use when a motorcycle or scooter is the subject.",
+      "synonyms": ["motorbike", "scooter", "moped"],
+      "prompts": [
+        "a photo of a motorcycle",
+        "a photo showing a motorcycle",
+        "a motorcycle",
+        "a photo of a scooter",
+        "a photo showing a scooter",
+        "a scooter"
+      ],
+      "signal": "clip",
+      "group": "things-vehicles",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.vehicle.bicycle",
+      "path": "Things|Vehicle|Bicycle",
+      "name": "Bicycle",
+      "usage": "Use when a bicycle is the subject.",
+      "synonyms": ["bike", "cycle", "e-bike"],
+      "prompts": [
+        "a photo of a bicycle",
+        "a photo showing a bicycle",
+        "a bicycle",
+        "a photo of a parked bike",
+        "a photo showing a parked bike",
+        "a parked bike"
+      ],
+      "signal": "clip",
+      "group": "things-vehicles",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.vehicle.train",
+      "path": "Things|Vehicle|Train",
+      "name": "Train",
+      "usage": "Use when a train, tram or railway is visible.",
+      "synonyms": ["tram", "railway", "locomotive"],
+      "prompts": [
+        "a photo of a train",
+        "a photo showing a train",
+        "a train",
+        "a photo of a tram on a street",
+        "a photo showing a tram on a street",
+        "a tram on a street"
+      ],
+      "signal": "clip",
+      "group": "things-vehicles",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.vehicle.boat",
+      "path": "Things|Vehicle|Boat",
+      "name": "Boat",
+      "usage": "Use when a boat, ferry or ship is the subject.",
+      "synonyms": ["ferry", "dinghy", "vessel", "yacht", "sailboat", "fishing boat"],
+      "prompts": [
+        "a photo of a boat on the water",
+        "a photo showing a boat on the water",
+        "a boat on the water",
+        "a photo of a large ship",
+        "a photo showing a large ship",
+        "a large ship"
+      ],
+      "signal": "clip",
+      "group": "things-vehicles",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.vehicle.kayak",
+      "path": "Things|Vehicle|Kayak",
+      "name": "Kayak",
+      "usage": "Use when a kayak or canoe is the subject.",
+      "synonyms": ["canoe", "paddle boat", "paddleboard"],
+      "prompts": [
+        "a photo of a kayak",
+        "a photo showing a kayak",
+        "a kayak",
+        "a photo of a canoe on a lake",
+        "a photo showing a canoe on a lake",
+        "a canoe on a lake"
+      ],
+      "signal": "clip",
+      "group": "things-vehicles",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.vehicle.aircraft",
+      "path": "Things|Vehicle|Aircraft",
+      "name": "Aircraft",
+      "usage": "Use when a plane, helicopter or balloon is the subject.",
+      "synonyms": ["airplane", "aeroplane", "helicopter", "hot air balloon", "plane", "jet"],
+      "prompts": [
+        "a photo of an airplane",
+        "a photo showing an airplane",
+        "an airplane",
+        "a photo of a helicopter",
+        "a photo showing a helicopter",
+        "a helicopter"
+      ],
+      "signal": "clip",
+      "group": "things-vehicles",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.vehicle.drone",
+      "path": "Things|Vehicle|Drone",
+      "name": "Drone",
+      "usage": "Use when a drone is the subject.",
+      "synonyms": ["uav", "quadcopter", "multirotor"],
+      "prompts": [
+        "a photo of a drone in the air",
+        "a photo showing a drone in the air",
+        "a drone in the air",
+        "a photo of a quadcopter drone",
+        "a photo showing a quadcopter drone",
+        "a quadcopter drone"
+      ],
+      "signal": "clip",
+      "group": "things-vehicles",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.vehicle.tractor",
+      "path": "Things|Vehicle|Tractor",
+      "name": "Tractor",
+      "usage": "Use when a tractor or farm machine is the subject.",
+      "synonyms": ["farm machine", "harvester", "combine"],
+      "prompts": [
+        "a photo of a tractor",
+        "a photo showing a tractor",
+        "a tractor",
+        "a photo of farm machinery",
+        "a photo showing farm machinery",
+        "farm machinery"
+      ],
+      "signal": "clip",
+      "group": "things-vehicles",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.vehicle.safari-vehicle",
+      "path": "Things|Vehicle|Safari vehicle",
+      "name": "Safari vehicle",
+      "usage": "Use when an open game-drive vehicle or tour jeep is the subject.",
+      "synonyms": ["game drive", "jeep", "land cruiser", "tour vehicle"],
+      "prompts": [
+        "a photo of a safari vehicle",
+        "a photo showing a safari vehicle",
+        "a safari vehicle",
+        "a photo of an open game drive jeep",
+        "a photo showing an open game drive jeep",
+        "an open game drive jeep"
+      ],
+      "signal": "clip",
+      "group": "things-vehicles",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.house",
+      "path": "Things|Building|House",
+      "name": "House",
+      "usage": "Use when a house or cabin is the subject.",
+      "synonyms": ["home", "cottage", "cabin", "hut"],
+      "prompts": [
+        "a photo of a house",
+        "a photo showing a house",
+        "a house",
+        "a photo of a wooden cabin",
+        "a photo showing a wooden cabin",
+        "a wooden cabin"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.barn",
+      "path": "Things|Building|Barn",
+      "name": "Barn",
+      "usage": "Use when a barn, shed or farm building is the subject.",
+      "synonyms": ["shed", "farm building", "stable", "outbuilding"],
+      "prompts": [
+        "a photo of a barn",
+        "a photo showing a barn",
+        "a barn",
+        "a photo of a farm shed",
+        "a photo showing a farm shed",
+        "a farm shed"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.tower",
+      "path": "Things|Building|Tower",
+      "name": "Tower",
+      "usage": "Use when a tower, mast or water tower is the subject.",
+      "synonyms": ["mast", "water tower", "radio tower", "pylon", "cell tower"],
+      "prompts": [
+        "a photo of a tower",
+        "a photo showing a tower",
+        "a tower",
+        "a photo of a tall mast",
+        "a photo showing a tall mast",
+        "a tall mast"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.lighthouse",
+      "path": "Things|Building|Lighthouse",
+      "name": "Lighthouse",
+      "usage": "Use when a lighthouse is the subject.",
+      "synonyms": ["light tower", "beacon"],
+      "prompts": [
+        "a photo of a lighthouse",
+        "a photo showing a lighthouse",
+        "a lighthouse",
+        "a photo of a lighthouse on a coast",
+        "a photo showing a lighthouse on a coast",
+        "a lighthouse on a coast"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.windmill",
+      "path": "Things|Building|Windmill",
+      "name": "Windmill",
+      "usage": "Use when a windmill or wind turbine is the subject.",
+      "synonyms": ["wind turbine", "wind farm", "turbine", "turbines"],
+      "prompts": [
+        "a photo of a windmill",
+        "a photo showing a windmill",
+        "a windmill",
+        "a photo of a wind turbine",
+        "a photo showing a wind turbine",
+        "a wind turbine"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.bridge",
+      "path": "Things|Building|Bridge",
+      "name": "Bridge",
+      "usage": "Use when a bridge is the subject.",
+      "synonyms": ["overpass", "viaduct", "footbridge"],
+      "prompts": [
+        "a photo of a bridge",
+        "a photo showing a bridge",
+        "a bridge",
+        "a photo of a bridge over a river",
+        "a photo showing a bridge over a river",
+        "a bridge over a river"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.church",
+      "path": "Things|Building|Church",
+      "name": "Church",
+      "usage": "Use when a church, temple or mosque is the subject.",
+      "synonyms": ["temple", "mosque", "cathedral", "chapel", "shrine"],
+      "prompts": [
+        "a photo of a church",
+        "a photo showing a church",
+        "a church",
+        "a photo of a temple",
+        "a photo showing a temple",
+        "a temple"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.castle",
+      "path": "Things|Building|Castle",
+      "name": "Castle",
+      "usage": "Use when a castle, fort or ruins are the subject.",
+      "synonyms": ["fort", "fortress", "ruins", "ruin", "palace"],
+      "prompts": [
+        "a photo of a castle",
+        "a photo showing a castle",
+        "a castle",
+        "a photo of ancient ruins",
+        "a photo showing ancient ruins",
+        "ancient ruins"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.skyscraper",
+      "path": "Things|Building|Skyscraper",
+      "name": "Skyscraper",
+      "usage": "Use when tall city buildings are the subject.",
+      "synonyms": ["tower block", "high rise", "skyscrapers"],
+      "prompts": [
+        "a photo of a skyscraper",
+        "a photo showing a skyscraper",
+        "a skyscraper",
+        "a photo of tall buildings",
+        "a photo showing tall buildings",
+        "tall buildings"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.wall",
+      "path": "Things|Building|Wall",
+      "name": "Wall",
+      "usage": "Use when a wall, fence or gate is the subject.",
+      "synonyms": ["fence", "gate", "railing", "stone wall", "barbed wire"],
+      "prompts": [
+        "a photo of a wall",
+        "a photo showing a wall",
+        "a wall",
+        "a photo of a wooden fence",
+        "a photo showing a wooden fence",
+        "a wooden fence"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.stairs",
+      "path": "Things|Building|Stairs",
+      "name": "Stairs",
+      "usage": "Use when stairs or steps are the subject.",
+      "synonyms": ["staircase", "steps"],
+      "prompts": [
+        "a photo of a staircase",
+        "a photo showing a staircase",
+        "a staircase",
+        "a photo of stone steps",
+        "a photo showing stone steps",
+        "stone steps"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.window",
+      "path": "Things|Building|Window",
+      "name": "Window",
+      "usage": "Use when a window or door is the subject.",
+      "synonyms": ["door", "doorway", "glass"],
+      "prompts": [
+        "a photo of a window",
+        "a photo showing a window",
+        "a window",
+        "a photo of a door",
+        "a photo showing a door",
+        "a door"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.dock-or-pier",
+      "path": "Things|Building|Dock or pier",
+      "name": "Dock or pier",
+      "usage": "Use when a pier, jetty or dock is the subject.",
+      "synonyms": ["pier", "jetty", "wharf", "quay", "harbor", "marina", "harbour"],
+      "prompts": [
+        "a photo of a pier",
+        "a photo showing a pier",
+        "a pier",
+        "a photo of a harbor with boats",
+        "a photo showing a harbor with boats",
+        "a harbor with boats"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.statue",
+      "path": "Things|Building|Statue",
+      "name": "Statue",
+      "usage": "Use when a statue or monument is the subject.",
+      "synonyms": ["monument", "sculpture", "memorial"],
+      "prompts": [
+        "a photo of a statue",
+        "a photo showing a statue",
+        "a statue",
+        "a photo of a monument",
+        "a photo showing a monument",
+        "a monument"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.sign",
+      "path": "Things|Building|Sign",
+      "name": "Sign",
+      "usage": "Use when a road sign, billboard or shop sign is the subject.",
+      "synonyms": ["signpost", "billboard", "street sign", "graffiti"],
+      "prompts": [
+        "a photo of a sign",
+        "a photo showing a sign",
+        "a sign",
+        "a photo of a road sign",
+        "a photo showing a road sign",
+        "a road sign"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.power-lines",
+      "path": "Things|Building|Power lines",
+      "name": "Power lines",
+      "usage": "Use when wires, poles or pylons cross the frame.",
+      "synonyms": ["power line", "telephone wires", "utility pole", "telegraph pole", "wires", "cables"],
+      "prompts": [
+        "a photo of power lines",
+        "a photo showing power lines",
+        "power lines",
+        "a photo of utility poles and wires",
+        "a photo showing utility poles and wires",
+        "utility poles and wires"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.building.road",
+      "path": "Things|Building|Road",
+      "name": "Road",
+      "usage": "Use when a paved road or highway is the subject.",
+      "synonyms": ["highway", "tarmac", "asphalt", "lane"],
+      "prompts": [
+        "a photo of a road",
+        "a photo showing a road",
+        "a road",
+        "a photo of a highway",
+        "a photo showing a highway",
+        "a highway"
+      ],
+      "signal": "clip",
+      "group": "things-buildings",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.gear.binoculars",
+      "path": "Things|Gear|Binoculars",
+      "name": "Binoculars",
+      "usage": "Use when binoculars or a spotting scope are the subject.",
+      "synonyms": ["binos", "spotting scope", "scope", "optics"],
+      "prompts": [
+        "a photo of binoculars",
+        "a photo showing binoculars",
+        "binoculars",
+        "a photo of a spotting scope on a tripod",
+        "a photo showing a spotting scope on a tripod",
+        "a spotting scope on a tripod"
+      ],
+      "signal": "clip",
+      "group": "things-gear",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.gear.camera-and-lens",
+      "path": "Things|Gear|Camera and lens",
+      "name": "Camera and lens",
+      "usage": "Use when a camera, lens or tripod is the subject.",
+      "synonyms": ["camera", "lens", "telephoto", "tripod", "dslr", "gimbal"],
+      "prompts": [
+        "a photo of a camera with a long lens",
+        "a photo showing a camera with a long lens",
+        "a camera with a long lens",
+        "a photo of a camera on a tripod",
+        "a photo showing a camera on a tripod",
+        "a camera on a tripod"
+      ],
+      "signal": "clip",
+      "group": "things-gear",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.gear.hide",
+      "path": "Things|Gear|Hide",
+      "name": "Hide",
+      "usage": "Use when a bird hide, blind or observation platform is the subject.",
+      "synonyms": ["blind", "hide", "observation tower", "viewing platform", "bird hide"],
+      "prompts": [
+        "a photo of a bird hide",
+        "a photo showing a bird hide",
+        "a bird hide",
+        "a photo of a wildlife observation platform",
+        "a photo showing a wildlife observation platform",
+        "a wildlife observation platform"
+      ],
+      "signal": "clip",
+      "group": "things-gear",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.gear.feeder",
+      "path": "Things|Gear|Feeder",
+      "name": "Feeder",
+      "usage": "Use when a bird feeder, bird bath or nest box is the subject.",
+      "synonyms": ["bird feeder", "bird table", "nest box", "birdhouse", "bird bath", "birdbath"],
+      "prompts": [
+        "a photo of a bird feeder",
+        "a photo showing a bird feeder",
+        "a bird feeder",
+        "a photo of a nest box on a tree",
+        "a photo showing a nest box on a tree",
+        "a nest box on a tree"
+      ],
+      "signal": "clip",
+      "group": "things-gear",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.gear.net-or-trap",
+      "path": "Things|Gear|Net or trap",
+      "name": "Net or trap",
+      "usage": "Use when a mist net, trap or similar capture gear is the subject.",
+      "synonyms": ["mist net", "live trap", "pitfall trap", "cage trap", "net"],
+      "prompts": [
+        "a photo of a mist net",
+        "a photo showing a mist net",
+        "a mist net",
+        "a photo of a live trap",
+        "a photo showing a live trap",
+        "a live trap"
+      ],
+      "signal": "clip",
+      "group": "things-gear",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.gear.field-guide",
+      "path": "Things|Gear|Field guide",
+      "name": "Field guide",
+      "usage": "Use when a field guide, notebook or map is the subject.",
+      "synonyms": ["field notes", "notebook", "guidebook", "book", "map"],
+      "prompts": [
+        "a photo of a field guide book",
+        "a photo showing a field guide book",
+        "a field guide book",
+        "a photo of a notebook with notes",
+        "a photo showing a notebook with notes",
+        "a notebook with notes"
+      ],
+      "signal": "clip",
+      "group": "things-gear",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.gear.backpack",
+      "path": "Things|Gear|Backpack",
+      "name": "Backpack",
+      "usage": "Use when a backpack, hat or outdoor clothing is the subject.",
+      "synonyms": ["hat", "boots", "jacket", "clothing", "hiking gear", "gear"],
+      "prompts": [
+        "a photo of a backpack",
+        "a photo showing a backpack",
+        "a backpack",
+        "a photo of a hat and boots",
+        "a photo showing a hat and boots",
+        "a hat and boots"
+      ],
+      "signal": "clip",
+      "group": "things-gear",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.gear.tent",
+      "path": "Things|Gear|Tent",
+      "name": "Tent",
+      "usage": "Use when a tent or campsite is the subject.",
+      "synonyms": ["campsite", "camp", "sleeping bag", "camper"],
+      "prompts": [
+        "a photo of a tent",
+        "a photo showing a tent",
+        "a tent",
+        "a photo of a campsite",
+        "a photo showing a campsite",
+        "a campsite"
+      ],
+      "signal": "clip",
+      "group": "things-gear",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.gear.phone",
+      "path": "Things|Gear|Phone",
+      "name": "Phone",
+      "usage": "Use when a phone, laptop or tablet is the subject.",
+      "synonyms": ["smartphone", "laptop", "tablet", "computer", "screen"],
+      "prompts": [
+        "a photo of a smartphone",
+        "a photo showing a smartphone",
+        "a smartphone",
+        "a photo of a laptop computer",
+        "a photo showing a laptop computer",
+        "a laptop computer"
+      ],
+      "signal": "clip",
+      "group": "things-gear",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.gear.leg-band",
+      "path": "Things|Gear|Leg band",
+      "name": "Leg band",
+      "usage": "Use when a ring, band, tag or tracker is visible on the animal.",
+      "synonyms": ["ring", "band", "transmitter", "tracker", "bird ring", "ear tag"],
+      "prompts": [
+        "a photo of a leg band on a bird",
+        "a photo showing a leg band on a bird",
+        "a leg band on a bird",
+        "a photo of a tag on an animal's ear",
+        "a photo showing a tag on an animal's ear",
+        "a tag on an animal's ear"
+      ],
+      "signal": "clip",
+      "group": "things-gear",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.everyday.bench",
+      "path": "Things|Everyday|Bench",
+      "name": "Bench",
+      "usage": "Use when a bench, table or chair is the subject.",
+      "synonyms": ["table", "chair", "seat", "picnic table"],
+      "prompts": [
+        "a photo of a bench",
+        "a photo showing a bench",
+        "a bench",
+        "a photo of a picnic table",
+        "a photo showing a picnic table",
+        "a picnic table"
+      ],
+      "signal": "clip",
+      "group": "things-everyday",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.everyday.bottle",
+      "path": "Things|Everyday|Bottle",
+      "name": "Bottle",
+      "usage": "Use when a bottle, cup or can is the subject.",
+      "synonyms": ["cup", "can", "mug", "jar"],
+      "prompts": [
+        "a photo of a bottle",
+        "a photo showing a bottle",
+        "a bottle",
+        "a photo of a cup",
+        "a photo showing a cup",
+        "a cup"
+      ],
+      "signal": "clip",
+      "group": "things-everyday",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.everyday.umbrella",
+      "path": "Things|Everyday|Umbrella",
+      "name": "Umbrella",
+      "usage": "Use when an umbrella or raincoat is the subject.",
+      "synonyms": ["raincoat", "rain gear", "poncho"],
+      "prompts": [
+        "a photo of an umbrella",
+        "a photo showing an umbrella",
+        "an umbrella",
+        "a photo of a raincoat",
+        "a photo showing a raincoat",
+        "a raincoat"
+      ],
+      "signal": "clip",
+      "group": "things-everyday",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.everyday.flag",
+      "path": "Things|Everyday|Flag",
+      "name": "Flag",
+      "usage": "Use when a flag or banner is the subject.",
+      "synonyms": ["banner", "pennant"],
+      "prompts": [
+        "a photo of a flag",
+        "a photo showing a flag",
+        "a flag",
+        "a photo of a banner",
+        "a photo showing a banner",
+        "a banner"
+      ],
+      "signal": "clip",
+      "group": "things-everyday",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.everyday.litter",
+      "path": "Things|Everyday|Litter",
+      "name": "Litter",
+      "usage": "Use when trash, plastic or other waste is the subject.",
+      "synonyms": ["trash", "garbage", "plastic", "waste", "pollution"],
+      "prompts": [
+        "a photo of litter on the ground",
+        "a photo showing litter on the ground",
+        "litter on the ground",
+        "a photo of plastic trash in nature",
+        "a photo showing plastic trash in nature",
+        "plastic trash in nature"
+      ],
+      "signal": "clip",
+      "group": "things-everyday",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.everyday.toy",
+      "path": "Things|Everyday|Toy",
+      "name": "Toy",
+      "usage": "Use when a toy, ball or game is the subject.",
+      "synonyms": ["ball", "doll", "game"],
+      "prompts": [
+        "a photo of a toy",
+        "a photo showing a toy",
+        "a toy",
+        "a photo of a ball",
+        "a photo showing a ball",
+        "a ball"
+      ],
+      "signal": "clip",
+      "group": "things-everyday",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.everyday.instrument",
+      "path": "Things|Everyday|Instrument",
+      "name": "Instrument",
+      "usage": "Use when a guitar, piano or other instrument is the subject.",
+      "synonyms": ["guitar", "piano", "drums", "microphone"],
+      "prompts": [
+        "a photo of a guitar",
+        "a photo showing a guitar",
+        "a guitar",
+        "a photo of a piano",
+        "a photo showing a piano",
+        "a piano"
+      ],
+      "signal": "clip",
+      "group": "things-everyday",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.everyday.candles",
+      "path": "Things|Everyday|Candles",
+      "name": "Candles",
+      "usage": "Use when candles or lanterns are the subject.",
+      "synonyms": ["candle", "lantern", "lanterns"],
+      "prompts": [
+        "a photo of candles",
+        "a photo showing candles",
+        "candles",
+        "a photo of lanterns",
+        "a photo showing lanterns",
+        "lanterns"
+      ],
+      "signal": "clip",
+      "group": "things-everyday",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.everyday.gift",
+      "path": "Things|Everyday|Gift",
+      "name": "Gift",
+      "usage": "Use when a gift or wrapped present is the subject.",
+      "synonyms": ["present", "wrapped gift"],
+      "prompts": [
+        "a photo of a wrapped gift",
+        "a photo showing a wrapped gift",
+        "a wrapped gift",
+        "a photo of a gift",
+        "a photo showing a gift",
+        "a gift"
+      ],
+      "signal": "clip",
+      "group": "things-everyday",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.everyday.christmas-tree",
+      "path": "Things|Everyday|Christmas tree",
+      "name": "Christmas tree",
+      "usage": "Use when a Christmas tree or festive decoration is the subject.",
+      "synonyms": ["decorations", "xmas tree", "festive"],
+      "prompts": [
+        "a photo of a christmas tree",
+        "a photo showing a christmas tree",
+        "a christmas tree",
+        "a photo of festive decorations",
+        "a photo showing festive decorations",
+        "festive decorations"
+      ],
+      "signal": "clip",
+      "group": "things-everyday",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.everyday.fireworks",
+      "path": "Things|Everyday|Fireworks",
+      "name": "Fireworks",
+      "usage": "Use when fireworks are the subject.",
+      "synonyms": ["firework"],
+      "prompts": [
+        "a photo of fireworks",
+        "a photo showing fireworks",
+        "fireworks",
+        "a photo of fireworks in the sky",
+        "a photo showing fireworks in the sky",
+        "fireworks in the sky"
+      ],
+      "signal": "clip",
+      "group": "things-everyday",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.everyday.cage",
+      "path": "Things|Everyday|Cage",
+      "name": "Cage",
+      "usage": "Use when a cage or aviary is the subject.",
+      "synonyms": ["aviary", "birdcage", "kennel", "pen"],
+      "prompts": [
+        "a photo of a cage",
+        "a photo showing a cage",
+        "a cage",
+        "a photo of an aviary",
+        "a photo showing an aviary",
+        "an aviary"
+      ],
+      "signal": "clip",
+      "group": "things-everyday",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.food.food",
+      "path": "Things|Food|Food",
+      "name": "Food",
+      "usage": "Use when a plate of food or a meal is the subject.",
+      "synonyms": ["meal", "dish", "plate", "lunch", "dinner"],
+      "prompts": [
+        "a photo of a plate of food",
+        "a photo showing a plate of food",
+        "a plate of food",
+        "a photo of a meal on a table",
+        "a photo showing a meal on a table",
+        "a meal on a table"
+      ],
+      "signal": "clip",
+      "group": "things-food",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.food.drink",
+      "path": "Things|Food|Drink",
+      "name": "Drink",
+      "usage": "Use when a coffee, beer, wine or other drink is the subject.",
+      "synonyms": ["coffee", "beer", "wine", "tea"],
+      "prompts": [
+        "a photo of a cup of coffee",
+        "a photo showing a cup of coffee",
+        "a cup of coffee",
+        "a photo of a glass of beer",
+        "a photo showing a glass of beer",
+        "a glass of beer"
+      ],
+      "signal": "clip",
+      "group": "things-food",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.food.dessert",
+      "path": "Things|Food|Dessert",
+      "name": "Dessert",
+      "usage": "Use when cake, ice cream or a sweet is the subject.",
+      "synonyms": ["cake", "ice cream", "sweets", "bread"],
+      "prompts": [
+        "a photo of a dessert",
+        "a photo showing a dessert",
+        "a dessert",
+        "a photo of a cake",
+        "a photo showing a cake",
+        "a cake"
+      ],
+      "signal": "clip",
+      "group": "things-food",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.food.fruit-and-vegetables",
+      "path": "Things|Food|Fruit and vegetables",
+      "name": "Fruit and vegetables",
+      "usage": "Use when fruit or vegetables are the subject.",
+      "synonyms": ["fruit", "vegetables", "produce"],
+      "prompts": [
+        "a photo of a pile of fruit",
+        "a photo showing a pile of fruit",
+        "a pile of fruit",
+        "a photo of vegetables",
+        "a photo showing vegetables",
+        "vegetables"
+      ],
+      "signal": "clip",
+      "group": "things-food",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.food.seafood",
+      "path": "Things|Food|Seafood",
+      "name": "Seafood",
+      "usage": "Use when a catch, fish dish or market fish is the subject.",
+      "synonyms": ["fish dish", "catch", "sushi", "market fish"],
+      "prompts": [
+        "a photo of a plate of seafood",
+        "a photo showing a plate of seafood",
+        "a plate of seafood",
+        "a photo of a freshly caught fish",
+        "a photo showing a freshly caught fish",
+        "a freshly caught fish"
+      ],
+      "signal": "clip",
+      "group": "things-food",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "things.food.bait-or-feed",
+      "path": "Things|Food|Bait or feed",
+      "name": "Bait or feed",
+      "usage": "Use when seed, scraps or feed put out for animals is visible.",
+      "synonyms": ["birdseed", "bait", "scraps", "feed", "suet"],
+      "prompts": [
+        "a photo of bird seed on a feeder",
+        "a photo showing bird seed on a feeder",
+        "bird seed on a feeder",
+        "a photo of food put out for animals",
+        "a photo showing food put out for animals",
+        "food put out for animals"
+      ],
+      "signal": "clip",
+      "group": "things-food",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.hiking",
+      "path": "Activity|Hiking",
+      "name": "Hiking",
+      "usage": "Use when people walk a trail outdoors.",
+      "synonyms": ["walking", "trekking", "trail walking"],
+      "prompts": [
+        "a photo of people hiking on a trail",
+        "a photo showing people hiking on a trail",
+        "people hiking on a trail",
+        "a photo of hikers on a path",
+        "a photo showing hikers on a path",
+        "hikers on a path"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.birdwatching",
+      "path": "Activity|Birdwatching",
+      "name": "Birdwatching",
+      "usage": "Use when people watch wildlife with binoculars or a scope.",
+      "synonyms": ["birding", "wildlife watching", "bird watching", "spotting"],
+      "prompts": [
+        "a photo of people birdwatching with binoculars",
+        "a photo showing people birdwatching with binoculars",
+        "people birdwatching with binoculars",
+        "a photo of a group watching birds",
+        "a photo showing a group watching birds",
+        "a group watching birds"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.photographing",
+      "path": "Activity|Photographing",
+      "name": "Photographing",
+      "usage": "Use when a person takes a photo with a camera.",
+      "synonyms": ["taking photos", "photographer", "shooting", "photography"],
+      "prompts": [
+        "a photo of a person taking a photo with a camera",
+        "a photo showing a person taking a photo with a camera",
+        "a person taking a photo with a camera",
+        "a photo of a photographer with a long lens",
+        "a photo showing a photographer with a long lens",
+        "a photographer with a long lens"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.fishing",
+      "path": "Activity|Fishing",
+      "name": "Fishing",
+      "usage": "Use when people fish with a rod or net.",
+      "synonyms": ["angling", "fisherman", "fly fishing"],
+      "prompts": [
+        "a photo of people fishing with a rod",
+        "a photo showing people fishing with a rod",
+        "people fishing with a rod",
+        "a photo of a fisherman",
+        "a photo showing a fisherman",
+        "a fisherman"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.camping",
+      "path": "Activity|Camping",
+      "name": "Camping",
+      "usage": "Use when people camp or sit by a campsite.",
+      "synonyms": [],
+      "prompts": [
+        "a photo of people camping in a tent",
+        "a photo showing people camping in a tent",
+        "people camping in a tent",
+        "a photo of a campsite with a campfire",
+        "a photo showing a campsite with a campfire",
+        "a campsite with a campfire"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.boating",
+      "path": "Activity|Boating",
+      "name": "Boating",
+      "usage": "Use when people are on a boat.",
+      "synonyms": ["sailing", "paddling", "kayaking", "canoeing", "rowing"],
+      "prompts": [
+        "a photo of people sailing a boat",
+        "a photo showing people sailing a boat",
+        "people sailing a boat",
+        "a photo of paddling a kayak",
+        "a photo showing paddling a kayak",
+        "paddling a kayak"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.diving",
+      "path": "Activity|Diving",
+      "name": "Diving",
+      "usage": "Use when people dive or snorkel.",
+      "synonyms": ["scuba", "scuba diving"],
+      "prompts": [
+        "a photo of a scuba diver underwater",
+        "a photo showing a scuba diver underwater",
+        "a scuba diver underwater",
+        "a photo of a snorkeler in the water",
+        "a photo showing a snorkeler in the water",
+        "a snorkeler in the water"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.swimming",
+      "path": "Activity|Swimming",
+      "name": "Swimming",
+      "usage": "Use when people swim.",
+      "synonyms": ["swim", "wading", "bathing"],
+      "prompts": [
+        "a photo of people swimming",
+        "a photo showing people swimming",
+        "people swimming",
+        "a photo of a swimmer in water",
+        "a photo showing a swimmer in water",
+        "a swimmer in water"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.surfing",
+      "path": "Activity|Surfing",
+      "name": "Surfing",
+      "usage": "Use when people surf or board on waves.",
+      "synonyms": ["wakeboarding", "kitesurfing"],
+      "prompts": [
+        "a photo of people surfing a wave",
+        "a photo showing people surfing a wave",
+        "people surfing a wave",
+        "a photo of a surfer",
+        "a photo showing a surfer",
+        "a surfer"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.skiing",
+      "path": "Activity|Skiing",
+      "name": "Skiing",
+      "usage": "Use when people ski or snowboard.",
+      "synonyms": ["snowboarding", "snowshoeing", "sledding"],
+      "prompts": [
+        "a photo of people skiing",
+        "a photo showing people skiing",
+        "people skiing",
+        "a photo of a snowboarder",
+        "a photo showing a snowboarder",
+        "a snowboarder"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.cycling",
+      "path": "Activity|Cycling",
+      "name": "Cycling",
+      "usage": "Use when people ride a bicycle.",
+      "synonyms": ["biking", "mountain biking", "bike ride"],
+      "prompts": [
+        "a photo of people riding bicycles",
+        "a photo showing people riding bicycles",
+        "people riding bicycles",
+        "a photo of a mountain biker",
+        "a photo showing a mountain biker",
+        "a mountain biker"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.running",
+      "path": "Activity|Running",
+      "name": "Running",
+      "usage": "Use when people run.",
+      "synonyms": ["jogging", "trail running"],
+      "prompts": [
+        "a photo of people running",
+        "a photo showing people running",
+        "people running",
+        "a photo of a runner",
+        "a photo showing a runner",
+        "a runner"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.climbing",
+      "path": "Activity|Climbing",
+      "name": "Climbing",
+      "usage": "Use when people climb rock or ice.",
+      "synonyms": ["rock climbing", "mountaineering", "bouldering"],
+      "prompts": [
+        "a photo of people rock climbing",
+        "a photo showing people rock climbing",
+        "people rock climbing",
+        "a photo of a climber on a cliff",
+        "a photo showing a climber on a cliff",
+        "a climber on a cliff"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.horseback-riding",
+      "path": "Activity|Horseback riding",
+      "name": "Horseback riding",
+      "usage": "Use when people ride horses.",
+      "synonyms": ["riding", "horse riding", "trail ride"],
+      "prompts": [
+        "a photo of people riding horses",
+        "a photo showing people riding horses",
+        "people riding horses",
+        "a photo of a horse rider",
+        "a photo showing a horse rider",
+        "a horse rider"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.picnic",
+      "path": "Activity|Picnic",
+      "name": "Picnic",
+      "usage": "Use when people eat outdoors.",
+      "synonyms": ["barbecue", "bbq", "outdoor meal", "cookout"],
+      "prompts": [
+        "a photo of people having a picnic",
+        "a photo showing people having a picnic",
+        "people having a picnic",
+        "a photo of a barbecue",
+        "a photo showing a barbecue",
+        "a barbecue"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.gardening",
+      "path": "Activity|Gardening",
+      "name": "Gardening",
+      "usage": "Use when people tend plants.",
+      "synonyms": ["planting", "weeding", "yard work"],
+      "prompts": [
+        "a photo of people gardening",
+        "a photo showing people gardening",
+        "people gardening",
+        "a photo of a person planting",
+        "a photo showing a person planting",
+        "a person planting"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.feeding-animals",
+      "path": "Activity|Feeding animals",
+      "name": "Feeding animals",
+      "usage": "Use when a person feeds an animal.",
+      "synonyms": ["feeding", "hand feeding", "bottle feeding"],
+      "prompts": [
+        "a photo of a person feeding an animal",
+        "a photo showing a person feeding an animal",
+        "a person feeding an animal",
+        "a photo of feeding birds by hand",
+        "a photo showing feeding birds by hand",
+        "feeding birds by hand"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.banding-or-tagging",
+      "path": "Activity|Banding or tagging",
+      "name": "Banding or tagging",
+      "usage": "Use when a person bands, tags or measures an animal for research.",
+      "synonyms": ["ringing", "bird ringing", "banding", "marking", "measuring"],
+      "prompts": [
+        "a photo of a person banding a bird",
+        "a photo showing a person banding a bird",
+        "a person banding a bird",
+        "a photo of a researcher measuring an animal",
+        "a photo showing a researcher measuring an animal",
+        "a researcher measuring an animal"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.fieldwork",
+      "path": "Activity|Fieldwork",
+      "name": "Fieldwork",
+      "usage": "Use when researchers survey, count or sample in the field.",
+      "synonyms": ["survey", "research", "monitoring", "sampling", "field survey"],
+      "prompts": [
+        "a photo of researchers doing fieldwork",
+        "a photo showing researchers doing fieldwork",
+        "researchers doing fieldwork",
+        "a photo of a scientist surveying wildlife",
+        "a photo showing a scientist surveying wildlife",
+        "a scientist surveying wildlife"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.releasing",
+      "path": "Activity|Releasing",
+      "name": "Releasing",
+      "usage": "Use when a person releases an animal back into the wild.",
+      "synonyms": ["release", "let go", "rehabilitation"],
+      "prompts": [
+        "a photo of a person releasing a bird",
+        "a photo showing a person releasing a bird",
+        "a person releasing a bird",
+        "a photo of releasing an animal into the wild",
+        "a photo showing releasing an animal into the wild",
+        "releasing an animal into the wild"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.safari",
+      "path": "Activity|Safari",
+      "name": "Safari",
+      "usage": "Use when people on a game drive or guided wildlife tour.",
+      "synonyms": ["wildlife tour", "whale watching"],
+      "prompts": [
+        "a photo of people on a safari",
+        "a photo showing people on a safari",
+        "people on a safari",
+        "a photo of a wildlife tour boat",
+        "a photo showing a wildlife tour boat",
+        "a wildlife tour boat"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.dancing",
+      "path": "Activity|Dancing",
+      "name": "Dancing",
+      "usage": "Use when people dance.",
+      "synonyms": ["dance", "dancers"],
+      "prompts": [
+        "a photo of people dancing",
+        "a photo showing people dancing",
+        "people dancing",
+        "a photo of a dance",
+        "a photo showing a dance",
+        "a dance"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.playing-music",
+      "path": "Activity|Playing music",
+      "name": "Playing music",
+      "usage": "Use when people play or sing.",
+      "synonyms": ["singing", "music"],
+      "prompts": [
+        "a photo of people playing music",
+        "a photo showing people playing music",
+        "people playing music",
+        "a photo of a musician",
+        "a photo showing a musician",
+        "a musician"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.cooking",
+      "path": "Activity|Cooking",
+      "name": "Cooking",
+      "usage": "Use when people cook.",
+      "synonyms": ["cooking food", "kitchen", "grilling"],
+      "prompts": [
+        "a photo of people cooking",
+        "a photo showing people cooking",
+        "people cooking",
+        "a photo of a cook at a stove",
+        "a photo showing a cook at a stove",
+        "a cook at a stove"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.eating",
+      "path": "Activity|Eating",
+      "name": "Eating",
+      "usage": "Use when people eat a meal.",
+      "synonyms": ["dining", "drinking", "toast"],
+      "prompts": [
+        "a photo of people eating a meal",
+        "a photo showing people eating a meal",
+        "people eating a meal",
+        "a photo of people toasting with glasses",
+        "a photo showing people toasting with glasses",
+        "people toasting with glasses"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.sports",
+      "path": "Activity|Sports",
+      "name": "Sports",
+      "usage": "Use when people play a team or ball sport.",
+      "synonyms": ["soccer", "football", "basketball", "tennis", "golf", "cricket", "rugby"],
+      "prompts": [
+        "a photo of people playing a ball sport",
+        "a photo showing people playing a ball sport",
+        "people playing a ball sport",
+        "a photo of a sports match",
+        "a photo showing a sports match",
+        "a sports match"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.working",
+      "path": "Activity|Working",
+      "name": "Working",
+      "usage": "Use when people work at a desk or workshop.",
+      "synonyms": ["office", "laptop work", "workshop"],
+      "prompts": [
+        "a photo of people working at a computer",
+        "a photo showing people working at a computer",
+        "people working at a computer",
+        "a photo of people working",
+        "a photo showing people working",
+        "people working"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.shopping",
+      "path": "Activity|Shopping",
+      "name": "Shopping",
+      "usage": "Use when people shop or sit at a market.",
+      "synonyms": ["market", "shop", "tourists", "sightseeing"],
+      "prompts": [
+        "a photo of people shopping",
+        "a photo showing people shopping",
+        "people shopping",
+        "a photo of a street market",
+        "a photo showing a street market",
+        "a street market"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.driving",
+      "path": "Activity|Driving",
+      "name": "Driving",
+      "usage": "Use when people drive or ride in a car.",
+      "synonyms": ["road trip", "car ride", "passenger"],
+      "prompts": [
+        "a photo of a person driving a car",
+        "a photo showing a person driving a car",
+        "a person driving a car",
+        "a photo of the view from a car",
+        "a photo showing the view from a car",
+        "the view from a car"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.playing",
+      "path": "Activity|Playing",
+      "name": "Playing",
+      "usage": "Use when children or friends play.",
+      "synonyms": ["games", "kids playing", "play"],
+      "prompts": [
+        "a photo of people playing",
+        "a photo showing people playing",
+        "people playing",
+        "a photo of children playing",
+        "a photo showing children playing",
+        "children playing"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.yoga",
+      "path": "Activity|Yoga",
+      "name": "Yoga",
+      "usage": "Use when people do yoga or work out.",
+      "synonyms": ["gym", "workout", "exercise", "stretching"],
+      "prompts": [
+        "a photo of people doing yoga",
+        "a photo showing people doing yoga",
+        "people doing yoga",
+        "a photo of people working out",
+        "a photo showing people working out",
+        "people working out"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "activity.resting",
+      "path": "Activity|Resting",
+      "name": "Resting",
+      "usage": "Use when people sit, relax or sleep.",
+      "synonyms": ["sleeping", "relaxing", "lounging"],
+      "prompts": [
+        "a photo of people resting",
+        "a photo showing people resting",
+        "people resting",
+        "a photo of a person asleep",
+        "a photo showing a person asleep",
+        "a person asleep"
+      ],
+      "signal": "clip",
+      "group": "activities",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "event.wedding",
+      "path": "Event|Wedding",
+      "name": "Wedding",
+      "usage": "Use when a wedding is happening.",
+      "synonyms": ["bride", "groom", "marriage"],
+      "prompts": [
+        "a photo of a wedding",
+        "a photo showing a wedding",
+        "a wedding",
+        "a photo of a bride and groom",
+        "a photo showing a bride and groom",
+        "a bride and groom"
+      ],
+      "signal": "clip",
+      "group": "events",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "event.birthday",
+      "path": "Event|Birthday",
+      "name": "Birthday",
+      "usage": "Use when a birthday party.",
+      "synonyms": ["birthday party", "cake and candles"],
+      "prompts": [
+        "a photo of a birthday party with a cake",
+        "a photo showing a birthday party with a cake",
+        "a birthday party with a cake",
+        "a photo of a birthday",
+        "a photo showing a birthday",
+        "a birthday"
+      ],
+      "signal": "clip",
+      "group": "events",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "event.party",
+      "path": "Event|Party",
+      "name": "Party",
+      "usage": "Use when a party or gathering.",
+      "synonyms": ["celebration", "get-together", "gathering"],
+      "prompts": [
+        "a photo of a party",
+        "a photo showing a party",
+        "a party",
+        "a photo of a celebration",
+        "a photo showing a celebration",
+        "a celebration"
+      ],
+      "signal": "clip",
+      "group": "events",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "event.concert",
+      "path": "Event|Concert",
+      "name": "Concert",
+      "usage": "Use when a live concert or show.",
+      "synonyms": ["gig", "live music", "show", "stage"],
+      "prompts": [
+        "a photo of a live concert",
+        "a photo showing a live concert",
+        "a live concert",
+        "a photo of a stage with performers",
+        "a photo showing a stage with performers",
+        "a stage with performers"
+      ],
+      "signal": "clip",
+      "group": "events",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "event.festival",
+      "path": "Event|Festival",
+      "name": "Festival",
+      "usage": "Use when a festival or fair.",
+      "synonyms": ["fair", "carnival", "fete"],
+      "prompts": [
+        "a photo of a festival",
+        "a photo showing a festival",
+        "a festival",
+        "a photo of a street fair",
+        "a photo showing a street fair",
+        "a street fair"
+      ],
+      "signal": "clip",
+      "group": "events",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "event.parade",
+      "path": "Event|Parade",
+      "name": "Parade",
+      "usage": "Use when a parade or march.",
+      "synonyms": ["procession", "march"],
+      "prompts": [
+        "a photo of a parade",
+        "a photo showing a parade",
+        "a parade",
+        "a photo of a procession",
+        "a photo showing a procession",
+        "a procession"
+      ],
+      "signal": "clip",
+      "group": "events",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "event.graduation",
+      "path": "Event|Graduation",
+      "name": "Graduation",
+      "usage": "Use when a graduation.",
+      "synonyms": ["commencement"],
+      "prompts": [
+        "a photo of a graduation ceremony",
+        "a photo showing a graduation ceremony",
+        "a graduation ceremony",
+        "a photo of a graduation",
+        "a photo showing a graduation",
+        "a graduation"
+      ],
+      "signal": "clip",
+      "group": "events",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "event.christmas",
+      "path": "Event|Christmas",
+      "name": "Christmas",
+      "usage": "Use when Christmas or other winter holiday.",
+      "synonyms": ["holiday", "xmas", "holidays"],
+      "prompts": [
+        "a photo of a christmas celebration",
+        "a photo showing a christmas celebration",
+        "a christmas celebration",
+        "a photo of a holiday dinner",
+        "a photo showing a holiday dinner",
+        "a holiday dinner"
+      ],
+      "signal": "clip",
+      "group": "events",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "event.halloween",
+      "path": "Event|Halloween",
+      "name": "Halloween",
+      "usage": "Use when Halloween costumes or decorations.",
+      "synonyms": ["costume", "costumes"],
+      "prompts": [
+        "a photo of halloween costumes",
+        "a photo showing halloween costumes",
+        "halloween costumes",
+        "a photo of a halloween party",
+        "a photo showing a halloween party",
+        "a halloween party"
+      ],
+      "signal": "clip",
+      "group": "events",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "event.sports-game",
+      "path": "Event|Sports game",
+      "name": "Sports game",
+      "usage": "Use when a spectator sport match.",
+      "synonyms": ["match", "stadium"],
+      "prompts": [
+        "a photo of a sports match",
+        "a photo showing a sports match",
+        "a sports match",
+        "a photo of a stadium game",
+        "a photo showing a stadium game",
+        "a stadium game"
+      ],
+      "signal": "clip",
+      "group": "events",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "event.conference",
+      "path": "Event|Conference",
+      "name": "Conference",
+      "usage": "Use when a talk, workshop or meeting.",
+      "synonyms": ["talk", "lecture", "meeting", "presentation"],
+      "prompts": [
+        "a photo of a conference talk",
+        "a photo showing a conference talk",
+        "a conference talk",
+        "a photo of a lecture to an audience",
+        "a photo showing a lecture to an audience",
+        "a lecture to an audience"
+      ],
+      "signal": "clip",
+      "group": "events",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "event.protest",
+      "path": "Event|Protest",
+      "name": "Protest",
+      "usage": "Use when a protest or rally.",
+      "synonyms": ["rally", "demonstration"],
+      "prompts": [
+        "a photo of a protest march",
+        "a photo showing a protest march",
+        "a protest march",
+        "a photo of a rally",
+        "a photo showing a rally",
+        "a rally"
+      ],
+      "signal": "clip",
+      "group": "events",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "event.ceremony",
+      "path": "Event|Ceremony",
+      "name": "Ceremony",
+      "usage": "Use when a religious or civic ceremony.",
+      "synonyms": ["religious ceremony", "service", "ritual"],
+      "prompts": [
+        "a photo of a religious ceremony",
+        "a photo showing a religious ceremony",
+        "a religious ceremony",
+        "a photo of a ritual",
+        "a photo showing a ritual",
+        "a ritual"
+      ],
+      "signal": "clip",
+      "group": "events",
+      "unvalidated": true,
+      "enabled": false
+    },
+    {
+      "id": "event.field-trip",
+      "path": "Event|Field trip",
+      "name": "Field trip",
+      "usage": "Use when a school, club or group nature outing, tagged by the user.",
+      "synonyms": ["club outing", "school trip", "outing", "group trip"],
+      "prompts": [],
+      "signal": "manual",
+      "group": "events",
+      "unvalidated": false,
+      "enabled": false
+    },
+    {
+      "id": "event.bioblitz",
+      "path": "Event|Bioblitz",
+      "name": "Bioblitz",
+      "usage": "Use when a species counting event.",
+      "synonyms": ["species count", "bio blitz", "citizen science event"],
+      "prompts": [],
+      "signal": "manual",
+      "group": "events",
+      "unvalidated": false,
+      "enabled": false
+    },
+    {
+      "id": "event.bird-race",
+      "path": "Event|Bird race",
+      "name": "Bird race",
+      "usage": "Use when a day-long listing contest or big day.",
+      "synonyms": ["big day", "big year", "twitch"],
+      "prompts": [],
+      "signal": "manual",
+      "group": "events",
+      "unvalidated": false,
+      "enabled": false
+    },
+    {
+      "id": "event.guided-tour",
+      "path": "Event|Guided tour",
+      "name": "Guided tour",
+      "usage": "Use when a guided walk or paid tour, tagged by the user.",
+      "synonyms": ["guided walk", "tour", "expedition"],
+      "prompts": [],
+      "signal": "manual",
+      "group": "events",
+      "unvalidated": false,
+      "enabled": false
+    }
+  ]
+}

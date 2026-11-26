@@ -43,3 +43,4 @@ export * from "./dateOnly.js";
 export * from "./versionStem.js";
 export * from "./folderPaths.js";
 export * from "./listPhrase.js";
+export * from "./smartTags/vocab.js";
