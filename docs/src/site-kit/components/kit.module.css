@@ -15,6 +15,14 @@
   margin: 0 0 var(--spacing-item);
   overflow-wrap: anywhere;
 }
+.eyebrow {
+  margin: 0 0 0.5rem;
+  color: var(--color-link);
+  font-size: var(--text-subheadline);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 .lede {
   font-size: var(--text-title-2);
   color: var(--color-muted);
@@ -200,6 +208,29 @@
 :global(:root[data-detected="linux"]) .card[data-platform="linux"] {
   order: -1;
   border-color: var(--color-accent);
+}
+
+.platformButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+:global(:root:not([data-detected])) .platformButtons > .button:first-child,
+:global(:root[data-detected="mac"]) .platformButtons > .button[data-platform="mac"],
+:global(:root[data-detected="windows"]) .platformButtons > .button[data-platform="windows"],
+:global(:root[data-detected="linux"]) .platformButtons > .button[data-platform="linux"] {
+  order: -1;
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+  border-color: var(--color-accent);
+}
+:global(:root:not([data-detected])) .platformButtons > .button:first-child:hover,
+:global(:root[data-detected="mac"]) .platformButtons > .button[data-platform="mac"]:hover,
+:global(:root[data-detected="windows"]) .platformButtons > .button[data-platform="windows"]:hover,
+:global(:root[data-detected="linux"]) .platformButtons > .button[data-platform="linux"]:hover {
+  color: var(--color-accent-fg);
+  border-color: var(--color-accent);
+  filter: brightness(0.92);
 }
 
 .callout {

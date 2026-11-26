@@ -87,11 +87,10 @@ against `apps/web/src/api/openapi.gen.json`, and the data model against migratio
 
 ## Needs the maintainer
 
-- **Screenshots** in `docs/static/img/` date from 2026-10-14. `collection.jpg` (rarity pills,
-  group cards, Add species menu), `stats.jpg` (Photos over time), `photo-viewer.jpg` (viewer
-  controls) are certainly stale; `species-detail.jpg`, `species-about.jpg`, `offline-packs.jpg`
-  and `photo-menu.jpg` probably. `collection.jpg`, `species-about.jpg`, `offline-packs.jpg`,
-  `gallery.jpg` and `stats.jpg` also appear in the root README.
+- **Screenshots:** the landing page set (collection, species-detail, map, photo-viewer, stats,
+  gallery, tree-circle, light and dark) was recaptured on 2026-11-26 with
+  `node scripts/capture-screenshots.mjs`. Still from 2026-10-14: `species-about.jpg`,
+  `offline-packs.jpg` and `photo-menu.jpg`, which need a library with a well-photographed species.
 - **In-app help strings** (`en.json`, code, so not edited here):
   - `guide.faq.rarity.badges` still describes a plain badge plus a second "here" badge, and "Tap a
     rarity badge". Suggest: "Each species card shows one rarity: "Rare here" when the species is

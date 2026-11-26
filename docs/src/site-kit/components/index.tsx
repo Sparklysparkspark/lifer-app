@@ -23,11 +23,14 @@ export function ButtonLink({
 
 /** The page's single h1. */
 export function Hero({
+  eyebrow,
   title,
   lede,
   actions,
   media,
 }: {
+  /** A short line above the title, such as the product's name. */
+  eyebrow?: string;
   title: string;
   lede?: string;
   actions?: ReactNode;
@@ -36,6 +39,7 @@ export function Hero({
   return (
     <header className={styles.hero}>
       <div className={styles.heroText}>
+        {eyebrow && <p className={styles.eyebrow}>{eyebrow}</p>}
         <h1>{title}</h1>
         {lede && <p className={styles.lede}>{lede}</p>}
         {actions && <div className={styles.actions}>{actions}</div>}
@@ -176,6 +180,28 @@ export function PlatformPicker({ children }: { children: ReactNode }) {
     <>
       <script dangerouslySetInnerHTML={{ __html: detect }} />
       <div className={styles.picker}>{children}</div>
+    </>
+  );
+}
+
+/** One download button per platform; the visitor's own comes first as the primary button. Without
+ *  JavaScript the first one is primary. */
+export function PlatformButtons({ links }: { links: { platform: Platform; label: string; href: string }[] }) {
+  return (
+    <>
+      <script dangerouslySetInnerHTML={{ __html: detect }} />
+      <div className={styles.platformButtons}>
+        {links.map((l) => (
+          <Link
+            key={l.platform}
+            className={cx(styles.button, styles.secondary)}
+            data-platform={l.platform}
+            href={l.href}
+          >
+            {l.label}
+          </Link>
+        ))}
+      </div>
     </>
   );
 }

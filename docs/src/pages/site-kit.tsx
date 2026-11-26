@@ -8,6 +8,7 @@ import {
   FeatureRow,
   Hero,
   PartnerCard,
+  PlatformButtons,
   PlatformPicker,
   ScreenshotFrame,
   Section,
@@ -23,6 +24,7 @@ export default function SiteKitPage() {
         <meta name="robots" content="noindex" />
       </Head>
       <Hero
+        eyebrow="Eyebrow"
         title="Lifer Wildlife Archive"
         lede="One screen, one sentence about what Lifer does."
         actions={
@@ -76,6 +78,14 @@ export default function SiteKitPage() {
             ]}
           />
         </PlatformPicker>
+        <p />
+        <PlatformButtons
+          links={[
+            { platform: "mac", label: "Download for Mac", href: "https://example.com/file0" },
+            { platform: "windows", label: "Download for Windows", href: "https://example.com/file2" },
+            { platform: "linux", label: "Download for Linux", href: "https://example.com/file3" },
+          ]}
+        />
         <p />
         <CardGrid>
           <PartnerCard

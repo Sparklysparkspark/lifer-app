@@ -14,6 +14,17 @@
   --color-control-line: #d2c5a7;
   --color-link: #4e5a45;
 
+  /* Taxa group colours and the Tree of life's rarity band, as in the app. */
+  --color-taxa-birds: #516e54;
+  --color-taxa-mammals: #692c0f;
+  --color-taxa-reptiles: #6a6924;
+  --color-taxa-fish: #096f84;
+  --color-rarity-common: #f0c8a6;
+  --color-rarity-occasional: #e7a574;
+  --color-rarity-uncommon: #d7803d;
+  --color-rarity-rare: #b8581f;
+  --color-rarity-legendary: #7d3410;
+
   --spacing-page: 1.5rem;
   --spacing-section: 1.5rem;
   --spacing-item: 1rem;
@@ -74,6 +85,15 @@
   --color-control: #2a2d2f;
   --color-control-line: #4a4f52;
   --color-link: #b3c0a5;
+  --color-taxa-birds: #c5e4d4;
+  --color-taxa-mammals: #e4a295;
+  --color-taxa-reptiles: #f3dc8c;
+  --color-taxa-fish: #85d0ff;
+  --color-rarity-common: #5a2f18;
+  --color-rarity-occasional: #8a4a24;
+  --color-rarity-uncommon: #bd6a34;
+  --color-rarity-rare: #e8914f;
+  --color-rarity-legendary: #ffc79a;
 
   --ifm-footer-background-color: var(--color-canvas);
 }
