@@ -1,8 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { SEA_ZONE_TAXA } from "@lifer/shared";
-import { useLatest } from "../../hooks/useLatest";
-import { api } from "../../api/client";
-import type { UpdateParams } from "./useCollectionUrlState";
+import { SEA_ZONES_NONE, type UpdateParams } from "./useCollectionUrlState";
 
 // Sea zones add sea life only, so the control is pointless for a birds or amphibians filter, and
 // confusing before the region's own pack for one of the filtered sea classes is installed.
@@ -15,24 +13,30 @@ export function seaZonesRelevantFor(
   return taxa.length > 0 && (!regionId || taxa.some((t) => isTaxonPackDownloaded(regionId, t)));
 }
 
+// Nearby water is ticked by default; only an explicit choice (including "none") overrides it.
+export function effectiveSeaZoneIds(
+  chosen: boolean,
+  explicitIds: string[],
+  zones: Array<{ id: string }>,
+  seaZonesRelevant: boolean,
+): string[] {
+  return chosen || !seaZonesRelevant ? explicitIds : zones.map((z) => z.id);
+}
+
 export function useSeaZoneFilter({
   regionId,
-  regionKnownHub,
   seaZonesRelevant,
   packsKnown,
   seaZoneIds,
   seaZones,
-  isTaxonPackDownloaded,
   updateParams,
 }: {
   regionId: string | null;
-  regionKnownHub: boolean;
   seaZonesRelevant: boolean;
   // Pack gating is unknown until the pack index arrives.
   packsKnown: boolean;
   seaZoneIds: string[];
   seaZones: Array<{ id: string; name: string }>;
-  isTaxonPackDownloaded: (id: string | null, taxonClass: string) => boolean;
   updateParams: UpdateParams;
 }) {
   // Hidden checkboxes shouldn't keep filtering from the URL and jump back later. Waits for the
@@ -54,51 +58,18 @@ export function useSeaZoneFilter({
       );
   }, [packsKnown, seaZoneIds, seaZones, updateParams]);
 
-  // A region with no native fish but nearby marine zones checks its zones automatically, once per
-  // region (tracked in a ref so a manual uncheck isn't re-applied).
-  const autoSelected = useRef(new Set<string>());
-  // The count can land after the user has moved on, and must not set this region's zones on the next.
-  const currentRegionId = useLatest(regionId);
-  useEffect(() => {
-    if (!regionId || regionKnownHub || !seaZonesRelevant) return;
-    if (seaZones.length === 0 || seaZoneIds.length > 0) return;
-    if (autoSelected.current.has(regionId)) return;
-    // With the fish pack missing, 0 fish means "not downloaded", not "none here".
-    if (!isTaxonPackDownloaded(regionId, "actinopterygii")) return;
-    autoSelected.current.add(regionId);
-    api
-      .get<{ total: number }>(`/regions/${regionId}/species/count?taxon=actinopterygii`)
-      .then((res) => {
-        if (res.total === 0 && currentRegionId.current === regionId)
-          updateParams({ seaZones: seaZones.map((z) => z.id).join(",") });
-      })
-      .catch(() => {
-        // Let the next render retry instead of treating a failed check as "has fish".
-        autoSelected.current.delete(regionId);
-      });
-  }, [
-    regionId,
-    regionKnownHub,
-    seaZonesRelevant,
-    seaZones,
-    seaZoneIds.length,
-    isTaxonPackDownloaded,
-    currentRegionId,
-    updateParams,
-  ]);
-
   function toggleSeaZone(zoneId: string, checked: boolean) {
     const next = checked ? [...seaZoneIds, zoneId] : seaZoneIds.filter((id) => id !== zoneId);
     // "Include land" means nothing without a zone, so it goes with the last one.
     updateParams({
-      seaZones: next.length > 0 ? next.join(",") : null,
+      seaZones: next.length > 0 ? next.join(",") : SEA_ZONES_NONE,
       ...(next.length === 0 ? { includeLand: null } : {}),
     });
   }
 
   function setAllSeaZones(checked: boolean) {
     updateParams({
-      seaZones: checked ? seaZones.map((z) => z.id).join(",") : null,
+      seaZones: checked ? seaZones.map((z) => z.id).join(",") : SEA_ZONES_NONE,
       ...(checked ? {} : { includeLand: null }),
     });
   }

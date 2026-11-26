@@ -13,7 +13,7 @@ import { useCollectionDisplayPrefs } from "./collection/useCollectionDisplayPref
 import { useRegionTree } from "./collection/useRegionTree";
 import { useTaxonAvailability } from "./collection/useTaxonAvailability";
 import { useCollectionData } from "./collection/useCollectionData";
-import { seaZonesRelevantFor, useSeaZoneFilter } from "./collection/useSeaZoneFilter";
+import { effectiveSeaZoneIds, seaZonesRelevantFor, useSeaZoneFilter } from "./collection/useSeaZoneFilter";
 import { useNearbySeaZones } from "./collection/useNearbySeaZones";
 import { startsOnboarding, useFirstRunRegion } from "./collection/useFirstRunRegion";
 import { usePackDownloadStatus } from "../hooks/usePackDownloadStatus";
@@ -76,7 +76,16 @@ const SEARCH_ICON = (
 export default function CollectionPage() {
   const { t } = useTranslation();
   const url = useCollectionUrlState();
-  const { regionId, taxonFilters, singleTaxonFilter, seaZoneIds, includeLand, updateParam, updateParams } = url;
+  const {
+    regionId,
+    taxonFilters,
+    singleTaxonFilter,
+    seaZoneIds: explicitSeaZoneIds,
+    seaZonesChosen,
+    includeLand,
+    updateParam,
+    updateParams,
+  } = url;
   const prefs = useCollectionDisplayPrefs();
   // The grid's measured width, so the Size slider can offer only sizes that change the layout.
   const [gridWidth, setGridWidth] = useState<number | null>(null);
@@ -132,6 +141,10 @@ export default function CollectionPage() {
   const seaZonesRelevant =
     seaZonesRelevantFor(taxonFilters, regionId, tree.isTaxonPackDownloaded) ||
     nearbySeaZones.zones.some((z) => z.addedByYou > 0);
+  const seaZoneIds = useMemo(
+    () => effectiveSeaZoneIds(seaZonesChosen, explicitSeaZoneIds, nearbySeaZones.zones, seaZonesRelevant),
+    [seaZonesChosen, explicitSeaZoneIds, nearbySeaZones.zones, seaZonesRelevant],
+  );
   const data = useCollectionData({
     regionId,
     taxonRaw: url.taxonRaw,
@@ -142,8 +155,12 @@ export default function CollectionPage() {
     regionKnownHub: tree.regionKnownHub,
     firstRunPrompt,
     photographedIn: prefs.photographedIn,
-    // A restored ?seaZones= waits for the pack index so relevance is known before the fetch.
-    ready: regionResolved && tree.regionsLoaded && (seaZoneIds.length === 0 || !regionId || packsKnown),
+    // Nearby water is ticked by default, so the first fetch waits for the pack index and the region's
+    // zones unless the user unticked them all.
+    ready:
+      regionResolved &&
+      tree.regionsLoaded &&
+      (!regionId || packsKnown || (seaZonesChosen && explicitSeaZoneIds.length === 0)),
   });
   const newlyNamed = data.downloadedHubCountryNames.filter((n) => !namedCountries.includes(n));
   if (newlyNamed.length > 0) setNamedCountries([...namedCountries, ...newlyNamed]);
@@ -151,12 +168,10 @@ export default function CollectionPage() {
 
   const seaZoneActions = useSeaZoneFilter({
     regionId,
-    regionKnownHub: tree.regionKnownHub,
     seaZonesRelevant,
     packsKnown,
     seaZoneIds,
     seaZones: nearbySeaZones.zones,
-    isTaxonPackDownloaded: tree.isTaxonPackDownloaded,
     updateParams,
   });
 
@@ -374,6 +389,7 @@ export default function CollectionPage() {
         totalLoaded={items?.length ?? null}
         seaZones={nearbySeaZones.zones}
         seaZonesRelevant={seaZonesRelevant}
+        selectedSeaZoneIds={seaZoneIds}
         regionName={regionMeta?.name}
         onToggleSeaZone={seaZoneActions.toggleSeaZone}
         onSetAllSeaZones={seaZoneActions.setAllSeaZones}

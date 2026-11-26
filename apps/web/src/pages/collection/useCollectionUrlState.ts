@@ -14,6 +14,7 @@ export type TraitFilter = (typeof TRAIT_FILTERS)[number];
 // Where the photos of a photographed species were taken, relative to the viewed region.
 const PHOTOS_TAKEN_FILTERS = ["anywhere", "here", "elsewhere"] as const;
 export type PhotosTakenFilter = (typeof PHOTOS_TAKEN_FILTERS)[number];
+export const SEA_ZONES_NONE = "none";
 export type ParamUpdates = Record<string, string | null>;
 export type UpdateParams = (updates: ParamUpdates, options?: { replace?: boolean }) => void;
 
@@ -50,8 +51,11 @@ export function useCollectionUrlState() {
   const taxonFilters = useMemo(() => new Set(taxonRaw.split(",").filter(Boolean)), [taxonRaw]);
   const tiersRaw = searchParams.get("tiers") ?? "";
   const tierFilters = useMemo(() => new Set(tiersRaw.split(",").filter(Boolean)), [tiersRaw]);
-  const seaZonesRaw = searchParams.get("seaZones") ?? "";
-  const seaZoneIds = useMemo(() => seaZonesRaw.split(",").filter(Boolean), [seaZonesRaw]);
+  // No param means the user never chose (nearby water is ticked by default); "none" means they unticked all.
+  const seaZonesParam = searchParams.get("seaZones");
+  const seaZonesRaw = seaZonesParam ?? "";
+  const seaZonesChosen = seaZonesParam !== null;
+  const seaZoneIds = useMemo(() => seaZonesRaw.split(",").filter((id) => id && id !== SEA_ZONES_NONE), [seaZonesRaw]);
 
   const search = searchParams.get("search") ?? "";
   // replace: one history entry per keystroke would make Back step through the typing.
@@ -151,6 +155,7 @@ export function useCollectionUrlState() {
     // Pack prompts and sea-zone relevance only apply to exactly one taxon.
     singleTaxonFilter: taxonFilters.size === 1 ? [...taxonFilters][0] : undefined,
     seaZoneIds,
+    seaZonesChosen,
     includeLand: searchParams.get("includeLand") !== "0",
     sortBy: parseEnum(searchParams.get("sort"), SORT_BY_VALUES, "taxonomic"),
     groupBy: parseEnum(searchParams.get("group"), GROUP_BY_VALUES, "none"),

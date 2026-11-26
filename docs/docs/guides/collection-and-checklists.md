@@ -179,12 +179,11 @@ A trip's Species view has this same **View** and **Filters**, for the species in
 
 ## Ocean areas {#sea-zones}
 
-For fish, a coastal region can include nearby ocean areas: the named seas, gulfs, bays and straits of the International Hydrographic Organization's _Limits of Oceans and Seas_, such as the North Sea, the Gulf of Mexico or the Coral Sea. Where a coast faces open ocean, its ocean area is that country's part of the ocean instead, such as the Portuguese part of the North Atlantic Ocean or the Chilean part of the South Pacific Ocean. Under **Include nearby water:**, tick the ocean areas you want, or **Select all**. Once one is ticked, untick **Include (region)'s own species** to see only the ocean area's fish.
+For marine groups, a coastal region can include nearby ocean areas: the named seas, gulfs, bays and straits of the International Hydrographic Organization's _Limits of Oceans and Seas_, such as the North Sea, the Gulf of Mexico or the Coral Sea. Where a coast faces open ocean, its ocean area is that country's part of the ocean instead, such as the Portuguese part of the North Atlantic Ocean or the Chilean part of the South Pacific Ocean. Under **Include nearby water:**, every ocean area is ticked to start with, so the Collection's counts match the Tree of life. Untick the ones you don't want, or untick **Select all**. Your choice stays while you browse that region. Once one is ticked, untick **Include (region)'s own species** to see only the ocean area's species.
 
-- Ocean areas only add fish, so the control shows when you're viewing all groups or Fish, once the region's fish are downloaded. It also shows whenever you've [added species](#add-to-checklist) to one of the ocean areas yourself.
-- If a region has no fish of its own, Lifer ticks its zones for you.
+- Ocean areas add every marine group, not only fish, so the control shows when you're viewing all groups or a marine group, once the region's pack for that group is downloaded. It also shows whenever you've [added species](#add-to-checklist) to one of the ocean areas yourself.
 - A country download may bring in the ocean areas its fish checklist needs. You can also download ocean areas from [Regions](./offline-packs-and-map.md).
-- The [Tree of life](./stats.md#tree-of-life) always includes a region's nearby ocean areas, so its counts match the Collection with every ocean area ticked.
+- The [Tree of life](./stats.md#tree-of-life) always includes a region's nearby ocean areas, so its counts match the Collection with its ocean areas ticked, the default.
 
 ## Rarity {#rarity-tiers}
 

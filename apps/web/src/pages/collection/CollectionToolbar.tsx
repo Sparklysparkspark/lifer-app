@@ -54,6 +54,7 @@ export default function CollectionToolbar({
   totalLoaded,
   seaZones = [],
   seaZonesRelevant = false,
+  selectedSeaZoneIds = [],
   regionName,
   onToggleSeaZone,
   onSetAllSeaZones,
@@ -85,6 +86,8 @@ export default function CollectionToolbar({
   totalLoaded: number | null;
   seaZones?: Array<{ id: string; name: string }>;
   seaZonesRelevant?: boolean;
+  // After the default (all nearby water) is applied, so the boxes match what the list shows.
+  selectedSeaZoneIds?: string[];
   regionName?: string;
   onToggleSeaZone?: (zoneId: string, checked: boolean) => void;
   onSetAllSeaZones?: (checked: boolean) => void;
@@ -110,7 +113,7 @@ export default function CollectionToolbar({
     [url.groupBy, gridWidth],
   );
   const sizeStepIndex = sizeSteps ? fluidSizeStepIndex(sizeSteps, prefs.cardMinWidth) : 0;
-  const { regionId, taxonFilters, seaZoneIds, updateParam } = url;
+  const { regionId, taxonFilters, updateParam } = url;
   // photoPlaces is set only for a region checklist (not a hub), whose rows say where photos were taken.
   const photosTakenOffered = !!photoPlaces && !!regionName;
   // Only departures from the default count (collectedFirst is on by default).
@@ -139,7 +142,7 @@ export default function CollectionToolbar({
       ? [...availableYears, activeYear].sort((a, b) => b - a)
       : availableYears;
   // Only the zones still offered count, so a stale id can't tick or half-tick All.
-  const checkedZones = seaZones.filter((z) => seaZoneIds.includes(z.id)).length;
+  const checkedZones = seaZones.filter((z) => selectedSeaZoneIds.includes(z.id)).length;
 
   function toggleTier(tier: string) {
     const next = new Set(url.tierFilters);
@@ -505,7 +508,7 @@ export default function CollectionToolbar({
             <Checkbox
               key={z.id}
               size="sm"
-              checked={seaZoneIds.includes(z.id)}
+              checked={selectedSeaZoneIds.includes(z.id)}
               onChange={(checked) => onToggleSeaZone?.(z.id, checked)}
             >
               {z.name}

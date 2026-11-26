@@ -10,6 +10,7 @@ vi.mock("../../api/client", async (importOriginal) => ({
 
 const { default: CollectionToolbar } = await import("./CollectionToolbar");
 const { useCollectionUrlState } = await import("./useCollectionUrlState");
+const { effectiveSeaZoneIds } = await import("./useSeaZoneFilter");
 const { useCollectionDisplayPrefs } = await import("./useCollectionDisplayPrefs");
 
 function Harness(props: { seaZones?: Array<{ id: string; name: string }>; regionName?: string }) {
@@ -31,6 +32,12 @@ function Harness(props: { seaZones?: Array<{ id: string; name: string }>; region
       gridWidth={null}
       seaZones={props.seaZones}
       seaZonesRelevant={!!props.seaZones}
+      selectedSeaZoneIds={effectiveSeaZoneIds(
+        url.seaZonesChosen,
+        url.seaZoneIds,
+        props.seaZones ?? [],
+        !!props.seaZones,
+      )}
       regionName={props.regionName}
     />
   );
@@ -78,5 +85,18 @@ describe("CollectionToolbar", () => {
     expect(all.checked).toBe(false);
     expect(all.indeterminate).toBe(false);
     expect(screen.queryByRole("checkbox", { name: "Include Freedonia's own species" })).toBeNull();
+  });
+
+  it("ticks every nearby zone when the user never chose, and none after they chose none", () => {
+    const zones = [
+      { id: "z1", name: "Strait" },
+      { id: "z2", name: "Sound" },
+    ];
+    const { unmount } = renderAt("/collection?region=r1", { seaZones: zones });
+    expect((screen.getByRole("checkbox", { name: "Strait" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "Select all" }) as HTMLInputElement).checked).toBe(true);
+    unmount();
+    renderAt("/collection?region=r1&seaZones=none", { seaZones: zones });
+    expect((screen.getByRole("checkbox", { name: "Strait" }) as HTMLInputElement).checked).toBe(false);
   });
 });

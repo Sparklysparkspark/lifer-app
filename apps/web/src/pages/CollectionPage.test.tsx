@@ -245,6 +245,7 @@ describe("Include photos from", () => {
   function serveScoped(countryName: string | null, provinceName: string | null) {
     get.mockImplementation((path: string) => {
       const atProvince = path.includes("photographedIn=province") && provinceName;
+      if (path.includes("/sea-zones")) return Promise.resolve({ zones: [] });
       if (path.startsWith("/regions/") && path.includes("/species/count")) {
         return Promise.resolve({ total: 2, collected: atProvince ? 0 : 1 });
       }
@@ -384,5 +385,62 @@ describe("empty lists and stale filters", () => {
     renderAt("/collection?region=r1&seaZones=gone&includeLand=0");
     await waitFor(() => expect(params().has("seaZones")).toBe(false));
     expect(params().has("includeLand")).toBe(false);
+  });
+});
+
+describe("nearby water default", () => {
+  const zones = [
+    { id: "z1", name: "Strait", addedByYou: 1 },
+    { id: "z2", name: "Sound", addedByYou: 0 },
+  ];
+  function serve(zoneList: typeof zones) {
+    get.mockImplementation((path: string) => {
+      if (path.startsWith("/regions/r1/sea-zones")) return Promise.resolve({ zones: zoneList });
+      if (path.startsWith("/regions/r1/species/count")) return Promise.resolve({ total: 1, collected: 0 });
+      if (path.startsWith("/regions/r1/species?"))
+        return Promise.resolve({
+          items: [],
+          region: { id: "r1", name: "Freedonia", ebirdRegionCode: null, boundaryGeoJson: null, hasChildren: false },
+          stats: null,
+        });
+      if (path === "/regions") return Promise.resolve({ regions: [region] });
+      if (path === "/offline-packs/index") return Promise.resolve({ packs: [] });
+      if (path === "/settings") return Promise.resolve({ deploymentMode: "server", dataDir: "/l", libraryRoots: [] });
+      return new Promise(() => {});
+    });
+  }
+  const speciesPaths = () => get.mock.calls.map((c) => String(c[0])).filter((p) => p.includes("/species"));
+
+  it("ticks every zone and asks for them when the user never chose", async () => {
+    serve(zones);
+    renderAt("/collection?region=r1");
+    await waitFor(() => expect(speciesPaths().some((p) => p.includes("seaZoneIds=z1,z2"))).toBe(true));
+    expect((screen.getByRole("checkbox", { name: "Strait" }) as HTMLInputElement).checked).toBe(true);
+    expect(params().has("seaZones")).toBe(false);
+  });
+
+  it("remembers unticking everything as none, not as never chose", async () => {
+    serve(zones);
+    renderAt("/collection?region=r1");
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Select all" }));
+    await waitFor(() => expect(params().get("seaZones")).toBe("none"));
+    expect((screen.getByRole("checkbox", { name: "Strait" }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("keeps a saved none and one unticked zone", async () => {
+    serve(zones);
+    renderAt("/collection?region=r1&seaZones=z1");
+    await screen.findByRole("checkbox", { name: "Strait" });
+    expect((screen.getByRole("checkbox", { name: "Sound" }) as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Strait" }));
+    await waitFor(() => expect(params().get("seaZones")).toBe("none"));
+  });
+
+  it("offers no zone controls for a region without zones", async () => {
+    serve([]);
+    renderAt("/collection?region=r1");
+    await waitFor(() => expect(speciesPaths().length).toBeGreaterThan(0));
+    expect(screen.queryByRole("checkbox", { name: "Select all" })).toBeNull();
+    expect(speciesPaths().every((p) => !p.includes("seaZoneIds"))).toBe(true);
   });
 });
