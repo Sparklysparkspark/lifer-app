@@ -415,27 +415,28 @@ function regionCandidateSet(
   return regionCatalogMemo.get(`${spaceKey(space)}|region:${regionId}`, async () => {
     const regionIds = await checklistRegionIds(pool, regionId);
     if (!regionIds) return null;
-    const res = await pool.query<{
-      species_id: string;
-      common_name: string | null;
-      scientific_name: string;
-      ref_embedding: number[] | null;
-      gallery_embeddings: number[][] | null;
-      gallery_licenses: (string | null)[] | null;
-      ref_license: string | null;
-      is_vagrant: boolean | null;
-      local_tier: string | null;
-      weekly_frequency: number[] | null;
-      text_embedding: number[] | null;
-      genus: string | null;
-      family: string | null;
-      taxon_class: string | null;
-      taxon_order: string | null;
-      is_other_taxa: boolean;
-    }>(
-      // DISTINCT ON: a species in more than one of the regions counts once, keeping a row
-      // where it isn't a vagrant if there is one (a resident in either country is no rarity).
-      `SELECT DISTINCT ON (s.id) s.id AS species_id, s.common_name, s.scientific_name, s.genus, s.family, s.taxon_class, s.taxon_order, s.is_other_taxa,
+    const rowsFor = (ids: string[], skipClasses: string[] | null) =>
+      pool.query<{
+        species_id: string;
+        common_name: string | null;
+        scientific_name: string;
+        ref_embedding: number[] | null;
+        gallery_embeddings: number[][] | null;
+        gallery_licenses: (string | null)[] | null;
+        ref_license: string | null;
+        is_vagrant: boolean | null;
+        local_tier: string | null;
+        weekly_frequency: number[] | null;
+        text_embedding: number[] | null;
+        genus: string | null;
+        family: string | null;
+        taxon_class: string | null;
+        taxon_order: string | null;
+        is_other_taxa: boolean;
+      }>(
+        // DISTINCT ON: a species in more than one of the regions counts once, keeping a row
+        // where it isn't a vagrant if there is one (a resident in either country is no rarity).
+        `SELECT DISTINCT ON (s.id) s.id AS species_id, s.common_name, s.scientific_name, s.genus, s.family, s.taxon_class, s.taxon_order, s.is_other_taxa,
               sre.embedding AS ref_embedding, s.reference_license AS ref_license,
               g.gallery_embeddings, g.gallery_licenses,
               rs.is_vagrant, rs.local_tier, rs.weekly_frequency,
@@ -448,14 +449,36 @@ function regionCandidateSet(
         WHERE rs.region_id = ANY($3::uuid[])
           -- A species with no photo to show would render as a blank suggestion card.
           AND (s.reference_display_path IS NOT NULL OR s.reference_photo IS NOT NULL)
+          -- When borrowing ($4 is the groups already held): only whole groups, never an unclassed species.
+          AND ($4::text[] IS NULL OR (s.taxon_class IS NOT NULL AND NOT s.taxon_class = ANY($4::text[])))
         ORDER BY s.id, rs.is_vagrant IS TRUE`,
-      [space.modelVersion, space.textModelVersion, regionIds],
-    );
+        [space.modelVersion, space.textModelVersion, ids, skipClasses],
+      );
+    const rows = (await rowsFor(regionIds, null)).rows;
+    // A place below a province can list only some groups (just the nearby sea, say), and a photo
+    // of a missing group would then have no right answer: each group it lacks comes from the
+    // nearest region above that lists it. Groups it does list stay as narrow as they are.
+    if (regionIds.length === 1) {
+      const have = new Set(rows.map((r) => r.taxon_class).filter((c) => c !== null));
+      const above = await pool.query<{ id: string }>(
+        `WITH RECURSIVE up AS (
+           SELECT parent_id AS id, 1 AS depth FROM regions WHERE id = $1
+           UNION ALL SELECT r.parent_id, up.depth + 1 FROM regions r JOIN up ON r.id = up.id
+         )
+         SELECT id FROM up WHERE id IS NOT NULL ORDER BY depth`,
+        [regionIds[0]],
+      );
+      for (const { id } of above.rows) {
+        const borrowed = (await rowsFor([id], [...have])).rows;
+        for (const r of borrowed) if (r.taxon_class) have.add(r.taxon_class);
+        rows.push(...borrowed);
+      }
+    }
     // A species already held for another region (World and its countries overlap) is shared,
     // not kept twice.
     const store = storeFor(space);
     const out: CandidateEntry[] = [];
-    for (const r of res.rows) {
+    for (const r of rows) {
       let species = store.entries.get(r.species_id) ?? null;
       if (!species) {
         species = {

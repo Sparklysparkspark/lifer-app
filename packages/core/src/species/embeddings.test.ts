@@ -195,6 +195,7 @@ describe("rankSpeciesByEmbedding", () => {
       ID_SPACE.modelVersion,
       ID_SPACE.textModelVersion,
       ["r1"],
+      null,
     ]);
     expect(calls.find((c) => c.sql.includes("JOIN captures c ON c.id = ce.capture_id"))!.params).toEqual([
       "u1",
@@ -250,6 +251,7 @@ describe("rankSpeciesByEmbedding", () => {
       CLIP_SPACE.modelVersion,
       TEXT_MODEL_VERSION,
       ["r3"],
+      null,
     ]);
     expect(top.score).toBeCloseTo(0.6);
   });
@@ -267,9 +269,11 @@ describe("rankSpeciesByEmbedding", () => {
     ]);
     await rankSpeciesByEmbedding(pool, "u1", [1, 0], "r2", 5, null, CLIP_SPACE);
     await rankSpeciesByEmbedding(pool, "u1", [1, 0], "r2", 5, null, CLIP_SPACE);
-    expect(calls.filter((c) => c.sql.includes("FROM region_species"))).toHaveLength(1);
+    // The checklist query itself; the user's additions (region_species_user_added) are read separately.
+    const catalogReads = () => calls.filter((c) => c.sql.includes("FROM region_species rs")).length;
+    expect(catalogReads()).toBe(1);
     invalidateSuggestionCache();
     await rankSpeciesByEmbedding(pool, "u1", [1, 0], "r2", 5, null, CLIP_SPACE);
-    expect(calls.filter((c) => c.sql.includes("FROM region_species"))).toHaveLength(2);
+    expect(catalogReads()).toBe(2);
   });
 });
