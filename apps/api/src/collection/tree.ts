@@ -8,7 +8,7 @@ import { BEST_PHOTO_ORDER } from "../lib/bestPhotoOrder.js";
 import { Nullable, Open, Uuid, replies, withSchemas } from "../lib/schema.js";
 import { ALREADY_OWNED_SQL } from "../species/obscurity.js";
 import { capturedInTreeSql, regionTreeCte } from "../regions/checklist.js";
-import { userAddedInTreeSql } from "../regions/checklistAdditions.js";
+import { userAddedInSeaZonesSql, userAddedInTreeSql } from "../regions/checklistAdditions.js";
 import { ensureRegionRollup, regionRollupFresh } from "../regions/rollup.js";
 import { COLLECTION_WHERE, UNLOCKED_SPECIES_CTE, collectionVersion } from "./routes.js";
 import { NotModified } from "./responses.js";
@@ -106,10 +106,12 @@ interface Row {
 // as GET /collection/count counts it. Photos are visible captures (the `captures` view hides trash);
 // the best one uses the shared order. It starts from the few species COLLECTION_WHERE can keep
 // rather than scanning the whole catalogue. With a region ($4), only the species on its checklist
-// or one inside it (vagrant listings left out), or that you photographed or added there, less those
-// you hid there. The ones
+// or one inside it (vagrant listings left out), on one of its nearby sea zones (as the checklist
+// page with every zone ticked, less any the region lists as a vagrant), or that you photographed
+// or added there, less those you hid there. The ones
 // inside it are looked up per candidate in region_species_rollup, or while that's being rebuilt
 // read from every row of the region's subtree, which is correct but takes seconds for a continent.
+// A sea-zone-only species has no local tier, as on the checklist page, so it shows its own.
 type RegionSource = "rollup" | "subtree" | null;
 const treeSql = (maxDepthM: number, region: RegionSource) => `WITH RECURSIVE ${
   region ? `${regionTreeCte("region_tree", "$4::uuid")},` : ""
@@ -123,6 +125,7 @@ const treeSql = (maxDepthM: number, region: RegionSource) => `WITH RECURSIVE ${
   )${
     region
       ? `,
+  zone_ids AS (SELECT unnest(nearby_sea_zone_ids) AS id FROM regions WHERE id = $4),
   in_region AS (
     ${
       region === "rollup"
@@ -133,6 +136,10 @@ const treeSql = (maxDepthM: number, region: RegionSource) => `WITH RECURSIVE ${
     }
     UNION ${capturedInTreeSql("$1", "true")}
     UNION ${userAddedInTreeSql("$1")}
+    UNION SELECT species_id FROM candidates c
+      WHERE EXISTS (SELECT 1 FROM sea_zone_species z WHERE z.sea_zone_id IN (SELECT id FROM zone_ids) AND z.species_id = c.species_id)
+        AND NOT EXISTS (SELECT 1 FROM region_species v WHERE v.region_id = $4 AND v.species_id = c.species_id AND v.is_vagrant)
+    UNION ${userAddedInSeaZonesSql("$1", "ARRAY(SELECT id FROM zone_ids)")}
   )`
       : ""
   }

@@ -1,6 +1,7 @@
 // Runs only with TEST_DATABASE_URL pointing at a migrated, disposable database.
 // GET /collection/tree: totals match /collection/count, hand-added species group under Other, CSV export,
-// and the region filter through region_species_rollup, which checklist changes invalidate.
+// and the region filter through region_species_rollup, which checklist changes invalidate, plus
+// the region's nearby sea zones.
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import pg from "pg";
@@ -18,7 +19,11 @@ const SP_E = "eeeeeeee-0000-4000-8000-000000000b0e";
 // Listed by a downloaded pack's province, and added to a province by hand.
 const SP_F = "eeeeeeee-0000-4000-8000-000000000b0f";
 const SP_G = "eeeeeeee-0000-4000-8000-000000000b10";
+// Listed only on the country's nearby sea zone.
+const SP_H = "eeeeeeee-0000-4000-8000-000000000b11";
+const ZONE = "eeeeeeee-0000-4000-8000-000000000b1d";
 const PACK = "zztree-pack";
+const SEA_PACK = "zztree-sea-pack";
 const TOKEN = "lifer_test_collection_tree_b01";
 const COUNTRY = "eeeeeeee-0000-4000-8000-000000000b1a";
 const PROVINCE = "eeeeeeee-0000-4000-8000-000000000b1b";
@@ -41,11 +46,13 @@ describe.skipIf(!url)("collection tree", () => {
     await db.query(`DELETE FROM user_species WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM captures_all WHERE user_id = $1`, [USER]);
     await db.query(`DELETE FROM users WHERE id = $1`, [USER]);
-    await db.query(`DELETE FROM downloaded_packs WHERE pack_id = $1`, [PACK]);
+    await db.query(`DELETE FROM downloaded_packs WHERE pack_id = ANY($1)`, [[PACK, SEA_PACK]]);
+    await db.query(`DELETE FROM sea_zones WHERE id = $1`, [ZONE]);
+    await db.query(`DELETE FROM species_rarity WHERE species_id = $1`, [SP_H]);
     await db.query(`DELETE FROM region_species WHERE region_id = ANY($1)`, [[COUNTRY, PROVINCE]]);
     await db.query(`DELETE FROM region_species_rollup WHERE region_id = ANY($1)`, [[CONTINENT, COUNTRY, PROVINCE]]);
     await db.query(`DELETE FROM regions WHERE id = ANY($1)`, [[PROVINCE, COUNTRY, CONTINENT]]);
-    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SP_A, SP_B, SP_C, SP_D, SP_E, SP_F, SP_G]]);
+    await db.query(`DELETE FROM species WHERE id = ANY($1)`, [[SP_A, SP_B, SP_C, SP_D, SP_E, SP_F, SP_G, SP_H]]);
     await db.query(`DELETE FROM species WHERE gbif_key >= $1 AND gbif_key < $1 + $2`, [BIG_GBIF, BIG]);
   }
 
@@ -267,6 +274,58 @@ describe.skipIf(!url)("collection tree", () => {
       expect(await leavesIn(COUNTRY)).not.toContain("Rootus deltus");
     } finally {
       await db.query(`DELETE FROM region_species WHERE region_id = $1 AND species_id = $2`, [PROVINCE, SP_D]);
+    }
+  });
+
+  it("adds the region's nearby sea zones, once per species, without reviving a vagrant listing", async () => {
+    type N = { name: string; tiers: Record<string, number>; children: N[] };
+    const leaves = (nodes: N[]): N[] => nodes.flatMap((n) => (n.children.length ? leaves(n.children) : [n]));
+    const leavesIn = async (regionId: string) => {
+      const res = await get(`/api/collection/tree?include=uncollected&regionId=${regionId}`);
+      expect(res.statusCode, res.body).toBe(200);
+      return leaves(res.json().tree);
+    };
+    await db.query(
+      `INSERT INTO species (id, gbif_key, scientific_name, taxon_class, taxon_order, family, reference_photo, reference_credit, reference_license)
+       VALUES ($1, 920808, 'Marinus solus', 'marine_mollusks', 'Neogastropoda', 'Marinidae', 'https://example.org/m.jpg', 'x', 'cc-by')`,
+      [SP_H],
+    );
+    await db.query(
+      `INSERT INTO species_rarity (species_id, range_score, abundance_score, composite, tier) VALUES ($1, 0, 0, 0, 'rare')`,
+      [SP_H],
+    );
+    await db.query(
+      `INSERT INTO sea_zones (id, name, wkt, bbox_min_lon, bbox_min_lat, bbox_max_lon, bbox_max_lat) VALUES ($1, 'Zztree sea', 'POINT(0 0)', 0, 0, 0, 0)`,
+      [ZONE],
+    );
+    await db.query(`INSERT INTO downloaded_packs (pack_id, region) VALUES ($1, 'Zztree sea')`, [SEA_PACK]);
+    // Alpha is on the country too; Delta (seen) is there only as a vagrant.
+    await db.query(
+      `INSERT INTO sea_zone_species (sea_zone_id, species_id, record_count) VALUES ($1, $2, 5), ($1, $3, 5), ($1, $4, 5)`,
+      [ZONE, SP_H, SP_A, SP_D],
+    );
+    await db.query(`INSERT INTO region_species (region_id, species_id, is_vagrant) VALUES ($1, $2, true)`, [
+      COUNTRY,
+      SP_D,
+    ]);
+    try {
+      expect((await leavesIn(COUNTRY)).map((n) => n.name)).not.toContain("Marinus solus");
+      await db.query(`UPDATE regions SET nearby_sea_zone_ids = $1 WHERE id = $2`, [[ZONE], COUNTRY]);
+      const country = await leavesIn(COUNTRY);
+      const names = country.map((n) => n.name);
+      expect(names).toContain("Marinus solus");
+      expect(names.filter((n) => n === "Treeus alphus")).toHaveLength(1);
+      expect(names).not.toContain("Rootus deltus");
+      // No local tier on the zone, as on the checklist page: the species' own.
+      expect(country.find((n) => n.name === "Marinus solus")!.tiers).toEqual({ rare: 1 });
+      expect((await leavesIn(PROVINCE)).map((n) => n.name)).not.toContain("Marinus solus");
+    } finally {
+      await db.query(`UPDATE regions SET nearby_sea_zone_ids = NULL WHERE id = $1`, [COUNTRY]);
+      await db.query(`DELETE FROM region_species WHERE region_id = $1 AND species_id = $2`, [COUNTRY, SP_D]);
+      await db.query(`DELETE FROM downloaded_packs WHERE pack_id = $1`, [SEA_PACK]);
+      await db.query(`DELETE FROM sea_zones WHERE id = $1`, [ZONE]);
+      await db.query(`DELETE FROM species_rarity WHERE species_id = $1`, [SP_H]);
+      await db.query(`DELETE FROM species WHERE id = $1`, [SP_H]);
     }
   });
 

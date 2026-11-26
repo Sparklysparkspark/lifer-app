@@ -184,6 +184,7 @@ For fish, a coastal region can include nearby ocean areas: the named seas, gulfs
 - Ocean areas only add fish, so the control shows when you're viewing all groups or Fish, once the region's fish are downloaded. It also shows whenever you've [added species](#add-to-checklist) to one of the ocean areas yourself.
 - If a region has no fish of its own, Lifer ticks its zones for you.
 - A country download may bring in the ocean areas its fish checklist needs. You can also download ocean areas from [Regions](./offline-packs-and-map.md).
+- The [Tree of life](./stats.md#tree-of-life) always includes a region's nearby ocean areas, so its counts match the Collection with every ocean area ticked.
 
 ## Rarity {#rarity-tiers}
 

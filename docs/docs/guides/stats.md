@@ -67,6 +67,7 @@ The **Tree of life** groups the species in your downloaded regions by class, ord
 - **Show genera** under **View** adds the genus level. Point at it for what a genus is.
 - **Show uncollected species in colour** under **View** shows the species you haven't photographed in full colour instead of faded. It's the same setting as on the Collection.
 - A species listed in a region only as a vagrant isn't in that region's tree unless you photographed it or added it there.
+- A coastal region's tree also has the species of its nearby [ocean areas](./collection-and-checklists.md#sea-zones) you've downloaded, like the Collection with every ocean area ticked: Belize's includes the Caribbean Sea's shells, corals and reef fish. A species on both counts once, keeps the region's local rarity where the region lists it (otherwise its worldwide rarity), and stays out if the region lists it only as a vagrant.
 
 ### Rarity in the tree
 
