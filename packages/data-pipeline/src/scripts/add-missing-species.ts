@@ -9,7 +9,9 @@
 // before. Groups use the same clades as the catalog builders (build-seed-*.ts), found by
 // iNaturalist ancestry, so what's added matches what the builders would have included. Skipped:
 // hybrids, inactive or extinct taxa, domestic animals, and invertebrates with neither a common
-// name nor 10 observations (the builders' own visibility floor).
+// name nor 10 observations (the builders' own visibility floor). Bivalves, ceriths and nerites
+// also need an OBIS marine or brackish record (MARINE_ONLY_CLADES): Lifer adds marine ones only.
+// Offline, clade ids and family names come from iNaturalist's open data dump when it is on disk.
 //
 // New species get gbif_key = -inat_taxon_id (real GBIF keys are positive; Other Taxa use the
 // same convention) and their eBird code by scientific name. Photos and descriptions come from the
@@ -17,16 +19,22 @@
 //
 // Usage: npx tsx src/scripts/add-missing-species.ts [--apply] [--offline]
 // Writes data/build/added-species-<date>.tsv listing what was added (or would be).
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import readline from "node:readline";
 import { fileURLToPath } from "node:url";
+import { createGunzip } from "node:zlib";
+import { lockReferenceData } from "@lifer/core/lib/referenceDataLock.js";
 import { pool } from "../db.js";
 import { toTitleCase } from "../fetch/fetch-gbif-vernacular.js";
 import { inatGet } from "../inatApi.js";
+import { marineBinomials, type ObisChecklistRow } from "../build/sea-zone-marine.js";
 
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "data");
 const PLACE_CACHE_DIR = path.join(DATA_DIR, "inat-species-counts-cache");
 const TAXA_CACHE_PATH = path.join(DATA_DIR, "inat-taxa-cache.json");
+const INAT_TAXA_DUMP = path.join(DATA_DIR, "open-vectors", "inat", "taxa.csv.gz");
+const OBIS_CACHE_DIR = path.join(DATA_DIR, "obis-checklist-cache");
 const EBIRD_TAXONOMY_CSV = path.join(DATA_DIR, "reference", "ebird-taxonomy.csv");
 const BUILD_DIR = path.join(DATA_DIR, "build");
 
@@ -52,10 +60,11 @@ export const GROUP_CLADES: Array<[string, string[]]> = [
   ["squamata", ["Squamata", "Crocodylia", "Rhynchocephalia"]],
   ["testudines", ["Testudines"]],
   ["amphibia", ["Amphibia"]],
-  ["corals", ["Scleractinia"]],
+  ["corals", ["Scleractinia", "Octocorallia", "Zoantharia", "Corallimorpharia", "Antipatharia"]],
   ["jellies_and_anemones", ["Actiniaria", "Scyphozoa", "Cubozoa", "Hydrozoa"]],
-  ["echinodermata", ["Asteroidea", "Echinoidea"]],
-  ["nudibranchs", ["Nudibranchia"]],
+  ["echinodermata", ["Asteroidea", "Echinoidea", "Holothuroidea", "Ophiuroidea", "Crinoidea"]],
+  // Sea hares, sap-sucking and headshield slugs share the sea slug bucket.
+  ["nudibranchs", ["Nudibranchia", "Aplysiida", "Sacoglossa", "Cephalaspidea"]],
   [
     "marine_mollusks",
     [
@@ -77,12 +86,43 @@ export const GROUP_CLADES: Array<[string, string[]]> = [
       "Mitridae",
       "Cancellariidae",
       "Tridacnidae",
+      "Bivalvia",
+      "Polyplacophora",
+      "Cerithioidea",
+      "Cycloneritida",
+      "Patellogastropoda",
+      "Lepetellida",
     ],
   ],
   ["cephalopoda", ["Cephalopoda"]],
-  ["crustacea", ["Decapoda"]],
+  ["crustacea", ["Decapoda", "Cirripedia", "Stomatopoda"]],
   ["sponges_tunicates_other", ["Porifera", "Ascidiacea"]],
 ];
+/** Marine clades added in 2026-11 (docs/plans/marine-coverage.md, option C); the marine widening
+ *  command adds only these. */
+export const WIDENED_MARINE_CLADES = new Set([
+  "Octocorallia",
+  "Zoantharia",
+  "Corallimorpharia",
+  "Antipatharia",
+  "Holothuroidea",
+  "Ophiuroidea",
+  "Crinoidea",
+  "Aplysiida",
+  "Sacoglossa",
+  "Cephalaspidea",
+  "Bivalvia",
+  "Polyplacophora",
+  "Cerithioidea",
+  "Cycloneritida",
+  "Patellogastropoda",
+  "Lepetellida",
+  "Cirripedia",
+  "Stomatopoda",
+]);
+/** Clades with freshwater or land members (mussels, thiarids, helicinids): a species joins only
+ *  when OBIS records it as marine or brackish somewhere. */
+export const MARINE_ONLY_CLADES = new Set(["Bivalvia", "Cerithioidea", "Cycloneritida"]);
 const VERTEBRATE_GROUPS = new Set(["aves", "mammalia", "actinopterygii", "squamata", "testudines", "amphibia"]);
 // Domestic animals and feral forms iNaturalist lists as their own species.
 const DOMESTIC = new Set([
@@ -100,7 +140,7 @@ const DOMESTIC = new Set([
   "Bubalus bubalis",
 ]);
 
-interface TaxonDetail {
+export interface TaxonDetail {
   rank: string;
   active: boolean;
   ancestors: number[];
@@ -121,20 +161,56 @@ function saveTaxaCache(cache: TaxaCache) {
   writeFileSync(TAXA_CACHE_PATH, JSON.stringify(cache));
 }
 
-async function resolveCladeIds(cache: TaxaCache, offline: boolean): Promise<Array<[number, string]>> {
+/** Every non-species taxon in iNaturalist's open data dump (data/open-vectors/inat/taxa.csv.gz):
+ *  lets an offline run place taxa in clades and name their families. Null without the dump. */
+let dumpTaxa: Promise<Map<number, { rank: string; name: string }> | null> | null = null;
+export function inatDumpHigherTaxa(): Promise<Map<number, { rank: string; name: string }> | null> {
+  return (dumpTaxa ??= (async () => {
+    if (!existsSync(INAT_TAXA_DUMP)) return null;
+    const out = new Map<number, { rank: string; name: string }>();
+    const lines = readline.createInterface({ input: createReadStream(INAT_TAXA_DUMP).pipe(createGunzip()) });
+    for await (const line of lines) {
+      const [id, , , rank, name, active] = line.split("\t");
+      if (rank !== "species" && rank !== "rank" && active === "true") out.set(Number(id), { rank, name });
+    }
+    return out;
+  })());
+}
+
+/** Binomials OBIS records as marine or brackish in any cached sea zone or country checklist. */
+export function loadObisMarineNames(dir = OBIS_CACHE_DIR): Set<string> {
+  const out = new Set<string>();
+  if (!existsSync(dir)) return out;
+  for (const f of readdirSync(dir, { recursive: true }) as string[]) {
+    if (path.basename(f) !== "Mollusca.json") continue;
+    const rows = (JSON.parse(readFileSync(path.join(dir, f), "utf8")) as { results: ObisChecklistRow[] }).results;
+    for (const n of marineBinomials(rows)) out.add(n);
+  }
+  return out;
+}
+
+async function resolveCladeIds(cache: TaxaCache, offline: boolean): Promise<Array<[number, string, string]>> {
   const clades = (cache.__clades__ ??= {});
-  const out: Array<[number, string]> = [];
+  const out: Array<[number, string, string]> = [];
+  const missing = GROUP_CLADES.some(([, names]) => names.some((n) => !(n in clades)));
+  const dump = offline && missing ? await inatDumpHigherTaxa() : null;
+  const byName = new Map([...(dump ?? [])].map(([id, t]) => [t.name, id]));
   for (const [group, names] of GROUP_CLADES) {
     for (const n of names) {
       if (!(n in clades)) {
-        if (offline) continue;
+        if (offline) {
+          // In memory only: an online run confirms it against the API before it is cached.
+          const id = byName.get(n);
+          if (id) out.push([id, group, n]);
+          continue;
+        }
         const d = await inatGet<{ results: Array<{ id: number; name: string; rank: string }> }>(
           `https://api.inaturalist.org/v1/taxa?${new URLSearchParams({ q: n, is_active: "true", per_page: "30" })}`,
         );
         clades[n] = d.results.find((t) => t.name === n && t.rank !== "species")?.id ?? null;
       }
       const id = clades[n];
-      if (id) out.push([id, group]);
+      if (id) out.push([id, group, n]);
     }
   }
   return out;
@@ -179,7 +255,13 @@ async function fetchDetails(ids: string[], cache: TaxaCache) {
 async function ancestorNames(ids: number[], cache: TaxaCache, offline: boolean) {
   const known = (cache.__ancestors__ ??= {});
   const todo = [...new Set(ids)].filter((id) => !(String(id) in known));
-  if (!offline) {
+  if (offline && todo.length > 0) {
+    const dump = await inatDumpHigherTaxa();
+    for (const id of todo) {
+      const t = dump?.get(id);
+      if (t) known[String(id)] = t;
+    }
+  } else if (!offline) {
     for (let i = 0; i < todo.length; i += 30) {
       const batch = todo.slice(i, i + 30);
       const d = await inatGet<{ results: Array<{ id: number; rank: string; name: string }> }>(
@@ -294,6 +376,8 @@ export interface NewSpecies {
   scientificName: string;
   commonName: string | null;
   taxonClass: string;
+  /** The GROUP_CLADES name that placed it (null for eBird-only birds). */
+  clade: string | null;
   inatTaxonId: number | null;
   ebirdCode: string | null;
   family: string | null;
@@ -323,6 +407,24 @@ export interface SpeciesLink {
   inatTaxonId: number;
   name: string;
   rule: "ending" | "genus_move" | "inat_lookup";
+}
+
+/** The group and clade an iNaturalist species joins (first matching clade wins), or null when it
+ *  is out of scope: not a living species, a hybrid or domestic, in no clade, an invertebrate under
+ *  the visibility floor, or in a mixed clade without a marine record. */
+export function placeTaxon(
+  t: TaxonDetail,
+  clades: Array<[number, string, string]>,
+  isMarine: (name: string) => boolean,
+): { group: string; clade: string } | null {
+  if (t.rank !== "species" || !t.active || t.extinct || t.name.includes("×") || DOMESTIC.has(t.name)) return null;
+  const anc = new Set(t.ancestors);
+  const hit = clades.find(([cid]) => anc.has(cid));
+  if (!hit) return null;
+  const [, group, clade] = hit;
+  if (!VERTEBRATE_GROUPS.has(group) && !t.common && t.obs < 10) return null;
+  if (MARINE_ONLY_CLADES.has(clade) && !isMarine(t.name)) return null;
+  return { group, clade };
 }
 
 // Latin endings that change with a genus' gender (dorsatus/dorsatum, jacobitus/jacobita).
@@ -381,15 +483,13 @@ export async function findMissingSpecies(opts: {
   const ebirdForms = ebirdFormsByBinomial(ebird);
   const speciesByEbird = new Map(catalog.rows.filter((r) => r.ebird_code).map((r) => [r.ebird_code!, r.id]));
 
-  const candidates: Array<{ id: string; detail: TaxonDetail; group: string; places: number }> = [];
+  let marine: Set<string> | null = null;
+  const isMarine = (name: string) => (marine ??= loadObisMarineNames()).has(name);
+  const candidates: Array<{ id: string; detail: TaxonDetail; group: string; clade: string; places: number }> = [];
   for (const [id, p] of places) {
     const t = cache[id];
-    if (!t || t.rank !== "species" || !t.active || t.extinct || t.name.includes("×") || DOMESTIC.has(t.name)) continue;
-    const anc = new Set(t.ancestors);
-    const group = clades.find(([cid]) => anc.has(cid))?.[1];
-    if (!group) continue;
-    if (!VERTEBRATE_GROUPS.has(group) && !t.common && t.obs < 10) continue;
-    candidates.push({ id, detail: t, group, places: p.count });
+    const placed = t ? placeTaxon(t, clades, isMarine) : null;
+    if (placed) candidates.push({ id, detail: t!, ...placed, places: p.count });
   }
 
   const ancestors = await ancestorNames(
@@ -481,6 +581,7 @@ export async function findMissingSpecies(opts: {
       scientificName: c.detail.name,
       commonName: common,
       taxonClass: c.group,
+      clade: c.clade,
       inatTaxonId: Number(c.id),
       ebirdCode: eb && !knownEbird.has(eb.code) ? eb.code : null,
       family: rankName("family"),
@@ -511,6 +612,7 @@ export async function findMissingSpecies(opts: {
       scientificName: r.sci,
       commonName: toTitleCase(r.common),
       taxonClass: "aves",
+      clade: null,
       inatTaxonId: null,
       ebirdCode: r.code,
       family: r.family || null,
@@ -563,6 +665,7 @@ export async function insertMissingSpecies(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await lockReferenceData(client);
     // Respellings and genus moves: the existing entry takes the iNaturalist id and the new name.
     await client.query(
       `UPDATE species s SET inat_taxon_id = v.inat FROM unnest($1::uuid[], $2::int[]) AS v(id, inat)

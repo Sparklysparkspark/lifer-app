@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { MARINE_MIN_RECORDS, binomial, freshwaterOrLandOnly, keepCandidates, tallyZone } from "./sea-zone-marine.js";
+import {
+  MARINE_MIN_RECORDS,
+  binomial,
+  freshwaterOrLandOnly,
+  keepCandidates,
+  marineBinomials,
+  tallyZone,
+} from "./sea-zone-marine.js";
 
 describe("binomial", () => {
   it("drops subgenera and subspecies, and rejects a genus alone", () => {
@@ -58,5 +65,17 @@ describe("keepCandidates", () => {
       { zone: 3, speciesId: "common", recordCount: MARINE_MIN_RECORDS },
       { zone: 3, speciesId: "rare-photographed", recordCount: 1 },
     ]);
+  });
+});
+
+describe("marineBinomials", () => {
+  it("takes names and accepted names OBIS flags marine or brackish, never freshwater-only ones", () => {
+    const names = marineBinomials([
+      { scientificName: "Mytilus edulis", records: 3, is_marine: true },
+      { scientificName: "Neritina virginea", acceptedNameUsage: "Vitta virginea", records: 1, is_brackish: true },
+      { scientificName: "Unio pictorum", records: 9, is_freshwater: true },
+      { scientificName: "Tellina", records: 2, is_marine: true },
+    ]);
+    expect([...names].sort()).toEqual(["Mytilus edulis", "Neritina virginea", "Vitta virginea"]);
   });
 });

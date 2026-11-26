@@ -13,14 +13,22 @@ export const BACKUP_DIR = process.env.LIFER_BACKUP_DIR ?? path.join(REPO_ROOT, "
 
 export const snapshotStamp = (d = new Date()) => d.toISOString().replace(/[:.]/g, "-");
 
-/** Dumps `databaseUrl` to `outFile`. Written to a .partial file first, so a dump that dies never
+/** Dumps `databaseUrl` (only `tables`, when given) to `outFile`. Written to a .partial file first, so a dump that dies never
  *  looks like a finished one. */
-export async function dumpDatabase(databaseUrl: string, outFile: string, log = console.log): Promise<void> {
+export async function dumpDatabase(
+  databaseUrl: string,
+  outFile: string,
+  log = console.log,
+  tables: string[] = [],
+): Promise<void> {
   const cmd = resolvePgDump(databaseUrl);
   log(`pg_dump ${cmd.source} -> ${outFile}`);
   mkdirSync(path.dirname(outFile), { recursive: true });
   const partial = `${outFile}.partial`;
-  const child = spawn(cmd.command, [...cmd.prefixArgs, "-Fc", cmd.databaseUrl], { stdio: ["ignore", "pipe", "pipe"] });
+  const only = tables.flatMap((t) => ["-t", t]);
+  const child = spawn(cmd.command, [...cmd.prefixArgs, "-Fc", ...only, cmd.databaseUrl], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   let stderr = "";
   child.stderr.on("data", (c) => (stderr += c.toString()));
   // Registered before awaiting the copy, so an early "close" isn't missed.

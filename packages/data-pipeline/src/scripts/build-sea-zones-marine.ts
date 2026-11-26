@@ -39,31 +39,35 @@ const log = (m: string) => console.log(`[build-sea-zones-marine] ${m}`);
 
 interface CacheFile {
   fetchedAt: string;
+  /** What the answer was asked for (a zone's outline, or "areaid=22"): a change refetches. */
   wkt: string;
   total: number;
   results: ObisChecklistRow[];
 }
 
-/** A zone's OBIS checklist for one group, from the cache or OBIS; null offline with no cache. */
-async function obisChecklist(
-  zone: string,
-  wkt: string,
+export const OBIS_CACHE_DIR = CACHE_DIR;
+
+/** One OBIS checklist (a zone's outline or an OBIS area, one group), from the cache file or OBIS;
+ *  null offline with no cache. */
+export async function obisChecklist(
+  file: string,
+  where: { geometry: string } | { areaid: string },
   group: string,
   offline: boolean,
 ): Promise<ObisChecklistRow[] | null> {
-  const file = path.join(CACHE_DIR, sanitize(zone), `${group}.json`);
+  const key = "geometry" in where ? where.geometry : `areaid=${where.areaid}`;
   if (existsSync(file)) {
     const cached = JSON.parse(readFileSync(file, "utf8")) as CacheFile;
-    if (cached.wkt === wkt) return cached.results;
+    if (cached.wkt === key) return cached.results;
   }
   if (offline) return null;
   const results: ObisChecklistRow[] = [];
   let total = 0;
   for (let skip = 0; skip === 0 || skip < total; skip += PAGE_SIZE) {
-    const url = `${OBIS_CHECKLIST_API}?${new URLSearchParams({ geometry: wkt, scientificname: group, size: String(PAGE_SIZE), skip: String(skip) })}`;
+    const url = `${OBIS_CHECKLIST_API}?${new URLSearchParams({ ...where, scientificname: group, size: String(PAGE_SIZE), skip: String(skip) })}`;
     // One request at a time, a second apart: OBIS is a public service.
     const res = await httpFetch(url, { maxRetries: 5, retryServerErrors: true, paceMs: 1000, timeoutMs: 180_000 });
-    if (!res.ok) throw new Error(`OBIS answered HTTP ${res.status} for ${zone} / ${group}`);
+    if (!res.ok) throw new Error(`OBIS answered HTTP ${res.status} for ${key} / ${group}`);
     const body = (await res.json()) as { total: number; results: ObisChecklistRow[] };
     total = body.total;
     for (const r of body.results)
@@ -80,7 +84,10 @@ async function obisChecklist(
     if (body.results.length === 0) break;
   }
   mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify({ fetchedAt: new Date().toISOString(), wkt, total, results } satisfies CacheFile));
+  writeFileSync(
+    file,
+    JSON.stringify({ fetchedAt: new Date().toISOString(), wkt: key, total, results } satisfies CacheFile),
+  );
   return results;
 }
 
@@ -153,7 +160,8 @@ async function main() {
       const rows: ObisChecklistRow[] = [];
       let complete = true;
       for (const group of OBIS_GROUPS) {
-        const got = await obisChecklist(zone.name, zone.wkt, group, offline);
+        const file = path.join(CACHE_DIR, sanitize(zone.name), `${group}.json`);
+        const got = await obisChecklist(file, { geometry: zone.wkt }, group, offline);
         if (!got) complete = false;
         else rows.push(...got);
       }
@@ -257,7 +265,9 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

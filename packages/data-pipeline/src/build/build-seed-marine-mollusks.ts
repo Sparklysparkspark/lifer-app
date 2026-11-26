@@ -4,6 +4,10 @@
 // uncommon-named gastropods are out of scope, apart from a small curated list of notable
 // bivalve families (NOTABLE_BIVALVE_FAMILY_KEYS). The classic collector-shell families are
 // listed explicitly (COLLECTOR_SHELL_FAMILY_KEYS) under the same taxon_class.
+// Bivalves, chitons, ceriths, nerites and limpets join the same class through
+// add-missing-species.ts (WIDENED_MARINE_CLADES): only species iNaturalist observers photograph,
+// marine ones only. A GBIF backbone pull of those clades would bring in thousands of unphotographed
+// and freshwater names, as these orders did (docs/plans/marine-coverage.md).
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fetchGbifBackboneForKeys, type GbifSpeciesRow } from "../gbif/backbone.js";

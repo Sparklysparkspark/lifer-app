@@ -133,7 +133,17 @@ count as one for the gate's freshness check, and nothing else needs to rerun.
   `--apply-report=<reviewed.json>`.
 - `add-missing-species.ts`: adds species on cached iNaturalist place lists or in eBird's taxonomy
   that the catalog lacks, and links respellings and genus moves to their existing entry instead.
+  Bivalves, ceriths and nerites need an OBIS marine or brackish record (marine only). Offline, clade
+  ids and family names come from the iNaturalist dump (`data/open-vectors/inat/taxa.csv.gz`).
   `--apply`, `--offline`.
+- `widen-marine-catalog.ts` (`npm run widen-marine-catalog`): adds the marine clades of
+  `docs/plans/marine-coverage.md` option C (bivalves, chitons, ceriths, nerites, limpets, sea
+  slugs, octocorals, zoanthids, sea cucumbers, brittle and feather stars, barnacles, mantis
+  shrimp) and lists them everywhere, in stages `species,checklists,audit,tiers,photos,vectors`.
+  Dry run by default (read-only: counts per group and country, `data/build/marine-widening-dry-run.tsv`).
+  `--apply` refuses to start while the gallery top-up runs or is unfinished (`--ignore-top-up` to
+  skip an abandoned one) or under 20 GB free, holds `/tmp/lifer-catalog-write.lock`, backs up the
+  tables it touches first. `--stages=`, `--resume`, `--countries=` (dry run output).
 - `find-species-splits.ts`: records which catalog species iNaturalist has split, and into what
   (`species_splits`); possible duplicates and missing replacements go to
   `data/review/inat-taxon-changes.tsv`. `--apply`.
@@ -276,6 +286,12 @@ count as one for the gate's freshness check, and nothing else needs to rerun.
   checklists of the zone polygon, cached in `data/obis-checklist-cache/`. Replaces only those
   classes' rows; strays from another ocean go to `data/review/sea-zones-marine-strays.tsv`. Run by
   the regions stage after the fish. `--apply`, `--zones=`, `--offline`
+- `build-country-marine-obis.ts` (`npm run build-country-marine-obis`): country rows for the same
+  classes from OBIS country areas (5+ records, or 1+ and photographed there, and on a nearby sea
+  zone), evidence `obis`, rows from other sources left alone. Cached in
+  `data/obis-checklist-cache/areas/` with each area's dataset licences; rows and the licence mix in
+  `data/review/obis-country-*.tsv`. The regions stage runs it after the country lists, before 6c.
+  `--apply`, `--countries=`, `--offline`, `--any-records`
 - `compute-sea-zones.ts`: one sea zone's checklist from live GBIF polygon searches, for a targeted
   recompute; ~13s a request, so not for every zone. `--apply`, `--zones=`, `--recompute`
 - `restore-published-rows.ts` (`npm run restore-published-rows`): puts back checklist rows the
@@ -314,6 +330,7 @@ rest are stored with their matching vectors. Writes the database in `DATABASE_UR
 npm run top-up-galleries -w data-pipeline                                  # every thin species
 npm run top-up-galleries -w data-pipeline -- --class=squamata,amphibia     # some taxon classes
 npm run top-up-galleries -w data-pipeline -- --region=BLZ --per-class=100  # a capped regional run
+npm run top-up-galleries -w data-pipeline -- --species-file=<ids.txt>      # only these species
 ```
 
 `--region=` takes a country code (`BLZ`) or a province's ISO code (`BZ-SC`).

@@ -7,6 +7,7 @@
 //   npm run top-up-galleries -w data-pipeline                                 every thin species
 //   npm run top-up-galleries -w data-pipeline -- --class=squamata,amphibia    some taxon classes
 //   npm run top-up-galleries -w data-pipeline -- --region=BLZ --per-class=100 a capped regional run
+//   npm run top-up-galleries -w data-pipeline -- --species-file=<ids.txt>     only these species
 //
 // Rerun the same command to resume: only species still under --min-photos are read again, and
 // iNaturalist's answers come from inat_response_cache. --per-class and --limit cap each run, so a
@@ -41,6 +42,8 @@ const { values: args } = parseArgs({
     target: { type: "string", default: String(MAX_GALLERY_PHOTOS) },
     "per-class": { type: "string" },
     limit: { type: "string" },
+    // A file of species ids, one per line: only these (the marine widening's new species).
+    "species-file": { type: "string" },
     // Stops cleanly (exit code 3) before a species when the reference image disk has less free.
     "min-free-gb": { type: "string", default: "0" },
   },
@@ -51,6 +54,9 @@ const TARGET = Number(args.target);
 const FETCH = TARGET * 2;
 const classes = args.class === "all" ? null : args.class!.split(",");
 const MIN_FREE_BYTES = Number(args["min-free-gb"]) * 1024 ** 3;
+const only = args["species-file"]
+  ? (await readFile(args["species-file"], "utf8")).split("\n").filter((l) => l.trim())
+  : null;
 // This many unanswered species in a row means iNaturalist is down or refusing us: stop and let the
 // caller back off, rather than skip through every remaining species.
 const MAX_UNANSWERED_IN_A_ROW = 25;
@@ -92,8 +98,9 @@ async function thinSpecies(): Promise<{ rows: Row[]; tally: Map<string, ClassTal
               SELECT rs.species_id FROM region_species rs
                -- A district without a GADM id keeps its GBIF outline in external_codes, so its ISO code is the eBird one.
                WHERE rs.region_id IN (SELECT id FROM regions WHERE $2 = ANY(external_codes) OR ebird_region_code = $2)))
+        AND ($3::uuid[] IS NULL OR s.id = ANY($3))
       GROUP BY s.id`,
-    [classes, args.region ?? null],
+    [classes, args.region ?? null, only],
   );
   const tally = new Map<string, ClassTally>();
   const byClass = new Map<string, Array<Row & { n: number }>>();

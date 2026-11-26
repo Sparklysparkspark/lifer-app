@@ -1,7 +1,132 @@
 # Marine invertebrate coverage (Belize and everywhere)
 
-Status: investigation 2026-11-25, read-only. Nothing applied to any database. Trigger: Belize's
-Tree of life shows 49 shells and marine molluscs.
+Status: investigation 2026-11-25, read-only. B and C built 2026-11-25 (code and tests, scratch
+databases only); nothing applied to the `lifer` database yet. A is a separate change in
+`apps/api`. Trigger: Belize's Tree of life shows 49 shells and marine molluscs.
+
+## Status: B and C built, waiting for the gallery top-up
+
+Defaults applied (the coordinator's, for the maintainer to confirm):
+
+- **C covers every group of the worldwide table except isopods**, in every country.
+- **Marine only.** Bivalves, ceriths and nerites have freshwater and land members, so a species of
+  those three clades joins only when OBIS records it as marine or brackish in a cached sea zone
+  (`MARINE_ONLY_CLADES` in `add-missing-species.ts`). This drops about 440 bivalves, 170 ceriths
+  and 57 nerites worldwide, freshwater ones and some marine ones whose WoRMS name differs from
+  iNaturalist's (Belize keeps 38 of 40 bivalves and 6 of 12 nerites).
+- **Sea hares, sap-sucking and headshield slugs go in `nudibranchs`.** The visible label stays
+  "Nudibranchs"; renaming it "Sea Slugs" is a decision below.
+- **B:** OBIS rows land on the country with evidence `obis`; 6c flags an OBIS row iNaturalist
+  lacks (where it covers the group) as vagrant, never removes it.
+
+### What was built
+
+- `add-missing-species.ts`: the new clades in `GROUP_CLADES` (`WIDENED_MARINE_CLADES`), the marine
+  check, and offline clade ids and family names from the iNaturalist dump. The regular catalog
+  stage now adds these clades too.
+- `widen-marine-catalog.ts` (`npm run widen-marine-catalog`): the one command for C, stages
+  `species, checklists, audit, tiers, photos, vectors` (header comment and SCRIPTS.md).
+- `build-country-marine-obis.ts` (`npm run build-country-marine-obis`): option B. Also added to the
+  refresh regions stage after the country lists, so a later country rebuild keeps its rows.
+- `top-up-galleries.ts --species-file=`; `refresh.ts` exports its tiers and vectors stages
+  (vectors can skip its GBIF occurrence-stats step); `dbSnapshot.ts` can dump some tables only.
+- Seed builders (`seed-groups.ts`, `build-seed-marine-mollusks.ts`): comments only. Their GBIF
+  backbone keys were not widened: a backbone pull of bivalves or sea cucumbers would bring in the
+  unphotographed and freshwater tail the plan warns about; the iNaturalist route is the scope.
+- Tests: `add-missing-species.test.ts` (clade expansion, isopods out, marine check, visibility
+  floor), `sea-zone-marine.test.ts`, `build-country-marine-obis.test.ts` (OBIS areas to countries,
+  licences, keep rule), `widen-marine-catalog.test.ts` (top-up guard, stages, species file), and
+  `marine-widening.integration.test.ts` on a scratch database (new species once and marked
+  iNaturalist-derived, `obis` rows beside other sources and replaced on a rerun, 6c flags an `obis`
+  row). The command itself ran end to end on a scratch database (`lifer_e2e_marine`, migrations
+  plus a Belize fixture): 3,777 species, Belize 0 to 119 rows, a resume after a failed step, and a
+  second run adding nothing.
+
+### Measured (offline, read-only on `lifer`, 2026-11-25)
+
+The species stage needs no iNaturalist call: every candidate taxon's details are already in
+`data/inat-taxa-cache.json` (the plan's estimate of 250 calls is not needed). Dry run:
+3,777 species to add.
+
+| Clade (bucket)                                       | Species | Belize |
+| ---------------------------------------------------- | ------- | ------ |
+| Bivalves (shells)                                    | 1,646   | 38     |
+| Chitons (shells)                                     | 248     | 7      |
+| Ceriths, nerites, true limpets, keyhole limpets      | 568     | 16     |
+| Sea hares, sap-sucking, headshield slugs (sea slugs) | 392     | 21     |
+| Octocorals, zoanthids, corallimorphs, black corals   | 329     | 15     |
+| Sea cucumbers, brittle stars, feather stars          | 406     | 13     |
+| Barnacles, mantis shrimp                             | 188     | 9      |
+
+Belize against the plan's prediction: bivalves 38 (40 predicted, 2 lack an OBIS marine record),
+chitons 7 (10; 3 under the visibility floor), other snails and slugs 37 (about 41), crustaceans 9
+(31 predicted, but those included 12 Decapoda under the floor and isopods), echinoderms 13 (14),
+corals 15 (19). Other countries: United States +1,097, Australia +982, Japan +469, Philippines
++434 (all in `data/build/marine-widening-dry-run.tsv`).
+
+B for Belize (OBIS area 22, 10 requests, today's catalog): +88 rows at 5+ records (molluscs 38,
+cnidarians 16, echinoderms 5, crustaceans 5, sponges and tunicates 24), +322 with any record.
+Belize's OBIS datasets: 84, of which 17 CC0, 31 CC BY, 31 CC BY-NC, 5 other (20% of records
+CC BY-NC). 179 countries map to 211 OBIS areas.
+
+### Run sequence (after the top-up has finished)
+
+From `packages/data-pipeline`, against the Docker `lifer` database:
+
+1. `npm run widen-marine-catalog -w data-pipeline` (dry run, a minute, read-only)
+2. `npm run widen-marine-catalog -w data-pipeline -- --apply`
+3. If it stops: `npm run widen-marine-catalog -w data-pipeline -- --apply --resume`
+4. `npm run refresh -w data-pipeline -- --stages=packs,gate`, then the republish's own publish
+   command (`--stages=packs,gate,publish --publish --accept-all-drift`).
+
+Step 2 refuses to start while the top-up supervisor or a `top-up-galleries` process runs, or while
+`data/logs/top-up-status.json` is anything but `done` (`--ignore-top-up` only if the maintainer
+drops the rest of the top-up), or under 20 GB free. It holds `/tmp/lifer-catalog-write.lock` for
+the whole run (other catalog writers wait), and first dumps the tables it writes to
+`data/backups/lifer-catalog-before-marine-widening-<time>-tables.dump`.
+
+Expected cost:
+
+| Stage       | Time          | Network                                                                          | Disk                                      |
+| ----------- | ------------- | -------------------------------------------------------------------------------- | ----------------------------------------- |
+| backup      | 10 to 20 min  | none                                                                             | 0.5 to 1 GB                               |
+| species     | a minute      | none                                                                             | none                                      |
+| checklists  | about 2 hours | about 1,900 OBIS requests the first time (1 s apart), no iNaturalist             | 100 MB cache                              |
+| audit       | 2 min         | none                                                                             | none                                      |
+| tiers       | 20 to 40 min  | none                                                                             | none                                      |
+| photos      | 1 to 1.5 days | about 7,500 iNaturalist calls at the top-up's pace (9.1 s), plus image downloads | about 1 GB                                |
+| vectors     | 2 to 4 hours  | none                                                                             | small                                     |
+| packs, gate | 25 min        | none                                                                             | photo store grows by about the new images |
+
+About 2 days in all, almost all of it the paced photo stage; 2 to 3 GB of disk. A Haiku
+description rewrite for the new species (about $15 to $25) is a separate, optional pass with the
+compose scripts; until then they show iNaturalist's Wikipedia summary.
+
+### Preen
+
+Preen must never take iNaturalist-derived or OBIS checklist data as is. How to tell them apart:
+
+- New species: `gbif_key < 0` and `species_traits.source_attribution = 'iNaturalist taxonomy'`.
+- OBIS country rows: `region_species.evidence_source = 'obis'`. A country rebuild relabels an OBIS
+  row iNaturalist also confirms as `country`, so exclude `inat`, `country` and `obis` together.
+- Sea zone rows of these classes (`sea_zone_species`, `MARINE_EXTRA_CLASSES`) all come from OBIS;
+  they carry no per-row source.
+- OBIS dataset licences per country: `data/obis-checklist-cache/areas/<id>/datasets.json` and
+  `data/review/obis-country-licences.tsv`.
+
+### Not verified
+
+- No run against `lifer`; B's full country fetch (only Belize was fetched).
+- The photo stage's real pace (enrich plus top-up per species) and image sizes are estimates.
+- OBIS areas combining two catalog countries (Puerto Rico with the US Virgin Islands, Guam with
+  the Northern Marianas) and France's overseas regions get no country rows.
+
+### Decisions for the maintainer
+
+1. Rename the "Nudibranchs" group "Sea Slugs" now that sea hares and sap-sucking slugs are in it?
+2. Keep the marine check for bivalves, ceriths and nerites (drops some marine species OBIS names
+   differently), or list them all, freshwater included?
+3. B's threshold: 5+ records (default, Belize +88) or any record (`--any-records`, Belize +322)?
 
 ## Short answer
 

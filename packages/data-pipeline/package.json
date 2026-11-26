@@ -27,6 +27,8 @@
     "build-region-pack": "tsx src/build/build-region-pack.ts",
     "replace-sea-zones": "tsx src/scripts/replace-sea-zones.ts",
     "build-sea-zones-marine": "tsx src/scripts/build-sea-zones-marine.ts",
+    "build-country-marine-obis": "tsx src/scripts/build-country-marine-obis.ts",
+    "widen-marine-catalog": "tsx src/scripts/widen-marine-catalog.ts",
     "build-pack-index": "tsx src/build/build-pack-index.ts",
     "backup": "tsx src/scripts/backup.ts",
     "apply-photo-licenses": "tsx src/scripts/apply-photo-licenses.ts",

@@ -37,7 +37,8 @@
 //                without Wikipedia-sourced text, and a refetch of articles edited since.
 //   regions      iNaturalist places for regions that have none, then province checklists, then the
 //                vernacular groups (regions/vernacular.ts), then each country's and group's list
-//                from its provinces (and the country's own iNaturalist list), then every sea
+//                from its provinces (and the country's own iNaturalist list) and the marine
+//                invertebrates OBIS records in its waters (data/obis-checklist-cache/areas), then every sea
 //                zone's fish and marine mammals from the same downloads and its other marine life
 //                from OBIS (data/obis-checklist-cache). From cached data (iNaturalist lists are
 //                reused while younger than LIFER_INAT_CACHE_MAX_AGE_DAYS, 90).
@@ -410,7 +411,7 @@ function requireVenv() {
 
 // Embeddings for species that have none (both matching models) and the occurrence stats the
 // obscure/Ghost/Lost flags read. Without vectors a species can never be suggested on import.
-async function vectors() {
+export async function vectors({ occurrenceStats = true } = {}) {
   // First, so photos edited by hand since the enrich stage are vetted before they get vectors.
   log("vectors", "photo license policy");
   await applyPhotoLicensePolicy(pool, (m) => log("vectors", m));
@@ -427,6 +428,8 @@ async function vectors() {
   // After both models' vectors, since a main photo that isn't a portrait swaps them with a gallery photo.
   const kinds = await scorePendingReferencePhotos();
   log("vectors", `reference photo kinds: ${kinds.scored} scored, ${kinds.swapped} main photos swapped for a portrait`);
+  // GBIF calls: left out while a republish reuses the last GBIF data.
+  if (!occurrenceStats) return;
   log("vectors", "occurrence stats for species that have none");
   runScript(PIPELINE_DIR, "src/scripts/fetch-occurrence-stats.ts", ["--only-missing"]);
 }
@@ -476,6 +479,13 @@ async function regions(opts: Options) {
   // Each country's list from its provinces and its own iNaturalist list, then escapes again: the
   // country's iNaturalist list can bring back one its provinces dropped.
   runScript(PIPELINE_DIR, "src/scripts/build-country-checklists.ts", [
+    "--apply",
+    ...(opts.countries ? [`--countries=${opts.countries.join(",")}`] : []),
+  ]);
+  // Marine invertebrates OBIS records in each country's waters (cached per OBIS area), which the
+  // country rebuild above drops; before 6c, which flags those iNaturalist lacks. Its basin check
+  // reads the sea zone lists as the last run left them (they are rebuilt at the end of this stage).
+  runScript(PIPELINE_DIR, "src/scripts/build-country-marine-obis.ts", [
     "--apply",
     ...(opts.countries ? [`--countries=${opts.countries.join(",")}`] : []),
   ]);
@@ -544,7 +554,7 @@ async function endemic(opts: Options) {
   runScript(PIPELINE_DIR, "src/scripts/compute-endemic-countries.ts", ["--apply", ...(opts.full ? ["--full"] : [])]);
 }
 
-async function tiers(opts: Options) {
+export async function tiers(opts: Options) {
   // Checklists changed, so their tier inputs are re-read from the province data before rating.
   runScript(PIPELINE_DIR, "src/scripts/compute-local-tiers.ts", [
     "--apply",

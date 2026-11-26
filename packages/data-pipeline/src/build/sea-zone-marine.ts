@@ -67,6 +67,18 @@ export function freshwaterOrLandOnly(r: ObisChecklistRow): boolean {
   return r.is_freshwater === true || r.is_terrestrial === true;
 }
 
+/** Species binomials (name and accepted name) OBIS flags marine or brackish. */
+export function marineBinomials(rows: ObisChecklistRow[]): Set<string> {
+  const out = new Set<string>();
+  for (const r of rows)
+    if (r.is_marine || r.is_brackish)
+      for (const n of [r.scientificName, r.acceptedNameUsage]) {
+        const b = n ? binomial(n) : null;
+        if (b) out.add(b);
+      }
+  return out;
+}
+
 /** Records per catalog species in one zone, summed over OBIS rows (OBIS lists subspecies apart).
  *  Species OBIS flags marine or brackish are added to `marine`. */
 export function tallyZone(

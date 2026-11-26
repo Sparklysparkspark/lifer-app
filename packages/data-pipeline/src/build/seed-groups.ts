@@ -1,6 +1,11 @@
 // Taxon groups built by the shared GBIF + Wikidata builder (build-seed-generic.ts), run with
 // `build-seed --group=<name>` (npm run build-seed-<name> -w data-pipeline). Birds, fish, mammals,
 // marine mollusks and the test seed have trait sources of their own and keep their own scripts.
+// The marine groups below are wider in the catalog than these keys: octocorals, zoanthids,
+// corallimorphs and black corals (corals), sea cucumbers, brittle and feather stars
+// (echinoderms), barnacles and mantis shrimp (crustaceans), and sea hares, sap-sucking and
+// headshield slugs (nudibranchs) come in through add-missing-species.ts (WIDENED_MARINE_CLADES),
+// limited to species iNaturalist observers photograph.
 import type { GenericTaxonConfig } from "./build-seed-generic.js";
 
 const ATTRIBUTION = "GBIF Backbone Taxonomy; Wikidata (no dedicated trait source yet)";
