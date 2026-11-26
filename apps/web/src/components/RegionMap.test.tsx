@@ -22,9 +22,14 @@ class FakeMap {
     return this;
   }
   once(event: string, fn: () => void) {
-    return this.on(event, fn);
+    const wrapped = () => {
+      this.handlers[event] = (this.handlers[event] ?? []).filter((h) => h !== wrapped);
+      fn();
+    };
+    return this.on(event, wrapped);
   }
-  off() {
+  off(event: string, fn: () => void) {
+    this.handlers[event] = (this.handlers[event] ?? []).filter((h) => h !== fn);
     return this;
   }
   fire(event: string) {
@@ -106,12 +111,22 @@ class FakeMap {
     return this.loaded;
   }
   remove() {}
-  fitBounds() {}
+  /** Each fitBounds call's options, newest last. */
+  fits: Array<{ duration?: number }> = [];
+  fitBounds(_bounds: unknown, options: { duration?: number }) {
+    this.fits.push(options);
+    // Like MapLibre, a jump (no animation) ends its move at once.
+    if (options.duration === 0) this.fire("moveend");
+  }
 }
 vi.mock("maplibre-gl", () => ({
   Map: FakeMap,
   LngLatBounds: class {
-    empty = true;
+    // Like MapLibre: bounds built from corners aren't empty.
+    empty: boolean;
+    constructor(...corners: unknown[]) {
+      this.empty = corners.length === 0;
+    }
     extend() {
       this.empty = false;
     }
@@ -208,5 +223,25 @@ describe("RegionMap layers", () => {
     act(() => void window.dispatchEvent(new Event("offline")));
     await renderMap();
     expect(onlineSpecs()).not.toMatch(/https?:/);
+  });
+});
+
+describe("RegionMap starting view", () => {
+  it("re-fits the region when its box resizes at the starting view, but keeps a view the user moved to", async () => {
+    await renderMap();
+    const map = maps.at(-1)!;
+    const before = map.fits.length;
+    // The window restoring its saved size after the page drew.
+    act(() => map.fire("resize"));
+    expect(map.fits.length).toBe(before + 1);
+    expect(map.fits.at(-1)!.duration).toBe(0);
+    expect(screen.queryByRole("button", { name: "Reset view" })).toBeNull();
+
+    // Zoomed in by the user, then resized: their view stays.
+    env.zoom = 14;
+    act(() => map.fire("moveend"));
+    const moved = map.fits.length;
+    act(() => map.fire("resize"));
+    expect(map.fits.length).toBe(moved);
   });
 });

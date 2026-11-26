@@ -113,6 +113,7 @@ function goHome(
   code: string | null | undefined,
   done: () => void,
   pinLats: readonly number[] = [],
+  instant = false,
 ) {
   const bounds = startBounds(boundary, code, pinLats);
   if (!entry || bounds.isEmpty()) return;
@@ -123,7 +124,7 @@ function goHome(
     lockToView(entry, framedBounds(boundary, code));
     done();
   });
-  const duration = reducedMotion() ? 0 : FLY_MS;
+  const duration = instant || reducedMotion() ? 0 : FLY_MS;
   entry.map.fitBounds(bounds, { ...FIT, bearing: 0, pitch: 0, duration, easing: easeOut });
 }
 
@@ -259,19 +260,41 @@ export default function RegionMap({
     shownBoundaryRef.current = entry.shownBoundary;
     // Off the starting view the wheel zooms and Reset view shows; back on it, the wheel scrolls
     // the page again.
+    // Whether the camera is on the starting view, as of its last move (not its last resize).
+    let atHome = true;
     const onZoom = () => {
       const moved = entry.ready && movedFromHome(entry);
       if (moved) entry.map.scrollZoom.enable();
       else entry.map.scrollZoom.disable();
+      atHome = !moved;
       setZoomedIn(moved);
     };
+    // The map's box changing size (the window restoring its saved size after the page drew, the
+    // sidebar opening) keeps the old zoom and crops the region: re-fit, unless the user moved in.
+    const onResize = () => {
+      const boundary = boundaryRef.current;
+      if (!entry.ready || !atHome || !boundary) return;
+      goHome(
+        entry,
+        boundary,
+        codeRef.current,
+        () => {
+          atHome = true;
+          setZoomedIn(false);
+        },
+        pinLatsRef.current,
+        true,
+      );
+    };
     entry.map.on("moveend", onZoom);
+    entry.map.on("resize", onResize);
     onZoom();
     entry.onReady = () => setReadyMap(entry.map);
     if (entry.ready) setReadyMap(entry.map);
 
     return () => {
       entry.map.off("moveend", onZoom);
+      entry.map.off("resize", onResize);
       entry.onReady = null;
       entry.shownBoundary = shownBoundaryRef.current;
       entry.el.remove();
@@ -281,7 +304,7 @@ export default function RegionMap({
       entryRef.current = null;
       setReadyMap(null);
     };
-  }, [hasBoundary, mapAvailable, theme, boundaryRef, codeRef]);
+  }, [hasBoundary, mapAvailable, theme, boundaryRef, codeRef, pinLatsRef]);
 
   // A new region: swap the outline and glide the camera to it.
   useEffect(() => {
