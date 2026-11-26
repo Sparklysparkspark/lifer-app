@@ -5177,6 +5177,7 @@
     "rarity": {
       "show": "Show rarity",
       "help": "Adds a rarity band to the outer edge of each circle segment and labels the list by how rare species are. With a region picked, its local rarity.",
+      "groupCommon": "Mostly {tier}",
       "group": "Mostly {tier}, {count, plural, one {# of {rated} rare or rarer} other {{formatted} of {rated} rare or rarer}}",
       "legend": "Rarity, commonest to rarest",
       "edge": "Outer edge:",

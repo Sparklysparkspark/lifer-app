@@ -250,6 +250,7 @@ export function rarityText(t: TFunction, node: TreeNode): string | null {
   if (!rarity) return null;
   const tier = tierLabel(RARITY_STEPS[rarity.step]);
   if (node.rank === "species") return tier;
+  if (!rarity.rarePlus) return t("explorer.rarity.groupCommon", { tier });
   return t("explorer.rarity.group", {
     tier,
     count: rarity.rarePlus,

@@ -10,6 +10,8 @@ export default function RarityChip({ node, text }: { node: TreeNode; text?: stri
   const { t } = useTranslation();
   const rarity = rarityOf(node);
   if (!rarity) return null;
+  // A species' tier is a pill like everywhere else; a group's summary is a plain line, not a tag.
+  if (node.rank !== "species" && !text) return <span>{rarityText(t, node)}</span>;
   return <TierLabel>{text ?? rarityText(t, node)}</TierLabel>;
 }
 

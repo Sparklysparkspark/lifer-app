@@ -2010,6 +2010,7 @@
     "rarity": {
       "show": "View option switch: add a rarity band to the circle and label rows by rarity tier (common to legendary).",
       "help": "Tooltip on the Show rarity switch. Local rarity is how rare a species is in the picked region.",
+      "groupCommon": "On a group with no rare or rarer species: just its average rarity tier name, like Mostly Common. {tier} is that tier name.",
       "group": "On a group: {tier} is its average rarity tier name, like Uncommon; {rated} is how many of its species have a tier. Example: Mostly Uncommon, 4 of 20 rare or rarer.",
       "legend": "Screen reader name of the rarity scale under the circle, which lists the tiers from Common to Legendary.",
       "edge": "Lead-in before the rarity scale under the circle: the colours apply to the thin band on each segment's outer edge.",
