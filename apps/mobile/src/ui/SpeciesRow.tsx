@@ -9,8 +9,9 @@ import { groupOf } from "../theme/groups";
 import { type } from "../theme/theme";
 import { useTheme } from "../theme/useTheme";
 import { Icon, type IconName } from "./Icon";
-import { speciesLabel, statusWord } from "./SpeciesCard";
+import { cardPills, speciesLabel, statusWord } from "./SpeciesCard";
 import { Tap, type TapAction } from "./Tap";
+import { TierPills } from "./TierLabel";
 
 interface Props {
   row: CollectionSpecies;
@@ -18,10 +19,21 @@ interface Props {
   actions?: (row: CollectionSpecies) => TapAction[];
   onLongPress?: (row: CollectionSpecies) => void;
   scientificFirst?: boolean;
+  /** The chosen region's name, null for Everywhere. */
+  region?: string | null;
+  showRarityTags?: boolean;
 }
 
 /** One species as a row with a thumbnail: the List size of Collection, and search results elsewhere. */
-export const SpeciesRow = memo(function SpeciesRow({ row, onPress, actions, onLongPress, scientificFirst }: Props) {
+export const SpeciesRow = memo(function SpeciesRow({
+  row,
+  onPress,
+  actions,
+  onLongPress,
+  scientificFirst,
+  region = null,
+  showRarityTags = true,
+}: Props) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const uri = useThumb(row.coverPhotoId ?? referenceId(row.scientificName));
@@ -29,9 +41,10 @@ export const SpeciesRow = memo(function SpeciesRow({ row, onPress, actions, onLo
   const first = scientificFirst ? row.scientificName : (row.commonName ?? row.scientificName);
   const second = row.commonName ? (scientificFirst ? row.commonName : row.scientificName) : null;
   const status = [t(statusWord(row.status)), row.isTarget ? t("species.target") : null].filter(Boolean).join(", ");
+  const pills = cardPills(t, row, region, showRarityTags);
   return (
     <Tap
-      label={speciesLabel(t, row)}
+      label={speciesLabel(t, row, pills)}
       onPress={() => onPress(row.scientificName)}
       onLongPress={onLongPress ? () => onLongPress(row) : undefined}
       actions={actions?.(row)}
@@ -81,6 +94,11 @@ export const SpeciesRow = memo(function SpeciesRow({ row, onPress, actions, onLo
             {status}
             {second ? <Text style={{ fontStyle: scientificFirst ? "normal" : "italic" }}>{`. ${second}`}</Text> : null}
           </Text>
+          {pills.length ? (
+            <View style={{ paddingTop: 4 }}>
+              <TierPills pills={pills} />
+            </View>
+          ) : null}
         </View>
         <Icon name="chevronRight" size={14} color={colors.muted} weight="bold" />
       </View>

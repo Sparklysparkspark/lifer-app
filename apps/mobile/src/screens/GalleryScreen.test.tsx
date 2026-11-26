@@ -136,12 +136,15 @@ describe("GalleryScreen", () => {
     expect(await screen.findByText(/Smart search is still getting ready/)).toBeOnTheScreen();
   });
 
-  it("the menu narrows by year and grid size changes the rows", async () => {
-    const h = await harness({ mode: "standalone", seed: seedLife });
+  it("a year filter narrows, counts on the Filters button, and the View menu changes the rows", async () => {
+    const h = await harness({
+      mode: "standalone",
+      seed: async (db) => (await seedLife(db), await setMeta(db, "galleryView", { year: "2026" })),
+    });
     await renderApp(<GalleryScreen />, h);
-    await screen.findAllByRole("imagebutton");
-    await barItem("2026").press();
     expect(await screen.findByText("3 photos match")).toBeOnTheScreen();
+    await barItem("Filters, 1 on").press();
+    expect(nav().navigate).toHaveBeenCalledWith("Filters", { scope: "gallery" });
     await barItem("1 across").press();
     await waitFor(() => expect(screen.getAllByRole("imagebutton")).toHaveLength(3));
     await barItem("Aspect ratio grid").press();

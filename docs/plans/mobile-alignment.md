@@ -243,6 +243,41 @@ their large-screen presentation): `mobile-foldables.md` FD-1 and FD-2.
 | MA-8 | Show progress by group bands: display numeral token, overline token, best-photo strip, fold with motion skipped under Reduce Motion; one spoken label per band                                                    | Sonnet                                              | MA-7       | M      |
 | MA-9 | Field guide order and Family group: the checklist bundle sends a taxonomic sort index; phone stores it                                                                                                            | Opus (API), Sonnet (UI)                             | MA-1       | S      |
 
+**Wave 2 status (2026-11-25): built, not yet run on a device.** MA-5 to MA-9 and FD-1/FD-2's sizing are in
+`apps/mobile`; no hub change was needed.
+
+- **MA-5:** `ui/TierLabel.tsx` (quiet `surface-muted` pill, footnote, sentence case; Sunlight pair tested at 7:1) and
+  `collection/tiers.ts` (the desktop's `scopedTier`: Unrated for thin data). Cards and List rows show "Rare here" and
+  "Common worldwide" inside a region, both even when they match; Everywhere shows the plain worldwide tier. VoiceOver
+  names the region ("Rare in British Columbia"). The species page uses the same pill ("Uncommon in British Columbia").
+  View > Show rarity tags hides both. Not done: the `check:ui` tier lint (X-5).
+- **MA-6:** seen and target marks top left as round line icons, both shown. Seen covers fade (0.45 light, 0.6 dark).
+  Unphotographed covers: the desktop's `filter` values (grayscale, sepia) work on Android only; in React Native
+  0.88.1 iOS draws only `brightness` from `filter` (grayscale needs the `enableSwiftUIBasedFilters` native flag,
+  off by default; sepia is not implemented). So iOS lays a `mixBlendMode: "color"` layer in the `coverTone` token
+  over the photo: also built into React Native, no new dependency, no hub-served grey squares. Unverified on a device.
+  View > Show uncollected species in colour keeps them in colour, a touch dimmer.
+- **MA-7:** one View menu (Arrange, Group, Species card size, then Show rarity tags, Show progress by group, Show
+  uncollected species in colour, Hide names) and one Filters button (badge with the count) opening one Filters sheet
+  (`screens/FiltersSheet.tsx`, scope collection or gallery; Clear left, Done right). Collection: Show, Photos taken
+  (only for a region from the Lifer; computed offline from `captures.region_id` and the search region tree), Records
+  (Vagrants Any/Only/Hide, Rarity or Rarity here with Unrated, Needs a better photo), When. Gallery: Show
+  (All photos, Featured), Group, Trip, When; its View menu keeps grid size, layout and aspect ratio grid. Both views
+  are remembered; an old "Include vagrants" off reads as Hide.
+- **MA-8:** progress bands (on by default with Broad group): group name, three photos, the big number in the new
+  `type.display` token, a bar; one spoken label; tap folds. Folding has no motion, so nothing to reduce.
+- **MA-9:** Field guide order uses `compareFieldGuideOrder` from `@lifer/shared` on the stored class, order and family,
+  then the scientific name. Gap: the hub's per-species `sort_order` is not sent, so species within a family are
+  alphabetical, not in eBird sequence. Closing it needs an additive `sortOrder` on the checklist item. Family group
+  uses the desktop's bird family names (`collection/families.ts`).
+- **Sizes:** `ui/useSizeClass.ts` (compact under 600, medium to 839, expanded 840 up; tested at 344, 390, 669, 951,
+  1366). Cards from a minimum width (Large 150 pt, Small 96 pt: 2 and 3 across at 344 and 390, 4 and 6 at 669; the
+  foldables plan's 160 and 110 would give one column at 344). Albums and the Gallery's aspect rows use it in place of
+  the `>= 700` checks. Changing columns keeps the first visible species (Collection) or photo (Gallery) in view.
+- **Named exception to the parity rule:** the phone says **Large cards** and **Small cards** (and List), not the
+  desktop's "2 columns" and "3 columns", because the column count follows the window width (`mobile-foldables.md`,
+  decision 4).
+
 ### Wave 3: species page and viewer
 
 | ID    | Scope                                                                                                                                                                | Model  | Depends    | Effort |

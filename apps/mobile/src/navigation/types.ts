@@ -20,7 +20,8 @@ export type RootParams = {
   // Sheets, presented as native form sheets over whatever is open.
   YourLifer: undefined;
   RegionPicker: { at?: string } | undefined;
-  MoreFilters: undefined;
+  /** The one Filters sheet, for the Collection or the Gallery. */
+  Filters: { scope: "collection" | "gallery" };
   StartTrip: undefined;
   PhotoInfo: { photoId: string };
   ShareSensitive: { photoId: string };

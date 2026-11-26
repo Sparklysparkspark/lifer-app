@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { FlatList, Text, View, useWindowDimensions } from "react-native";
+import { FlatList, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useApp, useLocal } from "../app/AppContext";
 import { useHeader } from "../navigation/useHeader";
@@ -9,6 +9,8 @@ import { listAlbums, type AlbumRow } from "../store/browse";
 import { radius, type } from "../theme/theme";
 import { useTheme } from "../theme/useTheme";
 import { CroppedImage, EmptyState, Icon, Segmented, Tap } from "../ui";
+import { CARD_MIN } from "../ui/sizeClass";
+import { useSizeClass } from "../ui/useSizeClass";
 import { TripsScreen } from "./TripsScreen";
 import { ALBUM_ARRANGE_LABEL } from "../labels";
 
@@ -49,7 +51,7 @@ function AlbumsList({ header }: { header: ReactNode }) {
   const app = useApp();
   const nav = useNav();
   const { colors } = useTheme();
-  const { width } = useWindowDimensions();
+  const sizes = useSizeClass();
   const [arrange, setArrange] = useState<Arrange>("name");
   const [query, setQuery] = useState("");
   const { data } = useLocal(listAlbums);
@@ -78,7 +80,8 @@ function AlbumsList({ header }: { header: ReactNode }) {
     const rows = (data ?? []).filter((a) => !q || a.name.toLowerCase().includes(q));
     return arrange === "count" ? [...rows].sort((a, b) => b.count - a.count) : rows;
   }, [data, query, arrange]);
-  const columns = width >= 700 ? 4 : 2;
+  // Covers from a minimum width: two across on a phone, more on a wide window.
+  const columns = sizes.columns(CARD_MIN.large);
   // Whole rows only, so the last row's cover keeps its width.
   const padded =
     shown.length % columns

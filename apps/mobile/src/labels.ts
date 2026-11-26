@@ -5,8 +5,10 @@ export const TIER_LABEL: Record<string, string> = {
   uncommon: "tiers.uncommon",
   rare: "tiers.rare",
   legendary: "tiers.legendary",
+  unrated: "tiers.unrated",
 };
 export const ARRANGE_LABEL = {
+  fieldGuide: "collection.arrangeBy.fieldGuide",
   common: "collection.arrangeBy.common",
   scientific: "collection.arrangeBy.scientific",
   rarity: "collection.arrangeBy.rarity",
@@ -14,7 +16,11 @@ export const ARRANGE_LABEL = {
   seenFirst: "collection.arrangeBy.seenFirst",
   targetsFirst: "collection.arrangeBy.targetsFirst",
 } as const;
-export const GROUP_BY_LABEL = { broad: "collection.groupBy.broad", none: "collection.groupBy.none" } as const;
+export const GROUP_BY_LABEL = {
+  broad: "collection.groupBy.broad",
+  family: "collection.groupBy.family",
+  none: "collection.groupBy.none",
+} as const;
 export const SIZE_LABEL = {
   large: "collection.size.large",
   small: "collection.size.small",

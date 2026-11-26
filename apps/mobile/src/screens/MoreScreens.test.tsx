@@ -12,7 +12,6 @@ import { loadSettings } from "../store/settings";
 import { harness, nav, renderApp } from "../testing/harness";
 import { capture, seedLife } from "../testing/seed";
 import { AlbumsScreen } from "./AlbumsScreen";
-import { MoreFiltersSheet } from "./MoreFiltersSheet";
 import { PhotoInfoSheet } from "./PhotoInfoSheet";
 import { AddRegionScreen } from "./AddRegionScreen";
 import { RegionPickerSheet } from "./RegionPickerSheet";
@@ -204,21 +203,13 @@ describe("AddRegionScreen", () => {
   });
 });
 
-describe("RegionPickerSheet and MoreFiltersSheet", () => {
+describe("RegionPickerSheet", () => {
   it("Everywhere first, then the regions on the phone; choosing one closes the sheet", async () => {
     const h = await harness({ mode: "standalone", seed: seedLife });
     await renderApp(<RegionPickerSheet />, h);
     expect(await screen.findByRole("button", { name: /Everywhere/ })).toBeOnTheScreen();
     await fireEvent.press(await screen.findByRole("button", { name: /Norfolk, 3 of 5 seen/ }));
     expect(nav().goBack).toHaveBeenCalled();
-  });
-
-  it("More filters toggles rarity tiers and offers to clear", async () => {
-    const h = await harness({ mode: "standalone", seed: seedLife });
-    await renderApp(<MoreFiltersSheet />, h);
-    expect(screen.queryByRole("button", { name: "Clear filters" })).not.toBeOnTheScreen();
-    await fireEvent(screen.getByLabelText("Rare"), "valueChange", true);
-    expect(await screen.findByRole("button", { name: "Clear filters" })).toBeOnTheScreen();
   });
 });
 

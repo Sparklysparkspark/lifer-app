@@ -3,63 +3,23 @@ import type { SearchBarCommands } from "react-native-screens";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useApp, useLocal, useSmartStatus } from "../app/AppContext";
-import { useHeader, type MenuEntry } from "../navigation/useHeader";
+import { galleryFilterCount, useCollectionView } from "../collection/view";
+import { choices, toggle, viewAndFilters } from "../collection/viewBar";
+import { useHeader } from "../navigation/useHeader";
 import { useNav } from "../navigation/types";
 import { PhotoGrid } from "../photos/PhotoGrid";
 import { COLUMN_STEPS, stepColumns } from "../photos/pinch";
 import { removeSearchPart, type SearchPart } from "../search/searchParts";
 import { matchSpecies } from "../search/species";
-import { libraryShapes, monthPlaces, photoYears, type LibraryFilter, type ShapedPhoto } from "../store/browse";
-import { listTrips, photoCount, photosForSpecies, type GridPhoto } from "../store/library";
-import { getMeta, setMeta } from "../store/meta";
+import { libraryShapes, monthPlaces, type LibraryFilter, type ShapedPhoto } from "../store/browse";
+import { photoCount, photosForSpecies, type GridPhoto } from "../store/library";
 import { allSpecies } from "../store/marks";
-import { classesOf, GROUP_ORDER, groupById, type GroupId } from "../theme/groups";
+import { classesOf } from "../theme/groups";
 import { type } from "../theme/theme";
 import { useTheme } from "../theme/useTheme";
 import { Button, Chip, EmptyState } from "../ui";
 
 const SEARCH_DELAY_MS = 250;
-const NAMED_GROUPS = GROUP_ORDER.filter((g) => g !== "other");
-
-interface GalleryView {
-  columns: number;
-  /** By date (month headings with the place) or one continuous grid. */
-  layout: "date" | "continuous";
-  aspect: boolean;
-  featured: boolean;
-  group: GroupId | null;
-  trip: string | null;
-  year: string | null;
-}
-const DEFAULT: GalleryView = {
-  columns: 3,
-  layout: "date",
-  aspect: false,
-  featured: false,
-  group: null,
-  trip: null,
-  year: null,
-};
-
-/** Remembers the grid size and filters between launches. */
-function useGalleryView() {
-  const { db } = useApp();
-  const [view, setView] = useState<GalleryView>(DEFAULT);
-  useEffect(
-    () => void getMeta<Partial<GalleryView>>(db, "galleryView").then((s) => s && setView((v) => ({ ...v, ...s }))),
-    [db],
-  );
-  const update = useCallback(
-    (patch: Partial<GalleryView>) =>
-      setView((v) => {
-        const next = { ...v, ...patch };
-        void setMeta(db, "galleryView", next);
-        return next;
-      }),
-    [db],
-  );
-  return { view, update };
-}
 
 /**
  * Gallery: the whole library by date from the saved thumbnails, and search in the bar. Search works
@@ -70,7 +30,7 @@ export function GalleryScreen() {
   const app = useApp();
   const nav = useNav();
   const { colors } = useTheme();
-  const { view, update } = useGalleryView();
+  const { gallery: view, updateGallery: update, clearGalleryFilters } = useCollectionView();
   const [photos, setPhotos] = useState<ShapedPhoto[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [query, setQuery] = useState("");
@@ -84,8 +44,6 @@ export function GalleryScreen() {
   const seq = useRef(0);
   const { data: facets } = useLocal(async (db) => ({
     places: await monthPlaces(db),
-    years: await photoYears(db),
-    trips: await listTrips(db, new Date().toISOString().slice(0, 10)),
     total: await photoCount(db),
   }));
 
@@ -170,100 +128,39 @@ export function GalleryScreen() {
     return () => clearTimeout(timer);
   }, [query, app.db, app.api, app.version, app.smart]);
 
-  const pick = <V,>(values: V[], current: V, label: (v: V) => string, set: (v: V) => void): MenuEntry[] =>
-    values.map((v) => ({ type: "action", label: label(v), checked: v === current, onPress: () => set(v) }));
-
   useHeader({
     title: t("tabs.gallery"),
     search: { placeholder: t("gallery.searchPlaceholder"), onChange: setQuery, ref: searchBar },
-    items: [
-      {
-        type: "menu",
-        key: "filter",
-        label: t("gallery.menu"),
-        icon: "filter",
-        items: [
-          {
-            type: "submenu",
-            label: t("gallery.show"),
-            inline: true,
-            items: [
-              {
-                type: "action",
-                label: t("gallery.allPhotos"),
-                checked: !view.featured,
-                onPress: () => update({ featured: false }),
-              },
-              {
-                type: "action",
-                label: t("gallery.featured"),
-                checked: view.featured,
-                icon: "featured",
-                onPress: () => update({ featured: true }),
-              },
-            ],
-          },
-          {
-            type: "submenu",
-            label: t("gallery.group"),
-            items: pick<GroupId | null>(
-              [null, ...NAMED_GROUPS],
-              view.group,
-              (g) => (g ? t(groupById(g).label) : t("gallery.allGroups")),
-              (group) => update({ group }),
-            ),
-          },
-          {
-            type: "submenu",
-            label: t("gallery.trip"),
-            items: pick<string | null>(
-              [null, ...(facets?.trips.map((x) => x.id) ?? [])],
-              view.trip,
-              (id) => facets?.trips.find((x) => x.id === id)?.name ?? t("gallery.allTrips"),
-              (trip) => update({ trip }),
-            ),
-          },
-          {
-            type: "submenu",
-            label: t("gallery.year"),
-            items: pick<string | null>(
-              [null, ...(facets?.years ?? [])],
-              view.year,
-              (y) => y ?? t("gallery.allYears"),
-              (year) => update({ year }),
-            ),
-          },
-          {
-            type: "submenu",
-            label: t("gallery.gridSize"),
-            inline: true,
-            items: COLUMN_STEPS.map((c) => ({
-              type: "action",
-              label: t("gallery.across", { n: c }),
-              checked: !view.aspect && view.columns === c,
-              onPress: () => update({ columns: c, aspect: false }),
-            })),
-          },
-          {
-            type: "submenu",
-            label: t("gallery.layout"),
-            inline: true,
-            items: (["date", "continuous"] as const).map((l) => ({
-              type: "action",
-              label: t(l === "date" ? "gallery.layoutDate" : "gallery.layoutContinuous"),
-              checked: view.layout === l,
-              onPress: () => update({ layout: l }),
-            })),
-          },
-          {
+    items: viewAndFilters(
+      t,
+      [
+        {
+          type: "submenu",
+          label: t("gallery.gridSize"),
+          inline: true,
+          items: COLUMN_STEPS.map((c) => ({
             type: "action",
-            label: t("gallery.aspect"),
-            checked: view.aspect,
-            onPress: () => update({ aspect: !view.aspect }),
-          },
-        ],
-      },
-    ],
+            label: t("gallery.across", { n: c }),
+            checked: !view.aspect && view.columns === c,
+            onPress: () => update({ columns: c, aspect: false }),
+          })),
+        },
+        {
+          type: "submenu",
+          label: t("gallery.layout"),
+          inline: true,
+          items: choices(
+            ["date", "continuous"] as const,
+            view.layout,
+            (l) => t(l === "date" ? "gallery.layoutDate" : "gallery.layoutContinuous"),
+            (layout) => update({ layout }),
+          ),
+        },
+        toggle(t("gallery.aspect"), view.aspect, (aspect) => update({ aspect })),
+      ],
+      galleryFilterCount(view),
+      () => nav.navigate("Filters", { scope: "gallery" }),
+    ),
   });
 
   const shown: (ShapedPhoto | GridPhoto)[] = found ?? photos;
@@ -325,12 +222,7 @@ export function GalleryScreen() {
           <View style={{ flex: 1 }} />
         )}
         {filtering && !found ? (
-          <Button
-            variant="plain"
-            compact
-            label={t("collection.clearFilters")}
-            onPress={() => update({ featured: false, group: null, trip: null, year: null })}
-          />
+          <Button variant="plain" compact label={t("collection.clearFilters")} onPress={clearGalleryFilters} />
         ) : null}
       </View>
       {found && onPhone && parts.length >= 2 ? (

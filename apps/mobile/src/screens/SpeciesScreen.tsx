@@ -29,7 +29,8 @@ import {
 } from "../ui";
 import { dateText } from "../format/dates";
 import { useSpeciesActions } from "./parts/useSpeciesActions";
-import { TIER_LABEL } from "../labels";
+import { tierPills } from "../collection/tiers";
+import { TierLabel } from "../ui/TierLabel";
 
 const HERO = 340;
 const SORTS: PhotoSort[] = ["best", "newest", "oldest"];
@@ -185,13 +186,17 @@ export function SpeciesScreen({ route }: { route: { params: RootParams["Species"
   const photographed = species?.status === "photographed";
   const seenOn = species?.status === "seen" || photographed;
   const region = view.region ? data.regions.find((r) => r.key === view.region)?.name : null;
-  // The region's own tier, then the worldwide one, named as such inside a region (U2).
-  const local = region && data.localTier && TIER_LABEL[data.localTier] ? data.localTier : null;
-  const world = species?.tier && TIER_LABEL[species.tier] ? species.tier : null;
-  const tiers = [
-    local ? t("species.tierIn", { tier: t(TIER_LABEL[local]), region }) : null,
-    world ? (region ? t("species.tierWorldwide", { tier: t(TIER_LABEL[world]) }) : t(TIER_LABEL[world])) : null,
-  ].filter((x): x is string => !!x);
+  // The region's tier named in full ("Uncommon in British Columbia"), then the worldwide one (U2).
+  const pills = tierPills(
+    t,
+    {
+      localTier: data.localTier?.tier ?? null,
+      localTierReason: data.localTier?.reason,
+      worldTier: species?.tier ?? null,
+      worldTierReason: species?.tierReason,
+    },
+    region ?? null,
+  ).map((p) => (region ? { text: p.label, label: p.label } : p));
   // The card photo leads, as the hub's square of it; the others follow by rating.
   const cover =
     species?.coverPhotoId && photos.some((p) => p.photoId === species.coverPhotoId) ? species.coverPhotoId : null;
@@ -266,28 +271,8 @@ export function SpeciesScreen({ route }: { route: { params: RootParams["Species"
                     {t(group.label)}
                   </Text>
                 </View>
-                {tiers.map((tier) => (
-                  <View
-                    key={tier}
-                    style={{
-                      paddingHorizontal: 7,
-                      paddingVertical: 2,
-                      borderRadius: 6,
-                      backgroundColor: colors.accentTint,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: colors.link,
-                        fontSize: type.micro.size,
-                        fontWeight: "600",
-                        letterSpacing: 0.2,
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      {tier}
-                    </Text>
-                  </View>
+                {pills.map((p) => (
+                  <TierLabel key={p.text} pill={p} />
                 ))}
               </View>
             </View>

@@ -2,6 +2,7 @@
 import type { ReactElement } from "react";
 import { jest } from "@jest/globals";
 import { act, render } from "@testing-library/react-native";
+import { Dimensions } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import "../i18n";
 import { AppProvider, type Boot } from "../app/AppContext";
@@ -168,4 +169,10 @@ export function barItem(label: string): { press: () => void } {
     flat(items.flatMap((i) => i.menu?.items ?? [])).find((i) => i.label === label);
   if (!hit) throw new Error(`no bar item or menu action named ${label}`);
   return { press: () => act(() => hit.onPress?.()) };
+}
+
+/** Sets the window the screens lay out for (FD-1): a width in points and a text size (1 is the default). */
+export async function setWindow(width: number, fontScale = 1, height = 844) {
+  const size = { width, height, scale: 3, fontScale };
+  await act(async () => Dimensions.set({ window: size, screen: size }));
 }

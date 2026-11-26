@@ -5,7 +5,7 @@ import { useTheme } from "../theme/useTheme";
 import { AddRegionScreen } from "../screens/AddRegionScreen";
 import { ConnectScreen } from "../screens/ConnectScreen";
 import { IdentifyResultSheet } from "../screens/IdentifyResultSheet";
-import { MoreFiltersSheet } from "../screens/MoreFiltersSheet";
+import { FiltersSheet } from "../screens/FiltersSheet";
 import { PhotoInfoSheet } from "../screens/PhotoInfoSheet";
 import { PhotosScreen } from "../screens/PhotosScreen";
 import { RegionPickerSheet } from "../screens/RegionPickerSheet";
@@ -115,9 +115,9 @@ export function Main() {
         options={sheet([0.7, 1], { title: t("regionPicker.title") })}
       />
       <Stack.Screen
-        name="MoreFilters"
-        component={MoreFiltersSheet}
-        options={sheet([0.75, 1], { title: t("collection.moreFilters") })}
+        name="Filters"
+        component={FiltersSheet}
+        options={sheet([0.6, 1], { title: t("collection.filters") })}
       />
       <Stack.Screen
         name="StartTrip"

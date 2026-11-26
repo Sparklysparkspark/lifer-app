@@ -137,6 +137,8 @@ export interface SpeciesRow {
   commonName: string | null;
   taxonClass: string | null;
   tier: string | null;
+  /** Why the worldwide tier is missing or how it was set; thin data reads Unrated. */
+  tierReason?: string | null;
   sensitive: boolean;
   status: Status;
   isTarget: boolean;
@@ -157,7 +159,8 @@ const STATUS = `CASE WHEN COALESCE(c.n, 0) > 0 OR m.state = 'collected' THEN 'ph
 const COVER_OK = `m.cover_photo_id IS NOT NULL AND EXISTS (SELECT 1 FROM captures v WHERE v.photo_id = m.cover_photo_id
     AND v.scientific_name = sp.scientific_name AND v.hidden = 0 AND v.kind = 'image')`;
 
-export const SPECIES_SQL = `SELECT sp.scientific_name, sp.common_name, sp.taxon_class, sp.tier, sp.sensitive,
+export const SPECIES_SQL = `SELECT sp.scientific_name, sp.common_name, sp.taxon_class, sp.tier, sp.tier_reason, sp.sensitive,
+    sp.taxon_order, sp.family, m.needs_better_photo,
     ${STATUS} AS status, COALESCE(m.is_target, 0) AS is_target, COALESCE(c.n, 0) AS photos, c.last_at,
     CASE WHEN ${COVER_OK} THEN m.cover_photo_id ELSE c.best_photo END AS cover,
     CASE WHEN ${COVER_OK} THEN m.card_crop_x END AS crop_x, CASE WHEN ${COVER_OK} THEN m.card_crop_y END AS crop_y,
@@ -184,6 +187,7 @@ export interface RawSpecies {
   common_name: string | null;
   taxon_class: string | null;
   tier: string | null;
+  tier_reason?: string | null;
   sensitive: number;
   status: Status;
   is_target: number;
@@ -200,6 +204,7 @@ export const speciesFrom = (r: RawSpecies): SpeciesRow => ({
   commonName: r.common_name,
   taxonClass: r.taxon_class,
   tier: r.tier,
+  tierReason: r.tier_reason ?? null,
   sensitive: !!r.sensitive,
   status: r.status,
   isTarget: !!r.is_target,

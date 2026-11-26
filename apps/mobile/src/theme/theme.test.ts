@@ -26,3 +26,11 @@ describe("light and dark body text", () => {
     }
   });
 });
+
+describe("rarity pills", () => {
+  it("muted text on the quiet pill reads at 4.5:1 in light and dark, 7:1 in Sunlight", () => {
+    for (const p of [palettes.light, palettes.dark])
+      expect(contrastRatio(p.muted, p["surface-muted"])).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(palettes.sunlight.muted, palettes.sunlight["surface-muted"])).toBeGreaterThanOrEqual(7);
+  });
+});

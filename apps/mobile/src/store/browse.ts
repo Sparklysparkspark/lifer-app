@@ -10,17 +10,29 @@ export interface CollectionSpecies extends SpeciesRow {
   vagrant: boolean;
   /** The tier in the region shown; null for Everywhere. `tier` is this, else the worldwide one. */
   localTier: string | null;
+  localTierReason: string | null;
   worldTier: string | null;
+  needsBetterPhoto: boolean;
+  taxonOrder: string | null;
+  family: string | null;
 }
 
 /** Every species of a kept region (or every species the phone knows, for Everywhere), with its status. */
 export async function listCollection(db: Db, regionKey: string | null): Promise<CollectionSpecies[]> {
-  const rows = await db.all<RawSpecies & { vagrant: number; local_tier: string | null }>(
+  type Raw = RawSpecies & {
+    vagrant: number;
+    local_tier: string | null;
+    local_tier_reason: string | null;
+    taxon_order: string | null;
+    family: string | null;
+    needs_better_photo: number | null;
+  };
+  const rows = await db.all<Raw>(
     regionKey
-      ? `SELECT x.*, r.vagrant, r.tier AS local_tier FROM (${SPECIES_SQL}) x
+      ? `SELECT x.*, r.vagrant, r.tier AS local_tier, r.tier_reason AS local_tier_reason FROM (${SPECIES_SQL}) x
          JOIN region_species r ON r.region_key = ? AND r.scientific_name = x.scientific_name`
       : `SELECT x.*, COALESCE((SELECT max(r.vagrant) FROM region_species r WHERE r.scientific_name = x.scientific_name), 0) AS vagrant,
-           NULL AS local_tier
+           NULL AS local_tier, NULL AS local_tier_reason
          FROM (${SPECIES_SQL}) x`,
     regionKey ? [regionKey] : [],
   );
@@ -29,18 +41,38 @@ export async function listCollection(db: Db, regionKey: string | null): Promise<
     tier: r.local_tier ?? r.tier,
     vagrant: !!r.vagrant,
     localTier: r.local_tier,
+    localTierReason: r.local_tier_reason,
     worldTier: r.tier,
+    needsBetterPhoto: !!r.needs_better_photo,
+    taxonOrder: r.taxon_order,
+    family: r.family,
   }));
 }
 
-/** A species' own tier in one kept region, null when it has none there. */
-export const regionTier = async (db: Db, regionKey: string, scientificName: string): Promise<string | null> =>
-  (
-    await db.get<{ tier: string | null }>(
-      "SELECT tier FROM region_species WHERE region_key = ? AND scientific_name = ?",
-      [regionKey, scientificName],
-    )
-  )?.tier ?? null;
+/**
+ * Where each photographed species' photos were taken against a hub region (its whole subtree): "here" with
+ * one there, else "elsewhere" with one placed anywhere. Species whose photos have no region are absent.
+ */
+export async function photographedWhere(db: Db, hubRegionId: string): Promise<Map<string, "here" | "elsewhere">> {
+  const rows = await db.all<{ scientific_name: string; here: number }>(
+    `WITH RECURSIVE tree(id) AS (SELECT ? UNION SELECT r.id FROM search_regions r JOIN tree t ON r.parent_id = t.id)
+     SELECT scientific_name, max(region_id IN (SELECT id FROM tree)) AS here FROM captures
+     WHERE hidden = 0 AND photo_id IS NOT NULL AND region_id IS NOT NULL GROUP BY scientific_name`,
+    [hubRegionId],
+  );
+  return new Map(rows.map((r) => [r.scientific_name, r.here ? "here" : "elsewhere"]));
+}
+
+/** A species' own tier in one kept region and why it is missing; null when it is not on that list. */
+export const regionTier = (
+  db: Db,
+  regionKey: string,
+  scientificName: string,
+): Promise<{ tier: string | null; reason: string | null } | null> =>
+  db.get<{ tier: string | null; reason: string | null }>(
+    "SELECT tier, tier_reason AS reason FROM region_species WHERE region_key = ? AND scientific_name = ?",
+    [regionKey, scientificName],
+  );
 
 /** Years with at least one photo, newest first. */
 export async function photoYears(db: Db): Promise<string[]> {

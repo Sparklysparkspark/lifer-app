@@ -12,6 +12,7 @@ import { buildGrid, monthAt, rowOfPhoto, type Grid, type Shaped } from "./layout
 import { DENSE_FROM, pinchGate } from "./pinch";
 import { Scrubber, type ScrubberHandle } from "./Scrubber";
 import { usePullRefresh } from "../ui/usePullRefresh";
+import { sizeClassOf } from "../ui/sizeClass";
 
 /** Day and month in words for a tile's spoken label, "12 May 2026". */
 function dateLabel(t: (k: string) => string, takenAt: string | null): string | null {
@@ -71,7 +72,7 @@ export function PhotoGrid({
       buildGrid(
         photos,
         { width, headingHeight, withHeadings: !!byMonth && !continuous },
-        aspect ? { aspect: width >= 700 ? 200 : 130 } : { columns },
+        aspect ? { aspect: sizeClassOf(width) === "compact" ? 130 : 200 } : { columns },
       ),
     [photos, width, headingHeight, byMonth, continuous, aspect, columns],
   );
@@ -132,16 +133,30 @@ export function PhotoGrid({
       });
   }, [onPinch, fade]);
 
+  // F-4: a change of columns or width that is not a pinch (the View menu, a rotation, a fold opening) keeps the
+  // photo at the top of the view there, by photo, not by row number.
+  const shape = `${columns}:${width}:${!!aspect}`;
+  const before = useRef({ grid, shape });
   useEffect(() => {
-    const a = anchor.current;
+    const was = before.current;
+    before.current = { grid, shape };
+    let a = anchor.current;
+    anchor.current = null;
+    if (!a && was.shape !== shape) {
+      const y = offsetY.current - headerHeight.current;
+      let row = 0;
+      while (row + 1 < was.grid.offsets.length && was.grid.offsets[row + 1] <= y) row++;
+      if (row > 0 && was.grid.rows[row]?.type === "photos") a = { index: was.grid.firstIndex[row], y: -1 };
+    }
     if (!a) return;
     const row = rowOfPhoto(grid, a.index);
     if (row < 0) return;
+    const top = headerHeight.current + grid.offsets[row];
     list.current?.scrollToOffset({
-      offset: Math.max(0, headerHeight.current + grid.offsets[row] + grid.heights[row] / 2 - a.y),
+      offset: Math.max(0, a.y < 0 ? top : top + grid.heights[row] / 2 - a.y),
       animated: false,
     });
-  }, [grid]);
+  }, [grid, shape]);
 
   const body = (
     <FlashList

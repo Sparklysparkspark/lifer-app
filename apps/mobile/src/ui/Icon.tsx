@@ -37,6 +37,7 @@ export const ICONS = {
   trash: { ios: "trash", android: "delete" },
   checkFilled: { ios: "checkmark.circle.fill", android: "check_circle" },
   grid: { ios: "square.grid.3x3", android: "grid_view" },
+  view: { ios: "square.grid.2x2", android: "grid_view" },
   // Group glyphs: SF Symbols and Material stand in for the desktop's own illustrations.
   birds: { ios: "bird.fill", android: "flutter_dash" },
   mammals: { ios: "pawprint.fill", android: "pets" },

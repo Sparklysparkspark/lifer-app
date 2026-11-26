@@ -13,16 +13,18 @@ interface Props {
   selected: number;
   onChange: (index: number) => void;
   label: string;
+  /** Sits at the trailing edge of a list row instead of across the screen. */
+  inline?: boolean;
 }
 
 // The package types its class for the old JSX rules; this is the same component as a plain one.
 const Control = SegmentedControl as unknown as ComponentType<SegmentedControlProps>;
 
 /** The platform segmented control (UISegmentedControl). */
-export function Segmented({ values, selected, onChange, label }: Props) {
+export function Segmented({ values, selected, onChange, label, inline }: Props) {
   const { appearance } = useTheme();
   return (
-    <View style={{ paddingHorizontal: spacing.gutter, paddingTop: 14, paddingBottom: 4 }}>
+    <View style={inline ? { minWidth: 180 } : { paddingHorizontal: spacing.gutter, paddingTop: 14, paddingBottom: 4 }}>
       <Control
         accessibilityLabel={label}
         values={values}

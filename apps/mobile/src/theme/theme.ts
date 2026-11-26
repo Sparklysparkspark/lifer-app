@@ -21,6 +21,8 @@ interface Extras {
   danger: string;
   /** Cards, tiles and covers not yet cached. */
   placeholder: string;
+  /** Blended in colour mode over an unphotographed cover on iOS: grey, warm in light like the desktop's sepia. */
+  coverTone: string;
 }
 export type Palette = { [K in keyof typeof designTokens.light]: string } & Extras;
 
@@ -34,6 +36,7 @@ const extras: Record<Appearance, Extras> = {
     scrim: "rgba(40,35,25,0.18)",
     danger: "#b3261e",
     placeholder: designTokens.light["surface-muted"],
+    coverTone: "#a0947f",
   },
   dark: {
     fill: "rgba(120,124,128,0.22)",
@@ -44,6 +47,7 @@ const extras: Record<Appearance, Extras> = {
     scrim: "rgba(0,0,0,0.4)",
     danger: "#ff8a80",
     placeholder: designTokens.dark["surface-muted"],
+    coverTone: "#808080",
   },
   // Sunlight is solid: no translucency, heavier separators (plan: Sunlight).
   sunlight: {
@@ -55,6 +59,7 @@ const extras: Record<Appearance, Extras> = {
     scrim: "rgba(0,0,0,0.45)",
     danger: "#8c0000",
     placeholder: "#ececec",
+    coverTone: "#808080",
   },
 };
 
@@ -87,6 +92,8 @@ export const radius = { card: 16, group: 22, sheet: 38, cover: 14, control: 25, 
 
 /** iOS text styles at their default size; every one scales with Dynamic Type (the plan's table). */
 export const type = {
+  /** The big number of a progress band ("212 of 480"). */
+  display: { size: 40 },
   "large-title": { size: 34 },
   "title-1": { size: 28 },
   "title-2": { size: 22 },
