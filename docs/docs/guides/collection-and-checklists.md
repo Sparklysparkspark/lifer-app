@@ -160,7 +160,7 @@ To take one off again, open its card's **⋯** menu and click **Remove from this
 - **Photographed first** (on by default), **Seen first** and **Targets first** pin those species to the top.
 - **Hide names** for photo-only cards, or to quiz yourself.
 - **Show progress by group** (on by default) shows how many species you've photographed in each animal group, as a row of cards above the list and a count heading each group.
-- **Show rarity tags** (on by default) shows or hides the rarity pill on each species card. Other badges stay.
+- **Show rarity tags** (on by default) shows or hides the rarity pills on each species card. Other badges stay.
 - **Show uncollected species in colour** turns off the gray on species you haven't photographed yet. It's off by default, and Lifer remembers your choice.
 
 On a country, state or province, **Counting** holds **Include photos from** (see [Counting only photos from here](#count-photos-from)). How cards name each species and whether they show badges are in [Settings > General](../settings.md#names-and-labels); **Name display settings** at the bottom of **View** goes there.
@@ -201,9 +201,14 @@ Rarity is **how hard a species is to find and photograph** in a place. There are
 
 ### Rarity here and worldwide {#tiers-here-and-worldwide}
 
-Every species card with a rarity shows it as a quiet grey pill under its names, the same pill the [Tree of life](./stats.md#tree-of-life) uses. In a region it's the rarity **there**, and reads "Rare here" when that's rarer than worldwide: a bird that's Common worldwide can be Rare here at the edge of its range. A species with no rating for the region reads "Rare worldwide". Species without enough data show no pill. **Rarity here** in Group and Sort uses the local rarity.
+On a region's checklist a species card shows two quiet grey pills under its names, the same pill the [Tree of life](./stats.md#tree-of-life) uses:
 
-Next to the pill a card can show one [badge](#badges). The smallest card size has room for only one, so the badge wins there.
+- **Here** ("Rare here"): its rarity in the region you're viewing. Hover it to see the region's name, like "Rare in Canada". **Rarity here** in Group, Sort and Filters uses it.
+- **Worldwide** ("Common worldwide"): how hard the species is where it's easiest to find.
+
+Both show even when they match, so you can always tell a local rarity from a worldwide one: a bird that's Common worldwide can be Rare here at the edge of its range. Outside a region (your whole collection, a trip, an album) a card shows only the worldwide rarity, as a plain "Common". A species with too little data in either place reads **Unrated** there.
+
+Next to the pills a card can show one [badge](#badges). The smallest card size has room for only the badge, so it wins there.
 
 ### How rarity is worked out {#how-a-tier-is-worked-out}
 
@@ -211,12 +216,12 @@ Next to the pill a card can show one [badge](#badges). The smallest card size ha
 - The same species can differ from place to place. Great Blue Herons are Common in Florida, where they stand on every pond, and Occasional in most other states.
 - A **country's** rarity is its easiest well-surveyed province: where you'd go to find it.
 - A **vagrant** (records bunched into a year or two, far from its usual range) is Legendary there, with a **Vagrant here** badge. An **introduced** species with an established population is rated like any other, with an **Introduced here** badge.
-- Open **Rarity** in a card's menu to see the numbers behind it. Under **Your rarity** you can set a different rarity if you know better; the card then shows "(yours)".
+- Open **Rarity** in a card's menu to see the numbers behind it. Under **Your rarity** you can set a different rarity if you know better; its menu then shows "(yours)".
 
 ### What rarity isn't {#what-a-tier-isnt}
 
 - **Not conservation status.** An endangered wader can be on every mudflat, and a species of no concern can be Legendary if it lives in one hard-to-reach spot. The IUCN status is shown beside the rarity.
-- **Not a guess.** Where there are too few records or photos to tell, the species is **Unrated** and its card shows no rarity pill.
+- **Not a guess.** Where there are too few records or photos to tell, the species is **Unrated** there instead of getting a level.
 - **Marine invertebrates** and species added from iNaturalist aren't rated yet. Their pages show IUCN status instead, where known.
 
 Rarity is refreshed with [catalog updates](../settings.md#species-catalog).

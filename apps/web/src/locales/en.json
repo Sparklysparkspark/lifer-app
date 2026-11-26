@@ -1176,9 +1176,9 @@
         "question": "Can I add species for a group Lifer doesn't have a dataset for (insects, plants, fungi, and the like)?"
       },
       "rarity": {
-        "badges": "A species card can show two rarities. The plain badge (\"Rare\") is the worldwide rarity: how hard the species is where it's easiest to find. On a region's checklist a second badge (\"Occasional here\") is its rarity in that region, and \"Rarity here\" in Group and Sort uses it. Lifer rates each species against the most-reported species of its group in each province or state: eBird and GBIF sightings for birds, iNaturalist photos for mammals, reptiles, amphibians and fish. A country's rarity is its easiest well-surveyed province. Tap a rarity badge to see the numbers behind it.",
+        "badges": "On a region's checklist a species card shows two rarities: how rare it is there (\"Rare here\", hover it for the region's name) and worldwide (\"Common worldwide\": how hard it is where it's easiest to find). \"Rarity here\" in Group, Sort and Filter uses the first. Elsewhere a card shows only the worldwide rarity. Lifer rates each species against the most-reported species of its group in each province or state: eBird and GBIF sightings for birds, iNaturalist photos for mammals, reptiles, amphibians and fish. A country's rarity is its easiest well-surveyed province. Open Rarity in a card's menu to see the numbers behind it.",
         "common": "<term>Common:</term> an everyday species, seen anywhere, anytime (House Sparrows, Mallards, crows).",
-        "endangered": "Rarity isn't how endangered a species is: an endangered wader can be on every mudflat, and a species of no conservation concern can be legendary if it lives in one hard-to-reach spot. The IUCN status is shown beside the rarity instead. Where there are too few records or photos to tell, a species shows \"Not enough data\" instead of a guess. Marine invertebrates aren't rated yet.",
+        "endangered": "Rarity isn't how endangered a species is: an endangered wader can be on every mudflat, and a species of no conservation concern can be legendary if it lives in one hard-to-reach spot. The IUCN status is shown beside the rarity instead. Where there are too few records or photos to tell, a species shows \"Unrated\" instead of a guess. Marine invertebrates aren't rated yet.",
         "intro": "Rarity is how hard a species is to find and photograph in that place:",
         "legendary": "<term>Legendary:</term> once in a lifetime; very local or extremely elusive (a Wolverine, a vagrant far from home).",
         "occasional": "<term>Occasional:</term> findable with a little effort in the right habitat (an Osprey over a lake, a Great Blue Heron in a marsh).",
@@ -3845,6 +3845,8 @@
       "unratedTitle": "Not enough data yet to rate how hard this is to find",
       "tierTitle": "How hard this species is to find and photograph",
       "localTier": "{tier} here",
+      "localTierIn": "{tier} in {place}",
+      "worldwideTier": "{tier} worldwide",
       "localTierTitle": "How rare and hard to find this species is in this region specifically",
       "vagrant": "Vagrant here",
       "vagrantTitle": "Records here are concentrated in very few years, likely a vagrant, not an established local presence",
@@ -3924,6 +3926,7 @@
     "select": "Select {name}",
     "tierWorldwide": "{tier} worldwide",
     "tierHere": "{tier} here",
+    "tierIn": "{tier} in {place}",
     "badge": {
       "nameChanged": "Name changed",
       "nameChangedTitle": "This species was split. Tap to pick which one is in your photos.",
@@ -5001,10 +5004,10 @@
   "shortcuts": {
     "title": "Keyboard shortcuts",
     "intro": "Lifer follows Lightroom's keys where Lightroom has one.",
+    "guide": "Read in the guide",
     "scope": {
       "global": "Everywhere",
       "dialog": "Dialogs",
-    "guide": "Read in the guide",
       "gallery": "Gallery",
       "photo": "Photo viewer and compare",
       "video": "Video",

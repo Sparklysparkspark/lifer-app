@@ -3,7 +3,7 @@ import { matches } from "../lib/keymap";
 import { Tooltip } from "./Tooltip";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { TIER_ORDER, type CollectionItem, type TierValue } from "@lifer/shared";
+import type { CollectionItem } from "@lifer/shared";
 import { api, apiPath } from "../api/client";
 import { cropToImageStyle } from "../lib/crop";
 import { cardCropUrl } from "../lib/cardImage";
@@ -28,7 +28,6 @@ import { namePartClass, useSpeciesName, useSpeciesNameParts } from "../lib/speci
 import SpeciesNameText from "./SpeciesNameText";
 import { SeenIcon, TargetIcon } from "./MarkIcon";
 import TierLabel from "./TierLabel";
-import { RARITY_STEPS } from "../pages/explorer/treeModel";
 
 // What a card action did, so the parent can patch its list instead of reloading: a field patch,
 // the species leaving this view, or "reload" after a failed optimistic change.
@@ -38,6 +37,12 @@ export type SpeciesChangeHandler = (speciesId: string | string[], change: Specie
 // The light chip the marks and the photo count sit on over a photo.
 const CHIP = "rounded-full bg-surface/90 text-muted shadow";
 const MARK = `flex h-5 w-5 items-center justify-center ${CHIP}`;
+
+// Too few records to rate reads as Unrated, as an "unrated" tier does; other gaps show nothing.
+const THIN_DATA_REASONS = new Set(["thin_data", "no_data", "few_photos"]);
+function scopedTier(tier: string | null, reason: string | null | undefined): string | null {
+  return tier ?? (reason && THIN_DATA_REASONS.has(reason) ? "unrated" : null);
+}
 
 function speciesLinkSearch(regionId?: string, tripId?: string): string {
   const params = new URLSearchParams();
@@ -140,11 +145,6 @@ function SpeciesCard({
     setNameChangedOpen(true);
   };
   const shownTier = item.localTier ?? item.tier;
-  // A local tier only earns the badge when it's rarer here than overall.
-  const localRarer =
-    !!item.localTier &&
-    !!item.tier &&
-    TIER_ORDER.indexOf(item.localTier as TierValue) > TIER_ORDER.indexOf(item.tier as TierValue);
   const badge: { label: string; title: string; className: string; onClick?: (e: React.MouseEvent) => void } | null =
     item.heard
       ? {
@@ -204,21 +204,29 @@ function SpeciesCard({
   const displayName = primaryName.text;
   // Wraps and shrinks rather than truncating: an ellipsis can cut off the epithet that tells
   // look-alike species apart. Starts at text-footnote.
-  // One tier pill for every rated species, whichever way the tier applies.
-  const tierStep = shownTier ? RARITY_STEPS.indexOf(shownTier as (typeof RARITY_STEPS)[number]) : -1;
-  // Worldwide-only while a region is picked; the compact card has no room for the qualifier.
-  const tierWorldwide = !!regionId && !item.localTier && !compact;
-  const tierPill =
-    showRarityTags && tierStep >= 0 ? (
-      <span className={isUncollected ? "opacity-70" : ""}>
-        <TierLabel>
-          {localRarer
-            ? t("speciesCard.tierHere", { tier: tierLabel(shownTier!) })
-            : tierWorldwide
-              ? t("speciesCard.tierWorldwide", { tier: tierLabel(shownTier!) })
-              : tierLabel(shownTier!)}
-        </TierLabel>
-      </span>
+  // Two pills on a region's checklist: the rarity here, then worldwide, even when they match.
+  // "here" keeps the region's name (already in the page header) off every card; the tooltip names it.
+  const localScoped = regionId ? scopedTier(item.localTier, item.localTierReason) : null;
+  const worldScoped = scopedTier(item.tier, item.tierReason);
+  const tierPills =
+    showRarityTags && (localScoped || worldScoped) ? (
+      <>
+        {localScoped && (
+          <TierLabel
+            title={
+              regionName ? t("speciesCard.tierIn", { tier: tierLabel(localScoped), place: regionName }) : undefined
+            }
+          >
+            {t("speciesCard.tierHere", { tier: tierLabel(localScoped) })}
+          </TierLabel>
+        )}
+        {worldScoped && (
+          // Without a region there is only this scope, so the plain tier says enough.
+          <TierLabel title={regionId ? undefined : t("speciesCard.tierWorldwide", { tier: tierLabel(worldScoped) })}>
+            {regionId ? t("speciesCard.tierWorldwide", { tier: tierLabel(worldScoped) }) : tierLabel(worldScoped)}
+          </TierLabel>
+        )}
+      </>
     ) : null;
   const { ref: secondNameRef, fontSize: secondNameFontSize } = useFitText(
     [secondaryName.map((p) => p.text).join(" "), hideNames],
@@ -538,10 +546,12 @@ function SpeciesCard({
             : []),
         ]}
         badge={
-          // The tier pill, then at most one special badge. The compact card has room for one.
-          (tierPill && !(compact && badge)) || (!hideLabels && badge) ? (
-            <div className="flex flex-wrap gap-1">
-              {tierPill && !(compact && badge) && tierPill}
+          // The tier pills, then at most one special badge, which the compact card shows alone.
+          (tierPills && !(compact && badge)) || (!hideLabels && badge) ? (
+            <div className="flex min-w-0 flex-wrap gap-1">
+              {tierPills && !(compact && badge) && (
+                <span className={`contents ${isUncollected ? "*:opacity-70" : ""}`}>{tierPills}</span>
+              )}
               {!hideLabels &&
                 badge &&
                 (badge.onClick ? (

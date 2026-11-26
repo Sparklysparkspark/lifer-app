@@ -26,17 +26,25 @@ export function SpeciesStatus({ detail }: { detail: SpeciesDetail }) {
   const iucn = iucnBadge(species.iucn_status, species.iucn_note);
   // Short tags that read on their own; colour only where it warns, details in the tooltips.
   const rows: Array<{ value: string; className?: string; title?: string }> = [];
-  if (species.tier)
-    rows.push(
-      species.tier === "unrated"
-        ? { value: tierLabel("unrated"), className: "text-muted", title: t("species.status.unratedTitle") }
-        : { value: tierLabel(species.tier), title: t("species.status.tierTitle") },
-    );
+  // The region's rarity leads, named after it; the worldwide one then says it is worldwide.
+  // weeklyRegionName is the viewed region's name for any species with a regional tier.
   if (detail.localTier)
     rows.push({
-      value: t("species.status.localTier", { tier: tierLabel(detail.localTier) }),
+      value: detail.weeklyRegionName
+        ? t("species.status.localTierIn", { tier: tierLabel(detail.localTier), place: detail.weeklyRegionName })
+        : t("species.status.localTier", { tier: tierLabel(detail.localTier) }),
       title: t("species.status.localTierTitle"),
     });
+  if (species.tier) {
+    const world = detail.localTier
+      ? t("species.status.worldwideTier", { tier: tierLabel(species.tier) })
+      : tierLabel(species.tier);
+    rows.push(
+      species.tier === "unrated"
+        ? { value: world, className: "text-muted", title: t("species.status.unratedTitle") }
+        : { value: world, title: t("species.status.tierTitle") },
+    );
+  }
   if (detail.isVagrant)
     rows.push({
       value: t("species.status.vagrant"),

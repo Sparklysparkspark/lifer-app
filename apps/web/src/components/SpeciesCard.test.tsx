@@ -126,7 +126,7 @@ describe("SpeciesCard remove from list", () => {
   });
 });
 
-describe("SpeciesCard tier line", () => {
+describe("SpeciesCard tier pills", () => {
   function show(extra: object, props: object = {}) {
     render(
       <ToastContext.Provider value={toast}>
@@ -139,36 +139,63 @@ describe("SpeciesCard tier line", () => {
     );
   }
 
-  it("shows the tier of a common species", () => {
+  it("shows only the plain worldwide tier without a region, with a tooltip saying so", () => {
     show({ tier: "common" });
-    expect(screen.getByText("Common")).toBeTruthy();
+    expect(screen.getByText("Common").getAttribute("title")).toBe("Common worldwide");
+    expect(screen.queryByText(/here/)).toBeNull();
   });
 
-  it("shows nothing without a tier", () => {
-    show({});
-    expect(screen.queryByText("Common")).toBeNull();
+  it("shows nothing without a tier or a thin-data reason", () => {
+    show({ tierReason: "untiered_group" });
+    expect(screen.queryByText(/Common|Unrated/)).toBeNull();
   });
 
-  it("qualifies a worldwide-only tier while a region is picked, but not in compact", () => {
-    show({ tier: "rare" }, { regionId: "r1" });
+  it("shows both scopes in a region, the region named in the local pill's tooltip", () => {
+    show({ tier: "common", localTier: "legendary" }, { regionId: "r1", regionName: "Canada" });
+    expect(screen.getByText("Legendary here").getAttribute("title")).toBe("Legendary in Canada");
+    expect(screen.getByText("Common worldwide")).toBeTruthy();
+  });
+
+  it("shows both even when they match, and keeps the scopes on the compact card", () => {
+    show({ tier: "common", localTier: "common" }, { regionId: "r1", regionName: "Canada", compact: true });
+    expect(screen.getByText("Common here")).toBeTruthy();
+    expect(screen.getByText("Common worldwide")).toBeTruthy();
+  });
+
+  it("reads Unrated for too little data in either scope", () => {
+    show({ tier: "unrated", localTier: null, localTierReason: "thin_data" }, { regionId: "r1", regionName: "Canada" });
+    expect(screen.getByText("Unrated here")).toBeTruthy();
+    expect(screen.getByText("Unrated worldwide")).toBeTruthy();
+    cleanup();
+    show({ tier: null, tierReason: "few_photos" });
+    expect(screen.getByText("Unrated")).toBeTruthy();
+  });
+
+  it("shows only the worldwide pill in a region without a regional tier", () => {
+    show({ tier: "rare" }, { regionId: "r1", regionName: "Canada" });
     expect(screen.getByText("Rare worldwide")).toBeTruthy();
-    cleanup();
-    show({ tier: "rare" }, { regionId: "r1", compact: true });
-    expect(screen.getByText("Rare")).toBeTruthy();
+    expect(screen.queryByText(/here/)).toBeNull();
   });
 
-  it("shows a local tier plainly, and a rarer-here tier in the same line with 'here'", () => {
-    show({ tier: "common", localTier: "common" }, { regionId: "r1" });
-    expect(screen.getByText("Common")).toBeTruthy();
-    cleanup();
-    show({ tier: "common", localTier: "rare" }, { regionId: "r1" });
-    expect(screen.getAllByText(/Rare/)).toHaveLength(1);
-    expect(screen.getByText("Rare here")).toBeTruthy();
+  it("keeps a very long region name out of the pill and in its tooltip", () => {
+    const place = "Saint Helena, Ascension and Tristan da Cunha";
+    show({ tier: "common", localTier: "rare" }, { regionId: "r1", regionName: place });
+    expect(screen.getByText("Rare here").getAttribute("title")).toBe(`Rare in ${place}`);
+    expect(screen.queryByText(new RegExp(place))).toBeNull();
   });
 
-  it("hides the tier, plain or rarer-here, when rarity tags are off, in compact too", () => {
+  it("gives the compact card's one slot to a special badge", () => {
+    show({ tier: "common", localTier: "rare", vagrant: true }, { regionId: "r1", compact: true });
+    expect(screen.getByText("Vagrant")).toBeTruthy();
+    expect(screen.queryByText(/here|worldwide/)).toBeNull();
+  });
+
+  it("hides both pills when rarity tags are off, in compact too", () => {
     show({ tier: "common" }, { showRarityTags: false });
     expect(screen.queryByText("Common")).toBeNull();
+    cleanup();
+    show({ tier: "common", localTier: "rare" }, { regionId: "r1", showRarityTags: false });
+    expect(screen.queryByText(/Rare|Common/)).toBeNull();
     cleanup();
     show({ tier: "common", localTier: "rare" }, { regionId: "r1", showRarityTags: false, compact: true });
     expect(screen.queryByText(/Rare|Common/)).toBeNull();

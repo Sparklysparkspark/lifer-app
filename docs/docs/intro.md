@@ -53,7 +53,7 @@ A species' rarity is **how hard it is to find and photograph** in the place you'
 - **Rare:** needs travel and patience.
 - **Legendary:** once in a lifetime.
 
-A card shows its rarity as a quiet pill. On a region's checklist it's the rarity there ("Rare here" when that's rarer than worldwide); elsewhere it's the worldwide rarity, where the species is easiest to find.
+A card shows its rarity as a quiet pill. On a region's checklist it shows two: the rarity there ("Rare here") and worldwide ("Common worldwide", where the species is easiest to find); elsewhere only the worldwide one.
 
 It isn't conservation status: an endangered but easy-to-see bird can be Common, and a widespread but secretive one can be Rare. The IUCN status is shown beside it. Where there's too little data to tell, a species shows **Unrated**. Marine invertebrates and species added from iNaturalist aren't rated yet.
 

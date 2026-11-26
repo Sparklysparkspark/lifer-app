@@ -1492,6 +1492,8 @@
     },
     "status": {
       "localTier": "Status tag on a species page: its rarity tier in the region being viewed. {tier} is a tier name such as Rare.",
+      "localTierIn": "Status tag on a species page: its rarity tier in the region being viewed, named. {tier} is a tier name such as Rare, {place} the region's name, giving Rare in Canada.",
+      "worldwideTier": "Status tag on a species page, after the regional one: its rarity tier worldwide. {tier} is a tier name such as Common or Unrated, giving Common worldwide.",
       "vagrant": "Status tag: the species turns up here only as a vagrant (a stray outside its normal range).",
       "introduced": "Status tag: the species is non-native (introduced by people) in this region.",
       "endemic": "Status tag. {country} is the only country the species is found in.",
@@ -1499,8 +1501,9 @@
     }
   },
   "speciesCard": {
-    "tierHere": "Small line under a species card's names when the species is rarer in the picked region than worldwide: {tier} is the rarity name, like Rare, giving Rare here.",
-    "tierWorldwide": "Small line under a species card's names when a region is picked but the species has only a worldwide rarity: {tier} is the rarity name, like Common, giving Common worldwide.",
+    "tierHere": "Small pill under a species card's names on a region's species list: how rare it is in that region. {tier} is the rarity name, like Rare or Unrated, giving Rare here. Shown beside the worldwide pill, so keep both short.",
+    "tierWorldwide": "Small pill under a species card's names, beside the regional one: how rare the species is worldwide. {tier} is the rarity name, like Common or Unrated, giving Common worldwide. Also the tooltip of the plain pill when no region is picked.",
+    "tierIn": "Tooltip on the regional rarity pill, naming the region. {tier} is the rarity name, {place} the region's name, giving Legendary in Canada.",
     "badge": {
       "rediscovered": "Badge on a species card: the user photographed a species that had been rarely recorded or unrecorded for 25 years.",
       "ghost": "Badge on a species card: a species with very few records anywhere.",
@@ -1856,10 +1859,10 @@
     "keepZooming": "Brief hint over the map while the user zooms out past a framed region's view; zooming out further leaves it for the next level up. {region} is the region's name, like British Columbia."
   },
   "shortcuts": {
+    "guide": "Link in the keyboard shortcut sheet's footer: opens the online guide's shortcuts page in the browser.",
     "scope": {
       "map": "Heading in the keyboard shortcut sheet: keys that work on the map."
     },
-    "guide": "Link in the keyboard shortcut sheet's footer: opens the online guide's shortcuts page in the browser.",
     "action": {
       "undoLocation": "Keyboard shortcut sheet: Cmd/Ctrl+Z on the map puts back the latest location change."
     }

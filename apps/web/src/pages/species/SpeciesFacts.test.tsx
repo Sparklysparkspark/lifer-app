@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { EncounterSummary, SpeciesOverview } from "./SpeciesFacts";
+import { EncounterSummary, SpeciesOverview, SpeciesStatus } from "./SpeciesFacts";
 import type { EncountersResponse, SpeciesDetail } from "./types";
 
 vi.mock("../../components/SpeciesHotspotMap", () => ({ default: () => null }));
@@ -140,5 +140,26 @@ describe("EncounterSummary gear lists", () => {
   it("is plain text when the list is empty", () => {
     render(<EncounterSummary encounters={{ ...encounters, cameras: [] }} />);
     expect(screen.queryByRole("button", { name: /camera/ })).toBeNull();
+  });
+});
+
+describe("SpeciesStatus rarity", () => {
+  it("names the viewed region and marks the worldwide tier when both show", () => {
+    const d = {
+      ...detail,
+      species: { ...detail.species, tier: "common" },
+      localTier: "legendary",
+      weeklyRegionName: "Canada",
+    } as unknown as SpeciesDetail;
+    render(<SpeciesStatus detail={d} />);
+    expect(screen.getByText("Legendary in Canada")).toBeTruthy();
+    expect(screen.getByText("common worldwide")).toBeTruthy();
+  });
+
+  it("shows the plain worldwide tier without a region", () => {
+    const d = { ...detail, species: { ...detail.species, tier: "rare" }, localTier: null } as unknown as SpeciesDetail;
+    render(<SpeciesStatus detail={d} />);
+    expect(screen.getByText("Rare")).toBeTruthy();
+    expect(screen.queryByText(/worldwide/)).toBeNull();
   });
 });

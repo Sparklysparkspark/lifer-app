@@ -7,10 +7,13 @@ export function Swatch({ className }: { className: string }) {
   return <span aria-hidden="true" className={`h-2.5 w-2.5 shrink-0 rounded-full ${className}`} />;
 }
 
-/** The one way a tier reads: a quiet pill with plain wording, which may carry a qualifier like "here". */
+/** The one way a tier reads: a quiet pill with plain wording and an optional scope ("here", "worldwide"). */
 export default function TierLabel({ children, title }: { children: ReactNode; title?: string }) {
   return (
-    <span title={title} className="inline-block rounded-badge bg-surface-muted px-1.5 py-0.5 text-footnote text-muted">
+    <span
+      title={title}
+      className="inline-block max-w-full rounded-badge bg-surface-muted px-1.5 py-0.5 text-footnote break-words text-muted"
+    >
       {children}
     </span>
   );
