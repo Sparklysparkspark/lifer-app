@@ -14,8 +14,9 @@ export interface Beat {
 }
 
 export const trip = {
-  title: "Belize",
-  intro: "One country's checklist, then one trip there in detail: 310 photos from thirteen days in November 2026.",
+  title: "One trip, start to finish",
+  intro:
+    "A real trip to Belize in November 2026: 310 photos from thirteen days. Each step below is what Lifer did with them, in screenshots from the app.",
 };
 
 export const beats: Beat[] = [
