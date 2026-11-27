@@ -35,7 +35,13 @@ function look(el: Element, props: readonly string[]): string {
     .join("\n");
 }
 
-async function settledLook(target: Locator): Promise<string> {
+async function settledLook(target: Locator, from?: string): Promise<string> {
+  // A slow runner applies :hover a moment after the pointer arrives; until then two reads agree on
+  // the resting look. So first wait for any change from `from`, as long as a person would notice.
+  for (let waited = 0; from !== undefined && waited < 1500; waited += 100) {
+    if ((await target.evaluate(look, PROPS, { timeout: 2000 })) !== from) break;
+    await target.page().waitForTimeout(100);
+  }
   // Transitions run for a few hundred ms; the look is final once two reads agree.
   let prev = "";
   for (let i = 0; i < 12; i++) {
@@ -87,7 +93,7 @@ for (const route of PAGES) {
         await page.mouse.move(0, 0);
         const before = await settledLook(control);
         await control.hover({ timeout: 2000 });
-        const after = await settledLook(control);
+        const after = await settledLook(control, before);
         if (before === after) failures.push(await control.evaluate(describe));
       } catch {
         // Scrolled away, covered or removed while the page settled: not a hover problem.
