@@ -10,9 +10,10 @@ import { seedForProject, SWEEP_PAGES } from "../support/sweep.js";
 const SEED = Number(process.env.MONKEY_SEED ?? 20261104);
 const STEPS = Number(process.env.MONKEY_STEPS ?? 150);
 const PAGES = [...SWEEP_PAGES, "/albums?view=trips", "/trash", "/tags"];
-// Controls the walker never presses: they delete, sign out, leave the app or open a file picker.
+// Controls the walker never presses: they delete, sign out, leave the app, open a file picker or
+// write to the clipboard (which a test browser may not allow, and the user's clipboard isn't ours).
 const OFF_LIMITS =
-  /delete|remove|empty|trash|sign out|log out|reset|erase|uninstall|unlink|revoke|disconnect|forget|quit|restart|choose|browse|download|export|import|update|install|move library|stop tracking/i;
+  /delete|remove|empty|trash|sign out|log out|reset|erase|uninstall|unlink|revoke|disconnect|forget|quit|restart|choose|browse|download|export|import|update|install|move library|stop tracking|copy/i;
 const KEYS = [
   "Escape",
   "Tab",

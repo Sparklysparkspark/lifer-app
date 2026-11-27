@@ -94,6 +94,8 @@ for (const via of VIAS) {
       async () => {
         await page.goto(`${SEED_COLLECTION}&sort=name&group=tier`);
         await expect(page.locator('a[href^="/species/"]').first()).toBeVisible({ timeout: 30_000 });
+        // Clicking scrolls a card below the fold into view first; Back returns there, not to the top.
+        await page.locator('a[href^="/species/"]:visible').first().scrollIntoViewIfNeeded();
       },
       async () => {
         await page.locator('a[href^="/species/"]:visible').first().click();

@@ -22,7 +22,8 @@ export const packRegionIdSql = (name: string): string =>
    LEFT JOIN regions pack_p ON pack_p.id = pack_r.parent_id
    LEFT JOIN regions pack_g ON pack_g.id = pack_p.parent_id
    WHERE pack_r.name = ${name} AND (pack_p.id IS NULL OR pack_g.id IS NULL OR pack_g.parent_id IS NULL)
-   ORDER BY pack_r.id LIMIT 1`;
+   -- The shallowest match: a country before a province named like it, whatever the tree's depth.
+   ORDER BY (pack_p.id IS NOT NULL)::int + (pack_g.id IS NOT NULL)::int, pack_r.id LIMIT 1`;
 
 /** Ids of a country's provinces, grouped or not, including any shown under its continent. */
 export const provinceIdsSql = (country: string): string =>
