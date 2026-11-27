@@ -76,10 +76,12 @@ async function inLibrary(userId: string, file: string): Promise<boolean> {
 
 /** An original in the library made from these bytes, there and readable, its image unchanged.
  *  Lifer writes keywords and ratings into a stored JPEG, so a copy whose bytes moved on from the
- *  import still counts when its image data matches the source's. */
+ *  import still counts when its image data matches the source's. Never verified_hash alone: the
+ *  health check re-baselines it after any change with a new mtime (an edit, or damage), which
+ *  says nothing about the library still holding this photo. */
 async function libraryCopyOk(userId: string, sha256: string, source: string): Promise<boolean> {
-  const res = await pool.query<{ ref: string; content_hash: string; verified_hash: string | null }>(
-    `SELECT o.ref, o.content_hash, o.verified_hash
+  const res = await pool.query<{ ref: string; content_hash: string }>(
+    `SELECT o.ref, o.content_hash
        FROM originals o JOIN captures c ON c.id = o.capture_id
       WHERE o.user_id = $1 AND o.content_hash = $2 AND o.ref <> $3 AND o.health IS NULL`,
     [userId, sha256, source],
@@ -88,7 +90,7 @@ async function libraryCopyOk(userId: string, sha256: string, source: string): Pr
   for (const r of res.rows) {
     const now = await hashFile(r.ref).catch(() => null);
     if (!now) continue;
-    if (now === r.content_hash || now === r.verified_hash) return true;
+    if (now === r.content_hash) return true;
     sourceImage ??= await imageDataHash(source).catch(() => null);
     if (sourceImage && sourceImage === (await imageDataHash(r.ref).catch(() => null))) return true;
   }

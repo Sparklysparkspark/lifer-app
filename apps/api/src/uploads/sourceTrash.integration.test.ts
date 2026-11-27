@@ -3,6 +3,7 @@
 // "Move photos into my library" and "Clear out the ones already in Lifer" on the desktop: an
 // original goes to the Trash (a folder standing in for it here) only once the library holds the
 // same bytes, a RAW and its JPG together, sidecars with them; anything else stays put.
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -314,9 +315,15 @@ describe.skipIf(!url)("moving imported originals to the Trash", () => {
     expect(existsSync(dupe)).toBe(true);
     expect(dry.json().kept).toEqual([{ path: skippedOnly, reason: "no_library_copy" }]);
 
-    // The library copy damaged: nothing goes.
+    // The library copy damaged: nothing goes, even once the health check has re-baselined it (a
+    // new mtime reads as an edit there), which used to vouch for it.
     const good = readFileSync(libraryCopy);
     writeFileSync(libraryCopy, "damaged");
+    expect((await call("/uploads/source-folders/clear", { paths: [dupe] })).json().cleared).toBe(0);
+    await db.query(`UPDATE originals SET verified_hash = $1 WHERE ref = $2`, [
+      createHash("sha256").update("damaged").digest("hex"),
+      libraryCopy,
+    ]);
     expect((await call("/uploads/source-folders/clear", { paths: [dupe] })).json().cleared).toBe(0);
     // The library copy missing: nothing goes.
     rmSync(libraryCopy);
