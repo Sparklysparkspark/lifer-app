@@ -109,12 +109,14 @@ describe("Target a group", () => {
       const { onClose, onChanged } = renderModal();
       type("raptors of BC");
       const add = await screen.findByRole("button", { name: "Add 23 targets" });
+      // The count can show before the rest of the dialog is ready, and a click on the disabled button
+      // does nothing; a slow runner used to click in that gap.
+      await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false), { timeout: 10_000 });
       expect(screen.getByText("Targets 23 species you haven't photographed")).toBeTruthy();
       expect(screen.getByRole("button", { name: "Place: British Columbia" })).toBeTruthy();
       expect(screen.getByRole("option", { name: "New list named raptors of BC" })).toBeTruthy();
       expect(calls(get, "by-group")).toEqual([`/collection/targets/by-group?q=raptors&regionId=${BC}`]);
       fireEvent.click(add);
-      // A loaded CI runner can take over the default second to get through the add.
       await waitFor(() => expect(onClose).toHaveBeenCalled(), { timeout: 5000 });
       expect(post).toHaveBeenCalledWith("/collection/targets/by-group", {
         q: "raptors",
