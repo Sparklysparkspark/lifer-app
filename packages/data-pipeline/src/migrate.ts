@@ -116,6 +116,9 @@ async function backupBeforeMigrating(firstPending: string) {
     return;
   }
   mkdirSync(dir, { recursive: true });
+  // A backup cut short by quitting the app never reaches the catch below, so its file stays behind.
+  for (const f of readdirSync(dir).filter((f) => f.endsWith(".dump.partial")))
+    rmSync(path.join(dir, f), { force: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const file = path.join(dir, `lifer-${stamp}-before-${firstPending.replace(/\.sql$/, "")}.dump`);
   // The password goes in the environment, not the argument list other processes can read.
