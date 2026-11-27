@@ -73,6 +73,8 @@ banner.
 - Searching an exact file name finds that photo and its versions.
 - Map: change the region of one photo or a whole trip from the Needs placing list, with Undo.
 - iNaturalist: photos taken over 200 m apart or on another camera become separate observations.
+- The open data API lists each species list's region, country, hidden state and last change, so
+  other apps can keep their own copy in step.
 
 ### Changed
 
@@ -103,6 +105,13 @@ banner.
 - A place whose checklist lacks a whole group (birds, say) borrows that group from the region
   above, so suggestions there are never limited to the groups it does list.
 - The Collection map no longer opens cropped when the window restores its saved size.
+- Moving imported originals to the Trash only trusts a library copy with the same bytes or the same
+  image. Before, a library copy that had been edited or damaged since import could still let the
+  original go.
+- The Trips list and broad Gallery searches are much faster on large libraries.
+- Going back to a page you'd left at the top returns to the top.
+- iNaturalist sign-in on the website now shows which Lifer it's returning to and waits for
+  **Continue**, so a crafted link can't send your sign-in elsewhere.
 
 ## [0.11.0] - 2026-10-14
 
