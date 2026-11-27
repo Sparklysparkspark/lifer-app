@@ -145,7 +145,8 @@ describe.skipIf(!url)("POST /uploads/identify-animal", () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json().suggestions[0].common_name).toBe("Chosen Animal");
     expect(res.json().burst).toBeNull();
-    expect(fake.views.map((v) => [v.width, v.height])).toEqual([
+    // The two crops are embedded at the same time, so either can finish first.
+    expect(fake.views.map((v) => [v.width, v.height]).sort((x, y) => x[0] - y[0])).toEqual([
       [125, 125],
       [200, 200],
     ]);
