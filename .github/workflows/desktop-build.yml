@@ -49,7 +49,7 @@ jobs:
   build:
     # inputs.build is unset (null) for workflow_dispatch, so only an explicit false skips it.
     if: github.event_name == 'workflow_dispatch' || inputs.build == true
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     env:
       # Both architectures build on Apple Silicon; the Intel one is a cross build (see
@@ -101,7 +101,7 @@ jobs:
   # upgrade on a new major" in docs/docs/contributing/desktop-app.md.
   pg-upgrade:
     if: github.event_name == 'pull_request' || inputs.pg_upgrade_test
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     env:
       LIFER_TARGET_TRIPLE: ${{ inputs.arch == 'x64' && 'x86_64-apple-darwin' || '' }}

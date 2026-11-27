@@ -70,18 +70,23 @@ describe("generateDerivatives on damaged files", () => {
     await expect(generateDerivatives(FIXTURES[name], `b-${name}`)).rejects.toThrow();
   });
 
-  it("survives many at once, as an import runs them, and still reads a good photo after", async () => {
-    const names = Object.keys(FIXTURES);
-    for (let round = 0; round < 10; round++) {
-      const results = await Promise.allSettled(
-        names.map((n) => generateDerivatives(path.join(dir, n), `r${round}-${n}`)),
-      );
-      expect(results.every((r) => r.status === "rejected")).toBe(true);
-    }
-    const good = path.join(dir, "good.jpg");
-    writeFileSync(good, jpeg);
-    await expect(generateDerivatives(good, "good")).resolves.toMatchObject({ width: 64, height: 48 });
-  });
+  // Ten rounds of every damaged file outlast the default 5 s on a CI runner measuring coverage.
+  it(
+    "survives many at once, as an import runs them, and still reads a good photo after",
+    { timeout: 60_000 },
+    async () => {
+      const names = Object.keys(FIXTURES);
+      for (let round = 0; round < 10; round++) {
+        const results = await Promise.allSettled(
+          names.map((n) => generateDerivatives(path.join(dir, n), `r${round}-${n}`)),
+        );
+        expect(results.every((r) => r.status === "rejected")).toBe(true);
+      }
+      const good = path.join(dir, "good.jpg");
+      writeFileSync(good, jpeg);
+      await expect(generateDerivatives(good, "good")).resolves.toMatchObject({ width: 64, height: 48 });
+    },
+  );
 
   it("reads good AVIF, JPEG 2000 and JPEG XL files from their path and their bytes", async () => {
     for (const [name, bytes, size] of [

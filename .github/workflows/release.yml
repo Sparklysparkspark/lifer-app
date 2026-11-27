@@ -87,10 +87,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             asset: macos-arm64
             mac-arch: arm64
-          - os: macos-14
+          - os: macos-15
             asset: macos-x64
             target: x86_64-apple-darwin
             mac-arch: x86_64
