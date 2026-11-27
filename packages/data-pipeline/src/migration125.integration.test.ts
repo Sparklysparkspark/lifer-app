@@ -28,6 +28,10 @@ const FERN = "12512500-0000-4000-8000-0000000000b2";
 const BIRD = "12512500-0000-4000-8000-0000000000c1";
 const MATCHED = "12512500-0000-4000-8000-0000000000c2";
 
+// Dropping the throwaway database WITH (FORCE) cuts off any connection still idle there; a pool
+// with no listener would raise that as an unhandled error after the tests passed.
+const droppedIdle = () => {};
+
 function databaseUrl(name: string): string {
   const u = new URL(url!);
   u.pathname = `/${name}`;
@@ -48,7 +52,7 @@ function migrate(dbName: string): Promise<{ code: number; output: string }> {
 }
 
 describe.skipIf(!url)("migration 125: hand imports become each user's checklist additions", () => {
-  const admin = new pg.Pool({ connectionString: url });
+  const admin = new pg.Pool({ connectionString: url }).on("error", droppedIdle);
   const name = `lifer_migrate125_test_${process.pid}`;
   let db: pg.Pool;
   let output = "";
@@ -71,7 +75,7 @@ describe.skipIf(!url)("migration 125: hand imports become each user's checklist 
     await admin.query(`CREATE DATABASE ${name}`);
     const first = await migrate(name);
     expect(first.code, first.output).toBe(0);
-    db = new pg.Pool({ connectionString: databaseUrl(name) });
+    db = new pg.Pool({ connectionString: databaseUrl(name) }).on("error", droppedIdle);
 
     // Back to just before 125: the rows below are what a hand import used to write.
     await db.query(`DELETE FROM schema_migrations WHERE filename = $1`, [MIGRATION]);

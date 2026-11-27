@@ -28,6 +28,10 @@ const migrationFiles = readdirSync(path.join(pkgDir, "migrations")).filter((f) =
 // load (coverage, other suites), past vitest's 5 s default, so each test gets this instead.
 const MIGRATE_TEST_TIMEOUT_MS = 60_000;
 
+// Dropping the throwaway database WITH (FORCE) cuts off any connection still idle there; a pool
+// with no listener would raise that as an unhandled error after the tests passed.
+const droppedIdle = () => {};
+
 function databaseUrl(name: string): string {
   const u = new URL(url!);
   u.pathname = `/${name}`;
@@ -48,7 +52,7 @@ function migrate(dbName: string, env: Record<string, string> = {}): Promise<{ co
 }
 
 describe.skipIf(!url)("migrate", () => {
-  const admin = new pg.Pool({ connectionString: url });
+  const admin = new pg.Pool({ connectionString: url }).on("error", droppedIdle);
   const created: string[] = [];
 
   async function freshDatabase(suffix: string): Promise<{ name: string; db: pg.Pool }> {
@@ -56,7 +60,7 @@ describe.skipIf(!url)("migrate", () => {
     await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
     await admin.query(`CREATE DATABASE ${name}`);
     created.push(name);
-    return { name, db: new pg.Pool({ connectionString: databaseUrl(name) }) };
+    return { name, db: new pg.Pool({ connectionString: databaseUrl(name) }).on("error", droppedIdle) };
   }
 
   afterAll(async () => {
