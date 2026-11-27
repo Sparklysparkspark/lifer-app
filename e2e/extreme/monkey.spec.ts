@@ -10,10 +10,9 @@ import { seedForProject, SWEEP_PAGES } from "../support/sweep.js";
 const SEED = Number(process.env.MONKEY_SEED ?? 20261104);
 const STEPS = Number(process.env.MONKEY_STEPS ?? 150);
 const PAGES = [...SWEEP_PAGES, "/albums?view=trips", "/trash", "/tags"];
-// Controls the walker never presses: they delete, sign out, leave the app, open a file picker or
-// write to the clipboard (which a test browser may not allow, and the user's clipboard isn't ours).
+// Controls the walker never presses: they delete, sign out, leave the app or open a file picker.
 const OFF_LIMITS =
-  /delete|remove|empty|trash|sign out|log out|reset|erase|uninstall|unlink|revoke|disconnect|forget|quit|restart|choose|browse|download|export|import|update|install|move library|stop tracking|copy/i;
+  /delete|remove|empty|trash|sign out|log out|reset|erase|uninstall|unlink|revoke|disconnect|forget|quit|restart|choose|browse|download|export|import|update|install|move library|stop tracking/i;
 const KEYS = [
   "Escape",
   "Tab",
@@ -100,6 +99,9 @@ test("a random walk keeps every invariant", async ({ page }) => {
   const rand = random(seed);
   const pick = <T>(list: readonly T[]) => list[Math.floor(rand() * list.length)];
   const problems: string[] = [];
+  // Copy actions (a file name copies its path) need the clipboard, which a headless browser refuses
+  // unless granted; a refusal is the app behaving, not a broken invariant.
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   // The update check asks GitHub from the page; offline like the server, and never its rate limit.
   await page.route("https://api.github.com/**", (route) => route.fulfill({ json: {} }));
   page.on("pageerror", (err) => problems.push(`page error: ${err.message}`));
