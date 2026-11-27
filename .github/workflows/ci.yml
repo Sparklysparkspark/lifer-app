@@ -15,6 +15,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# The ONNX Runtime install fetches its CUDA files from NuGet on Linux x64 (the CPU library ships in
+# the package). CI has no GPU, and that download timing out failed many runs; the release's own
+# installer build doesn't read this, so what it ships is unchanged.
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+
 jobs:
   lint:
     name: Lint, format and typecheck
