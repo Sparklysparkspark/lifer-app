@@ -70,6 +70,20 @@ describe("useScrollMemory", () => {
     expect(scrollY()).toBe(900);
   });
 
+  it("returns to the top when the page was left at the top, even if its first card moved", () => {
+    maxScroll = 50_000;
+    sessionStorage.setItem("lifer:scroll:entry", JSON.stringify({ y: 0, anchor: { id: "card", top: 500 } }));
+    // The map above came back taller: the card now sits 212 px lower than when the page was left.
+    const card = document.createElement("div");
+    card.dataset.scrollAnchor = "card";
+    card.getBoundingClientRect = () => ({ top: 712 - scrollY() }) as DOMRect;
+    document.body.append(card);
+    renderPage(true);
+    act(() => vi.advanceTimersByTime(100));
+    expect(scrollY()).toBe(0);
+    card.remove();
+  });
+
   it("holds the spot through a late layout change, then lets go once the page is still", () => {
     maxScroll = 50_000;
     renderPage(true);
@@ -82,7 +96,7 @@ describe("useScrollMemory", () => {
     maxScroll = 50_000;
     resize();
     expect(scrollY()).toBe(900);
-    act(() => vi.advanceTimersByTime(2000));
+    act(() => vi.advanceTimersByTime(5000));
     setScroll(1200);
     resize();
     expect(scrollY()).toBe(1200);

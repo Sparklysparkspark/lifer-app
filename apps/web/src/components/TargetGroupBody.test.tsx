@@ -101,30 +101,35 @@ const type = (text: string) =>
 const calls = (fn: typeof get, part: string) => fn.mock.calls.map(([p]) => String(p)).filter((p) => p.includes(part));
 
 describe("Target a group", () => {
-  it("targets a catalog group in a place named by its alias, with Undo, and never asks iNaturalist", async () => {
-    const { onClose, onChanged } = renderModal();
-    type("raptors of BC");
-    const add = await screen.findByRole("button", { name: "Add 23 targets" });
-    expect(screen.getByText("Targets 23 species you haven't photographed")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Place: British Columbia" })).toBeTruthy();
-    expect(screen.getByRole("option", { name: "New list named raptors of BC" })).toBeTruthy();
-    expect(calls(get, "by-group")).toEqual([`/collection/targets/by-group?q=raptors&regionId=${BC}`]);
-    fireEvent.click(add);
-    // A loaded CI runner can take over the default second to get through the add.
-    await waitFor(() => expect(onClose).toHaveBeenCalled(), { timeout: 5000 });
-    expect(post).toHaveBeenCalledWith("/collection/targets/by-group", {
-      q: "raptors",
-      regionId: BC,
-      includePhotographed: false,
-      name: "raptors of BC",
-    });
-    expect(onChanged).toHaveBeenCalled();
-    const [message, options] = toast.show.mock.calls[0];
-    expect(message).toBe("Added 1 target to raptors of BC");
-    options.actions[0].onClick();
-    await waitFor(() => expect(post).toHaveBeenLastCalledWith("/target-lists/import/undo", done));
-    expect(calls(get, "search/")).toEqual([]);
-  });
+  // About 0.4 s locally; a CPU-starved CI runner has taken over 5 s to render this dialog.
+  it(
+    "targets a catalog group in a place named by its alias, with Undo, and never asks iNaturalist",
+    { timeout: 20_000 },
+    async () => {
+      const { onClose, onChanged } = renderModal();
+      type("raptors of BC");
+      const add = await screen.findByRole("button", { name: "Add 23 targets" });
+      expect(screen.getByText("Targets 23 species you haven't photographed")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Place: British Columbia" })).toBeTruthy();
+      expect(screen.getByRole("option", { name: "New list named raptors of BC" })).toBeTruthy();
+      expect(calls(get, "by-group")).toEqual([`/collection/targets/by-group?q=raptors&regionId=${BC}`]);
+      fireEvent.click(add);
+      // A loaded CI runner can take over the default second to get through the add.
+      await waitFor(() => expect(onClose).toHaveBeenCalled(), { timeout: 5000 });
+      expect(post).toHaveBeenCalledWith("/collection/targets/by-group", {
+        q: "raptors",
+        regionId: BC,
+        includePhotographed: false,
+        name: "raptors of BC",
+      });
+      expect(onChanged).toHaveBeenCalled();
+      const [message, options] = toast.show.mock.calls[0];
+      expect(message).toBe("Added 1 target to raptors of BC");
+      options.actions[0].onClick();
+      await waitFor(() => expect(post).toHaveBeenLastCalledWith("/target-lists/import/undo", done));
+      expect(calls(get, "search/")).toEqual([]);
+    },
+  );
 
   it("uses the region in view when the phrase names no place, and can include photographed species", async () => {
     renderModal({ regionId: ONTARIO, regionName: "Ontario" });

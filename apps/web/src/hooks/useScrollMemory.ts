@@ -11,8 +11,10 @@ interface SavedScroll {
   anchor?: { id: string; top: number };
 }
 
-// Once the spot is reached, how long the page must stay the same size before the hold ends.
-const SETTLE_MS = 1500;
+// Once the spot is reached, how long the page must stay the same size before the hold ends. Long
+// enough for a map or banner above the list to arrive on a slow machine; any scroll, click or key
+// from the user ends the hold sooner.
+const SETTLE_MS = 4000;
 // The most a hold waits for a page that is still hidden or too short to reach the spot.
 const GIVE_UP_MS = 30_000;
 const USER_SCROLL_EVENTS = ["wheel", "touchstart", "keydown", "mousedown"] as const;
@@ -135,7 +137,9 @@ export function useScrollMemory(ready: boolean): void {
 function holdScroll(saved: SavedScroll): () => void {
   let settled: ReturnType<typeof setTimeout> | undefined;
   const restore = () => {
-    const found = !!saved.anchor && scrollToAnchor(saved.anchor);
+    // At the top is at the top: following a card there scrolls away when a map or banner above it
+    // comes back a different height.
+    const found = saved.y > 0 && !!saved.anchor && scrollToAnchor(saved.anchor);
     if (!found) window.scrollTo(0, saved.y);
     // A page still hidden or too short clamps the scroll: keep waiting for it to grow.
     clearTimeout(settled);
