@@ -96,7 +96,9 @@ jobs:
             mac-arch: x86_64
           - os: windows-latest
             asset: windows-x64
-          - os: ubuntu-latest
+          # Pinned, not -latest: a Linux build runs on its own Ubuntu and newer only, and 26.04's
+          # libxml2 renamed the library the bundled binaries link (linuxdeploy can't find it).
+          - os: ubuntu-24.04
             asset: linux-x64
     runs-on: ${{ matrix.os }}
     env:
@@ -120,7 +122,7 @@ jobs:
       # Tauri's Linux bundler links against these, and AppImage tooling needs fuse, the fuse
       # kernel module and a writable /dev/fuse. macOS and Windows runners have everything already.
       - name: Install Linux system dependencies
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf fuse libfuse2
@@ -252,7 +254,7 @@ jobs:
       - run: npm run dist -w desktop
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"
-          TAURI_BUILD_ARGS: ${{ matrix.os == 'ubuntu-latest' && '--verbose' || env.TAURI_BUILD_ARGS }}
+          TAURI_BUILD_ARGS: ${{ runner.os == 'Linux' && '--verbose' || env.TAURI_BUILD_ARGS }}
       # Loads every bundled native module with the app's own Node, and runs the bundled
       # PostgreSQL, so a binary for the wrong CPU fails the release instead of the user's first
       # launch or photo import. The Intel app runs under Rosetta 2 here.
