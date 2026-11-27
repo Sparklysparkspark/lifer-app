@@ -30,16 +30,16 @@ function taxonKeyParams(taxonKeys: number[]): string {
   return taxonKeys.map((k) => `taxonKey=${k}`).join("&");
 }
 
-// Excludes eDNA/bulk-sample and fossil records. Molecular sampling can misassign reads to
-// impossible species, and GBIF has no per-record confidence to filter on. Repeating
-// basisOfRecord ORs, like taxonKey.
-export const REAL_BASIS_OF_RECORD = [
-  "HUMAN_OBSERVATION",
-  "OBSERVATION",
-  "PRESERVED_SPECIMEN",
-  "MACHINE_OBSERVATION",
-  "LIVING_SPECIMEN",
-];
+// The record types a checklist counts: sightings, camera traps and museum specimens (most of what
+// is known of many fish and herps). Out: eDNA and bulk samples (molecular sampling can misassign
+// reads to impossible species, with no per-record confidence to filter on), fossils, literature
+// citations, and living specimens (zoo, aquarium and garden animals). Repeating basisOfRecord ORs,
+// like taxonKey.
+export const REAL_BASIS_OF_RECORD = ["HUMAN_OBSERVATION", "OBSERVATION", "PRESERVED_SPECIMEN", "MACHINE_OBSERVATION"];
+const REAL_BASIS = new Set(REAL_BASIS_OF_RECORD);
+
+/** Whether a record of this type counts toward a checklist. */
+export const countsForChecklist = (basisOfRecord: string): boolean => REAL_BASIS.has(basisOfRecord);
 
 // Sea zones also count records cited from published literature (GBIF's MATERIAL_CITATION).
 // Marine fish are mostly known from fisheries surveys and papers rather than casual sightings, so

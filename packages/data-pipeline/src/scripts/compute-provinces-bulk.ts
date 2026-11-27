@@ -42,6 +42,7 @@ import {
   RECURRENCE_MIN_RECORDS_FRACTION_OF_MEDIAN,
   passesRecurrenceCheck,
   medianOf,
+  countsForChecklist,
 } from "../regions/buildRegionSpecies.js";
 import { drillDownAllCountries } from "../regions/drillDown.js";
 import { countryCodeFilter, gbifDownloadFor } from "../regions/gbifCountryCodes.js";
@@ -820,6 +821,8 @@ async function computeCountryProvinces(
       const weekRaw = cols[colIndex.week];
       const week = weekRaw ? Number(weekRaw) : null;
       const basisOfRecord = cols[colIndex.basisofrecord] ?? "";
+      // Fossils, eDNA, citations and zoo animals never put a species on a checklist.
+      if (!countsForChecklist(basisOfRecord)) continue;
       const recordCountRaw = cols[colIndex.record_count];
       const recordCount = recordCountRaw ? Number(recordCountRaw) : 1;
 

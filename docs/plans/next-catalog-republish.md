@@ -37,6 +37,21 @@ Decided 2026-11-24 (second round):
    better sources** (309 packs, 265 after the restore) at publish time with `--accept-all-drift` once 6 is
    settled.
 
+## Published 2026-11-27 (catalog version 1795737250426); second publish to come
+
+The first publish went out with the gallery top-up so far and the domestic-breed tier fix. The
+second publish waits for the top-up to finish, then carries:
+
+- **The marine widening** (`docs/plans/marine-coverage.md`, its run sequence).
+- **Record types** (2026-11-27, maintainer approved): the bulk path now counts only sightings,
+  camera traps and museum specimens (`countsForChecklist`, `REAL_BASIS_OF_RECORD`), dropping
+  fossils, eDNA and bulk samples, literature citations and living (zoo, aquarium, garden)
+  specimens. Before, its GBIF download counted every record type. The cached province files were
+  scanned without the filter, so this needs `refresh --stages=regions,... --rescan` over the raw
+  downloads (no new GBIF download). Measure the change per class before publishing: how many
+  listings drop or turn vagrant, and spot-check a few fish and herp lists, which lean on museum
+  specimens.
+
 ## Status (2026-11-25, 09:30): built and verified, not published
 
 Everything up to publishing is done on the Docker `lifer` database and built locally.
