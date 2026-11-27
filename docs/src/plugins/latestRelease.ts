@@ -8,7 +8,6 @@ export interface LatestRelease {
   date: string;
   url: string;
   assets: ReturnType<typeof matchAssets>;
-  sums?: string;
 }
 
 /** Fetches the latest release at build time; null on any failure, so the build never breaks. */
@@ -28,7 +27,6 @@ export default function latestRelease(_context: LoadContext): Plugin<LatestRelea
           date: String(r.published_at).slice(0, 10),
           url: r.html_url,
           assets: matchAssets(all),
-          sums: all.find((a) => a.name === "SHA256SUMS")?.url,
         };
       } catch {
         return null;

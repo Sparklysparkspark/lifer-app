@@ -56,7 +56,7 @@ export default function Home() {
           <div>
             <Downloads />
             <p className={styles.heroNote}>
-              Free and open source. Intel Mac, deb and checksums on the <Link to="/download">download page</Link>, or{" "}
+              Free and open source. Intel Mac and deb on the <Link to="/download">download page</Link>, or{" "}
               <Link to="/self-hosting">run it on your own server</Link>.
             </p>
           </div>

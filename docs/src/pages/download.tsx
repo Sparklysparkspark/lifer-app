@@ -75,16 +75,6 @@ export default function Download() {
           <Link to="/self-hosting">self-hosting</Link>.
         </p>
       </Section>
-      <Section title="Verify and older versions">
-        <p>
-          {rel?.sums ? (
-            <>
-              Every release lists SHA-256 checksums in <a href={rel.sums}>SHA256SUMS</a>.{" "}
-            </>
-          ) : null}
-          All versions are on the <a href={RELEASES}>releases page</a>.
-        </p>
-      </Section>
     </Layout>
   );
 }
