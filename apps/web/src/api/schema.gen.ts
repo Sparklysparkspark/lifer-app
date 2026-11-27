@@ -21466,6 +21466,19 @@ export interface paths {
                 placeName: string;
                 nativeOnly: boolean;
                 sizeEstimate: number | null;
+                /**
+                 * Format: uuid
+                 * @description The Lifer region whose checklist the list adds to
+                 */
+                regionId: string;
+                countryCode: string | null;
+                /**
+                 * Format: date-time
+                 * @description Changes whenever the list does: a rename, a refresh, native only, or its progress
+                 */
+                updatedAt: string;
+                /** @description The user hid it from their Collection */
+                hidden: boolean;
               } & {
                 [key: string]: unknown;
               })[];

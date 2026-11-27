@@ -20193,7 +20193,11 @@
                           "placeId",
                           "placeName",
                           "nativeOnly",
-                          "sizeEstimate"
+                          "sizeEstimate",
+                          "regionId",
+                          "countryCode",
+                          "updatedAt",
+                          "hidden"
                         ],
                         "properties": {
                           "id": { "type": "string", "format": "uuid" },
@@ -20209,7 +20213,27 @@
                               { "type": "integer", "description": "iNaturalist's species count when last read" },
                               { "type": "null" }
                             ]
-                          }
+                          },
+                          "regionId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "description": "The Lifer region whose checklist the list adds to"
+                          },
+                          "countryCode": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "description": "ISO 3166-1 alpha-3 code of that region's country; null for a sea zone or continent"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "Changes whenever the list does: a rename, a refresh, native only, or its progress"
+                          },
+                          "hidden": { "type": "boolean", "description": "The user hid it from their Collection" }
                         },
                         "additionalProperties": true
                       }
