@@ -132,7 +132,7 @@ jobs:
       # folders' contents.
       - run: npm run fetch-node-sidecar -w desktop
       - name: Make the resource folders
-        run: mkdir -p apps/desktop/src-tauri/resources-staging/{api,web,node_modules,catalog-seed,postgres,postgres-previous}
+        run: mkdir -p apps/desktop/src-tauri/resources-staging/{api,web,mcp,node_modules,catalog-seed,postgres,postgres-previous}
       # The same caches the build job uses for the bundled major, plus the previous one.
       - uses: ./.github/actions/macos-natives
         with:
