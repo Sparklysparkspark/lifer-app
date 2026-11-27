@@ -118,7 +118,6 @@ const config: Config = {
             { label: "Discussions", href: `${repoUrl}/discussions` },
             { label: "Issues", href: `${repoUrl}/issues` },
             { label: "Feedback and support", to: "/support" },
-            { label: "Code of Conduct", href: `${repoUrl}/blob/main/CODE_OF_CONDUCT.md` },
           ],
         },
         {

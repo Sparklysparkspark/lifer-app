@@ -2,8 +2,16 @@
   display: grid;
   gap: var(--spacing-section);
   padding: var(--section-gap) var(--spacing-page);
-  max-width: 72rem;
+  /* The same 72rem of content as a section, whose padding sits outside it. */
+  max-width: calc(72rem + 2 * var(--spacing-page));
+  /* The page's column centers its children, so without this a hero with no picture shrinks to
+     its text and sits off the sections' left edge. */
+  width: 100%;
   margin: 0 auto;
+}
+/* Without a picture the next section follows on, instead of a second gap. */
+.hero:not(.heroWithMedia) {
+  padding-bottom: 0;
 }
 .heroText {
   max-width: 40rem;
@@ -34,7 +42,7 @@
   gap: var(--spacing-item);
 }
 @media (min-width: 997px) {
-  .hero {
+  .heroWithMedia {
     grid-template-columns: 1fr 1.3fr;
     align-items: center;
   }

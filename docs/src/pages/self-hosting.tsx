@@ -1,7 +1,7 @@
 import Layout from "@theme/Layout";
 import Link from "@docusaurus/Link";
 import CodeBlock from "@theme/CodeBlock";
-import { Callout, Hero, Section } from "../site-kit/components";
+import { Callout, Hero, ScreenshotFrame, Section } from "../site-kit/components";
 import { chownCommand, upCommand } from "../data/selfHostingCommands";
 
 export default function SelfHosting() {
@@ -13,6 +13,14 @@ export default function SelfHosting() {
       <Hero
         title="Run Lifer on your own server"
         lede="Keep your archive on a NAS or an always-on computer and open it from any device on your network."
+        media={
+          <ScreenshotFrame
+            alt="Lifer's Collection in a web browser, served from a home server"
+            light={{ src: "/img/server-collection.jpg", width: 1600, height: 1000 }}
+            dark={{ src: "/img/server-collection-dark.jpg", width: 1600, height: 1000 }}
+            priority
+          />
+        }
       />
       <Section title="Desktop or server?">
         <table>
@@ -33,7 +41,7 @@ export default function SelfHosting() {
             </tr>
             <tr>
               <td>
-                <Link to="/download">Download</Link>
+                <Link to="/download">Download the app</Link> for Mac, Windows or Linux.
               </td>
               <td>Docker, on Linux, a NAS or TrueNAS.</td>
             </tr>

@@ -146,6 +146,14 @@ const shots = [
     },
   },
   { name: "offline-packs", path: "/settings/regions" },
+  // Lifer as a server shows it in a browser: the web layout, with its top bar.
+  {
+    name: "server-collection",
+    path: BELIZE,
+    web: true,
+    act: (page) => page.getByRole("button", { name: "Hide map" }).click(),
+    after: (page) => page.getByRole("button", { name: "Show map" }).click(),
+  },
 ];
 
 // Notices about this machine's drives, tips and account names, not part of what the page shows.

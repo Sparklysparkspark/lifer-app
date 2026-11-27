@@ -37,7 +37,7 @@ export function Hero({
   media?: ReactNode;
 }) {
   return (
-    <header className={styles.hero}>
+    <header className={cx(styles.hero, media != null && styles.heroWithMedia)}>
       <div className={styles.heroText}>
         {eyebrow && <p className={styles.eyebrow}>{eyebrow}</p>}
         <h1>{title}</h1>
