@@ -391,6 +391,12 @@ describe.skipIf(!url)("finding moved photos", () => {
     const gone = await post("/moved-photos/places", { path: path.join(dir, "places", "Not here") });
     expect(gone.statusCode).toBe(400);
     expect(gone.json()).toMatchObject({ code: "folder_unavailable" });
+    // Outside the allowed roots: the same 403 whether the folder exists or not.
+    for (const outside of [dir, path.join(dir, "no such folder")]) {
+      const res = await post("/moved-photos/places", { path: outside });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).not.toHaveProperty("code", "folder_unavailable");
+    }
     expect(await added()).toEqual([parent]);
   });
 

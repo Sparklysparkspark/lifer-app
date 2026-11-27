@@ -5,7 +5,8 @@ import { stat } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
-import { assertAllowedPath, isDirectory } from "@lifer/core/lib/allowedPaths.js";
+import { SINGLE_USER_MODE } from "@lifer/core/config.js";
+import { PathNotAllowedError, allowedRootFor, assertAllowedPath, isDirectory } from "@lifer/core/lib/allowedPaths.js";
 import { canonicalPath, isWithinResolved } from "@lifer/core/lib/pathContainment.js";
 import { sendFilePreview } from "../lib/filePreview.js";
 import { requireAuth, requireScope } from "../auth/session.js";
@@ -241,6 +242,8 @@ export async function movedPhotosRoutes(fastify: FastifyInstance): Promise<void>
     },
     async (request, reply) => {
       const userId = request.user!.id;
+      // Roots checked before the disk, so the answer never says whether an outside folder exists.
+      if (!SINGLE_USER_MODE && !allowedRootFor(request.body.path)) throw new PathNotAllowedError();
       // Not there right now (a share not connected): never saved, so no silent dead entry.
       const real = (await isDirectory(request.body.path)) ? diskPath(assertAllowedPath(request.body.path)) : null;
       if (!real)
