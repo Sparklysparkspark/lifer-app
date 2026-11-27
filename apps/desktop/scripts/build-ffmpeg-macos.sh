@@ -171,8 +171,9 @@ FFMPEG_CONFIGURE_FLAGS=(
   # tests' synthetic clips.
   --enable-encoder=libx264,aac,mjpeg,png,mpeg4
   # FFMPEG_INPUT_RESTRICTIONS allows only the MP4 family, which is all one demuxer. j2k_pipe
-  # reads JPEG 2000 photos (core uploads/jp2.ts), which sharp can't decode.
-  --enable-demuxer=mov,j2k_pipe
+  # reads JPEG 2000 photos (core uploads/jp2.ts), which sharp can't decode; configure knows it as
+  # image_j2k_pipe and silently ignores the listed name.
+  --enable-demuxer=mov,image_j2k_pipe
   # mp4 for previews, image2pipe for frames; avi and mov only for the API tests' clips, null
   # and image2 for debugging by hand.
   --enable-muxer=mp4,mov,image2pipe,image2,avi,null
