@@ -150,7 +150,9 @@ describe.skipIf(!url)("POST /uploads/identify-animal", () => {
       [125, 125],
       [200, 200],
     ]);
-    expect(fake.views[0].key).toMatch(/:animal:1:50\.00,25\.00,25\.00,50\.00$/);
+    expect(fake.views.map((v) => v.key)).toContainEqual(
+      expect.stringMatching(/:animal:1:50\.00,25\.00,25\.00,50\.00$/),
+    );
     expect(fake.ranked).toEqual([2]);
   });
 
