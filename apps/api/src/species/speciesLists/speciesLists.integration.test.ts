@@ -329,18 +329,29 @@ describe.skipIf(!url)("lists from iNaturalist", () => {
     for (const l of defs.json().lists)
       expect(Object.keys(l).sort()).toEqual(
         [
+          "countryCode",
+          "hidden",
           "id",
           "name",
           "nativeOnly",
+          "regionId",
           "placeId",
           "placeName",
           "sizeEstimate",
           "taxonId",
           "taxonName",
           "taxonRank",
+          "updatedAt",
         ].sort(),
       );
-    expect(defs.json().lists[0]).toMatchObject({ taxonId: SPIDERS, placeId: COUNTRY_PLACE, sizeEstimate: N });
+    expect(defs.json().lists[0]).toMatchObject({
+      taxonId: SPIDERS,
+      placeId: COUNTRY_PLACE,
+      sizeEstimate: N,
+      regionId: countryId,
+      hidden: false,
+    });
+    expect(Number.isNaN(Date.parse(defs.json().lists[0].updatedAt))).toBe(false);
     expect(defs.body).not.toContain("Zzlist sp");
   });
 

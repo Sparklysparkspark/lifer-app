@@ -52,6 +52,17 @@ const SpeciesListDefinitions = Open({
       placeName: Type.String(),
       nativeOnly: Type.Boolean(),
       sizeEstimate: Nullable(Type.Integer({ description: "iNaturalist's species count when last read" })),
+      regionId: Uuid({ description: "The Lifer region whose checklist the list adds to" }),
+      countryCode: Nullable(
+        Type.String({
+          description: "ISO 3166-1 alpha-3 code of that region's country; null for a sea zone or continent",
+        }),
+      ),
+      updatedAt: Type.String({
+        format: "date-time",
+        description: "Changes whenever the list does: a rename, a refresh, native only, or its progress",
+      }),
+      hidden: Type.Boolean({ description: "The user hid it from their Collection" }),
     }),
   ),
 });
@@ -323,9 +334,28 @@ export async function opendataRoutes(fastify: FastifyInstance): Promise<void> {
         place_name: string;
         native_only: boolean;
         size_estimate: number | null;
+        region_id: string;
+        country_code: string | null;
+        updated_at: Date;
+        hidden: boolean;
       }>(
-        `SELECT id, name, inat_taxon_id, taxon_name, taxon_rank, inat_place_id, place_name, native_only, size_estimate
-           FROM species_lists WHERE user_id = $1 ORDER BY created_at`,
+        // The country is the first region up with a sovereignty group; its first code is its ISO3.
+        `SELECT l.id, l.name, l.inat_taxon_id, l.taxon_name, l.taxon_rank, l.inat_place_id, l.place_name,
+                l.native_only, l.size_estimate, l.region_id, l.updated_at, l.hidden, c.iso3 AS country_code
+           FROM species_lists l
+           LEFT JOIN LATERAL (
+             WITH RECURSIVE up AS (
+               SELECT id, parent_id, sovereignty_group, external_codes, 0 AS depth FROM regions WHERE id = l.region_id
+               UNION ALL
+               SELECT r.id, r.parent_id, r.sovereignty_group, r.external_codes, up.depth + 1
+                 FROM regions r JOIN up ON r.id = up.parent_id
+                WHERE up.sovereignty_group IS NULL AND up.depth < 6
+             )
+             SELECT external_codes[1] AS iso3 FROM up
+              WHERE sovereignty_group IS NOT NULL AND external_codes[1] ~ '^[A-Z]{3}$'
+              ORDER BY depth LIMIT 1
+           ) c ON true
+          WHERE l.user_id = $1 ORDER BY l.created_at`,
         [request.user!.id],
       );
       return {
@@ -339,6 +369,10 @@ export async function opendataRoutes(fastify: FastifyInstance): Promise<void> {
           placeName: l.place_name,
           nativeOnly: l.native_only,
           sizeEstimate: l.size_estimate,
+          regionId: l.region_id,
+          countryCode: l.country_code,
+          updatedAt: l.updated_at.toISOString(),
+          hidden: l.hidden,
         })),
       };
     },
