@@ -194,6 +194,13 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security import "$RUNNER_TEMP/lifer.p12" -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          # A Developer ID certificate only counts as valid with Apple's G2 intermediate, which a
+          # fresh runner lacks. Pinned to the copy a Mac trusts, so a swapped download fails here.
+          if [ -n "${APPLE_DEVELOPER_ID_P12_BASE64:-}" ]; then
+            curl -fsSL https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$RUNNER_TEMP/g2.cer"
+            echo "f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a  $RUNNER_TEMP/g2.cer" | shasum -a 256 -c -
+            security import "$RUNNER_TEMP/g2.cer" -k "$KEYCHAIN"
+          fi
           rm "$RUNNER_TEMP/lifer.p12"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
@@ -425,7 +432,9 @@ jobs:
     # After flatpak too, so SHA256SUMS lists its bundle; its result isn't checked.
     needs: [create-release, pg-upgrade, desktop, flatpak]
     # A failed upgrade test skips every desktop leg, so never publish without it.
-    if: ${{ !cancelled() && needs.create-release.result == 'success' && needs.pg-upgrade.result == 'success' }}
+    # shortcut: every desktop build must pass for now (twice a partial release went public while
+    # the Mac builds were being fixed); revisit whether one broken OS should hold the others back.
+    if: ${{ !cancelled() && needs.create-release.result == 'success' && needs.pg-upgrade.result == 'success' && needs.desktop.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
