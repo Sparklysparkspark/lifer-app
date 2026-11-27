@@ -103,28 +103,15 @@ const config: Config = {
           ],
         },
         {
-          title: "Install",
-          items: [
-            { label: "Requirements", to: "/install/requirements" },
-            { label: "Desktop app", to: "/install/desktop" },
-            { label: "Docker server", to: "/install/docker" },
-            { label: "Upgrading", to: "/install/upgrading" },
-            { label: "Backup and restore", to: "/install/backup-restore" },
-          ],
-        },
-        {
           title: "Community",
           items: [
             { label: "Discussions", href: `${repoUrl}/discussions` },
-            { label: "Issues", href: `${repoUrl}/issues` },
             { label: "Feedback and support", to: "/support" },
           ],
         },
         {
           title: "Project",
           items: [
-            { label: "GitHub", href: repoUrl },
-            { label: "Releases", href: `${repoUrl}/releases` },
             { label: "Changelog", href: `${repoUrl}/blob/main/CHANGELOG.md` },
             { label: "Contributing", href: `${repoUrl}/blob/main/CONTRIBUTING.md` },
             { label: "Security", href: `${repoUrl}/security/policy` },

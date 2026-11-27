@@ -79,7 +79,9 @@ export default function SelfHosting() {
             <Link to="/install/connect-desktop-to-server">Connect the desktop app to your server</Link>.
           </li>
         </ul>
-        <Callout>On your phone, open the server's address in the browser. There is no separate mobile app.</Callout>
+        <Callout>
+          On your phone, open the server's address in the browser. A phone app is <Link to="/roadmap">on the way</Link>.
+        </Callout>
       </Section>
     </Layout>
   );

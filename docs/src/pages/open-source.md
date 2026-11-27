@@ -13,7 +13,7 @@ You can use Lifer for anything, read how it works, change it and share it. If yo
 
 ## Where the code is
 
-Everything is in [one repository on GitHub](https://github.com/Sparklysparkspark/lifer-app): the desktop app, the server, the phone app, the Lightroom Classic plugin and the pipeline that builds the species catalog. Installers are built from it by public workflows, and [Code signing](/code-signing) explains how each one is signed.
+Everything is in [one repository on GitHub](https://github.com/Sparklysparkspark/lifer-app): the desktop app, the server, the Lightroom Classic plugin and the pipeline that builds the species catalog. Installers are built from it by public workflows, and [Code signing](/code-signing) explains how each one is signed.
 
 ## Data and photos
 

@@ -7,20 +7,19 @@ description: Where to send feedback, ask questions, report bugs and report secur
 
 Found a bug? [Report it](https://github.com/Sparklysparkspark/lifer-app/issues/new?template=bug_report.yml). Ideas and questions go to [Discussions](https://github.com/Sparklysparkspark/lifer-app/discussions).
 
-<!-- TODO(maintainer): confirm hello@liferwildlife.com is a real inbox before publishing. -->
-Or email [hello@liferwildlife.com](mailto:hello@liferwildlife.com).
+Or email [support@liferwildlife.com](mailto:support@liferwildlife.com).
 
 If Lifer crashes, it offers to send a crash report the next time it opens. The report holds only the crash details, and nothing is sent unless you click **Send report**.
 
 Lifer is built by volunteers in the open. Where to go depends on what you need:
 
-| You want to... | Go to |
-|---|---|
-| Ask a question, or get help with your setup | [Discussions: Q&A](https://github.com/Sparklysparkspark/lifer-app/discussions) |
-| Suggest a feature or share an idea | [Discussions: Ideas](https://github.com/Sparklysparkspark/lifer-app/discussions) |
-| Show off your setup or your life list | [Discussions: Show and tell](https://github.com/Sparklysparkspark/lifer-app/discussions) |
-| Report a bug | [Issues](https://github.com/Sparklysparkspark/lifer-app/issues/new/choose), using the bug report form |
-| Report a security problem | [A private security advisory](https://github.com/Sparklysparkspark/lifer-app/security/advisories/new). Please don't open a public issue. |
+| You want to...                              | Go to                                                                                                                                    |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Ask a question, or get help with your setup | [Discussions: Q&A](https://github.com/Sparklysparkspark/lifer-app/discussions)                                                           |
+| Suggest a feature or share an idea          | [Discussions: Ideas](https://github.com/Sparklysparkspark/lifer-app/discussions)                                                         |
+| Show off your setup or your life list       | [Discussions: Show and tell](https://github.com/Sparklysparkspark/lifer-app/discussions)                                                 |
+| Report a bug                                | [Issues](https://github.com/Sparklysparkspark/lifer-app/issues/new/choose), using the bug report form                                    |
+| Report a security problem                   | [A private security advisory](https://github.com/Sparklysparkspark/lifer-app/security/advisories/new). Please don't open a public issue. |
 
 Before asking, check [Troubleshooting](./troubleshooting.md) and the [FAQ](./faq.md), and search the existing issues and discussions. Someone may already have the answer.
 

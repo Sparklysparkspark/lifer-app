@@ -12,6 +12,7 @@ Lifer is in beta. The goal is a stable **1.0** release: dependable updates, a se
 These are already planned and mentioned elsewhere in the docs:
 
 - **A signed Windows installer**, through [SignPath Foundation](https://signpath.org)'s free code signing for open source projects, so Windows stops warning that Lifer is from an unknown publisher.
+- **A phone app** for iPhone and Android, to browse your Lifer on the go. App store approval takes a while; until then, open your server's address in your phone's browser.
 - **A TrueNAS catalog app**, after 1.0. Until then, TrueNAS users can run Lifer as a Custom App from `docker-compose.yml`. See [Install with Docker](./install/docker.md).
 
 ## Being explored
