@@ -283,6 +283,9 @@ jobs:
     # The realistic-library behavioural checks (e2e/visual/behaviour.spec.ts) in Chromium and
     # WebKit. Screenshots stay local: the baselines are made on macOS and Linux renders differently.
     name: End-to-end behavioural checks
+    # Not in a release's CI while advisory: a time-out counts as cancelled, which continue-on-error
+    # doesn't cover, and that skips every release job. Drop this with the line below.
+    if: github.workflow != 'Release'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Advisory, so its failures never block a pull request. Remove this line once the job has
