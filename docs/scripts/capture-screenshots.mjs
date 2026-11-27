@@ -130,6 +130,22 @@ const shots = [
     },
   },
   { name: "tree-circle", path: "/explore", act: (page) => page.getByRole("button", { name: "Circle" }).click() },
+  // A species page from its About section down: the field-guide paragraph, then your photos.
+  {
+    name: "species-about",
+    path: "/species/bb873dc2-084b-45a3-8c88-68e97a78d254", // Osprey, 17 photos from the Belize trip
+    act: (page) => page.getByRole("button", { name: /^All \(/ }).click(),
+    // From the About card down, without the empty strip beside it.
+    clip: async (page) => {
+      const card = await page
+        .getByRole("button", { name: /About$/ })
+        .first()
+        .locator("xpath=ancestor::*[contains(@class,'rounded')][1]")
+        .boundingBox();
+      return { x: card.x - 24, y: card.y - 24, width: card.width + 48, height: 800 };
+    },
+  },
+  { name: "offline-packs", path: "/settings/regions" },
 ];
 
 // Notices about this machine's drives, tips and account names, not part of what the page shows.
@@ -183,10 +199,11 @@ for (const s of shots.filter((s) => !only.length || only.includes(s.name))) {
       extraHTTPHeaders: { "x-lifer-launch-token": token },
     });
     // A stand-in desktop shell, so pages draw the desktop app's sidebar layout rather than the
-    // web version's top bar. Every desktop-only call answers nothing.
+    // web version's top bar. Every desktop-only call answers nothing, except the installed apps
+    // list: an empty one, so the sidebar shows the suggested apps a new install does.
     if (!s.web)
       await ctx.addInitScript(() => {
-        window.__TAURI__ = { core: { invoke: async () => null } };
+        window.__TAURI__ = { core: { invoke: async (cmd) => (cmd === "plugins_list" ? [] : null) } };
       });
     await ctx.addInitScript((kv) => {
       for (const [k, v] of Object.entries(kv)) localStorage.setItem(k, JSON.stringify(v));

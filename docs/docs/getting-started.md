@@ -68,7 +68,7 @@ If your computer or server has a graphics card, Lifer tests it and uses it for f
 
 Your photos appear on their species' pages, those species count as photographed, and your life list grows. The full details are in [Importing photos](./guides/importing.md).
 
-![Importing photos](/img/import.jpg)
+![Importing photos](/img/identify.jpg)
 
 ## 5. Explore {#explore}
 

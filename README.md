@@ -46,7 +46,7 @@ at a time from a species' own page. Lifer can use local AI to suggest a species 
 still unidentified, trained against your own collection rather than a cloud service, and you
 confirm or correct it in a couple keystrokes.
 
-![Importing photos in Lifer](./docs/static/img/import.jpg)
+![Importing photos in Lifer](./docs/static/img/identify.jpg)
 
 Once imported, a photo belongs to a species, a trip, a location, a date, and your life list all at
 once. You don't have to build those relationships by hand.
