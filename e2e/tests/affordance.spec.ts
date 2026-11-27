@@ -21,6 +21,8 @@ const PROPS = [
 ] as const;
 
 test.beforeEach(() => markKnownFailure(test.info()));
+// Transitions finish at once, so a slow runner can't read a hover look before it starts changing.
+test.use({ reducedMotion: "reduce" });
 
 /** The control's own look plus its children's, since a hover often restyles only a child. */
 // It runs in the browser, so the property list comes in as an argument.

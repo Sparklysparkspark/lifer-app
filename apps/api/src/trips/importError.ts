@@ -1,7 +1,7 @@
 // A trip import's per-file reason is shown to the user, so it's short and plain, never a
 // decoder's or the OS's own text.
 const RAW = /errno|ENOENT|EACCES|EPERM|EISDIR|sharp|vips|exiftool|\bat \S+:\d+/i;
-const DAMAGED = /vips|corrupt|premature end|unsupported image format|input (file|buffer)|bad seek/i;
+const DAMAGED = /vips|corrupt|premature end|unsupported image format|input (file|buffer)|bad seek|failOn/i;
 
 export function plainImportError(err: unknown): string {
   const code = (err as NodeJS.ErrnoException | undefined)?.code;

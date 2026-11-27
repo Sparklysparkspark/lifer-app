@@ -14,6 +14,10 @@ describe("plainImportError", () => {
       "Input file has corrupt header: source: bad seek to 1024\nheif: Invalid input: Unexpected end of file (2.100)",
     );
     expect(plainImportError(heif)).toBe("This photo is damaged and can't be read");
+    // Some libvips builds report a truncated JPEG only as sharp's failOn warning.
+    expect(plainImportError(new Error("Warning treated as error due to failOn setting"))).toBe(
+      "This photo is damaged and can't be read",
+    );
     // jp2.ts already words its own failure plainly.
     expect(plainImportError(new Error("This photo is damaged and can't be read"))).toBe(
       "This photo is damaged and can't be read",

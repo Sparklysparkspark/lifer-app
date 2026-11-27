@@ -120,7 +120,8 @@ async function burstsAmong(userId: string, captureIds: string[]) {
     const rows = (
       await pool.query<FrameRow>(
         frameSql(
-          "EXISTS (SELECT 1 FROM unnest($3::timestamptz[], $4::timestamptz[]) r(lo, hi) WHERE c.taken_at BETWEEN r.lo AND r.hi)",
+          // One multirange, so each photo is a binary search rather than a pass over every window.
+          "c.taken_at <@ (SELECT range_agg(tstzrange(r.lo, r.hi, '[]')) FROM unnest($3::timestamptz[], $4::timestamptz[]) r(lo, hi))",
           "c.taken_at, c.id",
           String(BURST_LOAD_MAX),
         ),

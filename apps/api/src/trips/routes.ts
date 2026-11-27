@@ -166,10 +166,7 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
       const res = await pool.query(
         `SELECT
          t.id, t.name, t.source_folder, t.destination_folder, t.cover_layout, ${DATE_COLUMNS},
-         count(DISTINCT c.species_id) AS species_count,
-         count(c.id) AS capture_count,
-         min(c.taken_at) AS earliest_taken_at,
-         max(c.taken_at) AS latest_taken_at,
+         agg.species_count, agg.capture_count, agg.earliest_taken_at, agg.latest_taken_at,
          -- The user's explicit pick (trips.cover_capture_id) wins when set; otherwise falls
          -- back to the most recent capture with a photo.
          cover_c.current_photo_id AS cover_photo_id,
@@ -185,7 +182,12 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
          -- own quad_photo_ids in albums/routes.ts.
          quad.photo_ids AS quad_photo_ids
        FROM trips t
-       LEFT JOIN captures c ON c.trip_id = t.id
+       -- Aggregated per trip, so the cover laterals below run once per trip, not once per capture.
+       CROSS JOIN LATERAL (
+         SELECT count(DISTINCT c.species_id) AS species_count, count(c.id) AS capture_count,
+                min(c.taken_at) AS earliest_taken_at, max(c.taken_at) AS latest_taken_at
+         FROM captures c WHERE c.trip_id = t.id
+       ) agg
        LEFT JOIN LATERAL (
          SELECT cc.id, cc.current_photo_id FROM captures cc
          WHERE cc.trip_id = t.id AND cc.current_photo_id IS NOT NULL
@@ -201,7 +203,6 @@ export async function tripsRoutes(fastify: FastifyInstance): Promise<void> {
          ) sub
        ) quad ON true
        WHERE t.user_id = $1
-       GROUP BY t.id, cover_c.id, cover_c.current_photo_id, quad.photo_ids
        ORDER BY t.created_at DESC`,
         [userId],
       );
