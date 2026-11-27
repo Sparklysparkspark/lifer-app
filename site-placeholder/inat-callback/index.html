@@ -49,12 +49,34 @@
         margin: 0;
         color: var(--muted);
       }
+      #host {
+        color: var(--ink);
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+      #hint {
+        margin-top: 0.75rem;
+        font-size: 0.875rem;
+      }
+      button {
+        margin-top: 1rem;
+        padding: 0.5rem 1rem;
+        border: 0;
+        border-radius: 8px;
+        background: #5f7254;
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
     <main>
       <h1>Lifer</h1>
       <p id="status">Returning you to Lifer...</p>
+      <p id="hint" hidden>Only continue if this is your own Lifer. If you didn't just choose Connect iNaturalist, close this page.</p>
+      <button id="continue" type="button" hidden>Continue</button>
       <noscript><p>Turn on JavaScript to finish signing in to iNaturalist.</p></noscript>
     </main>
     <script>
@@ -93,11 +115,27 @@
       }
 
       var target = relayTarget(location.search);
-      if (target) {
+      var message = document.getElementById("status");
+      if (!target) {
+        message.textContent = "This sign-in link isn't valid. Go back to Lifer and choose Connect iNaturalist again.";
+      } else if (!new URLSearchParams(location.search).has("code")) {
+        // A declined sign-in carries nothing worth taking: straight back.
         location.replace(target);
       } else {
-        document.getElementById("status").textContent =
-          "This sign-in link isn't valid. Go back to Lifer and choose Connect iNaturalist again.";
+        // A crafted link could name someone else's server, so the code only goes on once the person
+        // sees where and agrees.
+        message.textContent = "Finish connecting iNaturalist to your Lifer at ";
+        var host = document.createElement("span");
+        host.id = "host";
+        host.textContent = new URL(target).host;
+        message.appendChild(host);
+        message.appendChild(document.createTextNode("?"));
+        document.getElementById("hint").hidden = false;
+        var button = document.getElementById("continue");
+        button.hidden = false;
+        button.onclick = function () {
+          location.replace(target);
+        };
       }
     </script>
   </body>

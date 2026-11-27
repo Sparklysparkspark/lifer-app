@@ -6,23 +6,55 @@ import { decodeRelayState, encodeRelayState, isAllowedReturnOrigin } from "./rel
 
 const PAGE = fileURLToPath(new URL("../../../../docs/static/inat-callback/index.html", import.meta.url));
 
-// Runs the relay page's script against a query string; returns where it sent the browser, or its message.
-function runPage(search: string): { replaced: string | null; message: string | null } {
+// Runs the relay page's script against a query string; returns where it sent the browser, its
+// message, and a Continue click when it asks first.
+interface FakeElement {
+  id?: string;
+  hidden: boolean;
+  textContent: string;
+  onclick: (() => void) | null;
+  appendChild(child: FakeElement): void;
+}
+function runPage(search: string): {
+  replaced: string | null;
+  message: string | null;
+  /** Clicks Continue and returns where that sent the browser. */
+  confirm: (() => string | null) | null;
+} {
   const script = readFileSync(PAGE, "utf8").match(/<script>([\s\S]*?)<\/script>/)![1];
-  const result = { replaced: null as string | null, message: null as string | null };
-  const status = {
-    set textContent(text: string) {
-      result.message = text;
+  let replaced: string | null = null;
+  const element = (text = ""): FakeElement => ({
+    hidden: true,
+    textContent: text,
+    onclick: null,
+    appendChild(child) {
+      this.textContent += child.textContent;
     },
-  };
+  });
+  const status = element("Returning you to Lifer...");
+  const button = element();
+  const byId: Record<string, FakeElement> = { status, hint: element(), continue: button };
   vm.runInNewContext(script, {
     URL,
     URLSearchParams,
     atob,
-    location: { search, replace: (to: string) => (result.replaced = to) },
-    document: { getElementById: () => status },
+    location: { search, replace: (to: string) => (replaced = to) },
+    document: {
+      getElementById: (id: string) => byId[id],
+      createElement: () => element(),
+      createTextNode: (text: string) => element(text),
+    },
   });
-  return result;
+  return {
+    replaced,
+    message: status.textContent === "Returning you to Lifer..." ? null : status.textContent,
+    confirm: button.hidden
+      ? null
+      : () => {
+          button.onclick!();
+          return replaced;
+        },
+  };
 }
 
 const allowed = [
@@ -71,20 +103,28 @@ describe("relay state", () => {
 });
 
 describe("relay page", () => {
-  it("forwards the whole query to the origin in state", () => {
+  it("names the install and forwards the whole query only once the person continues", () => {
     for (const origin of allowed) {
       const search = `?code=c0de&state=${encodeRelayState("r4nd", origin)}`;
-      expect(runPage(search)).toEqual({ replaced: `${origin}/api/inaturalist/callback${search}`, message: null });
+      const page = runPage(search);
+      expect(page.replaced).toBeNull();
+      expect(page.message).toBe(`Finish connecting iNaturalist to your Lifer at ${new URL(origin).host}?`);
+      expect(page.confirm!()).toBe(`${origin}/api/inaturalist/callback${search}`);
     }
+  });
+
+  it("returns a declined sign-in straight away, since it carries no code", () => {
     const denied = `?error=access_denied&error_description=no&state=${encodeRelayState("r", "http://127.0.0.1:4310")}`;
-    expect(runPage(denied).replaced).toBe(`http://127.0.0.1:4310/api/inaturalist/callback${denied}`);
+    const page = runPage(denied);
+    expect(page.replaced).toBe(`http://127.0.0.1:4310/api/inaturalist/callback${denied}`);
+    expect(page.confirm).toBeNull();
   });
 
   it("shows a message instead of redirecting for a missing or bad state", () => {
     const bad = refused.map((origin) => `?code=c&state=${encodeRelayState("r", origin)}`);
     for (const search of ["", "?code=c", "?code=c&state=nodot", "?code=c&state=r.%%%", ...bad]) {
       const result = runPage(search);
-      expect([search, result.replaced]).toEqual([search, null]);
+      expect([search, result.replaced, result.confirm]).toEqual([search, null, null]);
       expect(result.message).toMatch(/^This sign-in link isn't valid\./);
     }
   });
