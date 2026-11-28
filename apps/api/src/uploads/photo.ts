@@ -134,6 +134,9 @@ export async function photoUploadRoutes(fastify: FastifyInstance): Promise<void>
 
 export type ImportResult = { code: number; body: unknown };
 
+/** Each new capture's background metadata write, until it ends. */
+const pendingMetadataWrites = new Map<string, Promise<void>>();
+
 /** "Move photos into my library": the desktop's own files go to the Trash once the capture is
  *  saved, the RAW and JPG of one request together. Never on a server, where they aren't the
  *  user's disk. A file that stays is reported, never an error for the import. */
@@ -144,6 +147,9 @@ async function moveSourceAway(
 ): Promise<ImportResult> {
   const body = outcome.body as { captureId: string; sha256: string; rawSha256?: string };
   if (!SINGLE_USER_MODE) return outcome;
+  // That write replaces the library copy, which on a network drive is briefly missing: checking
+  // the copy mid-write found nothing, and the original stayed.
+  await pendingMetadataWrites.get(body.captureId);
   const members = [{ path: fields.moveSourcePath, expect: body.sha256 }];
   if (fields.moveRawSourcePath) members.push({ path: fields.moveRawSourcePath, expect: body.rawSha256 ?? "" });
   const moved = await trashSourceGroup(request.user!.id, members).catch((): TrashOutcome => ({
@@ -831,9 +837,11 @@ async function afterCommit(
   }
 
   // Writes the capture's first XMP sidecar(s) (species, EXIF, rating) in the background.
-  syncCaptureXmpSidecars(userId, captureId).catch((err) =>
+  const write = syncCaptureXmpSidecars(userId, captureId).catch((err) =>
     log.warn({ err, captureId }, "Couldn't write this capture's XMP sidecar"),
   );
+  pendingMetadataWrites.set(captureId, write);
+  void write.finally(() => pendingMetadataWrites.delete(captureId));
 
   // Embeddings are queued so the upload never waits on a model; a failure is left for the next
   // backfill. The queue holds a file path, and a working copy lives until its job ends.

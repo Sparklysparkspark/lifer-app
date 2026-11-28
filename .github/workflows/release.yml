@@ -183,6 +183,10 @@ jobs:
             done
             MACOS_CERT_P12_BASE64="$APPLE_DEVELOPER_ID_P12_BASE64"
             MACOS_CERT_PASSWORD="$APPLE_DEVELOPER_ID_PASSWORD"
+          elif [ -n "$APPLE_DEVELOPER_ID_PASSWORD$APPLE_NOTARY_KEY_P8_BASE64" ]; then
+            # An emptied certificate secret must not ship a self-signed build in its place.
+            echo "::error::Developer ID signing is partly configured: APPLE_DEVELOPER_ID_P12_BASE64 is empty. See docs/docs/contributing/releasing.md."
+            exit 1
           elif [ -z "$MACOS_CERT_P12_BASE64" ]; then
             echo "MACOS_CERT_P12_BASE64 not set, falling back to ad-hoc signing"
             exit 0
