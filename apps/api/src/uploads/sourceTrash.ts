@@ -8,6 +8,7 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { DATA_DIR, ORIGINALS_DIR } from "@lifer/core/config.js";
 import { pool } from "@lifer/core/db.js";
+import { log } from "@lifer/core/lib/log.js";
 import { canonicalPath, isWithin } from "@lifer/core/lib/pathContainment.js";
 import { hashFile } from "@lifer/core/lib/verifiedCopy.js";
 import { mapWithConcurrency } from "@lifer/core/lib/concurrency.js";
@@ -75,6 +76,7 @@ async function inLibrary(userId: string, file: string): Promise<boolean> {
 }
 
 /** An original in the library made from these bytes, there and readable, its image unchanged.
+ *  A hidden photo counts (a linked version is hidden under its group); one in Lifer's trash doesn't.
  *  Lifer writes keywords and ratings into a stored JPEG, so a copy whose bytes moved on from the
  *  import still counts when its image data matches the source's. Never verified_hash alone: the
  *  health check re-baselines it after any change with a new mtime (an edit, or damage), which
@@ -82,18 +84,26 @@ async function inLibrary(userId: string, file: string): Promise<boolean> {
 async function libraryCopyOk(userId: string, sha256: string, source: string): Promise<boolean> {
   const res = await pool.query<{ ref: string; content_hash: string }>(
     `SELECT o.ref, o.content_hash
-       FROM originals o JOIN captures c ON c.id = o.capture_id
+       FROM originals o JOIN captures_all c ON c.id = o.capture_id AND c.deleted_at IS NULL
       WHERE o.user_id = $1 AND o.content_hash = $2 AND o.ref <> $3 AND o.health IS NULL`,
     [userId, sha256, source],
   );
   let sourceImage: string | null | undefined;
+  // Why each copy didn't count, logged so a kept original can be explained.
+  const misses: Array<{ ref: string; why: string }> = [];
   for (const r of res.rows) {
     const now = await hashFile(r.ref).catch(() => null);
-    if (!now) continue;
+    if (!now) {
+      misses.push({ ref: r.ref, why: "unreadable" });
+      continue;
+    }
     if (now === r.content_hash) return true;
     sourceImage ??= await imageDataHash(source).catch(() => null);
-    if (sourceImage && sourceImage === (await imageDataHash(r.ref).catch(() => null))) return true;
+    const copyImage = await imageDataHash(r.ref).catch(() => null);
+    if (sourceImage && sourceImage === copyImage) return true;
+    misses.push({ ref: r.ref, why: !sourceImage || !copyImage ? "no image hash" : "image differs" });
   }
+  log.warn({ source, copies: res.rows.length, misses }, "Couldn't confirm the library copy of an original");
   return false;
 }
 

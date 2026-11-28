@@ -4,6 +4,7 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { Type } from "typebox";
 import { pool } from "@lifer/core/db.js";
+import { rawPixelSize } from "../uploads/exif.js";
 import { requireAuth } from "../auth/session.js";
 import { IdParams, Nullable, Uuid, notFoundOnInvalidId, replies, withSchemas } from "../lib/schema.js";
 import { jobStatusFields } from "../lib/schema.js";
@@ -201,13 +202,21 @@ export async function captureVersionRoutes(fastify: FastifyInstance): Promise<vo
           )
         ).rows.map((p) => [p.id, p]),
       );
+      // A RAW's photo row is sized from its preview (or from its JPG partner), so it's read from the file.
+      const rawSizes = new Map(
+        await Promise.all(
+          rows.rows
+            .filter((r) => r.kind === "raw")
+            .map(async (r) => [r.original_id, await rawPixelSize(r.ref)] as const),
+        ),
+      );
       const shownCapture = shownVersion ?? groupId;
       // A RAW and its JPG share one capture, whose photo is made from the JPG: only that file is shown.
       const shownFiles = rows.rows.filter((r) => r.capture_id === shownCapture);
       const shownFile = (shownFiles.find((r) => r.kind !== "raw") ?? shownFiles[0])?.original_id;
       const mapped = rows.rows.map((r) => {
         const photoId = ownPhoto(r);
-        const size = photoId ? sizes.get(photoId) : undefined;
+        const size = r.kind === "raw" ? rawSizes.get(r.original_id) : photoId ? sizes.get(photoId) : undefined;
         return {
           originalId: r.original_id,
           captureId: r.capture_id,

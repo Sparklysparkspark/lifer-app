@@ -258,7 +258,7 @@ not hidden or in the trash.
 `?download=1` for a download filename), `/original-raw`, `/video` (supports Range requests). An
 original on a drive that isn't connected returns `409`.
 
-### `POST /api/uploads` (photos.write): importing
+### `POST /api/uploads` (photos.write or imports.write): importing
 
 `multipart/form-data` with:
 
@@ -275,7 +275,7 @@ Capture time, GPS, camera details and the **star rating** are read from the file
 set in Lightroom, digiKam or a culling tool come along, and so do a culling app's pick or reject
 flag and color label. Returns `201` with `captureId` and `photoId`.
 
-### `POST /api/uploads/inspect` (photos.write): checking before importing
+### `POST /api/uploads/inspect` (photos.write or imports.write): checking before importing
 
 Send the `file` (and optionally `regionId`) to learn whether you already have it (`possibleDuplicate`,
 exact or near-identical) and, with a region, the likely species (`suggestions`). `cull` says what a
@@ -286,7 +286,7 @@ A `410` means the kept copy has expired; send the file instead.
 
 To check a file you sent as a [resumable upload](#large-files), send `uploadId` instead of `file`, then import it with the same `uploadId`.
 
-### Uploading large files (photos.write) {#large-files}
+### Uploading large files (photos.write or imports.write) {#large-files}
 
 A multipart `POST /api/uploads` sends the whole file in one request, which is fine for most photos but can fail on a big RAW or video: a reverse proxy may refuse the request's size, and a dropped connection means starting over. For those, use a resumable upload. Lifer speaks [tus 1.0](https://tus.io/protocols/resumable-upload), an open standard with ready-made clients for most languages (like `tus-js-client` or `tuspy`) that handle the pieces, retries and resuming for you.
 

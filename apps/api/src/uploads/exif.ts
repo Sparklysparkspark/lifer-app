@@ -320,6 +320,17 @@ async function uprightPreview(buffer: Buffer, filePath: string): Promise<Buffer>
   return sharp(tagged).rotate().jpeg({ quality: 92 }).toBuffer();
 }
 
+/** A RAW's own pixel size, upright. Its embedded previews are often far smaller. */
+export async function rawPixelSize(filePath: string): Promise<{ width: number; height: number } | null> {
+  const tags = await exiftool
+    .read(filePath, { readArgs: ["-fast2", "-ImageWidth#", "-ImageHeight#", "-Orientation#"] })
+    .catch(() => null);
+  const width = Number(tags?.ImageWidth);
+  const height = Number(tags?.ImageHeight);
+  if (!(width > 0 && height > 0)) return null;
+  return QUARTER_TURNS.has(Number(tags?.Orientation)) ? { width: height, height: width } : { width, height };
+}
+
 // Species tags embedded in the file so they travel with it, in the shapes extractKeywords reads
 // back. Store mode only: a linked file isn't Lifer's to modify.
 export interface SpeciesMetadata {

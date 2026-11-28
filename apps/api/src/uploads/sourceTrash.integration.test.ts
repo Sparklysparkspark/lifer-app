@@ -337,6 +337,17 @@ describe.skipIf(!url)("moving imported originals to the Trash", () => {
     expect(existsSync(skippedOnly)).toBe(true);
   });
 
+  it("counts a hidden photo's library copy, as a linked version is, but not one in Lifer's trash", async () => {
+    const kept = await jpeg("h/kept.jpg");
+    const captureId = (await importFile(kept)).json().captureId;
+    const dupe = path.join(src, "h/copy.jpg");
+    writeFileSync(dupe, readFileSync(kept));
+    await db.query(`UPDATE captures_all SET deleted_at = now() WHERE id = $1`, [captureId]);
+    expect((await call("/uploads/source-folders/clear", { paths: [dupe], dryRun: true })).json().cleared).toBe(0);
+    await db.query(`UPDATE captures_all SET deleted_at = NULL, hidden_at = now() WHERE id = $1`, [captureId]);
+    expect((await call("/uploads/source-folders/clear", { paths: [dupe], dryRun: true })).json().cleared).toBe(1);
+  });
+
   it("never touches a file inside the library's own folder", async () => {
     await db.query(`INSERT INTO import_source_folders (user_id, path, photo_count) VALUES ($1, $2, 0)`, [userId, dir]);
     const file = await jpeg("f/IMG_5.jpg");
