@@ -18,8 +18,13 @@ export function sortCaptures(captures: SpeciesCapture[], sort: PhotoSort): Speci
   );
 }
 
+// RAW lists every photo with a RAW, also one shown as its JPG, so a photo can be in Edited and RAW.
+const hasRaw = (c: SpeciesCapture) => c.original_kind === "raw" || c.has_raw_original;
+
 export function matchesFilter(c: SpeciesCapture, filter: PhotoFilter): boolean {
-  return filter === "all" || filterBucketFor(c) === filter;
+  if (filter === "all") return true;
+  if (filter === "raw") return c.photo_kind !== "video" && hasRaw(c);
+  return filterBucketFor(c) === filter;
 }
 
 /** "Prince George, British Columbia", or whichever half is set. */
@@ -31,17 +36,21 @@ export function locationText(c: SpeciesCapture): string | null {
 }
 
 /** How many of each kind the filter pills offer. Captures without a photo count as none. */
-export function captureCounts(captures: SpeciesCapture[]): { edited: number; raw: number; video: number } {
+export function captureCounts(captures: SpeciesCapture[]): { all: number; edited: number; raw: number; video: number } {
+  let all = 0;
   let edited = 0;
   let raw = 0;
   let video = 0;
   for (const c of captures) {
     if (c.photo_kind === "video") video++;
     else if (!c.photo_id) continue;
-    else if (c.original_kind === "raw") raw++;
-    else edited++;
+    else {
+      if (c.original_kind !== "raw") edited++;
+      if (hasRaw(c)) raw++;
+    }
+    all++;
   }
-  return { edited, raw, video };
+  return { all, edited, raw, video };
 }
 
 export function photosSectionTitle(filter: PhotoFilter, counts: { edited: number; raw: number; video: number }) {

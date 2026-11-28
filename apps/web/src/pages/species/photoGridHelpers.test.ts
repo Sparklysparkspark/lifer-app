@@ -78,6 +78,12 @@ describe("matchesFilter", () => {
     expect(matchesFilter(video, "video")).toBe(true);
     for (const c of [edited, raw, video]) expect(matchesFilter(c, "all")).toBe(true);
   });
+
+  it("lists a photo shown as its JPG under both Edited and RAW when it has a RAW", () => {
+    const paired = capture("p", { original_kind: "jpeg", has_raw_original: true });
+    expect(matchesFilter(paired, "edited")).toBe(true);
+    expect(matchesFilter(paired, "raw")).toBe(true);
+  });
 });
 
 describe("locationText", () => {
@@ -101,10 +107,11 @@ describe("captureCounts", () => {
         capture("e1"),
         capture("e2"),
         capture("r", { original_kind: "raw" }),
+        capture("p", { original_kind: "jpeg", has_raw_original: true }),
         capture("v", { photo_kind: "video", photo_id: null }),
         capture("none", { photo_id: null }),
       ]),
-    ).toEqual({ edited: 2, raw: 1, video: 1 });
+    ).toEqual({ all: 5, edited: 3, raw: 2, video: 1 });
   });
 });
 

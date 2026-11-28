@@ -263,7 +263,7 @@ export default function SpeciesPhotoGrid({
                 options={[
                   {
                     value: "all",
-                    label: t("species.photoGrid.filterAll", { count: counts.edited + counts.raw + counts.video }),
+                    label: t("species.photoGrid.filterAll", { count: counts.all }),
                   },
                   { value: "edited", label: t("species.photoGrid.filterEdited", { count: counts.edited }) },
                   ...(counts.raw > 0
