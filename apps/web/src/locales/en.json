@@ -4992,6 +4992,7 @@
     "rename": "Rename",
     "renameLabel": "Version name",
     "renamedToast": "Version renamed",
+    "deleteAll": "Delete the photo and its versions",
     "shownEverywhere": "Used as the photo",
     "showAll": "Show every version and RAW as its own photo",
     "showingAll": "Showing all versions and RAWs ({count, plural, one {# file} other {# files}})",

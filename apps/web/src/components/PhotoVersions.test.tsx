@@ -366,6 +366,32 @@ describe("the Versions dialog", () => {
     expect(screen.queryByRole("menuitem", { name: "Use as the photo" })).toBeNull();
   });
 
+  it("deletes a version on its own, and the group's file with all its versions", async () => {
+    post.mockResolvedValue({});
+    const files = [
+      file("hawk-jpg", "v2", { role: "export", shown: true, fileName: "hawk.jpg" }),
+      file("hawk-cr3", "g1", { kind: "raw", fileName: "hawk.cr3", format: "CR3" }),
+    ];
+    openDialog(files);
+    await screen.findByText("hawk.cr3");
+    fireEvent.click(screen.getAllByRole("button", { name: "More options" })[0]);
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Delete/ }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/captures/batch-delete", { captureIds: ["v2"], deleteRaw: false }),
+    );
+
+    post.mockClear();
+    openDialog(files);
+    await screen.findByText("hawk.cr3");
+    fireEvent.click(screen.getAllByRole("button", { name: "More options" })[1]);
+    // Only the whole photo: its versions would be left under nothing.
+    expect(screen.queryByRole("menuitem", { name: /^Delete (photo|this)/ })).toBeNull();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete the photo and its versions" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/captures/batch-delete", { captureIds: ["v2", "g1"], deleteRaw: false }),
+    );
+  });
+
   it("lists a few files and shows many as a grid, and remembers the choice", async () => {
     openDialog(PAIR);
     const list = await screen.findByRole("button", { name: "List" });

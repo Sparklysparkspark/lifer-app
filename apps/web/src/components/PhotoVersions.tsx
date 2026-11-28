@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type Ref } from "react";
 import { useTranslation } from "react-i18next";
 import { api, apiPath, type ApiResponse } from "../api/client";
-import { useApiRoute } from "../lib/resource";
+import { photosDeleted, useApiRoute } from "../lib/resource";
 import {
   notifyVersionChange,
   openPhotoVersions,
@@ -150,6 +150,39 @@ function PhotoVersionsPanel({
       t("versions.splitToast", { name: f.fileName }),
       () => api.post(apiPath("/captures/{id}/versions/link", { id: f.captureId }), { groupCaptureId: groupId }),
     );
+  // To Lifer's Trash, with Undo. The group's own file takes its versions with it: they'd be left
+  // hidden under a photo that's gone.
+  const deleteFile = async (f: VersionFile) => {
+    const ids = f.isGroup ? [...new Set(files.map((o) => o.captureId))] : [f.captureId];
+    const restore = () =>
+      Promise.all(ids.map((id) => api.post(apiPath("/trash/{id}/restore", { id }), {}))).then(() => {
+        photosDeleted();
+        notifyVersionChange();
+        onChange?.();
+      });
+    try {
+      await api.post("/captures/batch-delete", { captureIds: ids, deleteRaw: false });
+    } catch (err) {
+      toast.error(errorMessage(err, t("gallery.edits.deleteFailed")));
+      return;
+    }
+    photosDeleted();
+    if (f.isGroup) {
+      notifyVersionChange();
+      onChange?.();
+      onClose();
+    } else await changed();
+    toast.show(t("gallery.edits.trashed", { count: 1 }), {
+      tone: "success",
+      actions: [
+        {
+          label: t("versions.undo"),
+          onClick: () =>
+            void restore().catch((err) => toast.error(errorMessage(err, t("trash.restoreManyFailed", { count: 1 })))),
+        },
+      ],
+    });
+  };
   const linkTo = (target: string) => {
     setLinking(false);
     void run(
@@ -239,7 +272,7 @@ function PhotoVersionsPanel({
         )
       }
       endItems={
-        !f.isGroup && (
+        !f.isGroup ? (
           <MenuItem
             onSelect={() => {
               close();
@@ -248,8 +281,22 @@ function PhotoVersionsPanel({
           >
             {t("versions.splitOut")}
           </MenuItem>
+        ) : (
+          grouped && (
+            <MenuItem
+              danger
+              onSelect={() => {
+                close();
+                void deleteFile(f);
+              }}
+            >
+              {t("versions.deleteAll")}
+            </MenuItem>
+          )
         )
       }
+      // A group with versions deletes them all, from its own item above.
+      onDelete={!f.isGroup || !grouped ? () => void deleteFile(f) : undefined}
     />
   );
   const fileMenu = (f: VersionFile) => (
