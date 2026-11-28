@@ -312,10 +312,10 @@ describe("the Versions dialog", () => {
     mounted = false;
   });
   // Opens (or reopens) the dialog on `files`.
-  function openDialog(files: object[]) {
+  function openDialog(files: object[], nearby: object[] = []) {
     get.mockImplementation(async (path: string) => {
       if (path.startsWith("/captures/version-counts")) return { counts: {} };
-      if (path.includes("/versions")) return { groupCaptureId: "g1", files, versions: [], nearby: [] };
+      if (path.includes("/versions")) return { groupCaptureId: "g1", files, versions: [], nearby };
       if (path.includes("/ebird")) return { checklists: [] };
       return {};
     });
@@ -389,6 +389,27 @@ describe("the Versions dialog", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete the photo and its versions" }));
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/captures/batch-delete", { captureIds: ["v2", "g1"], deleteRaw: false }),
+    );
+  });
+
+  it("offers the nearby photo it was likely made from, by name, in one click", async () => {
+    post.mockResolvedValue({});
+    const near = (captureId: string, fileName: string) => ({
+      captureId,
+      photoId: `p-${captureId}`,
+      takenAt: null,
+      takenAtZoned: null,
+      fileName,
+      speciesName: null,
+    });
+    openDialog(
+      [file("export-2", "g1", { shown: true, ref: "/lib/6F9A8109-2.jpg", fileName: "6F9A8109-2.jpg" })],
+      [near("other", "6F9A8110.cr3"), near("raw", "6F9A8109.cr3")],
+    );
+    expect(await screen.findByText("Made from 6F9A8109.cr3?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Link" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(expect.stringContaining("/versions/link"), { groupCaptureId: "raw" }),
     );
   });
 

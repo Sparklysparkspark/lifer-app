@@ -2,6 +2,7 @@
 // (apps/api/src/uploads/versionGrouping.ts). Every change applies at once with an Undo toast.
 import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type Ref } from "react";
 import { useTranslation } from "react-i18next";
+import { baseStem } from "@lifer/shared";
 import { api, apiPath, type ApiResponse } from "../api/client";
 import { photosDeleted, useApiRoute } from "../lib/resource";
 import {
@@ -107,6 +108,13 @@ function PhotoVersionsPanel({
       }),
     [files, viewable],
   );
+  // A photo from the two-minute list named like this one before an editor's suffix
+  // (6F9A8109.cr3 for 6F9A8109-2.jpg): what it was most likely made from, offered in one click.
+  const ownStem = files[0] ? baseStem(files[0].ref) : null;
+  const likelySource =
+    grouped || !ownStem
+      ? undefined
+      : (group.data?.nearby ?? []).find((n) => n.fileName && baseStem(n.fileName) === ownStem);
   // A group's own photo can't join another group; split its versions out first.
   const picking = linking && !grouped;
 
@@ -419,6 +427,16 @@ function PhotoVersionsPanel({
               </li>
             ))}
           </ul>
+        )}
+        {likelySource && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-control border border-line px-3 py-2">
+            <span className="min-w-0 flex-1 text-callout text-ink wrap-anywhere">
+              {t("versions.likelySource", { name: likelySource.fileName })}
+            </span>
+            <Button size="sm" onClick={() => linkTo(likelySource.captureId)}>
+              {t("versions.linkIt")}
+            </Button>
+          </div>
         )}
         {group.data && !grouped && (
           <p className="mt-2 text-footnote text-muted">
