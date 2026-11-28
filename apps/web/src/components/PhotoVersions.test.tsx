@@ -475,12 +475,26 @@ describe("the notice after an import", () => {
     return <VersionNotice notice={useVersionNotice()} />;
   }
 
-  it("says what was grouped and stays dismissed until more is", async () => {
+  it("says what was grouped, and once dismissed never comes back", async () => {
     wrap(<Notice />);
     expect(await screen.findByText("Found 4 versions of 2 photos. Each counts as one photo.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     await waitFor(() => expect(screen.queryByText(/Found 4 versions/)).toBeNull());
     expect(JSON.parse(localStorage.getItem("lifer:versionNoticeSeen")!)).toBe("2026-11-12T10:00:00.000Z");
     expect(get).toHaveBeenCalledWith(expect.stringContaining("since=2026-11-12"), expect.anything());
+  });
+
+  it("stays away after a dismissal even when more versions are grouped", async () => {
+    localStorage.setItem("lifer:versionNoticeSeen", JSON.stringify("2026-11-01T00:00:00.000Z"));
+    get.mockImplementation(async (path: string) =>
+      path.startsWith("/captures/version-summary")
+        ? { versions: 3, photos: 3, latest: "2026-11-28T10:00:00.000Z" }
+        : {},
+    );
+    wrap(<Notice />);
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith(expect.stringContaining("since=2026-11-01"), expect.anything()),
+    );
+    expect(screen.queryByText(/Found 3 versions/)).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
-// "Found 4 versions of 2 photos": a short, dismissible line once the background pass has grouped
-// prints, edits and exports from an import (apps/api/src/uploads/versionGrouping.ts).
+// "Found 4 versions of 2 photos": a short, dismissible line the first time the background pass
+// groups prints, edits and exports from an import (apps/api/src/uploads/versionGrouping.ts). An
+// explainer, so once dismissed it never comes back on this device.
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { apiPath } from "../api/client";
@@ -32,7 +33,7 @@ export function useVersionNotice() {
   return {
     versions: res.data?.versions ?? 0,
     photos: res.data?.photos ?? 0,
-    visible: (res.data?.versions ?? 0) > 0,
+    visible: !seen && (res.data?.versions ?? 0) > 0,
     dismiss: () => latest && setSeen(latest),
   };
 }
