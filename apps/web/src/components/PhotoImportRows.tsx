@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { api, apiPath, ApiError } from "../api/client";
@@ -189,8 +190,11 @@ export default function PhotoImportRows({
   suggestedRegionId,
   presetSpecies,
   volumeId,
+  actionsTarget,
 }: {
   tripId?: string;
+  /** A dialog's footer: the Import button goes there instead of above the rows. */
+  actionsTarget?: HTMLElement | null;
   /** Started from a species page: every photo starts as this species, with a different match
    *  offered on its row rather than chosen. */
   presetSpecies?: SpeciesResult;
@@ -1290,6 +1294,11 @@ export default function PhotoImportRows({
       : readyHasVideo
         ? "import.rows.importVideos"
         : "import.rows.importPhotos";
+  const importButton = (
+    <Button size={actionsTarget ? undefined : "sm"} onClick={importAll} loading={importing} disabled={readyCount === 0}>
+      {importing ? t("import.rows.importing") : t(importKey, { count: readyCount })}
+    </Button>
+  );
 
   return (
     <div className="space-y-item">
@@ -1411,9 +1420,7 @@ export default function PhotoImportRows({
                   {t("import.rows.undoLast", { count: uniqueCaptures(lastBatch).length })}
                 </Button>
               )}
-              <Button size="sm" onClick={importAll} loading={importing} disabled={readyCount === 0}>
-                {importing ? t("import.rows.importing") : t(importKey, { count: readyCount })}
-              </Button>
+              {actionsTarget ? createPortal(importButton, actionsTarget) : importButton}
             </div>
           </div>
 

@@ -54,6 +54,8 @@ export default function SpeciesDetailPage() {
   useReadyMarker(!!detail);
   const [croppingCover, setCroppingCover] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
+  // The upload dialog's footer, where its Import button goes.
+  const [importActions, setImportActions] = useState<HTMLSpanElement | null>(null);
   const [removingOtherTaxa, setRemovingOtherTaxa] = useState(false);
   // Any species, hand-imported or not, can be put on more regions' checklists.
   const [addingToChecklist, setAddingToChecklist] = useState(false);
@@ -325,9 +327,12 @@ export default function SpeciesDetailPage() {
         title={t("species.detail.upload")}
         size="lg"
         footer={
-          <Button variant="secondary" onClick={() => setShowUploadDialog(false)}>
-            {t("common.done")}
-          </Button>
+          <>
+            <Button variant="secondary" onClick={() => setShowUploadDialog(false)}>
+              {t("common.cancel")}
+            </Button>
+            <span ref={setImportActions} className="contents" />
+          </>
         }
       >
         <div className="space-y-4">
@@ -335,6 +340,7 @@ export default function SpeciesDetailPage() {
           {/* The review keeps this species as each photo's pick and offers a disagreeing match. */}
           <PhotoImportRows
             presetSpecies={species}
+            actionsTarget={importActions}
             volumeId={volumeDestination.volumeId || undefined}
             suggestedRegionId={regionId}
             onImported={load}
