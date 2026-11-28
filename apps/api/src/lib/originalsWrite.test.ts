@@ -18,7 +18,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   };
 });
 
-const { linkOrCopyOriginal, moveOriginal, removeOriginal } = await import("./originalsWrite.js");
+const { linkOrCopyOriginal, moveOriginal, moveToSystemTrash, removeOriginal } = await import("./originalsWrite.js");
 
 let dir: string;
 let src: string;
@@ -69,4 +69,10 @@ describe("linkOrCopyOriginal", () => {
 
 it("refuses a relative path", async () => {
   await expect(removeOriginal("IMG_0001.jpg")).rejects.toThrow(/relative/);
+});
+
+// The real Trash command, since the integration tests stand a fake in for it.
+it.runIf(process.platform === "darwin")("moves a file to the macOS Trash without an error", async () => {
+  await moveToSystemTrash([src]);
+  expect(existsSync(src)).toBe(false);
 });

@@ -107,7 +107,9 @@ export async function moveToSystemTrash(files: string[]): Promise<void> {
   if (files.length === 0) return;
   if (process.platform === "darwin") {
     // macOS 15 and later ship a trash command; older ones ask Finder.
-    if (existsSync("/usr/bin/trash")) await run("/usr/bin/trash", ["--", ...files]);
+    // No "--": Apple's trash takes it for a file, fails, and exits non-zero. guard() keeps every
+    // path absolute, so none can read as an option.
+    if (existsSync("/usr/bin/trash")) await run("/usr/bin/trash", files);
     else
       await run("osascript", [
         "-e",

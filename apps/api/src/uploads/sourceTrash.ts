@@ -168,7 +168,8 @@ export async function trashSourceGroup(
   if (typeof plan === "string") return { moved: false, reason: plan, trashed: [], sidecars: 0 };
   try {
     await moveToSystemTrash(plan.files);
-  } catch {
+  } catch (err) {
+    log.warn({ err, files: plan.files }, "Couldn't move originals to the Trash");
     return { moved: false, reason: "trash_failed", trashed: gone(plan.files), sidecars: 0 };
   }
   await moveToSystemTrash(plan.sidecars).catch(() => {});
